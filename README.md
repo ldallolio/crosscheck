@@ -1,5 +1,7 @@
 # CrossCheck
 
+[![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
+
 **CrossCheck** is a dual-layer semantic framework for formal verification, optimization, and compile-time constraint enforcement for imperative programs. By bridging **intensional execution traces** (operational semantics and cost models) with **extensional state equations** (algebraic valuation models), CrossCheck enables verified static analysis, bounded execution checks, and real-time profile enforcement.
 
 ---
