@@ -55,6 +55,7 @@ compile_commands.json
 *.tmp
 *.log
 *.bak
+*.swo
 *.swp
 
 # vcpkg
@@ -66,3 +67,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Temporary editor / OS files
+.DS_Store
+.vscode/.react/
