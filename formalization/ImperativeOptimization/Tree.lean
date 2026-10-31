@@ -38,6 +38,11 @@ def graft (t₁ t₂ : BTree α) : BTree α :=
 
 infix:60 " ⊗ " => graft
 
+/-- Tree Catamorphism (bottom-up fold) -/
+def cata {α β : Type} (leafVal : α → β) (combine : β → β → β) : BTree α → β
+  | leaf a => leafVal a
+  | node l r => combine (cata leafVal combine l) (cata leafVal combine r)
+
 theorem graft_size (t₁ t₂ : BTree α) :
     (t₁ ⊗ t₂).size = (t₁.size - t₁.leafCount) + t₁.leafCount * t₂.size := by
   induction t₁ with
@@ -59,6 +64,31 @@ def TreeOrder (t₁ t₂ : BTree α) : Prop :=
 
 infix:50 " ⊑_tree " => TreeOrder
 
+theorem graft_unit_leaf (t : BTree Unit) : t ⊗ (BTree.leaf ()) = t := by
+  induction t with
+  | leaf u => cases u; rfl
+  | node l r ih_l ih_r =>
+    dsimp [graft]
+    rw [ih_l, ih_r]
+
+theorem treeOrder_refl (t : BTree Unit) : t ⊑_tree t :=
+  ⟨BTree.leaf (), (graft_unit_leaf t).symm⟩
+
+theorem graft_assoc (t₁ t₂ t₃ : BTree α) :
+    (t₁ ⊗ t₂) ⊗ t₃ = t₁ ⊗ (t₂ ⊗ t₃) := by
+  induction t₁ with
+  | leaf _ => rfl
+  | node l r ih_l ih_r =>
+    dsimp [graft]
+    rw [ih_l, ih_r]
+
+theorem treeOrder_trans {t₁ t₂ t₃ : BTree α} (h1 : t₁ ⊑_tree t₂) (h2 : t₂ ⊑_tree t₃) :
+    t₁ ⊑_tree t₃ := by
+  rcases h1 with ⟨u1, rfl⟩
+  rcases h2 with ⟨u2, rfl⟩
+  use (u1 ⊗ u2)
+  rw [graft_assoc]
+
 /-- Full symmetric binary computation tree of depth `d`. -/
 def fullTree (a : α) : ℕ → BTree α
   | 0 => BTree.leaf a
@@ -75,6 +105,11 @@ theorem fullTree_work_closed_form (a : α) (d : ℕ) :
     rw [h2]
     have h_pow : 1 ≤ 2 ^ (d + 1) := Nat.one_le_pow (d + 1) 2 (by omega)
     omega
+
+/-- Definition 15: Uniform operadic tree power B^⊗d (tree exponentiation) -/
+def treePow (b : BTree α) : ℕ → BTree α
+  | 0     => b
+  | d + 1 => b ⊗ (treePow b d)
 
 end BTree
 
