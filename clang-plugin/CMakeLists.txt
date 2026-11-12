@@ -1,0 +1,109 @@
+cmake_minimum_required(VERSION 3.22)
+project(CrossCheck VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+find_package(LLVM REQUIRED CONFIG)
+find_package(Clang REQUIRED CONFIG)
+find_package(Z3 REQUIRED CONFIG)
+message(STATUS "LLVM ${LLVM_PACKAGE_VERSION}, Z3 ${Z3_VERSION_STRING}")
+if(LLVM_VERSION_MAJOR LESS 18)
+  message(FATAL_ERROR "CrossCheck needs LLVM/Clang 18 or newer")
+endif()
+
+add_compile_options(-Wall -Wextra)
+
+# --- core: affine expressions and the SMT back-end (no Clang dependency) -----
+add_library(crosscheck_core STATIC
+  src/core/LinExpr.cpp
+  src/core/Solver.cpp)
+target_include_directories(crosscheck_core PUBLIC src)
+target_include_directories(crosscheck_core SYSTEM PRIVATE ${Z3_CXX_INCLUDE_DIRS})
+target_link_libraries(crosscheck_core PUBLIC z3::libz3)
+
+# --- analysis: the Clang AST walker -----------------------------------------
+add_library(crosscheck_analysis STATIC
+  src/analysis/Analyzer.cpp
+  src/analysis/Consumer.cpp
+  src/analysis/Report.cpp)
+target_include_directories(crosscheck_analysis PUBLIC src)
+target_include_directories(crosscheck_analysis SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
+target_compile_definitions(crosscheck_analysis PUBLIC ${LLVM_DEFINITIONS})
+if(NOT LLVM_ENABLE_RTTI)
+  target_compile_options(crosscheck_analysis PUBLIC -fno-rtti)
+endif()
+target_link_libraries(crosscheck_analysis PUBLIC crosscheck_core)
+
+# --- the compiler plugin: clang++ -fplugin=libCrossCheckPlugin.so ------------
+# Clang symbols are resolved against the host compiler, so no Clang library is
+# linked here.
+add_library(CrossCheckPlugin MODULE src/plugin/Plugin.cpp)
+target_link_libraries(CrossCheckPlugin PRIVATE crosscheck_analysis)
+set_target_properties(CrossCheckPlugin PROPERTIES PREFIX "lib")
+
+# --- the standalone tool: crosscheck-tool file.cpp -- <compiler flags> -------
+find_program(CROSSCHECK_CLANGXX NAMES clang++ PATHS ${LLVM_TOOLS_BINARY_DIR} NO_DEFAULT_PATH)
+if(NOT CROSSCHECK_CLANGXX)
+  find_program(CROSSCHECK_CLANGXX NAMES clang++ REQUIRED)
+endif()
+execute_process(COMMAND ${CROSSCHECK_CLANGXX} -print-resource-dir
+  OUTPUT_VARIABLE CROSSCHECK_RESOURCE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+if(CLANG_LINK_CLANG_DYLIB OR TARGET clang-cpp)
+  set(CROSSCHECK_CLANG_LIBS clang-cpp LLVM)
+else()
+  set(CROSSCHECK_CLANG_LIBS clangTooling clangFrontend clangAST clangBasic)
+endif()
+
+add_executable(crosscheck-tool src/tool/Main.cpp)
+target_compile_definitions(crosscheck-tool PRIVATE
+  CROSSCHECK_RESOURCE_DIR="${CROSSCHECK_RESOURCE_DIR}")
+target_link_libraries(crosscheck-tool PRIVATE crosscheck_analysis ${CROSSCHECK_CLANG_LIBS})
+
+# --- tests --------------------------------------------------------------------
+# Extra flags for the Clang front-end in the tests, e.g. when Clang must be
+# pointed at a particular libstdc++: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
+set(CROSSCHECK_CLANG_EXTRA_FLAGS "" CACHE STRING "Extra Clang flags used by the tests")
+separate_arguments(CROSSCHECK_CLANG_EXTRA_FLAGS_LIST UNIX_COMMAND "${CROSSCHECK_CLANG_EXTRA_FLAGS}")
+include(CTest)
+if(BUILD_TESTING)
+  find_package(GTest REQUIRED)
+  include(GoogleTest)
+
+  add_executable(core_test tests/core_test.cpp)
+  target_link_libraries(core_test PRIVATE crosscheck_core GTest::gtest_main)
+  gtest_discover_tests(core_test)
+
+  add_executable(analyzer_test tests/analyzer_test.cpp tests/benchmarks_test.cpp)
+  target_compile_definitions(analyzer_test PRIVATE
+    CROSSCHECK_RESOURCE_DIR="${CROSSCHECK_RESOURCE_DIR}"
+    CROSSCHECK_CLANG_EXTRA_FLAGS="${CROSSCHECK_CLANG_EXTRA_FLAGS}"
+    CROSSCHECK_INCLUDE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/include"
+    CROSSCHECK_BENCHMARK_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks")
+  target_include_directories(analyzer_test PRIVATE src tests)
+  target_link_libraries(analyzer_test PRIVATE crosscheck_analysis ${CROSSCHECK_CLANG_LIBS}
+    GTest::gtest_main)
+  gtest_discover_tests(analyzer_test DISCOVERY_TIMEOUT 120)
+
+  # End-to-end: the plugin loaded into the compiler itself.
+  set(BENCH ${CMAKE_CURRENT_SOURCE_DIR}/../benchmarks)
+  set(PLUGIN_FLAGS -std=c++20 -fsyntax-only -I${CMAKE_CURRENT_SOURCE_DIR}/include
+      -fplugin=$<TARGET_FILE:CrossCheckPlugin> ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+  foreach(name fir_filter pid_controller divide_and_conquer can_frame_decoder
+               ring_buffer_isr crc_table motor_ramp)
+    add_test(NAME plugin_accepts_${name}
+      COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)
+  endforeach()
+  foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)
+    add_test(NAME plugin_rejects_${name}
+      COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)
+    set_tests_properties(plugin_rejects_${name} PROPERTIES WILL_FAIL TRUE)
+  endforeach()
+endif()

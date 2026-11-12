@@ -1,3 +1,9 @@
+/-
+Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+Released under the MIT license as described in the file LICENSE.
+Authors: Luca Dall'Olio
+-/
+import Mathlib.Logic.Function.Iterate
 import ImperativeOptimization.Trace
 
 namespace ImperativeOptimization
@@ -40,7 +46,20 @@ theorem evalTrace_concat (interp : Instr → S → Option S) (t₁ t₂ : Trace 
       | some s'' =>
         exact ih (some s'')
 
-/-- Extensional Equivalence and Soundness: Traces act homomorphically on state spaces. -/
+/-- The valuation of an iterated trace is the iterated valuation:
+    `⟦t^n⟧ = ⟦t⟧^n` (monoid homomorphism restricted to powers). -/
+theorem evalTrace_iter (interp : Instr → S → Option S) (t : Trace Instr) (n : ℕ)
+    (s : Option S) :
+    evalTrace interp (t ^[n]) s = (evalTrace interp t)^[n] s := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    show evalTrace interp ((t ^[n]) ++ t) s = _
+    rw [evalTrace_concat, ih, Function.iterate_succ_apply']
+
+/-- One-step unfolding of the valuation of `t^n`: `⟦t^(m+1)⟧ s₀ = ⟦t⟧ (⟦t^m⟧ s₀)`.
+    (Auxiliary; the paper's extensional equivalence theorem is `while_trace_semantics`
+    in `WhileLoop`.) -/
 theorem solution_soundness
     (interp : Instr → S → Option S) (t : Trace Instr) (n : ℕ) (s₀ : S) :
     evalTrace interp (t ^[n]) (some s₀) =

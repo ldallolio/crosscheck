@@ -1,0 +1,16 @@
+{
+  "name": "crosscheck-guide-pdf",
+  "private": true,
+  "description": "Builds docs/guide/*.md into a PDF (Mermaid diagrams included) with headless Chrome.",
+  "type": "module",
+  "scripts": {
+    "build": "node build-pdf.mjs"
+  },
+  "dependencies": {
+    "github-slugger": "2.0.0",
+    "markdown-it": "14.1.0",
+    "mermaid": "11.4.1",
+    "pdf-lib": "1.17.1",
+    "puppeteer-core": "23.11.1"
+  }
+}

@@ -28,14 +28,30 @@
 \newtheorem{lem}[thm]{\protect\lemmaname}
 \theoremstyle{definition}
 \newtheorem*{defn*}{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{cor}[thm]{\protect\corollaryname}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{\protect\remarkname}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%% User specified LaTeX commands.
 \DeclareMathOperator*{\argmax}{arg\,max}
 \DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\cost}{cost}
+\DeclareMathOperator{\depth}{depth}
+\DeclareMathOperator{\leaves}{leaves}
+\newcommand{\sem}[1]{\llbracket #1 \rrbracket}
+\newcommand{\lean}[1]{{\ttfamily\small #1}}
+\newcommand{\authortodo}[1]{\textbf{[AUTHOR TO CONFIRM: #1]}}
+\emergencystretch=3em
+\newcommand{\bigstep}{\Downarrow}
 \makeatother
 
 \usepackage{listings}
+\usepackage{booktabs}
+\usepackage{array}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true}
 \providecommand{\definitionname}{Definition}
+\providecommand{\corollaryname}{Corollary}
 \providecommand{\lemmaname}{Lemma}
 \providecommand{\propositionname}{Proposition}
 \providecommand{\remarkname}{Remark}
@@ -43,104 +59,182 @@
 \renewcommand{\lstlistingname}{Listing}
 
 \begin{document}
-\title{CrossCheck: Dual-Layer Semantics for Imperative Program Synthesis and WCET Verification via Constrained Optimization}
+\title[CrossCheck: Dual-Layer Semantics and WCET Verification]{CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification via Constrained Optimization}
 \author{Luca Dall'Olio}
 \begin{abstract}
-Static analysis of imperative programs often relies on iterative fixed-point approximations or concrete path exploration. In this paper, we show that imperative control flow---including while loops, linear recursion, and non-linear branching recursion---can be mapped directly into constrained mathematical optimization problems over execution trace monoids and free computation tree algebras. By ordering execution traces through an intensional \textit{order-by-composition} relation ($\sqsubseteq$), program halting is formalized as finding the minimal trace or tree satisfying the negation of the continuation condition. While exact terminal memory state synthesis is possible for affine fragments, realistic programs make exact symbolic valuation intractable. We demonstrate that this optimization framework is uniquely suited for sound, mechanical execution cost estimation and Worst-Case Execution Time (WCET) bounding. By relaxing exact state recurrence equations into asymptotic dominance envelopes ($\preceq_{\mathcal{O}}$) using Lyapunov-style ranking potentials and tropical $(\max, +)$ semirings, CrossCheck derives certified execution cost bounds without concrete step simulation or unrolling. The foundational trace posets, tree algebras, and cost dominance bounds have been formalized and machine-checked in the Lean 4 interactive theorem prover.
+Static analysis of imperative programs often relies on iterative fixed-point approximations or concrete path exploration. In this paper, we show that structured imperative control flow---while loops, linear recursion, and non-linear branching recursion---can be mapped directly into constrained optimization problems over the free monoid of execution traces and the free algebra of computation trees. By ordering traces and trees through an intensional \textit{order-by-composition} relation ($\sqsubseteq$), program halting is characterized as finding the minimal trace or tree satisfying the negation of the continuation condition, and we prove that this characterization coincides with the standard big-step semantics. For loops with translation updates, the optimization problem yields the exact terminal state and iteration count in closed form; for general programs exact symbolic valuation is undecidable. We therefore relax the exact state recurrence equations into cost envelopes, using Lyapunov-style ranking potentials and the tropical $(\max, +)$ reading of the classical timing schema, and obtain sound upper bounds on execution cost---the loop-bound and path-cost ingredients of Worst-Case Execution Time (WCET) analysis---without concrete step simulation or unrolling. The semantic equivalences, the trace and tree orders, the ranking and depth envelopes, and all worked examples have been machine-checked in the Lean~4 interactive theorem prover.
 \end{abstract}
 
 \maketitle
 
 \section{Introduction}
 
-Static analysis of imperative programs has traditionally followed two divergent trajectories: 
-concrete path exploration (such as bounded model checking and symbolic execution) and semantic 
-over-approximation (such as abstract interpretation). Tools operating at the source or bytecode level, 
-including early systems like NASA PathFinder \cite{Havelund2000} and INRIA Centaur \cite{Attali90aformal}, 
-rely on traversing control-flow graphs (CFGs) or computing iterative fixed points over abstract 
-domains \cite{cousot1977abstract}. While effective for detecting specific property violations, 
-these approaches struggle to provide closed-form analytical descriptions of execution resources, 
-often suffering from state-space explosion or precision degradation during domain widening.
+Static analysis of imperative programs has traditionally followed two divergent trajectories:
+concrete path exploration (such as bounded model checking and symbolic execution) and semantic
+over-approximation (such as abstract interpretation). Tools operating at the source or bytecode level
+rely on traversing control-flow graphs (CFGs) or computing iterative fixed points over abstract
+domains \cite{cousot1977abstract}. While effective for detecting specific property violations,
+these approaches do not directly provide closed-form analytical descriptions of execution resources,
+and may suffer from state-space explosion or precision loss during domain widening.
 
-In safety-critical and hard real-time systems, the central verification question is rarely whether 
-one can predict the exact bits of every memory cell upon termination; rather, it is whether the 
-program is mathematically guaranteed to terminate within a strict execution budget 
-(Worst-Case Execution Time, or WCET) \cite{wilhelm2008worst}. Classical approaches to this problem, 
-such as Implicit Path Enumeration Techniques (IPET) \cite{li1995ilp} or amortized invariant 
-synthesis \cite{sinn2014complexity}, analyze execution frequencies over control-flow graphs, 
-frequently discarding underlying functional semantics and treating non-linear branching recursion 
-as an external hurdle.
+In safety-critical and hard real-time systems, the central verification question is rarely whether
+one can predict the exact contents of every memory cell upon termination; rather, it is whether the
+program is guaranteed to terminate within a strict execution budget
+(Worst-Case Execution Time, or WCET) \cite{wilhelm2008worst}. Classical approaches to this problem,
+such as the Implicit Path Enumeration Technique (IPET) \cite{li1995ilp}, analyze execution frequencies
+over control-flow graphs and require loop bounds as an input, obtained from annotations or from a
+separate bound analysis \cite{sinn2014complexity,alias2010multi}; recursion, and branching recursion
+in particular, is usually excluded or handled by dedicated annotations.
 
-In this paper, we introduce \textbf{CrossCheck}, a framework that transforms imperative control 
-flow---including iterative loops, linear recursion, and non-linear branching recursion---into 
-mathematically constrained optimization problems without step-by-step simulation or unrolling. 
-Our foundational insight rests on a dual-layer semantic architecture:
+In this paper, we introduce \textbf{CrossCheck}, a framework that transforms structured imperative control
+flow---iterative loops, linear recursion, and non-linear branching recursion---into
+constrained optimization problems without step-by-step simulation or unrolling.
+The framework rests on a dual-layer semantic architecture:
 \begin{enumerate}
-    \item \textbf{An Intensional Layer:} Execution is modeled as words within a free instruction 
-    monoid $(\Sigma^*, \cdot, \epsilon)$ and computation trees within a free term algebra $\mathcal{T}_\Sigma$. 
-    By equipping these structures with an \textit{order-by-composition} relation ($\sqsubseteq$), 
-    execution cost (instruction or work count) becomes strictly additive and antisymmetric, forming 
-    a well-founded partially ordered set (poset).
-    \item \textbf{An Extensional Layer:} A semantic valuation fold maps traces to state transformers 
+    \item \textbf{An Intensional Layer:} Execution is modeled as words in the free instruction
+    monoid $(\Sigma^*, \cdot, \epsilon)$ and as computation trees in a free term algebra $\mathcal{T}_\Sigma$.
+    Both structures carry an \textit{order-by-composition} relation ($\sqsubseteq$), a well-founded partial
+    order along which execution cost (instruction or work count) is additive and monotone.
+    \item \textbf{An Extensional Layer:} A semantic valuation maps traces to state transformers
     over a pointed execution domain $S_\bot$.
 \end{enumerate}
 
-Under this framework, loop execution and recursive unwinding are formalized as finding the 
-\textit{minimal exiting trace or computation tree} under $\sqsubseteq$ that satisfies the boundary 
-exit condition. For affine and loop-invariant kernels, this optimization problem yields exact 
-closed-form terminal states and cycle counts simultaneously. 
+Under this framework, loop execution and recursive unwinding are characterized as finding the
+\textit{minimal exiting trace or computation tree} under $\sqsubseteq$ that satisfies the
+exit condition. For loops whose updates are translations, this optimization problem yields exact
+closed-form terminal states and cycle counts simultaneously.
 
-For general programs where non-linear arithmetic renders exact state calculation undecidable 
-(by Matiyasevich's Theorem \cite{matiyasevich1970enumerable}), the extensional state equations 
-are relaxed into asymptotic dominance envelopes ($\preceq_{\mathcal{O}}$). By combining the tropical 
-$(\max, +)$ semiring over conditional branches with Lyapunov ranking potentials 
-\cite{podelski2004transition}, CrossCheck systematically derives certified upper bounds on execution 
-cost and WCET deadlines.
+For general programs, exact state calculation is undecidable: this already follows from the
+undecidability of the halting problem, and by Matiyasevich's Theorem \cite{matiyasevich1970enumerable}
+it persists for loops restricted to polynomial integer arithmetic. The extensional state equations
+are therefore relaxed into cost envelopes. By combining the timing schema of structured programs
+\cite{shaw1989reasoning,puschner1989calculating}, read in the tropical $(\max, +)$ semiring \cite{baccelli1992synchronization},
+with Lyapunov-style ranking potentials
+\cite{floyd1967assigning,podelski2004transition}, CrossCheck derives sound upper bounds on execution cost.
+
+\subsection*{Positioning}
+The individual ingredients of this work are classical, and we do not claim otherwise. The minimal iteration count
+$\bar{n} = \min\{n \mid \neg P(f^n(s_0))\}$ is an instance of Kleene's minimization ($\mu$) operator; ranking functions
+date back to Floyd \cite{floyd1967assigning}, and their use to derive complexity bounds is well established
+\cite{alias2010multi,gulwani2009speed,sinn2014complexity}; the rule that bounds a conditional by its most expensive
+branch and a loop by its iteration bound times its body is the timing schema of Shaw and of Puschner and Koza
+\cite{shaw1989reasoning,puschner1989calculating}, which we merely phrase in max-plus algebra \cite{baccelli1992synchronization}. The contribution of CrossCheck is the \emph{uniform packaging} of these
+ingredients: a single order-theoretic formulation (minimality under $\sqsubseteq$) that covers loops, linear recursion
+and branching recursion alike, that carries cost and state at the same time, and whose soundness with respect to a
+standard big-step semantics is machine-checked end to end.
 
 \subsection*{Contributions}
 The primary contributions of this work are:
 \begin{itemize}
-    \item \textbf{Mathematical Formalization of Order-by-Composition:} We formalize the partial order 
-    $\sqsubseteq$ on free monoids and free term algebras, proving the Minimal Exit Trace Theorem via 
-    the Well-Ordering Principle of $\mathbb{N}$ and showing that Kleene fixed points under unrolling 
-    coincide with trace minimization.
-    \item \textbf{Generalization to Branching Recursion:} We extend trace composition to multi-arity 
-    branching recursion via operadic tree grafting ($\otimes$), demonstrating that recursive work 
-    expansion maps directly onto tree exponentiation ($B^{\otimes d}$) across the classical hyperoperation ladder.
-    \item \textbf{Machine-Checked Soundness:} The foundational posets, semantic homomorphisms, cost 
-    dominance bounds, and analytical examples are fully formalized and verified in the Lean~4 interactive 
-    theorem prover with zero manual postulates.
-    \item \textbf{Compile-Time Verification Architecture:} We present the operational semantics for 
-    generating SMT-solvable constraint systems directly from imperative ASTs, establishing a compiler-level 
-    pipeline for enforcing real-time timing deadlines.
+    \item \textbf{Order-by-Composition:} We define the partial order
+    $\sqsubseteq$ on the free trace monoid and on computation trees, prove the Minimal Exiting Trace Theorem via
+    the well-ordering of $\mathbb{N}$, and prove that the minimizer coincides with the result of the standard
+    big-step semantics of while loops (Theorems~\ref{thm:minimal-trace} and~\ref{thm:extensional-equivalence}).
+    \item \textbf{Generalization to Recursion:} We extend the characterization to linear recursion
+    (Proposition~\ref{prop:linrec}) and to branching recursion, where the execution tree is the \emph{least} tree, with respect to the
+    tree order-by-composition, whose leaves all exit (Proposition~\ref{prop:tree-optimization}); uniform recursive
+    unfolding corresponds to tree exponentiation ($B^{\otimes d}$).
+    \item \textbf{Cost Envelopes:} We relax the exact problems into sound upper bounds: tropical branch collapsing,
+    a Lyapunov iteration bound with termination (Theorem~\ref{thm:lyapunov-bound}), and a depth envelope for branching
+    recursion (Proposition~\ref{prop:tree-envelope}).
+    \item \textbf{Machine-Checked Soundness:} All of the above, together with the worked examples, are formalized
+    in Lean~4 \cite{demoura2021lean4} on top of mathlib \cite{mathlib2020}, without \lean{sorry} and without any axiom
+    beyond the three standard axioms of Lean's logic (Section~\ref{sec:mechanization}).
+    \item \textbf{Constraint Generation:} We describe operational rules that emit recurrence constraint systems from
+    imperative code, and the design of an SMT-based synthesis of linear ranking potentials for compile-time
+    enforcement of timing budgets (Section~\ref{sec:application}).
+    \item \textbf{Prototype:} A Clang plugin implements the relaxed analysis for annotated C++ functions
+    (Section~\ref{sec:implementation}). It is a research prototype: it is applied to a small set of example
+    programs, and no systematic evaluation is reported.
 \end{itemize}
 
-\section{Foundations}
+\section{Related Work}
+\label{sec:related}
 
-Let us first recall some basic definitions and the notation used.
-For further details see \cite{books/daglib/0070910}. 
+\paragraph{Cost and bound analysis.}
+Automatic derivation of symbolic resource bounds goes back to Wegbreit \cite{wegbreit1975mechanical}.
+Modern analyzers derive bounds from ranking functions and invariants
+\cite{gulwani2009speed,alias2010multi,sinn2014complexity,brockschmidt2016analyzing,lommen2022automatic}, from cost
+relations or recurrences solved into closed forms \cite{albert2011closed,kincaid2019closed}, or from potential-based
+amortized analysis \cite{hoffmann2012multivariate,carbonneaux2015compositional}; see \cite{hoffmann2022two} for a survey of
+the latter. Our Lyapunov bound (Theorem~\ref{thm:lyapunov-bound})
+is the single-loop core shared by these methods; we do not improve on their precision (in particular we perform no
+amortization across nested loops), but we embed the bound in a semantics where cost, trace and state are
+defined by the same minimization problem.
+
+\paragraph{Ranking function synthesis.}
+Linear ranking functions can be synthesized by linear programming through Farkas' Lemma
+\cite{colon2001synthesis,podelski2004complete}; transition invariants \cite{podelski2004transition} generalize the
+approach to disjunctive well-founded relations. Ben-Amram and Genaim \cite{benamram2014ranking} settled the complexity of
+the problem: deciding the existence of a linear ranking function is polynomial over the rationals and coNP-complete over
+the integers, which is why the Farkas-based method is sound but incomplete for integer loops.
+Section~\ref{subsubsec:smt-synthesis} adopts the linear-template method unchanged.
+
+\paragraph{Loop acceleration.}
+Replacing a loop by a closed form of its $n$-fold iterate is known as acceleration \cite{bardin2008fast}; recent work
+combines acceleration techniques modularly \cite{frohn2020calculus}. Our exact
+(non-relaxed) treatment of loops is an acceleration together with a minimization over $n$.
+
+\paragraph{WCET analysis.}
+Source-level timing analysis started with the timing schema of Shaw \cite{shaw1989reasoning} and of Puschner and Koza
+\cite{puschner1989calculating}, which assign to each structured statement a time bound computed from the bounds of its
+parts: a sum for sequences, a maximum for alternatives, and the iteration bound times the body for loops. The cost
+rules of Section~\ref{subsec:asymptotic-relaxation} are this schema; what we add is its derivation from, and its
+machine-checked soundness with respect to, a trace semantics.
+Industrial WCET analyzers combine loop-bound analysis, micro-architectural timing analysis and IPET path analysis
+\cite{wilhelm2008worst,li1995ilp}. CrossCheck addresses only the first and third ingredients, at the level of an abstract
+cost norm; see Section~\ref{sec:limitations}.
+
+\paragraph{Mechanized cost analysis.}
+A machine-checked loop-bound estimation for WCET analysis was developed
+in Coq by Blazy, Maroneze and Pichardie \cite{blazy2013formal} and extended to a formally verified WCET estimation tool
+integrated in the CompCert compiler \cite{maroneze2014formally}; certified resource bounds for C programs were obtained
+in \cite{carbonneaux2015compositional}. Program logics for running time have been formalized in Isabelle/HOL
+\cite{haslbeck2018hoare} and in Coq, with asymptotic bounds \cite{gueneau2018fistful}. Compared with these, our
+mechanization is smaller in scope: it covers the semantic characterization and the bounds of this paper, not a
+verified analyzer for a real programming language.
+
+\paragraph{Compile-time real-time checks.}
+Recent versions of the Clang compiler check, through function effect attributes, that functions declared non-blocking or
+non-allocating do not call functions that may block or allocate \cite{clangeffects}. Such checks enforce the absence of
+unbounded operations but do not bound the cost of loops and recursion, which is the question addressed here.
+
+\paragraph{Semantics.}
+Big-step (natural) semantics is due to Kahn \cite{kahn1987natural}; fixed-point semantics of loops and recursion is
+standard \cite{manna1974mathematical,winskel1993formal}. Big-step semantics relates only terminating executions; divergence
+can be captured coinductively \cite{leroy2009coinductive}, whereas here it appears as the infeasibility of the
+minimization problem. Our traces are plain words of a free monoid; they are unrelated to Mazurkiewicz traces
+\cite{diekert1995traces}, which are elements of partially commutative monoids.
+
+\section{Foundations}
+\label{sec:foundations}
+
+We recall basic definitions and fix the notation. For background on operational and
+denotational semantics see \cite{winskel1993formal}.
+
+\subsection{States, traces and valuation}
+
 \begin{defn}[State Space and Partial State Transitions]
 \label{def:state-transition}
-Let $S$ be a state space representing memory configurations (e.g., $S \coloneqq \text{Var} \to \text{Val}$). A \textit{strictly partial state transition function} on $S$ is a relation $f \subseteq S \times S$ such that:
-\begin{gather*}
-\forall\, s, s', s'' \in S, \quad (s, s') \in f \land (s, s'') \in f \implies s' = s'' \\
-\exists\, s \in S \quad \text{such that} \quad \forall\, s' \in S, \: (s, s') \notin f
-\end{gather*}
-We denote by $\bot_f$ an undefined execution outcome (divergence or unhandled dynamic fault) and extend $S$ to a pointed execution domain $S_\bot \coloneqq S \cup \{\bot_f\}$. The relation $f$ extends to a total state transition operator $f_\bot : S_\bot \to S_\bot$ defined as:
+Let $S$ be a state space representing memory configurations (e.g., $S \coloneqq \text{Var} \to \text{Val}$). A \textit{partial state transition} on $S$ is a partial function $f : S \rightharpoonup S$, i.e., a relation $f \subseteq S \times S$ such that
+\[
+\forall\, s, s', s'' \in S, \quad (s, s') \in f \land (s, s'') \in f \implies s' = s''.
+\]
+We denote by $\bot$ an undefined execution outcome (an unhandled dynamic fault) and extend $S$ to the pointed execution domain $S_\bot \coloneqq S \cup \{\bot\}$. The transition $f$ extends to a total, strict operator $f_\bot : S_\bot \to S_\bot$:
 \[
 f_\bot(s) \coloneqq \begin{cases}
-f(s) & \text{if } \exists\, s' \in S : (s, s') \in f, \\
-\bot_f & \text{if } \forall\, s' \in S : (s, s') \notin f, \\
-\bot_f & \text{if } s = \bot_f.
+f(s) & \text{if } s \in S \text{ and } f \text{ is defined at } s, \\
+\bot & \text{otherwise}.
 \end{cases}
 \]
 \end{defn}
 
-\begin{defn}[Trace Iteration Functional and Semantic Interpretation]
+\begin{defn}[Traces, Iteration and Valuation]
 \label{def:trace-functional}
-Let $\Sigma$ be an alphabet of primitive atomic instructions, and let $\Sigma^*$ denote the free monoid of finite execution traces under sequence concatenation $\cdot$, with identity element $\epsilon$ representing the empty instruction trace (\textit{no-operation}).
+Let $\Sigma$ be an alphabet of primitive atomic instructions, and let $\Sigma^*$ denote the free monoid of finite execution traces under concatenation $\cdot$, with identity element $\epsilon$ (the empty trace).
 
-1. \textbf{Intensional Iteration Functional:} We define the higher-order iteration functional $\Phi : \Sigma^* \times \mathbb{N} \to \Sigma^*$ over instruction traces as:
+\smallskip\noindent
+1. \textbf{Intensional iteration.} The iteration functional $\Phi : \Sigma^* \times \mathbb{N} \to \Sigma^*$ is defined by
 \[
 \Phi(t, n) \coloneqq t^n = \begin{cases}
 \epsilon & \text{if } n = 0, \\
@@ -148,293 +242,317 @@ t^{n-1} \cdot t & \text{if } n \ge 1.
 \end{cases}
 \]
 
-2. \textbf{Extensional Interpretation:} Let $S_\bot$ be the pointed state space defined in Definition~\ref{def:state-transition}. The operational semantic evaluation map $\llbracket \cdot \rrbracket : \Sigma^* \to (S_\bot \to S_\bot)$ interprets an intensional trace $t \in \Sigma^*$ as an extensional state transformation over $S_\bot$, satisfying:
+\smallskip\noindent
+2. \textbf{Extensional valuation.} Let every instruction $a \in \Sigma$ be interpreted by a partial state transition $I(a) : S \rightharpoonup S$. The valuation $\sem{\cdot} : \Sigma^* \to (S_\bot \to S_\bot)$ is the unique map such that
 \[
-\llbracket \epsilon \rrbracket = \text{Id}_{S_\bot}, \qquad \llbracket t_1 \cdot t_2 \rrbracket = \llbracket t_2 \rrbracket \circ \llbracket t_1 \rrbracket, \qquad \llbracket t^n \rrbracket = (\llbracket t \rrbracket)^n.
+\sem{\epsilon} = \text{Id}_{S_\bot}, \qquad \sem{a} = I(a)_\bot \ (a \in \Sigma), \qquad \sem{t_1 \cdot t_2} = \sem{t_2} \circ \sem{t_1}.
 \]
 \end{defn}
 
-\begin{defn}[Subadditive Cost Norm and Metric Space]\label{def:subadditive-norm}
-Let $\Sigma^*$ be the instruction trace monoid. A function $\|\cdot\| : \Sigma^* \to \mathbb{R}_{\ge 0}$ is a \textit{subadditive cost norm} if it satisfies:
-\begin{enumerate}
-    \item \textbf{Identity Norm:} $\|\epsilon\| = 0$.
-    \item \textbf{Subadditivity:} $\|u \cdot v\| \le \|u\| + \|v\|$ for all $u, v \in \Sigma^*$.
-    \item \textbf{Homogeneity on Iterates:} $\|t^n\| = n \cdot \|t\|$ for any loop step $t \in \Sigma^*$ and $n \in \mathbb{N}$.
-\end{enumerate}
-The map $d(u, v) \coloneqq \|u - v\|$ (or the Arnold-Nivat ultrametric $d(u, v) = 2^{-|u \wedge v|}$, where $u \wedge v$ denotes the longest common prefix) equips the completed trace space $(\Sigma^\infty, d)$ with a metric topology where trace prefixing is contractive.
+By freeness of $\Sigma^*$ the valuation is well defined; it is a monoid homomorphism into the strict operators on $S_\bot$ under reverse composition. In particular
+\begin{equation}
+\label{eq:iter-hom}
+\sem{t^n} = \sem{t}^{\,n} \qquad \text{for all } t \in \Sigma^*,\ n \in \mathbb{N},
+\end{equation}
+by induction on $n$ (\lean{evalTrace\_\allowbreak concat}, \lean{evalTrace\_\allowbreak iter}).
+
+\subsection{Cost norms}
+
+\begin{defn}[Cost Norm]\label{def:subadditive-norm}
+A function $\|\cdot\| : \Sigma^* \to \mathbb{N}$ is a \textit{subadditive cost norm} if $\|\epsilon\| = 0$ and
+$\|u \cdot v\| \le \|u\| + \|v\|$ for all $u, v \in \Sigma^*$. Given instruction weights $\omega : \Sigma \to \mathbb{N}$, the
+\textit{weighted cost}
+\[
+\|a_1 a_2 \cdots a_k\|_\omega \coloneqq \sum_{j=1}^{k} \omega(a_j)
+\]
+is an additive cost norm: $\|u \cdot v\|_\omega = \|u\|_\omega + \|v\|_\omega$, hence $\|t^n\|_\omega = n \cdot \|t\|_\omega$. The \textit{instruction count} $\cost(t) \coloneqq |t|$ is the weighted cost with unit weights.
 \end{defn}
 
+The weight $\omega(a)$ is meant to be an upper bound on the execution time of instruction $a$ on the target platform; unit weights give a platform-independent step count. All exact identities below are stated for $\cost$ and hold verbatim for every weighted cost; all upper bounds hold for every subadditive cost norm, since subadditivity gives $\|t_1 \cdots t_n\| \le \sum_j \|t_j\|$.
+
+\subsection{Order-by-composition}
+
 \begin{defn}[Intensional Order-by-Composition]\label{def:order-by-composition}
-We define the binary relation \textit{order-by-composition} (or prefix order) $\sqsubseteq$ over the trace monoid $\Sigma^*$ as follows:
+The \textit{order-by-composition} (prefix order) $\sqsubseteq$ on the trace monoid $\Sigma^*$ is defined by
 \[
 u \sqsubseteq w \iff \exists\, v \in \Sigma^* \quad \text{such that} \quad w = u \cdot v.
 \]
-The operational execution cost function $\text{cost} : \Sigma^* \to \mathbb{N}$ maps a trace to its instruction count, given by its length $|w|$.
 \end{defn}
 
 \begin{prop}[Properties of Intensional Order-by-Composition]
 \label{prop:poset-properties}
-The order-by-composition relation $\sqsubseteq$ over $\Sigma^*$ is a partial order:
-\begin{enumerate}
-    \item \textbf{Reflexivity:} $w \sqsubseteq w$ (with $v = \epsilon$).
-    \item \textbf{Antisymmetry:} If $u \sqsubseteq w$ and $w \sqsubseteq u$, then $u = w$.
-    \item \textbf{Transitivity:} If $u \sqsubseteq v$ and $v \sqsubseteq w$, then $u \sqsubseteq w$.
-\end{enumerate}
-Furthermore, the cost function is strictly additive: $\text{cost}(u \cdot v) = \text{cost}(u) + \text{cost}(v)$, and for any loop body trace $t \in \Sigma^*$, we have $\text{cost}(t^n) = n \cdot \text{cost}(t)$.
+The relation $\sqsubseteq$ is a partial order on $\Sigma^*$ with least element $\epsilon$, and it is well-founded. Moreover $\cost$ is additive, $\cost(u \cdot v) = \cost(u) + \cost(v)$ and $\cost(t^n) = n \cdot \cost(t)$, and monotone: $u \sqsubseteq w \implies \cost(u) \le \cost(w)$.
 \end{prop}
 
 \begin{proof}
-Reflexivity holds since $w = w \cdot \epsilon$. For antisymmetry, $u \sqsubseteq w \implies |w| \ge |u|$ and $w \sqsubseteq u \implies |u| \ge |w|$. Thus $|u| = |w|$, which implies the extension trace $v = \epsilon$, so $u = w$. Transitivity follows from the associativity of string concatenation.
+Reflexivity holds since $w = w \cdot \epsilon$, and transitivity follows from associativity of concatenation. For antisymmetry, $u \sqsubseteq w$ and $w \sqsubseteq u$ give $|u| \le |w| \le |u|$, so the extension $v$ in $w = u \cdot v$ has length $0$ and $u = w$. Additivity of length gives the cost identities and monotonicity; well-foundedness follows because a strict prefix is strictly shorter.
 \end{proof}
 
 \begin{prop}[Monotonicity of Trace Iteration]
 \label{prop:n-monotony}
-For any non-empty loop step trace $t \in \Sigma^* \setminus \{\epsilon\}$, the sequence of loop iterations $(t^n)_{n \in \mathbb{N}}$ is strictly ordered by iteration count:
+For any trace $t$ and $n \le m$ we have $t^n \sqsubseteq t^m$. If $t \neq \epsilon$, the converse also holds:
 \[
 t^n \sqsubseteq t^m \iff n \le m.
 \]
+Hence, for $t \ne \epsilon$, $n \mapsto t^n$ is an order isomorphism from $(\mathbb{N}, \le)$ onto the chain $(\{t^n\}_{n \in \mathbb{N}}, \sqsubseteq)$.
 \end{prop}
 
 \begin{proof}
-If $n \le m$, let $k = m - n \ge 0$. Then $t^m = t^n \cdot t^k$, so by Definition~\ref{def:order-by-composition}, $t^n \sqsubseteq t^m$.
+If $n \le m$ then $t^m = t^n \cdot t^{m-n}$. Conversely, $t^n \sqsubseteq t^m$ implies $n \cdot |t| \le m \cdot |t|$ by Proposition~\ref{prop:poset-properties}, and $|t| > 0$ gives $n \le m$.
 \end{proof}
+
+Throughout, $P : S \to \mathbb{B}$ denotes the \emph{continuation} predicate of a loop (the loop keeps running while $P$ holds); we say that $u \in S_\bot$ \emph{exits} if $u \in S$ and $P(u) = \text{false}$. A faulting state $\bot$ never exits.
 
 \begin{thm}[Minimal Exiting Trace Existence]
 \label{thm:minimal-trace}
-Let $t \in \Sigma^*$ be the execution trace of a loop body, $P : S \to \mathbb{B}$ a loop continuation predicate, and $s_0 \in S$ an initial state. If the loop terminates, there exists a unique minimal iteration count $\bar{n} = \min \{ n \in \mathbb{N} \mid \neg P(\llbracket t^n \rrbracket (s_0)) \}$, yielding the optimal execution trace $\bar{t} = t^{\bar{n}}$ with minimal execution cost $\text{cost}(\bar{t}) = \bar{n} \cdot \text{cost}(t)$.
+Let $t \in \Sigma^*$ be the trace of a loop body, $P$ the continuation predicate and $s_0 \in S$ an initial state. If the set
+\[
+N \coloneqq \{ n \in \mathbb{N} \mid \sem{t^n}(s_0) \text{ exits} \}
+\]
+is non-empty, it has a unique minimum $\bar{n}$. The trace $\bar{t} \coloneqq t^{\bar{n}}$ is the least element, with respect to $\sqsubseteq$, of $\{ t^n \mid n \in N \}$, and $\cost(\bar{t}) = \bar{n} \cdot \cost(t) \le \cost(t^n)$ for all $n \in N$.
 \end{thm}
 
 \begin{proof}
-The set $N = \{ n \in \mathbb{N} \mid \neg P(\llbracket t^n \rrbracket (s_0)) \}$ is a non-empty subset of $\mathbb{N}$ by the termination hypothesis. By the Well-Ordering Principle of $\mathbb{N}$, $N$ contains a unique minimum element $\bar{n}$. Monotonicity (Proposition~\ref{prop:n-monotony}) guarantees that $t^{\bar{n}}$ is the minimal trace in $(\{t^n\}_{n \in \mathbb{N}}, \sqsubseteq)$ satisfying the exit condition.
+$N$ is a non-empty subset of $\mathbb{N}$, so it has a unique minimum $\bar{n}$ by the well-ordering principle. For $n \in N$ we have $\bar n \le n$, hence $t^{\bar{n}} \sqsubseteq t^{n}$ by Proposition~\ref{prop:n-monotony}; the cost statement is Proposition~\ref{prop:poset-properties}.
 \end{proof}
 
-\begin{defn}[Structural Subsequence Order]\label{def:subsequence-order}
-Let $\Sigma^*$ be the instruction trace monoid. We define the \textit{structural subsequence order} $\sqsubseteq_{\text{sub}}$ over $\Sigma^*$ as the embedding subword relation:
+\begin{rem}
+The number $\bar{n}$ is the value of Kleene's minimization operator, $\bar{n} = \mu n.\, [\sem{t^n}(s_0) \text{ exits}]$. Theorem~\ref{thm:minimal-trace} adds that the minimization can equivalently be read in the trace poset, where it simultaneously minimizes every monotone cost.
+\end{rem}
+
+\subsection{Bodies with data-dependent paths}
+
+A loop body containing conditionals does not emit one fixed trace: the instructions executed in an iteration depend on the current state.
+
+\begin{defn}[Path Selector and Executed Trace]\label{def:path-selector}
+A \textit{path selector} is a map $\tau : S \to \Sigma^*$ assigning to each state the trace emitted by one execution of the body from that state. Assume $\sem{\tau(s)}(s) \in S$ for the states of interest and write $f(s) \coloneqq \sem{\tau(s)}(s)$ for the induced state update. The trace executed by $n$ iterations from $s$ is
 \[
-u \sqsubseteq_{\text{sub}} w \iff u \text{ is a sublist of } w.
+\rho_n(s) \coloneqq \tau(s_0) \cdot \tau(s_1) \cdots \tau(s_{n-1}), \qquad s_k \coloneqq f^k(s).
 \]
-$(\Sigma^*, \sqsubseteq_{\text{sub}})$ is a well-quasi-order satisfying $u \sqsubseteq w \implies u \sqsubseteq_{\text{sub}} w$ and $u \sqsubseteq_{\text{sub}} w \implies \text{cost}(u) \le \text{cost}(w)$.
+A body is \textit{straight-line} if $\tau$ is constant, $\tau(s) = t$; then $\rho_n(s) = t^n$.
 \end{defn}
 
-\begin{defn}[Intensional Loop Exponentiation and Nesting]\label{def:trace-exponentiation}
-Let $t_1 \in \Sigma^*$ be the outer loop step trace and $t_2 \in \Sigma^*$ be the inner loop body trace. The \textit{nested trace exponentiation} operator $\cdot^{\cdot} : \Sigma^* \times \Sigma^* \times \mathbb{N} \times \mathbb{N} \to \Sigma^*$ is defined as:
-\[
-(t_2^m)^{t_1^n} \coloneqq (t_1 \cdot t_2^m)^n.
-\]
-\end{defn}
+For a conditional $\text{if } c \text{ then } t_{\text{then}} \text{ else } t_{\text{else}}$ with guard trace $t_c$, the path selector is
+\begin{equation}
+\label{eq:cond-selector}
+\tau_{\text{if}}(s) \coloneqq t_c \cdot \begin{cases} t_{\text{then}} & \text{if } c(\sem{t_c}(s)) \text{ holds}, \\ t_{\text{else}} & \text{otherwise.} \end{cases}
+\end{equation}
+Theorem~\ref{thm:minimal-trace} carries over verbatim with $f^n(s_0)$ in place of $\sem{t^n}(s_0)$ and $\rho_n(s_0)$ in place of $t^n$, since $\rho_n(s_0) \sqsubseteq \rho_m(s_0)$ whenever $n \le m$.
 
-\begin{prop}[Structural Component Bounds for Nested Traces]\label{prop:nested-cost}
-For any nested execution trace $(t_2^m)^{t_1^n} \coloneqq (t_1 \cdot t_2^m)^n$, the execution cost satisfies:
-\[
-\text{cost}\left((t_2^m)^{t_1^n}\right) = n \cdot \text{cost}(t_1) + n \cdot m \cdot \text{cost}(t_2).
-\]
-Furthermore, both the outer loop scaffolding and the accumulated inner loop iterations are structurally embedded in the nested composition:
-\[
-t_1^n \sqsubseteq_{\text{sub}} (t_2^m)^{t_1^n} \qquad \text{and} \qquad (t_2^m)^n \sqsubseteq_{\text{sub}} (t_2^m)^{t_1^n},
-\]
-bounding both components simultaneously:
-\[
-\text{cost}(t_1^n) \le \text{cost}\left((t_2^m)^{t_1^n}\right) \qquad \text{and} \qquad \text{cost}(t_2^{n \cdot m}) \le \text{cost}\left((t_2^m)^{t_1^n}\right),
-\]
-while the single-iteration prefix satisfies $t_1 \cdot t_2^m \sqsubseteq (t_2^m)^{t_1^n}$.
+\begin{prop}[Worst-Case Step Bound]\label{prop:worst-case-step}
+Let $\|\cdot\|$ be a subadditive cost norm and $W \in \mathbb{N}$ such that $\|\tau(s)\| \le W$ for all $s \in S$. Then $\|\rho_n(s)\| \le n \cdot W$ for all $n$ and $s$.
 \end{prop}
 
 \begin{proof}
-By strict additivity of the length function on $\Sigma^*$, $\text{cost}((t_1 \cdot t_2^m)^n) = n \cdot \text{cost}(t_1 \cdot t_2^m) = n \cdot (\text{cost}(t_1) + m \cdot \text{cost}(t_2))$. Cost bounds follow immediately since $n, m \ge 1$. For $n \ge 1$, $(t_1 \cdot t_2^m)^n = (t_1 \cdot t_2^m) \cdot (t_1 \cdot t_2^m)^{n-1}$, confirming $t_1 \cdot t_2^m \sqsubseteq (t_2^m)^{t_1^n}$. Subsequence embeddings follow by induction on outer iteration count $n$.
+By induction on $n$, using $\rho_{n+1}(s) = \tau(s) \cdot \rho_n(f(s))$ and subadditivity.
 \end{proof}
 
-\begin{prop}[Sequential Loop Trace Composition]\label{prop:sequential-loops}
-Let $t_1^{n_1}$ and $t_2^{n_2}$ be execution traces of two sequential while loops. The combined execution trace is $w = t_1^{n_1} \cdot t_2^{n_2}$, with total cost:
-\[
-\text{cost}(w) = n_1 \cdot \text{cost}(t_1) + n_2 \cdot \text{cost}(t_2).
-\]
-The first loop trace forms a prefix of the total trace: $t_1^{n_1} \sqsubseteq t_1^{n_1} \cdot t_2^{n_2}$.
-\end{prop}
+\subsection{Nested and sequential loops}
 
-\begin{proof}
-By strict additivity of trace length on $\Sigma^*$, $\text{cost}(t_1^{n_1} \cdot t_2^{n_2}) = \text{cost}(t_1^{n_1}) + \text{cost}(t_2^{n_2}) = n_1 \cdot \text{cost}(t_1) + n_2 \cdot \text{cost}(t_2)$. Prefix ordering $t_1^{n_1} \sqsubseteq t_1^{n_1} \cdot t_2^{n_2}$ follows directly from Definition~\ref{def:order-by-composition} with extension trace $v = t_2^{n_2}$.
-\end{proof}
-
-\begin{defn}[Asymptotic Dominance Preorder]\label{def:asymptotic-dominance}
-Let $\mathcal{C} \coloneqq \{ f : \mathbb{N} \to \mathbb{R}_{\ge 0} \}$ be the space of execution cost functionals parameterized by an input size or loop bound $N$. We define the \textit{asymptotic dominance preorder} $\preceq_{\mathcal{O}}$ over $\mathcal{C}$ by:
-\[
-f \preceq_{\mathcal{O}} h \iff \exists\, C > 0, \; N_0 \in \mathbb{N} \quad \text{such that} \quad \forall\, N \ge N_0, \; f(N) \le C \cdot h(N).
-\]
-The equivalence relation $f \sim_{\mathcal{O}} h \iff (f \preceq_{\mathcal{O}} h \land h \preceq_{\mathcal{O}} f)$ yields the standard Big-$\mathcal{O}$ equivalence classes.
-\end{defn}
-
-\begin{prop}[Tropical Dominance Algebra for Control Flow]\label{prop:tropical-dominance}
-Execution traces equipped with cost norms $\|\cdot\| : \Sigma^* \to \mathbb{R}_{\ge 0}$ satisfy the operations of the tropical $(\max, +)$ semiring over asymptotic envelopes:
+\begin{prop}[Cost of Nested and Sequential Composition]\label{prop:nested-cost}
+Let $t_1, t_2 \in \Sigma^*$ and $n, m, n_1, n_2 \in \mathbb{N}$.
 \begin{enumerate}
-    \item \textbf{Sequential Composition (Addition):} For sequential traces $u, v \in \Sigma^*$,
+    \item \textbf{Nested loops.} If each of $n$ outer iterations executes the straight-line part $t_1$ followed by $m$ iterations of an inner body $t_2$, the executed trace is $(t_1 \cdot t_2^m)^n$ and
     \[
-    \|u \cdot v\| \le \|u\| + \|v\| \implies \|u \cdot v\| \preceq_{\mathcal{O}} \max(\|u\|, \|v\|).
+    \cost\left((t_1 \cdot t_2^m)^n\right) = n \cdot \cost(t_1) + n \cdot m \cdot \cost(t_2).
     \]
-    \item \textbf{Branch Supremum (Maximization):} For a conditional statement $t_{\text{if}} = \text{if } c \text{ then } t_{\text{then}} \text{ else } t_{\text{else}}$, the execution cost is bounded by the upper envelope:
-    \[
-    \|t_{\text{if}}\| \le \|t_c\| + \max\left(\|t_{\text{then}}\|, \|t_{\text{else}}\|\right).
-    \]
+    \item \textbf{Sequential loops.} The trace $t_1^{n_1} \cdot t_2^{n_2}$ of two loops in sequence has cost $n_1 \cdot \cost(t_1) + n_2 \cdot \cost(t_2)$, and the first loop is a prefix of the whole: $t_1^{n_1} \sqsubseteq t_1^{n_1} \cdot t_2^{n_2}$.
 \end{enumerate}
 \end{prop}
-\begin{proof}
-Follows from the subadditivity of the cost norm (Definition~\ref{def:subadditive-norm}) and the operational semantics of branching: execution takes either the then-branch or the else-branch, never both.
-\end{proof}
-
-\begin{defn}[Trace Space Completion and Intensional CPO]
-\label{def:trace-cpo}
-Let $\Sigma^\omega$ denote the set of infinite instruction traces (words of length $\aleph_0$). The completed trace space is $\Sigma^\infty \coloneqq \Sigma^* \cup \Sigma^\omega$. The prefix order $\sqsubseteq$ on $\Sigma^\infty$ is defined by:
-\[
-u \sqsubseteq w \iff \exists\, v \in \Sigma^\infty \quad \text{such that} \quad w = u \cdot v.
-\]
-The structure $(\Sigma^\infty, \sqsubseteq, \epsilon)$ is an $\omega$-complete partial order ($\omega$-cpo) with least element $\epsilon$ (the empty trace).
-\end{defn}
-
-\begin{thm}[Intensional Kleene Fixed-Point Theorem]
-\label{thm:intensional-kleene}
-Let $t \in \Sigma^*$ be a loop body trace. The loop unrolling operator $F_t : \Sigma^\infty \to \Sigma^\infty$ defined by $F_t(x) \coloneqq t \cdot x$ is Scott-continuous on $(\Sigma^\infty, \sqsubseteq)$. By Kleene's Fixed-Point Theorem, $F_t$ has a least fixed point $\text{lfp}(F_t) \in \Sigma^\infty$, given by the least upper bound of the Kleene chain:
-\[
-\text{lfp}(F_t) = \bigsqcup_{n \in \mathbb{N}} F_t^n(\epsilon) = \bigsqcup_{n \in \mathbb{N}} t^n.
-\]
-\end{thm}
 
 \begin{proof}
-$F_t$ is monotone ($u \sqsubseteq w \implies t \cdot u \sqsubseteq t \cdot w$) and preserves LUBs of $\omega$-chains: $F_t(\bigsqcup_i t_i) = t \cdot (\bigsqcup_i t_i) = \bigsqcup_i (t \cdot t_i) = \bigsqcup_i F_t(t_i)$. Thus $F_t$ is Scott-continuous. Since $\epsilon$ is the bottom element, Kleene's Fixed-Point Theorem guarantees that $\text{lfp}(F_t) = \bigsqcup_{n \in \mathbb{N}} F_t^n(\epsilon) = \bigsqcup_{n \in \mathbb{N}} t^n$.
+Both statements follow from additivity of $\cost$ (Proposition~\ref{prop:poset-properties}) and Definition~\ref{def:order-by-composition}.
 \end{proof}
+
+In general the inner iteration count depends on the state at each outer iteration; this case is covered by the path-selector formulation (Definition~\ref{def:path-selector}) and bounded in Section~\ref{subsubsec:compositional-wcet}.
+
+\subsection{The tropical algebra of control flow}
+
+\begin{prop}[Branch Rule]\label{prop:tropical-dominance}
+Let $\|\cdot\|$ be a subadditive cost norm. For the conditional path selector \eqref{eq:cond-selector} and every state $s \in S$,
+\[
+\|\tau_{\text{if}}(s)\| \le \|t_c\| + \max\left(\|t_{\text{then}}\|, \|t_{\text{else}}\|\right).
+\]
+\end{prop}
+\begin{proof}
+Execution takes exactly one branch, so by subadditivity $\|\tau_{\text{if}}(s)\|$ is at most $\|t_c\| + \|t_{\text{then}}\|$ or at most $\|t_c\| + \|t_{\text{else}}\|$, and both are below the stated bound.
+\end{proof}
+
+This is the rule for alternatives of the timing schema \cite{shaw1989reasoning,puschner1989calculating}. Together with subadditivity for sequencing, it says that costs of structured code compose in the tropical semiring: sequencing is $+$ and branching is $\max$ (Section~\ref{subsubsec:tropical-semiring}).
+
+\subsection{Big-step semantics and extensional equivalence}
+
+Which power $t^n$ of the body trace a loop actually executes is determined by the extensional layer. To state this precisely we fix the standard big-step semantics \cite{kahn1987natural,winskel1993formal} of the loop with body $t$ and continuation predicate $P$, as the least relation $\bigstep$ on $S \times S$ closed under the rules
+\begin{equation}
+\label{eq:bigstep-while}
+\frac{P(s) = \text{false}}{s \bigstep s}
+\qquad\qquad
+\frac{P(s) = \text{true} \quad \sem{t}(s) = s' \in S \quad s' \bigstep s''}{s \bigstep s''}
+\end{equation}
 
 \begin{thm}[Extensional Equivalence and Solution Soundness]
 \label{thm:extensional-equivalence}
-Let $P : S \to \mathbb{B}$ be the loop exit condition and $s_0 \in S$ the initial state. The semantic valuation map $\llbracket \cdot \rrbracket : \Sigma^\infty \to (S_\bot \to S_\bot)$ is a continuous domain homomorphism.
-
-If the loop terminates at step $\bar{n} = \min \{ n \in \mathbb{N} \mid \neg P(\llbracket t^n \rrbracket (s_0)) \}$, then the intensional execution prefix $t^{\bar{n}}$ evaluates extensionally to the exact terminal state solution $\bar{s} \in S$:
+Let $t \in \Sigma^*$, $P : S \to \mathbb{B}$ and $s_0, \bar{s} \in S$. Then $s_0 \bigstep \bar{s}$ if and only if there exists $\bar{n} \in \mathbb{N}$ such that
+\begin{enumerate}
+    \item $\sem{t^{\bar{n}}}(s_0) = \bar{s}$ and $P(\bar{s}) = \text{false}$, and
+    \item for every $k < \bar{n}$, $\sem{t^{k}}(s_0) \in S$ and $P(\sem{t^{k}}(s_0)) = \text{true}$.
+\end{enumerate}
+Such an $\bar{n}$ is unique; it is the minimum of Theorem~\ref{thm:minimal-trace}. Consequently the terminal state is the solution of the extensional recurrence system
 \[
-\bar{s} = \llbracket t^{\bar{n}} \rrbracket (s_0) = \llbracket \text{lfp}(F_t) \rvert_{\le \bar{n}} \rrbracket (s_0),
+s_{k+1} = \sem{t}(s_k) \quad (0 \le k < \bar{n}), \qquad \bar{s} = s_{\bar{n}}, \qquad \bar{n} = \min \{ n \mid \neg P(s_n) \},
 \]
-which is identical to the solution derived from the extensional system of recurrence equations.
-\end{proof}
+and the big-step semantics is deterministic.
+\end{thm}
 
 \begin{proof}
-Since $\llbracket \cdot \rrbracket$ is a continuous homomorphism ($\llbracket t_1 \cdot t_2 \rrbracket = \llbracket t_2 \rrbracket \circ \llbracket t_1 \rrbracket$), applying $\llbracket \cdot \rrbracket$ to the intensional iteration sequence yields the sequence of state transformations $\llbracket t^n \rrbracket = (\llbracket t \rrbracket)^n$. For a terminating execution, $\bar{n}$ is finite and unique by Theorem~\ref{thm:minimal-trace}, making $\llbracket t^{\bar{n}} \rrbracket(s_0)$ equal to the closed-form state evaluation $\bar{s}$.
+($\Rightarrow$) By induction on the derivation of $s_0 \bigstep \bar{s}$. For the first rule take $\bar{n} = 0$. For the second rule, the induction hypothesis gives a count $n'$ for $s'$; take $\bar{n} = n' + 1$ and use $\sem{t^{k+1}}(s_0) = \sem{t^{k}}(\sem{t}(s_0)) = \sem{t^k}(s')$, which follows from \eqref{eq:iter-hom}. ($\Leftarrow$) By induction on $\bar{n}$. If $\bar{n} = 0$ then $\bar{s} = s_0$ and the first rule applies. Otherwise (2) with $k = 0$ gives $P(s_0) = \text{true}$; moreover $\sem{t}(s_0) \neq \bot$, since strictness would force $\sem{t^{\bar{n}}}(s_0) = \bot$. The induction hypothesis applies to $s' = \sem{t}(s_0)$ with count $\bar{n} - 1$, and the second rule concludes. Uniqueness: if $n < n'$ both satisfied (1)--(2), then $\sem{t^n}(s_0)$ would both falsify $P$ by (1) and satisfy it by (2).
 \end{proof}
 
-\begin{defn}[Tree Algebra and Operadic Grafting]\label{def:tree-algebra}
-Let $\Sigma$ be an alphabet of primitive operations and branching constructs. We define the \textit{free term algebra of computation trees} $\mathcal{T}_\Sigma$ inductively:
+If no such $\bar{n}$ exists, the loop has no big-step derivation: it either faults (some $\sem{t^k}(s_0) = \bot$ is reached while $P$ held) or diverges.
+
+\begin{rem*}[Fixed-point reading]
+The chain $\epsilon \sqsubseteq t \sqsubseteq t^2 \sqsubseteq \cdots$ is the Kleene chain of the unrolling operator $x \mapsto t \cdot x$ on finite and infinite words ordered by prefix; its least upper bound, the least fixed point, is the infinite word $t^\omega$ when $t \ne \epsilon$ \cite{winskel1993formal}. An executed trace is a finite prefix $t^{\bar{n}}$ of it, and a diverging loop emits all of it. We do not use this reading in the sequel.
+\end{rem*}
+
+\subsection{Computation trees}
+
+\begin{defn}[Computation Trees and Grafting]\label{def:tree-algebra}
+Fix a branching factor $b \ge 2$. The set $\mathcal{T}_\Sigma$ of \textit{computation trees} is defined inductively:
 \begin{enumerate}
-    \item Leaves $\epsilon \in \mathcal{T}_\Sigma$ represent atomic return values or base-case terminations.
-    \item If $T_1, \dots, T_b \in \mathcal{T}_\Sigma$ are computation subtrees and $g \in \Sigma$ is a $b$-ary branching operation, then $g(T_1, \dots, T_b) \in \mathcal{T}_\Sigma$.
+    \item a leaf $\epsilon$ is a computation tree (a base-case call);
+    \item if $T_1, \dots, T_b$ are computation trees, so is the node $g(T_1, \dots, T_b)$ (a call that branches into $b$ recursive calls).
 \end{enumerate}
-The \textit{operadic tree grafting operator} $\otimes_i : \mathcal{T}_\Sigma \times \mathcal{T}_\Sigma \to \mathcal{T}_\Sigma$ substitutes a subtree $T_2$ into the $i$-th leaf position of $T_1$.
+The \textit{grafting} $T_1 \otimes T_2$ substitutes $T_2$ for every leaf of $T_1$. More generally, a \textit{leaf substitution} replaces each leaf of $T_1$ by an arbitrary computation tree, possibly different for each leaf.
 \end{defn}
 
-\begin{defn}[Tree Order-by-Composition and Tree Cost]\label{def:tree-order}
-The \textit{tree order-by-composition} $\sqsubseteq_{\text{tree}}$ over $\mathcal{T}_\Sigma$ is the partial order defined as the reflexive-transitive closure of leaf grafting:
-\[
-T_1 \sqsubseteq_{\text{tree}} T_2 \iff T_1 \text{ is a structural prefix tree of } T_2,
-\]
-meaning $T_2$ is obtained by substituting subtrees into zero or more open leaves of $T_1$.
+Grafting is associative with unit $\epsilon$. We write $\cost(T)$ for the number of nodes of $T$ (leaves included), $\leaves(T)$ for its number of leaves, and $\depth(T)$ for its height, with $\depth(\epsilon) = 0$.
 
-The tree node-count function $\text{cost} : \mathcal{T}_\Sigma \to \mathbb{N}$ maps a tree $T$ to its total number of nodes $|T| = \sum_{u \in \text{Nodes}(T)} 1$. For a symmetric $b$-way branching tree of uniform depth $d$, the execution cost is:
+\begin{defn}[Tree Order-by-Composition]\label{def:tree-order}
+The \textit{tree order-by-composition} $\sqsubseteq_{\text{tree}}$ on $\mathcal{T}_\Sigma$ is defined by
 \[
-\text{cost}(T_d) = \sum_{k=0}^d b^k = \frac{b^{d+1}-1}{b-1} \in \mathcal{O}(b^d).
+T_1 \sqsubseteq_{\text{tree}} T_2 \iff T_2 \text{ is obtained from } T_1 \text{ by a leaf substitution.}
+\]
+Equivalently, it is the least relation such that $\epsilon \sqsubseteq_{\text{tree}} T$ for every $T$, and
+\[
+g(T_1, \dots, T_b) \sqsubseteq_{\text{tree}} g(T_1', \dots, T_b') \quad \text{whenever } T_i \sqsubseteq_{\text{tree}} T_i' \text{ for all } i.
 \]
 \end{defn}
 
-\begin{defn}[Uniform Operadic Tree Exponentiation]\label{def:tree-exponentiation}
-Let $B \in \mathcal{T}_\Sigma$ be a branching computation tree of uniform branching factor $b \ge 2$, representing a single level of non-linear recursive unfolding. The \textit{uniform operadic tree power} (tree exponentiation) operator $\cdot^{\otimes \cdot} : \mathcal{T}_\Sigma \times \mathbb{N} \to \mathcal{T}_\Sigma$ is defined inductively by simultaneous grafting into all active leaves:
+\begin{prop}[Properties of Tree Order-by-Composition]\label{prop:tree-order-properties}
+The relation $\sqsubseteq_{\text{tree}}$ is a partial order on $\mathcal{T}_\Sigma$ with least element $\epsilon$, and:
+\begin{enumerate}
+    \item $\cost$ and $\depth$ are monotone along $\sqsubseteq_{\text{tree}}$;
+    \item $T \sqsubseteq_{\text{tree}} T \otimes T'$ for all $T, T'$;
+    \item if $\depth(T) \le d$ then $T \sqsubseteq_{\text{tree}} F_d$, where $F_d$ is the full $b$-ary tree of depth $d$; consequently
+    \[
+    \cost(T) \le \cost(F_d) = \sum_{k=0}^d b^k = \frac{b^{d+1}-1}{b-1}.
+    \]
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+Reflexivity, transitivity and antisymmetry follow by structural induction from the inductive characterization. (1) A leaf substitution replaces single nodes by non-empty trees. (2) Grafting is a particular leaf substitution. (3) By induction on $T$: a leaf is below every tree; a node of depth at most $d \ge 1$ has children of depth at most $d-1$, each below $F_{d-1}$ by induction. The cost bound then follows from (1).
+\end{proof}
+
+\begin{defn}[Uniform Tree Exponentiation]\label{def:tree-exponentiation}
+Let $B \in \mathcal{T}_\Sigma$ be a tree representing one level of recursive unfolding. The \textit{uniform tree power} is defined by
 \[
-B^{\otimes 0} \coloneqq \epsilon, \qquad B^{\otimes (d+1)} \coloneqq B \otimes_{\text{all}} B^{\otimes d},
+B^{\otimes 0} \coloneqq \epsilon, \qquad B^{\otimes (d+1)} \coloneqq B \otimes B^{\otimes d}.
 \]
-where $\otimes_{\text{all}}$ substitutes the tree $B^{\otimes d}$ into every open leaf position of $B$.
 \end{defn}
 
 \begin{prop}[Structural Complexity of Tree Exponentiation]\label{prop:tree-power-complexity}
-Let $B$ be a primitive branching step of arity $b \ge 2$. For any recursion depth $d \in \mathbb{N}$, the operadic tree power $B^{\otimes d}$ satisfies:
+Let $B$ have $L \coloneqq \leaves(B) \ge 2$ leaves and $I \coloneqq \cost(B) - L$ internal nodes. For every $d \in \mathbb{N}$:
 \begin{enumerate}
-    \item \textbf{Leaf Frontier Growth:} The number of active execution leaves expands exponentially:
+    \item \textbf{Leaf frontier growth:} $\leaves\left(B^{\otimes d}\right) = L^d$.
+    \item \textbf{Cumulative work:} $\cost\left(B^{\otimes d}\right) = I \cdot \dfrac{L^d - 1}{L - 1} + L^d$. In particular, for the elementary branching step $B = g(\epsilon, \dots, \epsilon)$, where $I = 1$ and $L = b$,
     \[
-    \text{Leaves}\left(B^{\otimes d}\right) = b^d.
+    \cost\left(B^{\otimes d}\right) = \sum_{k=0}^{d} b^k = \frac{b^{d+1} - 1}{b - 1} \in \mathcal{O}(b^d),
     \]
-    \item \textbf{Cumulative Work (Node Count):} The operational node count follows the geometric sum:
-    \[
-    \text{cost}\left(B^{\otimes d}\right) = \sum_{k=0}^{d} b^k = \frac{b^{d+1} - 1}{b - 1} \in \mathcal{O}(b^d).
-    \]
-    \item \textbf{Prefix Order Chain:} Successive tree powers form an ascending chain in the tree poset:
-    \[
-    B^{\otimes 0} \sqsubseteq_{\text{tree}} B^{\otimes 1} \sqsubseteq_{\text{tree}} \dots \sqsubseteq_{\text{tree}} B^{\otimes d}.
-    \]
+    and $B^{\otimes d}$ is the full tree $F_d$.
+    \item \textbf{Prefix chain:} $B^{\otimes 0} \sqsubseteq_{\text{tree}} B^{\otimes 1} \sqsubseteq_{\text{tree}} \dots \sqsubseteq_{\text{tree}} B^{\otimes d}$.
 \end{enumerate}
 \end{prop}
 \begin{proof}
-By structural induction on depth $d$. For $d = 0$, $B^{\otimes 0} = \epsilon$ with $\text{cost}(\epsilon) = 1 = (b^1 - 1)/(b - 1)$. For the inductive step, applying the grafting size identity (verified mechanically in Lean 4 as \texttt{graft\_size}) gives:
+Grafting satisfies $\leaves(T_1 \otimes T_2) = \leaves(T_1) \cdot \leaves(T_2)$ and the \emph{grafting size identity}
 \[
-\text{cost}\left(B^{\otimes (d+1)}\right) = \text{cost}(B) + b \cdot \text{cost}\left(B^{\otimes d}\right) = 1 + b \cdot \frac{b^{d+1}-1}{b-1} = \frac{b^{d+2}-1}{b-1}.
+\cost(T_1 \otimes T_2) = \left(\cost(T_1) - \leaves(T_1)\right) + \leaves(T_1) \cdot \cost(T_2),
 \]
-Chain inclusion follows directly from Definition~\ref{def:tree-order}.
+both by structural induction on $T_1$ (\lean{graft\_\allowbreak leafCount}, \lean{graft\_\allowbreak size}). (1) follows by induction on $d$. For (2), the identity gives $\cost(B^{\otimes (d+1)}) = I + L \cdot \cost(B^{\otimes d})$ with $\cost(B^{\otimes 0}) = 1$, whose solution is the stated closed form. For (3), associativity gives $B^{\otimes (d+1)} = B^{\otimes d} \otimes B$, and Proposition~\ref{prop:tree-order-properties}(2) applies.
 \end{proof}
 
-\section{Functional and imperative programming}
+\section{Loops and Recursion as Optimization Problems}
+\label{sec:optimization}
+
+This section states, for each structured control construct, the optimization problem that characterizes its execution. In each case the statement is an equivalence with the standard big-step (natural) semantics of the construct \cite{winskel1993formal}.
+
+\subsection{While loops}
+
 \begin{defn*}
-In imperative programming, we can write a while loop in this generic
-form:
+In imperative programming, a while loop can be written in the generic form
 
 \begin{lstlisting}
-while(cond(x)) {
-    body(x)
+while (cond(x)) {
+    x = body(x);
 }
 \end{lstlisting}
-
-This can be written in lambda calculus as:
-
-$\text{while} \coloneqq \text{Y}\,\left(\lambda w.\lambda x.\, \text{cond}(x)\, (w\,(\text{body}(x)))\, x\right)$
+which corresponds, in the lambda calculus, to the fixed-point definition \cite{manna1974mathematical}
+\[
+\text{while} \coloneqq \text{Y}\,\left(\lambda w.\lambda x.\, \text{cond}(x)\, (w\,(\text{body}(x)))\, x\right).
+\]
 \end{defn*}
+
 \begin{prop}[Loop Execution as Trace Minimization]
 \label{prop:min_x}
-Let $P : S \to \mathbb{B}$ be the extensional evaluation of $\text{cond}(x)$, $t \in \Sigma^*$ be the intensional trace of $\text{body}(x)$, and $s_0 \in S$ be the initial state configuration. The execution result of the while loop is equivalent to finding the minimal terminal execution trace $\bar{t} = t^{\bar{n}} \in \Sigma^*$:
+Let $P : S \to \mathbb{B}$ be the valuation of $\text{cond}$, let $\tau$ be the path selector of $\text{body}$ with induced partial state update $f : S \rightharpoonup S$, and let $s_0 \in S$. The loop terminates from $s_0$ in the state $\bar{s}$ if and only if
 \[
-\bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; \neg P\left(\llbracket t^n \rrbracket (s_0)\right) \right\}
+\bar{s} = f^{\bar{n}}(s_0), \qquad \bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; f^n(s_0) \text{ exits} \right\},
 \]
-The final state $\bar{s} \in S$ is the extensional valuation of the minimal terminal trace: $\bar{s} = \llbracket t^{\bar{n}} \rrbracket (s_0)$.
+where all iterates $f^k(s_0)$, $k \le \bar{n}$, are defined. The pair $(\bar{n}, \bar{s})$ is unique, and the executed trace $\bar{t} = \rho_{\bar{n}}(s_0)$ is the $\sqsubseteq$-least element of $\{\rho_n(s_0) \mid f^n(s_0) \text{ exits}\}$. For a straight-line body with trace $t$, $\bar{t} = t^{\bar{n}}$ and $\bar{s} = \sem{t^{\bar{n}}}(s_0)$.
 \end{prop}
 
 \begin{proof}
-By definition of a while loop, execution generates an ascending chain of finite traces $t^0 \sqsubseteq t^1 \sqsubseteq \dots \sqsubseteq t^n$ in the intensional CPO $(\Sigma^\infty, \sqsubseteq, \epsilon)$. For each iteration step $k < \bar{n}$, $P(\llbracket t^k \rrbracket (s_0)) = \text{true}$. The first iteration $\bar{n}$ yielding $P(\llbracket t^{\bar{n}} \rrbracket (s_0)) = \text{false}$ halts the loop. By Theorem~\ref{thm:intensional-kleene} and Theorem~\ref{thm:extensional-equivalence}, $\bar{t} = t^{\bar{n}}$ corresponds to the prefix restriction of the intensional least fixed point $\text{lfp}(F_t) = \bigsqcup_{n \in \mathbb{N}} t^n$ that satisfies the termination boundary condition.
+The proof of Theorem~\ref{thm:extensional-equivalence} uses only that the body acts on states as the strict extension of a partial function; it applies unchanged to $f$ (\lean{whileBigStep\_\allowbreak iff\_\allowbreak minimalExit}, \lean{MinimalExit.\allowbreak unique}). Minimality of the trace follows from $\rho_n(s_0) \sqsubseteq \rho_m(s_0)$ for $n \le m$.
 \end{proof}
 
-\begin{prop}[Cycle Count Minimization]
-\label{prop:min_n}
-The terminal state solution $\bar{s}$ corresponds to the unique minimum cycle count $\bar{n} = \min(n)$ satisfying the negation of the continuation condition.
-\end{prop}
+Thus executing a loop and solving the minimization problem for $\bar{n}$ are the same thing; a loop is solved, rather than executed, whenever a closed form of $n \mapsto f^n(s_0)$ is available.
 
-\begin{proof}
-Since $\bar{n}$ is minimal in $\mathbb{N}$ by the Well-Ordering Principle, the prefix order monotonicity (Proposition~\ref{prop:n-monotony}) guarantees that $t^{\bar{n}}$ is the least element in the iteration submonoid $(\{t^n\}_{n \in \mathbb{N}}, \sqsubseteq)$ that meets the exit criteria.
-\end{proof}
+\subsection{Linear recursion}
+
 \begin{defn*}
-We can write a linear recursion in this form:
+A linear recursion has the generic form
 \begin{lstlisting}
 function rlin(x) {
     if (cond(x))
-        return back(rlin(fwd(x)))
-    return stop(x)	
+        return back(x, rlin(fwd(x)));
+    return stop(x);
 }
 \end{lstlisting}
+where \texttt{back} may read the caller's frame \texttt{x}. We call the recursion \textit{frame-independent} if \texttt{back} depends only on the returned value, written $\text{back}(r)$.
 \end{defn*}
 
 \begin{prop}[Linear Recursion as Dual-Layer Trace Optimization]
 \label{prop:linrec}
-Let $P : S \to \mathbb{B}$ be the termination condition $\text{cond}(x)$, $t_{\text{fwd}} \in \Sigma^*$ be the trace of the forward operation $\text{fwd}(x)$, $t_{\text{back}} \in \Sigma^*$ be the trace of the return operation $\text{back}(x)$, and $t_{\text{stop}} \in \Sigma^*$ be the trace of the base case $\text{stop}(x)$. The linear recursion depth $\bar{n}$ is the minimal solution to:
+Let $P$ be the valuation of $\text{cond}$, and let $\text{fwd} : S \to S$, $\text{stop} : S \to R$ and $\text{back} : S \times R \to R$ be the valuations of the corresponding program fragments. The call $\text{rlin}(s_0)$ returns $r \in R$ if and only if
 \[
-\bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; \neg P\left(\llbracket t_{\text{fwd}}^n \rrbracket(s_0)\right) \right\}
+r = \text{back}\bigl(s_0, \text{back}\bigl(s_1, \dots \text{back}\bigl(s_{\bar{n}-1}, \text{stop}(s_{\bar{n}})\bigr) \dots \bigr)\bigr), \qquad s_k \coloneqq \text{fwd}^k(s_0),
 \]
-The full execution trace $\bar{t} \in \Sigma^*$ and final state $\bar{s} \in S$ are given by the composed trace sequence:
+where the recursion depth $\bar{n}$ is the minimal solution of
 \[
-\bar{t} = t_{\text{fwd}}^{\bar{n}} \cdot t_{\text{stop}} \cdot t_{\text{back}}^{\bar{n}}, \qquad \bar{s} = \llbracket \bar{t} \rrbracket(s_0) = \left(\llbracket t_{\text{back}} \rrbracket^{\bar{n}} \circ \llbracket t_{\text{stop}} \rrbracket \circ \llbracket t_{\text{fwd}} \rrbracket^{\bar{n}}\right)(s_0).
+\bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; \neg P\left(\text{fwd}^n(s_0)\right) \right\}.
+\]
+In the frame-independent case this is the closed form $r = \left(\text{back}^{\bar{n}} \circ \text{stop} \circ \text{fwd}^{\bar{n}}\right)(s_0)$. If $t_{\text{fwd}}, t_{\text{stop}}, t_{\text{back}} \in \Sigma^*$ are straight-line traces of the three fragments (the guard evaluation being accounted for in $t_{\text{fwd}}$ and $t_{\text{stop}}$), the executed trace and its cost are
+\[
+\bar{t} = t_{\text{fwd}}^{\bar{n}} \cdot t_{\text{stop}} \cdot t_{\text{back}}^{\bar{n}}, \qquad \cost(\bar{t}) = \bar{n} \cdot \left(\cost(t_{\text{fwd}}) + \cost(t_{\text{back}})\right) + \cost(t_{\text{stop}}).
 \]
 \end{prop}
 
 \begin{proof}
-By Proposition~\ref{prop:min_x}, the forward phase forms a tail-recursive iteration sequence $t_{\text{fwd}}^0 \sqsubseteq t_{\text{fwd}}^1 \sqsubseteq \dots \sqsubseteq t_{\text{fwd}}^{\bar{n}}$ until the condition $\neg P$ is satisfied at depth $\bar{n}$. The non-tail winding phase executes the base-case trace $t_{\text{stop}}$ at state $s_{\text{base}} = \llbracket t_{\text{fwd}}^{\bar{n}} \rrbracket(s_0)$, followed by $\bar{n}$ applications of the unwinding trace $t_{\text{back}}$. Homomorphism of $\llbracket \cdot \rrbracket$ over sequence concatenation yields the exact state composition $\bar{s}$.
+($\Rightarrow$) By induction on the big-step derivation of the call: a base-case call has depth $0$; a recursive call on $s$ with $P(s)$ has depth one more than the call on $\text{fwd}(s)$, and its result is $\text{back}(s, \cdot)$ applied to the inner result. ($\Leftarrow$) By induction on $\bar{n}$. The descending phase is the tail-recursive loop of Proposition~\ref{prop:min_x} with body $\text{fwd}$, which fixes $\bar{n}$; the ascending phase applies $\text{back}$ once per pending frame. The cost identity is additivity of $\cost$ (\lean{framedBigStep\_\allowbreak iff}, \lean{linRec\_\allowbreak iff}, \lean{linear\_\allowbreak recursion\_\allowbreak cost}).
 \end{proof}
+
 \begin{rem*}
-The tail component of the linear recursive function can be isolated in the following canonical form, for which the terminal state $\bar{x}$ is a fixed point:
+The tail component of a linear recursion can be isolated in the canonical form
 \begin{lstlisting}
 function trlin(x) {
   if (cond(x))
@@ -442,10 +560,13 @@ function trlin(x) {
   return x;
 }
 \end{lstlisting}
+whose result $\bar{x} = \text{fwd}^{\bar{n}}(s_0)$ is the first point of the orbit of $s_0$ that falsifies $\text{cond}$.
 \end{rem*}
 
+\subsection{Branching recursion}
+
 \begin{defn*}
-A non-linear (branching) recursive function with branching factor $b$ can be written in generic imperative/functional form as:
+A non-linear (branching) recursive function with branching factor $b$ has the generic form
 \begin{lstlisting}
 function rtree(x) {
   if (cond(x))
@@ -455,333 +576,202 @@ function rtree(x) {
 \end{lstlisting}
 \end{defn*}
 
+Positions in a computation tree are addressed by paths $\pi \in \{1, \dots, b\}^*$; the state at position $\pi = i_1 i_2 \cdots i_k$ is $s_\pi \coloneqq (\text{fwd}_{i_k} \circ \dots \circ \text{fwd}_{i_1})(s_0)$. A tree $T$ is \textit{feasible} for $s_0$ if every leaf position $\pi$ of $T$ satisfies $\neg P(s_\pi)$. The \textit{execution tree} of the call $\text{rtree}(s_0)$ is the tree whose internal positions are exactly the calls with $P(s_\pi)$ and whose leaves are the calls with $\neg P(s_\pi)$; it exists if and only if the call terminates.
+
 \begin{prop}[Non-Linear Recursion as Tree Optimization]\label{prop:tree-optimization}
-Let $P : S \to \mathbb{B}$ be the termination condition $\text{cond}(x)$, $t_{g_i} \in \Sigma^*$ be the forward operations $\text{fwd}_i(x)$, $t_{\text{comb}}$ be the synthesis operation $\text{combine}(\dots)$, and $t_{\text{stop}}$ be the base-case trace $\text{stop}(x)$. The execution of non-linear recursion is equivalent to finding the minimal terminal computation tree $\bar{T} \in \mathcal{T}_\Sigma$:
+Assume the call $\text{rtree}(s_0)$ terminates. Its execution tree $\bar{T}$ is the least feasible tree:
 \[
-\bar{T} = \arg\min_{\sqsubseteq_{\text{tree}}} \left\{ T \in \mathcal{T}_\Sigma \;\middle|\; \forall\, l \in \text{Leaves}(T), \; \neg P\left(\llbracket l \rrbracket(s_0)\right) \right\}.
+\bar{T} = \min\nolimits_{\sqsubseteq_{\text{tree}}} \left\{ T \in \mathcal{T}_\Sigma \;\middle|\; \forall\, \pi \in \text{Leaves}(T), \; \neg P\left(s_\pi\right) \right\}.
 \]
-The final synthesized state $\bar{s} \in S$ is computed via a bottom-up catamorphism $\llbracket \bar{T} \rrbracket(s_0)$ over the minimal execution tree $\bar{T}$.
+In particular $\bar{T}$ is unique and has minimal cost and minimal depth among feasible trees. The returned value is the bottom-up catamorphism over $\bar{T}$ that evaluates $\text{stop}(s_\pi)$ at leaves and $\text{combine}$ at internal nodes.
 \end{prop}
 \begin{proof}
-Top-down traversal unfolds state configurations along path addresses $\pi \in \{1, \dots, b\}^*$. Halting occurs independently across leaf frontiers when $\neg P(\llbracket \pi \rrbracket(s_0))$ holds. Monotonicity of $\sqsubseteq_{\text{tree}}$ ensures $\bar{T}$ is the unique minimal computation tree in $(\mathcal{T}_\Sigma, \sqsubseteq_{\text{tree}})$ satisfying the leaf boundary conditions.
+$\bar{T}$ is feasible by definition. Let $T$ be feasible; we show $\bar{T} \sqsubseteq_{\text{tree}} T$ by induction on $\bar{T}$, simultaneously for all initial states. If $\bar{T}$ is a leaf the claim holds since $\epsilon$ is least. Otherwise $P(s_0)$ holds, so $T$ cannot be a leaf (its only leaf would violate feasibility); hence $T$ is a node whose $i$-th subtree is feasible for $\text{fwd}_i(s_0)$, and the induction hypothesis applies to each subtree. Uniqueness follows from antisymmetry, minimality of cost and depth from Proposition~\ref{prop:tree-order-properties}(1), and the statement on the value by induction on the big-step derivation (\lean{exec\_\allowbreak least}, \lean{exec\_\allowbreak unique}, \lean{treeBigStep\_\allowbreak iff}).
 \end{proof}
 
-\begin{rem*}[Hyperoperation Analogy: Loop vs. Tree Exponentiation]
-The transition from linear loops to branching recursion corresponds to climbing the classical hyperoperation ladder:
-\begin{itemize}
-    \item \textbf{Sequential Composition:} Trace concatenation $t_1 \cdot t_2$ corresponds to \textit{addition} of execution costs: $\text{cost}(t_1) + \text{cost}(t_2)$.
-    \item \textbf{Loop Iteration:} An unrolled loop $t^n$ corresponds to scalar \textit{multiplication}: $n \cdot \text{cost}(t)$.
-    \item \textbf{Nested Loops:} Loop exponentiation $(t_2^m)^{t_1^n}$ corresponds to \textit{multiplication of dimensions}: $n \cdot m \cdot \text{cost}(t_2) \in \mathcal{O}(n \cdot m)$.
-    \item \textbf{Branching Recursion:} Uniform tree exponentiation $B^{\otimes d}$ substitutes recursive subtrees into all branching leaf slots, resulting in authentic \textit{exponential} frontier expansion: $\text{cost}(B^{\otimes d}) \in \mathcal{O}(b^d)$.
-\end{itemize}
-\end{rem*}
+Note that a feasible tree may expand a position where $P$ fails; such trees are strictly above $\bar{T}$, exactly as $t^n$ for $n > \bar{n}$ may exit again without being the executed trace.
 
-\section{Application to imperative programming}
+\section{Application to Imperative Programming}
 \label{sec:application}
 
-In the following, a procedure is proposed to automatically translate an imperative program into a constrained optimization problem over execution traces $\Sigma^*$ and state transformations on $S_\bot$. The procedure will be described by writing its operational semantics \cite{books/daglib/0070910}:
-instead of executing the code, the operational rules write an equivalent minimization problem. For each loop three states are calculated: $\sigma_{init}$ (after the enter condition), $\sigma_{loop}$ (after a single cycle execution), $\sigma_{last}$ (after the exit condition). The reason for that is to take into account initial variable values for $\sigma_{init}$ and the change in the value for the while condition between $\sigma_{loop}$ and $\sigma_{last}$ (since different unknowns will be needed).
+We now describe how an imperative program is translated into a constrained optimization problem: first exactly (Section~\ref{subsec:equation-generation}), then in the relaxed form that yields cost bounds (Section~\ref{subsec:asymptotic-relaxation}).
 
-\subsection{Assignment}
+\subsection{Equation generation}
+\label{subsec:equation-generation}
 
-During loop evaluation, each assignment in the code will create a
-new unknown for the minimization problem (bound to the assignment
-value):
+The exact translation is a symbolic evaluation in the style of operational semantics \cite{winskel1993formal}: instead of executing the code, it emits unknowns and equations. We describe it at the level of detail needed to follow the examples of Section~\ref{sec:examples}; its justification is Section~\ref{sec:optimization}, and it is not part of the mechanized development.
 
-\[
-\frac{\left\langle E,\sigma\right\rangle \rightarrow V}{\left\langle L\coloneqq E,\sigma\right\rangle \rightarrow\sigma\uplus l\mapsto l+1,L_{l}=newloc(\sigma),\sigma\uplus L_{l}\mapsto V}
-\]
-
-\subsection{Variable evaluation}
-
-When a variable is evaluated, its value will be replaced with the
-current unknown for that variable:
-
-\[
-\frac{\left\langle l,\sigma\right\rangle \rightarrow R}{\left\langle L,\sigma\right\rangle \rightarrow\left\langle L_{R},\sigma\right\rangle }
-\]
-
-if the variable has never been assigned before (no unknown has yet
-been created for this variable), its value will be used:
-
-\[
-\frac{\left\langle L_{0},\sigma\right\rangle \rightarrow undefined,\left\langle L,\sigma\right\rangle \rightarrow V}{\left\langle L,\sigma\right\rangle \rightarrow V}
-\]
-
-\subsection{States binding equations}
-
-The unknowns must be bound between states by using equations (initial
-value for the next state will be the current value for the previous).
-
-\[
-\frac{\left\langle L,\sigma\right\rangle \rightarrow U}{\left\langle L_{0},\sigma_{init}\right\rangle \rightarrow U},\;\frac{\left\langle L,\sigma_{init}\right\rangle \rightarrow V}{\left\langle L_{0},\sigma_{loop}\right\rangle \rightarrow V},\;\frac{\left\langle L,\sigma_{loop}\right\rangle \rightarrow W}{\left\langle L_{0},\sigma_{last}\right\rangle \rightarrow W}
-\]
-
-\subsection{Body loop equation}
-
-The while body is evaluated as an iterated function over the $\sigma_{loop}$
-state, as in \ref{prop:min_x}:
+A symbolic store $\sigma$ maps each program variable $L$ to a family of unknowns $L_0, L_1, \dots$, one per assignment: an assignment $L \coloneqq E$ creates the next unknown of $L$ and emits the equation binding it to the value of $E$, and a read of $L$ evaluates to its current unknown. For each loop three symbolic stores are used: $\sigma_{init}$ (on entry, after the first successful guard), $\sigma_{loop}$ (after $n$ iterations, at the last successful guard) and $\sigma_{last}$ (at the failing guard). They separate the unknowns constrained by the entry condition, by the iterated body and by the exit condition, and they are linked by binding equations: the initial unknown of a variable in a store equals its current unknown in the previous one. The loop itself is translated following Proposition~\ref{prop:min_x}:
 
 \[
 \frac{\begin{array}{c}
-\left\langle \underset{n\in\mathbb{N}}{\min\,}body^{\circ n}(E),\sigma_{loop}\right\rangle \rightarrow\sigma_{last}\\
-\left\langle cond(E),\sigma_{init}\right\rangle \rightarrow true\\
-\left\langle cond(E),\sigma_{loop}\right\rangle \rightarrow true\\
-\left\langle cond(E),\sigma_{last}\right\rangle \rightarrow false
-\end{array}}{\left\langle while(cond(E),body(E)),\sigma\right\rangle \rightarrow\sigma_{last}}
+\left\langle \underset{n\in\mathbb{N}}{\min\,}\mathit{body}^{\circ n}(E),\sigma_{loop}\right\rangle \rightarrow\sigma_{last}\\
+\left\langle \mathit{cond}(E),\sigma_{init}\right\rangle \rightarrow \mathit{true}\\
+\left\langle \mathit{cond}(E),\sigma_{loop}\right\rangle \rightarrow \mathit{true}\\
+\left\langle \mathit{cond}(E),\sigma_{last}\right\rangle \rightarrow \mathit{false}
+\end{array}}{\left\langle \mathit{while}(\mathit{cond}(E),\mathit{body}(E)),\sigma\right\rangle \rightarrow\sigma_{last}}
 \]
 
-If the entry condition evaluates to false at the initial state, the while loop is bypassed, preserving the initial state:
-\[
-\frac{\left\langle cond(E),\sigma\right\rangle \rightarrow false}{\left\langle while(cond(E),body(E)),\sigma\right\rangle \rightarrow \sigma}
-\]
+The constraints on $\sigma_{loop}$ and $\sigma_{last}$ express that the guard holds just before the last iteration and fails just after it; together with monotonicity of the guard along the orbit, when available, they determine the minimum. If the guard fails at the initial state the loop is bypassed and the store is unchanged. If no $n \in \mathbb{N}$ satisfies the exit constraint, the system is infeasible and the loop does not terminate (Theorem~\ref{thm:extensional-equivalence}). The term $\mathit{body}^{\circ n}$ can be eliminated whenever the $n$-fold iterate has a closed form, for instance for translations $x \mapsto x + c$, whose iterate is $x \mapsto x + n \cdot c$.
 
-If no finite iteration count $n \in \mathbb{N}$ satisfies the exit condition $\left\langle cond(E),\sigma_{last}\right\rangle \rightarrow false$ (i.e., the exit constraint system is infeasible over finite $n$), the execution diverges ($n = \infty$, representing non-termination).
+Recursion is translated in the same way. For linear recursion the system consists of the loop constraints for the descending phase, which determine the depth $\bar{n}$, followed by the equations of the ascending phase (Proposition~\ref{prop:linrec}). For branching recursion the unknowns and equations are indexed by the positions $\pi$ of the least feasible tree (Proposition~\ref{prop:tree-optimization}): the guard holds at internal positions and fails at leaves, and values are combined bottom-up. Section~\ref{sec:examples} shows one system of each kind.
 
-\begin{rem*}
-In some known cases (commutative functions, existing closed-form solution
-for the iterated equation) the ``repeat operator'' $\Phi(f,n)$
-can be simplified.
+\begin{rem*}[Decidability Boundaries]
+The generated systems are as hard as the programs they come from. If every update is a translation $x \coloneqq x + c$ and guards are conjunctions of linear inequalities, the iterates are linear in $n$ and the minimization problem is a formula of Presburger arithmetic, hence decidable; this is the setting of loop acceleration \cite{bardin2008fast}, and the examples of Section~\ref{sec:examples} belong to this class. With multiplication between variables, deciding whether the exit constraint has a solution $n$ subsumes the solvability of Diophantine equations, which is undecidable by Matiyasevich's Theorem \cite{matiyasevich1970enumerable}. No complete procedure exists, which motivates the relaxation below.
 \end{rem*}
 
-\begin{rem*}[Decidability and Incompleteness Boundaries]
-By Matiyasevich's Theorem (Hilbert's 10th Problem), determining whether an arbitrary polynomial Diophantine equation has an integer root is undecidable. Thus, replacing loops with recurrence equations conserves Turing undecidability:
-\begin{itemize}
-    \item \textbf{Presburger Arithmetic (Decidable):} Affine loops involving only addition and comparisons generate decidable constraint systems, mechanically solvable via Presburger solvers or Integer Linear Programming (ILP).
-    \item \textbf{Peano Arithmetic (Undecidable):} General loops with multiplication inherit G\"odel's Incompleteness Theorem, yielding recurrence systems whose exact termination is mathematically open.
-\end{itemize}
-\end{rem*}
-
-\subsection{Asymptotic Relaxation and WCET Envelopes}
+\subsection{Relaxation and WCET Envelopes}
 \label{subsec:asymptotic-relaxation}
 
-While the dual-layer operational semantics presented in Section~\ref{sec:application} 
-theoretically enables the simultaneous extraction of the exact terminal state $\bar{s}$ 
-and minimal iteration count $\bar{n}$, computing $\bar{s}$ symbolically is infeasible 
-for general industrial software. By Matiyasevich's Theorem, exact termination of integer 
-arithmetic loops is undecidable in the general case. Furthermore, real-world systems 
-frequently interact with unknown sensor ranges $N \in [0, N_{\max}]$ and data-dependent 
-branching conditions, causing path enumeration to explode exponentially ($2^n$ execution traces 
-for $n$ loop iterations).
+The exact problem delivers the terminal state $\bar{s}$ and the iteration count $\bar{n}$ together, but it is solvable only on restricted fragments. Moreover, real programs read inputs known only up to a range and branch on data, so that a loop of $n$ iterations may follow up to $2^n$ distinct paths.
 
-In safety-critical embedded engineering and hard real-time systems, deriving the exact 
-bit-level terminal memory state $\bar{s} \in S$ is often unnecessary. The primary verification 
-objective is establishing certified, deterministic bounds on computational resource 
-consumption---specifically proving that the Worst-Case Execution Time (WCET) never exceeds 
-a pre-allocated operational deadline:
+In hard real-time systems the terminal state is often not needed. The verification objective is a bound on resource consumption:
 \[
 \text{WCET}(s_0) \le \text{Deadline}.
 \]
-To achieve this mechanically, CrossCheck relaxes the extensional state equations into 
-\textit{asymptotic dominance envelopes} ($\preceq_{\mathcal{O}}$). This relaxation projects 
-the concrete state space onto a scalar execution cost domain via subadditive norms 
-$\|\cdot\| : \Sigma^* \to \mathbb{R}_{\ge 0}$, collapsing combinatorial branch explosions 
-via the tropical $(\max, +)$ semiring and resolving loop bounds via Lyapunov-style ranking potentials.
+CrossCheck therefore relaxes the extensional equations into \textit{cost envelopes}: the state is projected onto a scalar cost through a cost norm $\|\cdot\|$ (Definition~\ref{def:subadditive-norm}), branch alternatives are collapsed with the tropical $(\max, +)$ semiring, and iteration counts are bounded by ranking potentials. Every bound in this subsection is a sound upper bound on the exact cost, not an asymptotic statement.
 
 \subsubsection{Tropical $(\max, +)$ Semiring on Control Flow}
 \label{subsubsec:tropical-semiring}
 
-To prevent the exponential expansion of branch paths within loop bodies, control-flow 
-alternatives are composed using the idempotent tropical semiring 
-$\mathbb{R}_{\max, +} \coloneqq (\mathbb{R}_{\ge 0} \cup \{-\infty\}, \oplus, \otimes)$, where:
+Control-flow alternatives are composed in the idempotent tropical semiring \cite{baccelli1992synchronization}
+$\mathbb{N}_{\max, +} \coloneqq (\mathbb{N} \cup \{-\infty\}, \oplus, \otimes)$, where
 \[
 a \oplus b \coloneqq \max(a, b), \qquad a \otimes b \coloneqq a + b,
 \]
-with additive identity $\mathbb{0} = -\infty$ and multiplicative identity $\mathbb{1} = 0$.
+with additive identity $-\infty$ and multiplicative identity $0$. Sequencing is the tropical product and branching the tropical sum.
 
 \begin{prop}[Tropical Branch Collapsing]\label{prop:tropical-collapse}
-Let $t = \text{if } c \text{ then } t_{\text{then}} \text{ else } t_{\text{else}}$ be a conditional 
-statement within a loop body, where $\|t_c\|$ is the instruction cost of evaluating the predicate, 
-and $\|t_{\text{then}}\|, \|t_{\text{else}}\|$ are the costs of the respective branches. For any concrete 
-store configuration $s \in S$, the dynamic execution cost is bounded above in $\mathbb{R}_{\max, +}$ by:
+Let a loop body consist of $k$ sequential conditional blocks, the $j$-th with guard trace $t_{c_j}$ and branch traces $t_b$, $b \in \text{Branches}_j$, and let $\tau$ be its path selector. Then for every state $s$,
 \[
-\|t\| \le \|t_c\| \otimes \left(\|t_{\text{then}}\| \oplus \|t_{\text{else}}\|\right) = \|t_c\| + \max\left(\|t_{\text{then}}\|, \|t_{\text{else}}\|\right).
+\|\tau(s)\| \;\le\; W \coloneqq \bigotimes_{j=1}^k \Bigl( \|t_{c_j}\| \otimes \bigoplus_{b \in \text{Branches}_j} \|t_b\| \Bigr) = \sum_{j=1}^k \Bigl( \|t_{c_j}\| + \max_{b \in \text{Branches}_j} \|t_b\| \Bigr).
 \]
 \end{prop}
 
 \begin{proof}
-Let $\chi_c(s) \in \{\text{true}, \text{false}\}$ be the valuation of condition $c$ at state $s$. 
-The operational cost of the statement is:
-\[
-\text{cost}(t, s) = \|t_c\| + \begin{cases}
-\|t_{\text{then}}\| & \text{if } \chi_c(s) = \text{true}, \\
-\|t_{\text{else}}\| & \text{if } \chi_c(s) = \text{false}.
-\end{cases}
-\]
-Since $\forall x, y \in \mathbb{R}_{\ge 0}$, both $x \le \max(x, y)$ and $y \le \max(x, y)$ hold, 
-it follows directly that $\text{cost}(t, s) \le \|t_c\| + \max(\|t_{\text{then}}\|, \|t_{\text{else}}\|)$ 
-for all $s \in S$. This property has been verified in Lean~4 as \texttt{branch\_supremum\_bound}.
+Apply Proposition~\ref{prop:tropical-dominance} to each block (\lean{branch\_\allowbreak supremum\_\allowbreak bound}, \lean{condTrace\_\allowbreak cost\_\allowbreak le}) and subadditivity across blocks.
 \end{proof}
 
-By replacing internal conditional branches with their branch supremums, a complex loop body 
-containing $k$ sequential conditional blocks---which would concretely yield up to $2^k$ distinct execution 
-traces---collapses into a single synthetic worst-case step trace $t_{\text{wc}}$ satisfying:
-\[
-\|t_{\text{wc}}\| = \sum_{j=1}^k \left( \|t_{c_j}\| + \max_{b \in \text{Branches}_j} \|t_b\| \right).
-\]
+A body with up to $2^k$ distinct paths is thus summarized by the single number $W$, computed in time linear in the size of the body. We write $\|t_{\text{wc}}\| \coloneqq W$ for this worst-case step cost. The bound is exact when the branches attaining the maxima are simultaneously feasible, and an over-approximation otherwise (infeasible paths are not excluded).
 
-\subsubsection{Ranking Potentials and Transition Invariants}
+\subsubsection{Ranking Potentials}
 \label{subsubsec:ranking-potentials}
 
-Having established a uniform upper bound on single-iteration cost $\|t_{\text{wc}}\|$, bounding the total 
-execution cost reduces to determining an upper envelope for the minimal exiting iteration count $\bar{n}$:
-\[
-\bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; \neg P\left(\llbracket t^n \rrbracket(s_0)\right) \right\}.
-\]
-Rather than simulating loop variables iteratively, we synthesize a continuous or discrete 
-\textit{ranking potential} (Lyapunov measure) $V : S \to \mathbb{R}_{\ge 0}$, adapting Podelski and 
-Rybalchenko's framework of transition invariants \cite{podelski2004transition} to the trace monoid.
+With a uniform bound $W$ on the cost of one iteration, Proposition~\ref{prop:worst-case-step} reduces the cost of the loop to an upper bound on the minimal exiting iteration count $\bar{n}$. Rather than computing iterates, we use a ranking function in the sense of Floyd \cite{floyd1967assigning}, in the quantitative form used for bound analysis \cite{alias2010multi,podelski2004complete}.
 
 \begin{defn}[Ranking Potential]\label{def:ranking-potential}
-Let $t \in \Sigma^*$ be a loop body trace and $P : S \to \mathbb{B}$ the loop continuation predicate. 
-A function $V : S \to \mathbb{R}_{\ge 0}$ is a \textit{valid ranking potential} if there exist constants 
-$\Delta > 0$ and $V_{\text{exit}} \ge 0$ such that:
+Let $f : S \to S$ be the state update of a loop body and $P$ its continuation predicate. A function $V : S \to \mathbb{Z}$ is a \textit{ranking potential} with step decrease $\Delta \in \mathbb{Z}$, $\Delta > 0$, if for all states $s \in S$ with $P(s) = \text{true}$:
 \begin{enumerate}
-    \item \textbf{Strict Inductive Descent:} For all non-terminal states $s \in S$ satisfying $P(s) = \text{true}$:
-    \[
-    V\left(\llbracket t \rrbracket(s)\right) \le V(s) - \Delta.
-    \]
-    \item \textbf{Bounded Continuation Region:} The loop predicate can only hold while the potential exceeds 
-    the exit threshold:
-    \[
-    \forall s \in S, \quad P(s) = \text{true} \implies V(s) > V_{\text{exit}}.
-    \]
+    \item \textbf{Descent:} $V\left(f(s)\right) \le V(s) - \Delta$;
+    \item \textbf{Positivity:} $V(s) > 0$.
 \end{enumerate}
 \end{defn}
 
+Both conditions are required only on continuing states; in practice they are established on an inductive invariant containing the reachable states. A different exit threshold $V(s) > V_{\text{exit}}$ is covered by replacing $V$ with $V - V_{\text{exit}}$.
+
 \begin{thm}[Lyapunov Cost Dominance Bound]\label{thm:lyapunov-bound}
-Let $V : S \to \mathbb{R}_{\ge 0}$ be a valid ranking potential for loop body trace $t$ with step decrease 
-$\Delta > 0$ and boundary threshold $V_{\text{exit}}$. For any initial state $s_0 \in S$, the minimal exiting 
-iteration count $\bar{n}$ is bounded by:
+Let $V$ be a ranking potential with step decrease $\Delta$ for a loop with update $f$, continuation predicate $P$ and path selector $\tau$. For every initial state $s_0 \in S$ the loop terminates, and its minimal exiting iteration count satisfies
 \[
-\bar{n} \le \bar{N}(s_0) \coloneqq \left\lceil \frac{V(s_0) - V_{\text{exit}}}{\Delta} \right\rceil.
+\bar{n} \;\le\; \bar{N}(s_0) \coloneqq \max\left(0, \left\lceil \frac{V(s_0)}{\Delta} \right\rceil\right).
 \]
-Consequently, the total operational execution trace $t^{\bar{n}}$ is asymptotically dominated:
+Consequently, if $\|\tau(s)\| \le \|t_{\text{wc}}\|$ for all $s$, the executed trace satisfies
 \[
-\text{cost}\left(t^{\bar{n}}\right) \le \left\lceil \frac{V(s_0) - V_{\text{exit}}}{\Delta} \right\rceil \cdot \|t_{\text{wc}}\|.
+\left\|\rho_{\bar{n}}(s_0)\right\| \;\le\; \bar{N}(s_0) \cdot \|t_{\text{wc}}\|.
 \]
 \end{thm}
 
 \begin{proof}
-Let $k \in \mathbb{N}$ be any arbitrary execution step such that the loop has not yet halted; 
-hence for all $j < k$, $P(\llbracket t^j \rrbracket(s_0)) = \text{true}$. By induction on the descent condition 
-(Definition~\ref{def:ranking-potential}), we have:
-\[
-V\left(\llbracket t^k \rrbracket(s_0)\right) \le V(s_0) - k \cdot \Delta \iff k \cdot \Delta \le V(s_0) - V\left(\llbracket t^k \rrbracket(s_0)\right).
-\]
-Since $P(\llbracket t^{k-1} \rrbracket(s_0)) = \text{true}$, condition (2) requires $V(\llbracket t^{k-1} \rrbracket(s_0)) > V_{\text{exit}}$. 
-Because $V(s) \ge 0$ for all states, the potential cannot decrease indefinitely. Setting $k > (V(s_0) - V_{\text{exit}}) / \Delta$ 
-forces $V(\llbracket t^k \rrbracket(s_0)) \le V_{\text{exit}}$, guaranteeing that the continuation predicate $P$ must evaluate 
-to false on or before step $\lceil (V(s_0) - V_{\text{exit}}) / \Delta \rceil$. 
-
-Monotonicity of trace iteration (Proposition~\ref{prop:n-monotony}) ensures that the minimal exit index $\bar{n}$ 
-must satisfy $\bar{n} \le \bar{N}(s_0)$. Applying the subadditivity of the cost norm (Definition~\ref{def:subadditive-norm}) 
-yields $\text{cost}(t^{\bar{n}}) = \bar{n} \cdot \|t\| \le \bar{N}(s_0) \cdot \|t_{\text{wc}}\|$. This inductive inequality 
-is formalized and mechanically verified in Lean~4 as \texttt{ranking\_bound} in module \texttt{Dominance.lean}.
+Write $s_k \coloneqq f^k(s_0)$ and suppose $P(s_j)$ holds for all $j < n$. By induction on $k \le n$, descent gives $V(s_k) \le V(s_0) - k \cdot \Delta$. If $n \ge 1$, positivity at $s_{n-1}$ gives $0 < V(s_{n-1}) \le V(s_0) - (n-1) \cdot \Delta$, hence $n - 1 < V(s_0)/\Delta$ and, $n$ being an integer, $n \le \lceil V(s_0)/\Delta \rceil$. So every run of $n$ consecutive continuing iterations has $n \le \bar{N}(s_0)$. In particular $P$ cannot hold at all of $s_0, \dots, s_{\bar{N}(s_0)}$: some iterate exits, the minimal exiting count $\bar{n}$ exists by Theorem~\ref{thm:minimal-trace}, and applying the bound to $n = \bar{n}$ gives $\bar{n} \le \bar{N}(s_0)$. The cost bound is Proposition~\ref{prop:worst-case-step} (\lean{ranking\_\allowbreak bound}, \lean{ranking\_\allowbreak terminates}, \lean{wcet\_\allowbreak bound}).
 \end{proof}
+
+The theorem is stated for integer-valued potentials and a deterministic update. The same argument gives a variant that is closer to what a tool computes (\lean{ranking\_\allowbreak bound\_\allowbreak floor}): let $V$ take values in an ordered field (for instance $\mathbb{Q}$) and let $\to$ be a transition \emph{relation} on $S$, possibly nondeterministic or partial; if $V(s') \le V(s) - 1$ and $V(s) \ge 1$ whenever $s \to s'$, then every run $s_0 \to s_1 \to \dots \to s_n$ has $n \le \lfloor V(s_0) \rfloor$. A rational potential with decrease $\Delta$ is brought to this form by dividing by $\Delta$.
 
 \subsubsection{Hierarchical and Recursive Composition}
 \label{subsubsec:compositional-wcet}
 
-The relaxation extends naturally to nested control structures and non-linear recursive control flows:
+\paragraph{Nested loops.}
+Let the outer body consist of a straight-line part $t_1$ followed by an inner loop with body cost at most $\|t_2\|$. Suppose the inner loop has a ranking potential $V_2$ with decrease $\Delta_2$, and let $M_{\max}$ be an upper bound of $\lceil V_2(s)/\Delta_2 \rceil$ over all states $s$ at which the inner loop can be entered. Then every outer iteration costs at most $\|t_1\| + M_{\max} \cdot \|t_2\|$, and if the outer loop has a ranking potential with bound $N_{\max}$, Proposition~\ref{prop:worst-case-step} yields the product envelope (compare Proposition~\ref{prop:nested-cost})
+\[
+\left\|\rho_{\bar{n}}(s_0)\right\| \le N_{\max} \cdot \|t_1\| + N_{\max} \cdot M_{\max} \cdot \|t_2\|
+\]
+(\lean{nested\_\allowbreak wcet\_\allowbreak bound}). This bound is sound but not amortized: when the inner count varies across outer iterations, methods such as \cite{sinn2014complexity,hoffmann2012multivariate} can be asymptotically more precise.
 
-\begin{itemize}
-    \item \textbf{Nested Loops:} For nested loops $(t_2^m)^{t_1^n}$, ranking potentials are composed 
-    lexicographically. If outer potential $V_1$ decreases by $\Delta_1$ per outer step, and inner potential 
-    $V_2$ decreases by $\Delta_2$ per inner step with bound $M_{\max} = \lceil (V_2(s) - V_{2,\text{exit}}) / \Delta_2 \rceil$, 
-    Proposition~\ref{prop:nested-cost} guarantees the total envelope:
-    \[
-    \text{cost}\left((t_2^m)^{t_1^n}\right) \le N_{\max} \cdot \|t_1\| + N_{\max} \cdot M_{\max} \cdot \|t_2\|.
-    \]
-    \item \textbf{Branching Recursion Envelopes:} When divide-and-conquer recursion exhibits data-dependent 
-    imbalances, exact tree node minimization ($\arg\min_{\sqsubseteq_{\text{tree}}} |T|$) is bounded by synthesizing 
-    a tree depth ranking potential $V_{\text{tree}} : S \to \mathbb{N}$ such that $\forall i \in \{1, \dots, b\}$:
-    \[
-    V_{\text{tree}}\left(\text{fwd}_i(s)\right) \le V_{\text{tree}}(s) - 1.
-    \]
-    Setting maximal recursion depth $D_{\max} = V_{\text{tree}}(s_0)$, Proposition~\ref{prop:tree-power-complexity} 
-    and the tree grafting size law (\texttt{graft\_size} in Lean~4) bound total computational work by the uniform 
-    operadic tree power:
-    \[
-    \text{cost}(\bar{T}) \le \text{cost}\left(B^{\otimes D_{\max}}\right) = \frac{b^{D_{\max} + 1} - 1}{b - 1} \in \mathcal{O}(b^{D_{\max}}).
-    \]
-\end{itemize}
+\paragraph{Branching recursion.}
+For the recursion scheme of Proposition~\ref{prop:tree-optimization}, a \textit{depth ranking potential} is a function $V_{\text{tree}} : S \to \mathbb{N}$ such that, for all $s$ with $P(s) = \text{true}$ and all $i \in \{1, \dots, b\}$,
+\[
+V_{\text{tree}}\left(\text{fwd}_i(s)\right) < V_{\text{tree}}(s).
+\]
 
-\subsubsection{SMT-Based Synthesis of WCET Certificates}
+\begin{prop}[Branching Recursion Envelope]\label{prop:tree-envelope}
+If $V_{\text{tree}}$ is a depth ranking potential and the call $\text{rtree}(s_0)$ has execution tree $\bar{T}$, then with $D_{\max} \coloneqq V_{\text{tree}}(s_0)$,
+\begin{gather*}
+\depth(\bar{T}) \le D_{\max}, \\
+\cost(\bar{T}) \le \cost\left(B^{\otimes D_{\max}}\right) = \frac{b^{D_{\max} + 1} - 1}{b - 1} \in \mathcal{O}(b^{D_{\max}}),
+\end{gather*}
+where $B$ is the elementary $b$-ary branching step.
+\end{prop}
+
+\begin{proof}
+By induction on $\bar{T}$, simultaneously for all initial states: a leaf has depth $0$; at an internal node $P(s_0)$ holds, each subtree is the execution tree of $\text{fwd}_i(s_0)$ and has depth at most $V_{\text{tree}}(\text{fwd}_i(s_0)) \le V_{\text{tree}}(s_0) - 1$. The cost bound is Proposition~\ref{prop:tree-order-properties}(3) together with Proposition~\ref{prop:tree-power-complexity}(2) (\lean{exec\_\allowbreak depth\_\allowbreak le}, \lean{exec\_\allowbreak size\_\allowbreak le}).
+\end{proof}
+
+The envelope counts calls. If each call performs at most $w$ units of local work, the total cost is at most $w \cdot \cost(\bar{T})$. When the local work depends on the size of the argument, as in typical divide-and-conquer algorithms, sharper bounds require solving the corresponding recurrence, e.g.\ by the Master Theorem \cite{cormen2009introduction}; this refinement is outside the scope of the present paper.
+
+The depth envelope is exponential in $D_{\max}$ even when the recursion is balanced and its tree is small. A second certificate bounds the number of calls directly. It is stated for a general recursive scheme: an activation with argument $x$ performs self-calls with arguments $c_1(x), \dots, c_{k(x)}(x)$, where $k(x) = 0$ for base cases, and the \textit{call tree} of $x$ has a root labelled $x$ whose subtrees are the call trees of the $c_i(x)$.
+
+\begin{prop}[Size Potential]\label{prop:size-potential}
+Let $U : S \to \mathbb{Q}$ satisfy, for every argument $x$,
+\[
+U(x) \;\ge\; 1 + \sum_{i=1}^{k(x)} U\left(c_i(x)\right).
+\]
+If the call with argument $x$ terminates, its call tree has at most $\lfloor U(x) \rfloor$ nodes. If moreover $k(x) \le b$ for all $x$ and $V : S \to \mathbb{N}$ strictly decreases at every self-call, the call tree has at most $\sum_{j=0}^{V(x)} b^j$ nodes.
+\end{prop}
+
+\begin{proof}
+By induction on the call tree: its size is $1$ plus the sizes of its subtrees, which by induction are at most $U(c_i(x))$. The second statement is Proposition~\ref{prop:tree-envelope} for trees whose nodes have at most $b$ children (\lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak potential}, \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak geom}).
+\end{proof}
+
+This is the potential method of amortized analysis \cite{hoffmann2012multivariate} specialized to counting calls. For a function that splits a range $[lo, hi)$ with $lo < hi$ at an interior point and recurses on both halves, $U(lo, hi) = 2(hi - lo) - 1$ is a size potential, so the number of calls is linear in the size of the range.
+
+\subsubsection{SMT-Based Synthesis of Ranking Potentials}
 \label{subsubsec:smt-synthesis}
 
-In the CrossCheck compiler toolchain, synthesizing $V(s)$ does not require interactive theorem proving. 
-For affine loops, CrossCheck parameterizes the template potential as a linear combination of integer induction variables:
+Finding $V$ does not require interactive proof. For a loop over integer variables $\mathbf{x} \in \mathbb{Z}^k$ with affine update $\mathbf{x}' = A\mathbf{x} + \mathbf{b}$ and a guard (strengthened by a known invariant) given as a conjunction of linear inequalities $G\mathbf{x} \le \mathbf{g}$, CrossCheck uses the linear template
 \[
 V(\mathbf{x}) = \mathbf{w}^T \mathbf{x} + c_0, \qquad \mathbf{w} \in \mathbb{Z}^k, \; c_0 \in \mathbb{Z}.
 \]
-The operational rules map the descent condition $\mathbf{w}^T (\mathbf{x}_{k+1} - \mathbf{x}_k) \le -\Delta$ and 
-boundary invariant $P(\mathbf{x}) \implies \mathbf{w}^T \mathbf{x} + c_0 > 0$ into a system of linear inequalities. 
-By applying Farkas' Lemma, this is translated into a Presburger constraint query checked via Z3 or CVC5. 
-When satisfiable, the solver emits the vector $\mathbf{w}$, immediately producing a closed-form, compile-time 
-WCET certificate:
+The conditions of Definition~\ref{def:ranking-potential} become the universally quantified implications
 \[
-\left\lceil \frac{\mathbf{w}^T \mathbf{x}_0 + c_0}{\Delta} \right\rceil \cdot \|t_{\text{wc}}\| \le \text{Deadline}.
+G\mathbf{x} \le \mathbf{g} \implies \mathbf{w}^T (\mathbf{x} - A\mathbf{x} - \mathbf{b}) \ge \Delta, \qquad G\mathbf{x} \le \mathbf{g} \implies \mathbf{w}^T \mathbf{x} + c_0 \ge 1 .
 \]
-If the solver determines the constraint system is unsatisfiable, the compiler rejects the routine, flagging 
-that a deterministic timing bound cannot be guaranteed under the real-time profile.
+By the affine form of Farkas' Lemma \cite{schrijver1986theory}, each implication between linear inequalities is equivalent, over the rationals, to the existence of non-negative multipliers satisfying linear equalities. The synthesis problem thus becomes a quantifier-free linear arithmetic query in the unknowns $\mathbf{w}$, $c_0$ and the multipliers \cite{colon2001synthesis,podelski2004complete}, which is discharged by an SMT solver such as Z3 \cite{demoura2008z3}. Only the soundness direction of the lemma is needed to trust a result, and it is elementary (\lean{farkas\_\allowbreak sound\_\allowbreak affine}). The method is sound for integer programs and complete for linear ranking functions over the rationals \cite{benamram2014ranking}; a loop that terminates only by a non-linear or lexicographic argument is not handled by this template.
 
-\subsection{Linear recursion}
-
-As indicated in \ref{prop:linrec} the previous conditions are needed to solve the tail part of a linear recursion. The condition for a linear recursion must be extended by adding the effects of the non-tail part:
-
+When the query is satisfiable, the model provides $\mathbf{w}$ and $c_0$, and Theorem~\ref{thm:lyapunov-bound} gives the closed-form certificate
 \[
-\frac{\begin{array}{c}
-\bar{n} = \min \left\{ n \in \mathbb{N} \;\middle|\; \left\langle cond(fwd^n(E)), \sigma \right\rangle \rightarrow false \right\} \\[1ex]
-\left\langle back^{\bar{n}}\left(stop\left(fwd^{\bar{n}}(E)\right)\right),\sigma_{loop}\right\rangle \rightarrow\sigma_{last}\\
-\left\langle cond(E),\sigma_{init}\right\rangle \rightarrow true\\
-\left\langle cond(E),\sigma_{loop}\right\rangle \rightarrow true\\
-\left\langle cond(E),\sigma_{last}\right\rangle \rightarrow false
-\end{array}}{\left\langle rlin(cond(E),back(rlin(fwd(E))),stop(E)),\sigma\right\rangle \rightarrow\sigma_{last}}
+\max\left(0, \left\lceil \frac{\mathbf{w}^T \mathbf{x}_0 + c_0}{\Delta} \right\rceil\right) \cdot \|t_{\text{wc}}\| \;\le\; \text{Deadline},
 \]
-
-\subsection{Non-linear recursion}
-For non-linear branching recursion, operational semantic rules generate a tree-structured system of recurrence equations indexed by tree path positions $\pi \in \{1, \dots, b\}^*$:
-
-\[
-\frac{\begin{array}{c}
-\bar{T} = \arg\min_{\sqsubseteq_{\text{tree}}} \left\{ T \in \mathcal{T}_\Sigma \;\middle|\; \forall\, \pi \in \text{Leaves}(T): \left\langle cond(E_\pi), \sigma_\pi \right\rangle \rightarrow false \right\} \\[1ex]
-\forall\, \pi \in \text{Leaves}(\bar{T}): \; \left\langle stop(E_\pi), \sigma_\pi \right\rangle \rightarrow V_\pi \\[1ex]
-\forall\, \pi \in \text{Internal}(\bar{T}): \; \left\langle cond(E_\pi), \sigma_\pi \right\rangle \rightarrow true \implies V_\pi = combine(V_{\pi \cdot 1}, \dots, V_{\pi \cdot b})
-\end{array}}{\left\langle rtree(cond(E), combine(rtree(fwd_1(E)), \dots, rtree(fwd_b(E))), stop(E)), \sigma \right\rangle \rightarrow V_\varepsilon}
-\]
+to be checked for the admissible range of initial values $\mathbf{x}_0$. The certificate is independent of the solver: given $\mathbf{w}$ and $c_0$, the two implications above can be re-checked directly, so the solver need not be trusted. When the query is unsatisfiable, the routine is rejected: the template admits no linear potential over the rationals for the given guard and invariant, and a timing bound cannot be established by this method.
 
 \section{Examples}
+\label{sec:examples}
 
-In the following some examples of the application of this method will
-be shown. The cases are mathematically simple enough to be able to
-fully solve the equation systems in closed form, so that the results
-can be checked manually. These cases are generated automatically using
-a software that statically analyses the computer code without executing
-it. The solution of the problem is equivalent to the execution of
-the code for the given case.
+The following examples are simple enough for the equation systems to be solved in closed form, so that the results can be checked by hand. The systems are those produced by a prototype implementation of the rules of Section~\ref{sec:application}, which analyzes the source code without executing it; minor simplifications have been applied for readability. Solving each system is equivalent to executing the code, and each solution has additionally been verified in Lean~4 against the big-step semantics (Section~\ref{sec:mechanization}).
 
 \subsection{Parametric while loop}
 
-This example shows a while loop executing with a parametric (unknown)
-variable value. This might be arbitrarily chosen by the user or randomly
-picked.
+This example shows a while loop whose behavior depends on a parametric (unknown) initial value $R$.
 
 \begin{lstlisting}
 int i = random();
-int x = 1; int y = 2; 
+int x = 1; int y = 2;
 while (i++ < 13) {
-    i = i + 1; 
-    x = y + 2; 
-    y = x + 3; 
+    i = i + 1;
+    x = y + 2;
+    y = x + 3;
 }
 \end{lstlisting}
 
-This case shows a side effect in the loop condition and two variables
-$x,y$ that do not participate in the loop. These two variables will
-modify each other at every cycle. The static analysis software generates
-this problem (some equations and unknowns have already been simplified
-for clarity):
+The guard has a side effect, and the variables $x, y$ do not influence the guard but modify each other at every cycle. One full iteration (successful guard and body) maps $(i, x, y)$ to $(i + 2, y + 2, y + 5)$, and the failing guard increments $i$ once more. Writing $n \ge 1$ for the number of iterations, $i_{loop}$ for the value compared by the last successful guard and $i_{last}^{0}$ for the value compared by the failing guard, the generated system is:
 
 \[
 \begin{cases}
@@ -789,9 +779,9 @@ i_{init} & =R\\
 y_{loop}^{0} & =2\\
 x_{loop}^{0} & =y_{loop}^{0}+2\\
 i_{init} & <13\\
-i_{loop} & =i_{init}+2n-1\\
+i_{loop} & =i_{init}+2(n-1)\\
 i_{loop} & <13\\
-i_{last}^{0} & =i_{loop}+1\\
+i_{last}^{0} & =i_{loop}+2\\
 i_{last}^{0} & \geq13\\
 i_{last}^{1} & =i_{last}^{0}+1\\
 x_{loop}^{1} & =y_{loop}^{0}+5n-3\\
@@ -799,20 +789,18 @@ y_{loop}^{1} & =x_{loop}^{1}+3
 \end{cases}
 \]
 
-The solution is obtained by minimizing $n$ as for \ref{prop:min_n}
-(if the while loop is entered at least once, that is if $R<13$):
+The two inequalities $R + 2(n-1) < 13 \le R + 2n$ have exactly one integer solution $n$, which is therefore the minimum of Proposition~\ref{prop:min_x}. If the loop is entered at least once ($R<13$):
 
 \[
 \begin{cases}
-n & =\left\lceil \frac{-R+13}{2}\right\rceil \\
+n & =\left\lceil \frac{13-R}{2}\right\rceil \\
 i & =i_{last}^{1}=R+2n+1\\
 x & =x_{loop}^{1}=5n-1\\
 y & =y_{loop}^{1}=5n+2
 \end{cases}
 \]
 
-The analysis will also give the values if the while loop is never
-entered ($R\geq13$):
+For instance $R = 0$ gives $n = 7$ and $(i, x, y) = (15, 34, 37)$. If the loop is never entered ($R\geq13$), only the side effect of the failing guard remains:
 
 \[
 \begin{cases}
@@ -823,9 +811,11 @@ y & =2
 \]
 
 \begin{rem*}
-The fixed point is $i_{last}^{0}=R+2n$ (if $R<13$, otherwise it
-is simply $R$).
+The value compared by the failing guard is $i_{last}^{0}=R+2n$ if $R<13$, and $R$ otherwise.
 \end{rem*}
+
+\paragraph{Relaxed analysis.}
+The function $V(i, x, y) = 13 - i$ is a ranking potential with $\Delta = 2$: on continuing states $i < 13$, so $V > 0$, and each iteration decreases $V$ by exactly $2$. Theorem~\ref{thm:lyapunov-bound} gives $\bar{n} \le \max(0, \lceil (13 - R)/2 \rceil)$, which coincides with the exact iteration count: the envelope is tight on this example. With unit weights and four instructions per iteration (guard and three assignments), the cost of the loop is at most $4 \cdot \lceil (13 - R)/2 \rceil$ plus one final guard evaluation.
 
 \subsection{Infinite while loop}
 
@@ -838,8 +828,7 @@ while (i != 1) {
 }
 \end{lstlisting}
 
-The corresponding equations written automatically by the analysis
-software:
+The generated equations are:
 
 \[
 \begin{cases}
@@ -852,41 +841,35 @@ i_{last} & =1
 \end{cases}
 \]
 
-The equation system is infeasible so the analysis software classifies
-the while loop as infinite.
+The system is infeasible, so the loop is classified as non-terminating: no iterate of the body exits, and by Theorem~\ref{thm:extensional-equivalence} the loop has no big-step derivation. Consistently, no ranking potential exists, since the body maps the continuing state $i = 0$ to itself.
 
 \subsection{Linear recursion}
 
-In this case a linear recursion is shown:
-
 \begin{lstlisting}
 int foo(int a) {
-    if (a > 4) 
-        a = foo(a - 2) + 3; 
+    if (a > 4)
+        a = foo(a - 2) + 3;
     return a + 6;
-}; 
+}
 foo(10);
 \end{lstlisting}
 
-The corresponding equations, some minor simplifications have already
-been applied:
+In the form of Proposition~\ref{prop:linrec}, $\text{fwd}(a) = a - 2$, $\text{stop}(a) = a + 6$ and $\text{back}(r) = r + 3 + 6$ (the assignment followed by the fall-through return); the recursion is frame-independent because the caller's $a$ is overwritten. The generated equations, after minor simplifications, are:
 
 \[
 \begin{cases}
 a_{init} & =10\\
 a_{init} & >4\\
 a_{loop}^{1} & =a_{init}-2n\\
-a_{loop}^{2} & =a_{stop}+3n\\
-a_{stop} & =a_{last}+6\\
 a_{last} & =a_{loop}^{1}\\
 a_{last} & \leq4\\
+a_{stop} & =a_{last}+6\\
+a_{loop}^{2} & =a_{stop}+3n\\
 a_{back} & =a_{loop}^{2}+6n
 \end{cases}
 \]
 
-Since the input is known, in this case the analysis system can calculate
-the final numerical values. The solution is obtained by minimizing
-$n$ as for \ref{prop:min_n}: 
+Since the input is known, the numerical values can be computed. The depth is the least $n$ with $10 - 2n \le 4$:
 
 \[
 \begin{cases}
@@ -896,11 +879,11 @@ a & =a_{back}=37
 \]
 
 \begin{rem*}
-The fixed point for the tail part of the recursion is $a_{last}=4$.
+The descending part of the recursion ends at $a_{last}=4$.
 \end{rem*}
 
 \subsection{Non-linear recursion}
-This example illustrates static analysis of a symmetric binary recursive countdown:
+This example is a symmetric binary recursive countdown:
 
 \begin{lstlisting}
 int foo(int x) {
@@ -911,7 +894,7 @@ int foo(int x) {
 foo(2);
 \end{lstlisting}
 
-The operational static analysis generates a system of equations indexed over tree node addresses $\pi \in \{\varepsilon, 0, 1, 00, 01, 10, 11\}$:
+The analysis generates a system of equations indexed by tree positions $\pi \in \{\varepsilon, 0, 1, 00, 01, 10, 11\}$:
 
 \[
 \begin{cases}
@@ -927,21 +910,147 @@ v_{\varepsilon} = v_{0} + v_{1} = 4
 \end{cases}
 \]
 
-Solving this system yields the minimal computation tree $\bar{T}$ of depth $d = 2$. The total execution work is given by:
+The solution is the minimal computation tree $\bar{T} = B^{\otimes 2}$, the full binary tree of depth $d = 2$. The total work is
 \[
-\text{cost}(\bar{T}) = 2^{d+1} - 1 = 2^3 - 1 = 7 \text{ node operations},
+\cost(\bar{T}) = 2^{d+1} - 1 = 7 \text{ calls},
 \]
-and the extensional return value synthesized at the root is $v_{\varepsilon} = 4$.
+and the value synthesized at the root is $v_{\varepsilon} = 4$. The function $V_{\text{tree}}(x) = \max(x, 0)$ is a depth ranking potential, so Proposition~\ref{prop:tree-envelope} bounds the work of $\text{foo}(x)$ by $2^{x+1} - 1$ for every $x \ge 0$; here the envelope is attained.
+
+\section{Prototype Implementation}
+\label{sec:implementation}
+
+The relaxed analysis of Section~\ref{subsec:asymptotic-relaxation} is implemented as a plugin for the Clang compiler (about 3{,}200 lines of C++ and 1{,}000 lines of tests; directory \lean{clang-plugin} of the repository). It checks functions marked with a source annotation, and a violation is a compilation error. This section describes what the prototype does; it is not an evaluation.
+
+\paragraph{Input.}
+A function is annotated as real-time, optionally with a deadline in cost units. Integer parameters may carry range preconditions, and a function may state a linear precondition relating its parameters; preconditions are assumed in the function and proved at each analysed call site. Three further annotations introduce \emph{trusted} information: a bound for a loop, a fact that holds at a program point, and the cost of a function whose body is not available. Everything trusted is listed in the report produced by the tool.
+
+\paragraph{Profile.}
+In an annotated function and in everything it calls, the plugin rejects dynamic allocation, exceptions, virtual and indirect calls, unstructured jumps, and any loop or recursion for which no bound is derived or stated. Calls are followed into their definitions, including library code.
+
+\paragraph{Cost.}
+The cost norm is a weighted count of source-level operations (arithmetic, assignments, memory accesses, calls, branches) with configurable weights; it is the weighted cost of Definition~\ref{def:subadditive-norm}. Costs are composed with the rules of Section~\ref{subsubsec:tropical-semiring}, refined so that a path ending in \texttt{return} is not charged for the code that follows it. A loop with at most $K$ iterations costs at most $K$ times the cost of guard and body, plus one failing guard (\lean{while\_\allowbreak cost\_\allowbreak bound}).
+
+\paragraph{Bounds.}
+Local integer variables whose address is not taken are mapped to affine expressions over symbols, and path conditions to linear constraints. At a loop, the modified variables are replaced by fresh symbols; simple candidate invariants (a variable that is only incremented stays above its initial value; a disequality guard $a \ne b$ with $a \le b$ initially) are kept if the solver proves them inductive. The paths through guard and body, up to a fixed number, give one transition each, and Z3 \cite{demoura2008z3} is asked for an affine potential satisfying the conditions of the relational variant of Theorem~\ref{thm:lyapunov-bound} on every path, encoded through Farkas' Lemma, together with the least constant $K$ dominating the potential on entry; the loop bound is $\lfloor K \rfloor$. Unsigned arithmetic is used only when it is proved not to wrap, and the limits of machine integers are never used as bounds. For recursion, both certificates of Proposition~\ref{prop:size-potential} are attempted, with the self-calls of each path as the summands, and the smaller bound is kept.
+
+\paragraph{Examples.}
+Table~\ref{tab:plugin} reports the output of the prototype on small programs written in the style of embedded firmware (directory \lean{benchmarks}). In addition, three programs are rejected as intended: one that reaches the allocator through a library container, one with a busy-wait loop, and one whose bound exceeds its deadline. The figures illustrate the behaviour of the analysis, including its pessimism: the bound for the merge sort is quadratic because every activation is charged the worst-case cost of a merge, and the recursive table lookup is given a linear depth where the true depth is logarithmic.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.21\textwidth}>{\raggedright\arraybackslash}p{0.19\textwidth}r>{\raggedright\arraybackslash}p{0.40\textwidth}@{}}
+\toprule
+Program & Function & Bound & Origin of the iteration or call bound \\
+\midrule
+FIR filter, 16 taps & one sample & 331 & 16 iterations, derived \\
+ & block of $\le 64$ samples & 21\,699 & 64 iterations, from the parameter range \\
+PID controller & one step & 19 & no loop; maximum over clamping branches \\
+ & four axes & 167 & 4 iterations, derived \\
+Range maximum (recursive) & window of 256 & 7\,154 & 511 calls, size potential $2(hi - lo) - 1$ \\
+Table lookup (recursive) & window of 256 & 6\,144 & linear recursion, linear depth bound \\
+Merge sort (recursive) & window of 256 & 3\,148\,271 & 511 calls, each charged a full merge \\
+CAN frame decoder & checksum & 67 & 7 iterations, derived from a clamp \\
+UART receive handler & drain FIFO & 309 & 16 iterations, \emph{assumed} (hardware) \\
+ & read ring buffer & 838 & 64 iterations, derived \\
+CRC-32, bitwise & packet of $\le 128$ bytes & 10\,502 & $128 \times 8$ iterations, derived \\
+Stepper ramp planning & speed $\le 4000$ & 883 & 79 iterations, derived from the lower bound on the acceleration \\
+\bottomrule
+\end{tabular}
+\caption{Cost bounds reported by the prototype, in abstract cost units with unit weights.}
+\label{tab:plugin}
+\end{table}
+
+\paragraph{Trust.}
+The implementation is not verified. What is machine-checked is the mathematics behind each kind of certificate it produces (Section~\ref{sec:mechanization}); the translation from the Clang syntax tree to constraints, the invariant generation and the SMT solver are trusted. The cost unit is not a duration (Section~\ref{sec:limitations}).
+
+\section{Mechanization in Lean 4}
+\label{sec:mechanization}
+
+The development accompanying this paper consists of about 2{,}100 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 137 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.54\textwidth}>{\raggedright\arraybackslash}p{0.16\textwidth}@{}}
+\toprule
+Paper statement & Lean theorem(s) & Module \\
+\midrule
+Eq.~\eqref{eq:iter-hom} (valuation homomorphism) & \lean{evalTrace\_\allowbreak concat}, \lean{evalTrace\_\allowbreak iter} & \lean{FixedPoint} \\
+Def.~\ref{def:subadditive-norm} (weighted cost) & \lean{wcost\_\allowbreak append}, \lean{wcost\_\allowbreak iter}, \lean{wcost\_\allowbreak one} & \lean{Trace} \\
+Prop.~\ref{prop:poset-properties} & \lean{order\_\allowbreak refl/\allowbreak trans/\allowbreak antisymm}, \lean{order\_\allowbreak cost\_\allowbreak le} & \lean{Trace} \\
+Prop.~\ref{prop:n-monotony} & \lean{iter\_\allowbreak monotone\_\allowbreak iff} & \lean{Trace} \\
+Thm.~\ref{thm:minimal-trace} & \lean{exists\_\allowbreak minimal\_\allowbreak iteration} & \lean{Trace} \\
+Prop.~\ref{prop:worst-case-step} & \lean{runTrace\_\allowbreak cost\_\allowbreak le}, \lean{runTrace\_\allowbreak wcost\_\allowbreak le} & \lean{WhileLoop} \\
+Prop.~\ref{prop:nested-cost} & \lean{nested\_\allowbreak trace\_\allowbreak cost}, \lean{sequential\_\allowbreak loops\_\allowbreak cost/\allowbreak prefix} & \lean{Trace} \\
+Prop.~\ref{prop:tropical-dominance}, \ref{prop:tropical-collapse} & \lean{condTrace\_\allowbreak cost\_\allowbreak le}, \lean{branch\_\allowbreak supremum\_\allowbreak bound} & \lean{Dominance} \\
+Thm.~\ref{thm:extensional-equivalence} & \lean{while\_\allowbreak trace\_\allowbreak semantics} & \lean{WhileLoop} \\
+Prop.~\ref{prop:min_x} & \lean{whileBigStep\_\allowbreak iff\_\allowbreak minimalExit}, \lean{MinimalExit.\allowbreak unique} & \lean{WhileLoop} \\
+Prop.~\ref{prop:tree-order-properties} & \lean{treePrefix\_\allowbreak refl/\allowbreak trans/\allowbreak antisymm}, \lean{treePrefix\_\allowbreak size\_\allowbreak le}, \lean{treePrefix\_\allowbreak graft}, \lean{treePrefix\_\allowbreak fullTree}, \lean{size\_\allowbreak le\_\allowbreak of\_\allowbreak depth\_\allowbreak le} & \lean{Tree} \\
+Prop.~\ref{prop:tree-power-complexity} & \lean{treePow\_\allowbreak leafCount}, \lean{treePow\_\allowbreak size}, \lean{treePow\_\allowbreak cherry}, \lean{treePow\_\allowbreak chain}, \lean{graft\_\allowbreak size}, \lean{graft\_\allowbreak assoc} & \lean{Tree} \\
+Prop.~\ref{prop:linrec} & \lean{framedBigStep\_\allowbreak iff}, \lean{linRec\_\allowbreak iff}, \lean{linear\_\allowbreak recursion\_\allowbreak cost} & \lean{Recursion} \\
+Prop.~\ref{prop:tree-optimization} & \lean{exec\_\allowbreak least}, \lean{exec\_\allowbreak unique}, \lean{treeBigStep\_\allowbreak iff} & \lean{Recursion} \\
+Thm.~\ref{thm:lyapunov-bound} & \lean{ranking\_\allowbreak bound}, \lean{ranking\_\allowbreak terminates}, \lean{wcet\_\allowbreak bound} & \lean{Ranking} \\
+Prop.~\ref{prop:tree-envelope} & \lean{exec\_\allowbreak depth\_\allowbreak le}, \lean{exec\_\allowbreak size\_\allowbreak le} & \lean{Recursion} \\
+Thm.~\ref{thm:lyapunov-bound} (relational) & \lean{ranking\_\allowbreak bound\_\allowbreak floor}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak le}, \lean{partial\_\allowbreak ranking\_\allowbreak floor} & \lean{Certificate} \\
+Sec.~\ref{subsubsec:smt-synthesis} (Farkas) & \lean{farkas\_\allowbreak sound}, \lean{farkas\_\allowbreak sound\_\allowbreak affine} & \lean{Certificate} \\
+Sec.~\ref{sec:implementation} (loop cost) & \lean{while\_\allowbreak cost\_\allowbreak bound} & \lean{Certificate} \\
+Prop.~\ref{prop:size-potential} & \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak potential}, \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak geom}, \lean{geom\_\allowbreak closed} & \lean{Arity} \\
+Section~\ref{sec:examples} & \lean{parametric\_\allowbreak loop\_\allowbreak minimal}, \lean{parametric\_\allowbreak loop\_\allowbreak ranking}, \lean{infinite\_\allowbreak loop\_\allowbreak diverges}, \lean{linear\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak envelope} & \lean{Examples} \\
+\bottomrule
+\end{tabular}
+\caption{Correspondence between the paper and the Lean~4 development.}
+\label{tab:lean}
+\end{table}
+
+\paragraph{Artifact.}
+The Lean sources are available at
+\begin{center}\url{https://github.com/ldallolio/crosscheck}\end{center}
+(directory \lean{formalization}); they build with \lean{lake build} against Lean \lean{v4.16.0} and the matching mathlib release. The file \lean{formalization/formalization.yaml} gives a machine-readable version of Table~\ref{tab:lean}.
+
+\paragraph{Modelling choices.}
+Traces are lists of instructions; the pointed domain $S_\bot$ is \lean{Option S}; partial transitions are functions into \lean{Option S}. The big-step semantics of loops, linear recursion and branching recursion are inductive predicates (\lean{WhileBigStep}, \lean{FramedBigStep}, \lean{TreeBigStep}). Ranking potentials are integer-valued, and the bound $\bar{N}$ is the natural number \lean{rankBound}.
+
+\paragraph{Scope of the mechanization.}
+The following points are \emph{not} mechanized, and the corresponding statements rest on the proofs given in the text:
+\begin{itemize}
+    \item branching factors $b > 2$ in the order-theoretic statements: the tree order, tree powers and the minimality of the execution tree (Propositions~\ref{prop:tree-order-properties}, \ref{prop:tree-power-complexity} and~\ref{prop:tree-optimization}) are mechanized for binary trees. A branching step with $L$ leaves is represented by a binary tree with $L - 1$ internal nodes, for which Proposition~\ref{prop:tree-power-complexity} reads $\cost(B^{\otimes d}) = 2L^d - 1$ (\lean{treePow\_\allowbreak size}). The counting bounds, in contrast, are mechanized for arbitrary arity on call trees (Proposition~\ref{prop:size-potential});
+    \item Theorem~\ref{thm:lyapunov-bound} as stated (termination together with the bound) is proved for a total state update; for partial or nondeterministic updates the bound on the length of runs is proved (\lean{ranking\_\allowbreak bound\_\allowbreak floor}), not the existence of a terminating run;
+    \item the equation-generating rules of Section~\ref{sec:application}; and the completeness direction of Farkas' Lemma, which is cited;
+    \item the Clang plugin of Section~\ref{sec:implementation}: its implementation is not verified, only the soundness of the certificates it relies on.
+\end{itemize}
+
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Cost is not time.}
+The bounds of this paper are bounds on a cost norm. With unit weights they count instructions; with weights $\omega$ they bound execution time only insofar as $\omega(a)$ is a valid worst-case duration of instruction $a$ in every context. On processors with caches, pipelines and branch prediction, instruction durations are context-dependent, and obtaining valid weights is the task of micro-architectural analysis \cite{wilhelm2008worst}. CrossCheck provides the loop-bound and path-cost components of a WCET analysis, not a complete WCET analyzer.
+
+\paragraph{Precision.}
+Tropical collapsing ignores infeasible paths. The nested-loop envelope is a product of worst cases without amortization. The branching envelope assumes a full tree of maximal depth, which is exponentially pessimistic for unbalanced recursions; size potentials avoid this only when an affine potential exists. Recursive functions are charged the worst-case cost of one activation for every activation.
+
+\paragraph{Completeness.}
+Exact solutions are available only for fragments with closed-form iterates. The relaxed analysis depends on finding a ranking potential; the linear template is incomplete for loops that require lexicographic or non-linear arguments, and it depends on externally supplied invariants.
+
+\paragraph{Language coverage.}
+The framework covers structured control flow (sequencing, conditionals, while loops, linear and branching recursion of the given schemes) over a store of scalar variables. Unstructured jumps, pointers and aliasing, dynamic allocation, mutual recursion and concurrency are not covered.
+
+\paragraph{Evaluation.}
+The paper contains no systematic experimental evaluation. The prototype has been run on the small programs of Table~\ref{tab:plugin} only; these were written for the purpose and are not an established benchmark suite. Assessing precision and scalability on real-time benchmark programs, and comparing with existing bound analyzers, is future work.
 
 \section*{Conclusions}
 
-In this paper, the binary relation \textit{order-by-composition} ($\sqsubseteq$) has been formalized over execution trace monoids $\Sigma^*$ and free computation tree algebras $\mathcal{T}_\Sigma$ as an intensional partial order reflecting computational cost. This framework provides the foundational justification for replacing iterative loops and recursive control flows with constrained optimization problems: because the terminal state corresponds to the first execution step or computation tree that satisfies the negation of the continuation condition, the exact program behavior can be determined by finding the minimal trace or tree under $\sqsubseteq$.
+The relation \textit{order-by-composition} ($\sqsubseteq$) has been defined on the free monoid of execution traces $\Sigma^*$ and on computation trees $\mathcal{T}_\Sigma$ as an intensional partial order along which computational cost is monotone. It justifies replacing iterative loops and recursive control flow with constrained optimization problems: the terminal state corresponds to the first iterate, or to the least computation tree, that satisfies the negation of the continuation condition, and we have proved that this minimizer is exactly the result of the standard big-step semantics.
 
-The translation procedure has been presented via operational semantic rules that mechanically emit systems of recurrence equations directly from imperative source code. Through dual-layer semantics, this approach simultaneously computes both the extensional terminal state $\bar{s}$ and the intensional execution complexity $\bar{n}$ (or tree work $\text{cost}(\bar{T})$) in closed form. The generalization to non-linear branching recursion demonstrates that divide-and-conquer algorithms map naturally onto operadic tree-grafting optimization problems.
+The translation has been presented as operational rules that emit systems of recurrence equations from imperative source code. Through the dual-layer semantics, a solution provides both the extensional terminal state $\bar{s}$ and the intensional execution complexity $\bar{n}$, or the tree work $\cost(\bar{T})$. The extension to branching recursion shows that divide-and-conquer control flow fits the same scheme, with grafting of trees in place of concatenation.
 
-While Matiyasevich's Theorem guarantees that general loop recurrence systems inherit Turing undecidability and G\"odel incompleteness, restricting program constructs to decidable fragments (such as Presburger arithmetic or max-plus algebras) yields mechanically solvable constraint systems. This creates a foundation for safety-critical real-time applications, where symbolic cost envelopes enable worst-case execution time (WCET) certification and compile-time loop acceleration.
+General recurrence systems are undecidable; restricting programs to decidable fragments, or relaxing exactness into envelopes based on ranking potentials and the tropical semiring, yields mechanically solvable constraint systems and sound cost bounds. The foundations, the envelopes and the examples are machine-checked in Lean~4.
 
-Future work includes formalizing concurrent and multi-threaded execution traces, integrating type systems, and implementing compiler tools (such as Clang plugins and SMT backends) to automate both functional state extraction and formal timing verification for industrial real-time profile subsets.
+Future work includes the evaluation of the prototype on real-time benchmark suites, lexicographic, logarithmic and amortized potentials, the mechanization of the tree order for arbitrary arity, the verification of the analyzer itself, and the treatment of concurrent execution traces.
+
+\section*{Statement on the Use of AI}
+
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate} and \lean{Arity} together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin of Section~\ref{sec:implementation}, its tests and its example programs, including the figures of Table~\ref{tab:plugin}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
 
 \section*{Acknowledgements}
 

@@ -1,13 +1,24 @@
+/-
+Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+Released under the MIT license as described in the file LICENSE.
+Authors: Luca Dall'Olio
+-/
 import Mathlib.Tactic
+import ImperativeOptimization.Trace
 
 namespace ImperativeOptimization
 
 /-!
-# Asymptotic Dominance and Tropical Bounding Envelopes
-Formalization of Definitions 11, Proposition 12, and Proposition 15.
+# Branch rule and dominance
+The branch rule of the timing schema (paper: `prop:tropical-dominance`,
+`prop:tropical-collapse`): `branch_supremum_bound`, `condTrace`, `condTrace_cost_le`.
+
+The big-O preorder `≼_O` and the lemmas `add_dominated_by_max`, `max_dominated_by_add`
+are not used by the paper (removed in the Nov 2026 simplification); they are kept as
+auxiliary material. Ranking potentials live in `Ranking.lean`.
 -/
 
-/-- Definition 11: Asymptotic Dominance Preorder (Big-O) on cost functions. -/
+/-- Big-O preorder on cost functions (not used by the paper). -/
 def AsympDominates (f g : ℕ → ℕ) : Prop :=
   ∃ C N₀, ∀ n ≥ N₀, f n ≤ C * g n
 
@@ -30,7 +41,8 @@ theorem dominance_trans {f g h : ℕ → ℕ} (h1 : f ≼_O g) (h2 : g ≼_O h) 
     _   ≤ C₁ * (C₂ * h n) := Nat.mul_le_mul_left C₁ h_step2
     _   = (C₁ * C₂) * h n := by ring
 
-/-- Proposition 12 (Branch Supremum): Cost of conditional execution is bounded by the max of branches. -/
+/-- Branch rule on numbers: the cost of a conditional is at most the guard cost plus the
+    maximum of the branch costs (paper: `prop:tropical-dominance`). -/
 theorem branch_supremum_bound (cost_c cost_then cost_else : ℕ) (cond_val : Bool) :
     cost_c + (if cond_val then cost_then else cost_else) ≤
       cost_c + max cost_then cost_else := by
@@ -44,24 +56,38 @@ theorem branch_supremum_bound (cost_c cost_then cost_else : ℕ) (cond_val : Boo
     have h : cost_then ≤ max cost_then cost_else := Nat.le_max_left cost_then cost_else
     omega
 
-/-- Proposition 15 (Ranking Function / Lyapunov Bound):
-    If a state measure V decreases by at least Δ > 0 on every step,
-    the number of executed steps k is bounded by V(s₀) / Δ. -/
-theorem ranking_bound (V : ℕ → ℕ) (Δ : ℕ) (_hΔ : Δ > 0)
-    (h_decr : ∀ k, V (k + 1) + Δ ≤ V k) (k : ℕ) :
-    k * Δ ≤ V 0 := by
-  have h_strong : ∀ m, m * Δ + V m ≤ V 0 := by
-    intro m
-    induction m with
-    | zero =>
-      dsimp
-      omega
-    | succ m ih =>
-      have h_step := h_decr m
-      have h_mul : (m + 1) * Δ = m * Δ + Δ := by ring
-      rw [h_mul]
-      omega
-  have hm := h_strong k
-  omega
+/-- Sequential composition is dominated by the branch-wise maximum:
+    `f + g ≼_O max(f, g)` (with constant `C = 2`). -/
+theorem add_dominated_by_max (f g : ℕ → ℕ) :
+    (fun n => f n + g n) ≼_O (fun n => max (f n) (g n)) :=
+  ⟨2, 0, fun n _ => by
+    show f n + g n ≤ 2 * max (f n) (g n)
+    have h1 := Nat.le_max_left (f n) (g n)
+    have h2 := Nat.le_max_right (f n) (g n)
+    omega⟩
+
+/-- Conversely `max(f, g) ≼_O f + g`, so both envelopes are `Θ`-equivalent. -/
+theorem max_dominated_by_add (f g : ℕ → ℕ) :
+    (fun n => max (f n) (g n)) ≼_O (fun n => f n + g n) :=
+  ⟨1, 0, fun n _ => by
+    show max (f n) (g n) ≤ 1 * (f n + g n)
+    have h : max (f n) (g n) ≤ f n + g n :=
+      Nat.max_le.mpr ⟨Nat.le_add_right _ _, Nat.le_add_left _ _⟩
+    omega⟩
+
+/-- Path trace emitted by a conditional `if c then t_then else t_else` at state `s`:
+    the guard trace followed by the trace of the branch actually taken. -/
+def condTrace {Instr S : Type} (c : S → Bool) (t_c t_then t_else : Trace Instr) (s : S) :
+    Trace Instr :=
+  t_c ++ (if c s then t_then else t_else)
+
+/-- Tropical branch collapsing on traces: whatever the state, the executed trace
+    of a conditional costs at most `‖t_c‖ + max(‖t_then‖, ‖t_else‖)`. -/
+theorem condTrace_cost_le {Instr S : Type} (c : S → Bool) (t_c t_then t_else : Trace Instr)
+    (s : S) :
+    cost (condTrace c t_c t_then t_else s) ≤ cost t_c + max (cost t_then) (cost t_else) := by
+  unfold condTrace
+  rw [cost_additive]
+  cases c s <;> simp
 
 end ImperativeOptimization

@@ -1,3 +1,8 @@
+/-
+Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+Released under the MIT license as described in the file LICENSE.
+Authors: Luca Dall'Olio
+-/
 import Mathlib.Tactic
 
 namespace ImperativeOptimization
@@ -89,6 +94,51 @@ theorem iter_monotone (t : Trace Instr) {n m : ℕ} (h : n ≤ m) :
     use v ++ t
     rw [hv, List.append_assoc]
 
+/-- Cost is monotone along the prefix order. -/
+theorem order_cost_le {u w : Trace Instr} (h : u ⊑ w) : cost u ≤ cost w := by
+  rcases h with ⟨v, rfl⟩
+  rw [cost_additive]
+  omega
+
+/-- Proposition (Monotonicity of Trace Iteration), both directions:
+    for a non-empty body, `t^n ⊑ t^m ↔ n ≤ m`. -/
+theorem iter_monotone_iff {t : Trace Instr} (ht : t ≠ []) {n m : ℕ} :
+    (t ^[n]) ⊑ (t ^[m]) ↔ n ≤ m := by
+  constructor
+  · intro h
+    have hc := order_cost_le h
+    rw [cost_iter, cost_iter] at hc
+    have hpos : 0 < cost t := List.length_pos.mpr ht
+    exact Nat.le_of_mul_le_mul_right hc hpos
+  · exact iter_monotone t
+
+/- =========================================================================
+   Weighted cost norms (instruction-dependent worst-case weights)
+   ========================================================================= -/
+
+/-- Weighted cost norm: every instruction `i` contributes a weight `ω i`
+    (e.g. a worst-case timing bound for that instruction). -/
+def wcost (ω : Instr → ℕ) (t : Trace Instr) : ℕ := (t.map ω).sum
+
+theorem wcost_nil (ω : Instr → ℕ) : wcost ω ([] : Trace Instr) = 0 := rfl
+
+theorem wcost_append (ω : Instr → ℕ) (u v : Trace Instr) :
+    wcost ω (u ++ v) = wcost ω u + wcost ω v := by
+  simp [wcost]
+
+theorem wcost_iter (ω : Instr → ℕ) (t : Trace Instr) (n : ℕ) :
+    wcost ω (t ^[n]) = n * wcost ω t := by
+  induction n with
+  | zero => simp [traceIter, wcost]
+  | succ n ih =>
+    dsimp [traceIter]
+    rw [wcost_append, ih]
+    ring
+
+/-- The instruction count is the weighted cost with unit weights. -/
+theorem wcost_one (t : Trace Instr) : wcost (fun _ => 1) t = cost t := by
+  simp [wcost, cost]
+
 /-- Predicate stating that a trace execution exits a loop condition. -/
 def ExitsAt (evalTrace : Trace Instr → Option S → Option S) (t : Trace Instr)
     (cond : S → Bool) (s₀ : S) (n : ℕ) : Prop :=
@@ -103,7 +153,8 @@ instance (evalTrace : Trace Instr → Option S → Option S) (t : Trace Instr)
   | none => exact Decidable.isFalse id
   | some s => exact inferInstance
 
-/-- Theorem 1: Minimal Exiting Trace Existence via the Well-Ordering Principle. -/
+/-- Minimal Exiting Trace Existence via the well-ordering principle
+    (paper: `thm:minimal-trace`). `Nat.find` is Kleene's μ-operator. -/
 theorem exists_minimal_iteration
     (evalTrace : Trace Instr → Option S → Option S) (t : Trace Instr)
     (cond : S → Bool) (s₀ : S)
@@ -117,37 +168,39 @@ theorem exists_minimal_iteration
   exact ⟨n_bar, Nat.find_spec h_term, fun k hk => Nat.find_min h_term hk, cost_iter t n_bar⟩
 
 /- =========================================================================
-   Nested Trace Exponentiation and Sequential Loops (Defs 8, Props 9 & 10)
+   Nested and sequential loops (paper: `prop:nested-cost`)
    ========================================================================= -/
 
-/-- Definition 8: Nested trace exponentiation (t₂^m)^(t₁^n) := (t₁ ++ t₂^m)^n -/
+/-- Trace of `n` outer iterations, each executing `t₁` and then `m` inner iterations of
+    `t₂`: `(t₁ ++ t₂^m)^n`. -/
 def nestedTrace (t₁ t₂ : Trace Instr) (n m : ℕ) : Trace Instr :=
   (t₁ ++ (t₂ ^[m])) ^[n]
 
-/-- Proposition 9: Exact cost formula for nested loop traces -/
+/-- Exact cost of nested loop traces (paper: `prop:nested-cost`, nested loops). -/
 theorem nested_trace_cost (t₁ t₂ : Trace Instr) (n m : ℕ) :
     cost (nestedTrace t₁ t₂ n m) = n * cost t₁ + n * m * cost t₂ := by
   dsimp [nestedTrace]
   rw [cost_iter, cost_additive, cost_iter]
   ring
 
-/-- Proposition 9: Prefix order inclusion for a single iteration -/
+/-- One outer iteration is a prefix of the nested trace (`n ≥ 1`). -/
 theorem nested_trace_prefix (t₁ t₂ : Trace Instr) (m : ℕ) {n : ℕ} (hn : n ≥ 1) :
     (t₁ ++ (t₂ ^[m])) ⊑ (nestedTrace t₁ t₂ n m) :=
   iter_monotone (t₁ ++ (t₂ ^[m])) hn
 
-/-- Proposition 10: Sequential while loops trace cost is additive -/
+/-- Cost of two loops in sequence is additive (paper: `prop:nested-cost`, sequential loops). -/
 theorem sequential_loops_cost (t₁ t₂ : Trace Instr) (n₁ n₂ : ℕ) :
     cost ((t₁ ^[n₁]) ++ (t₂ ^[n₂])) = n₁ * cost t₁ + n₂ * cost t₂ := by
   rw [cost_additive, cost_iter, cost_iter]
 
-/-- Proposition 10: First loop is a prefix of sequential composition -/
+/-- The first loop is a prefix of the sequential composition (paper: `prop:nested-cost`). -/
 theorem sequential_loops_prefix (t₁ t₂ : Trace Instr) (n₁ n₂ : ℕ) :
     (t₁ ^[n₁]) ⊑ ((t₁ ^[n₁]) ++ (t₂ ^[n₂])) := by
   use t₂ ^[n₂]
 
 /- =========================================================================
-   Structural Subsequence Order (Definition 8b & Proposition 9 bounds)
+   Subsequence order. Not used by the paper (removed in the Nov 2026
+   simplification); kept as auxiliary material.
    ========================================================================= -/
 
 /-- Structural Subsequence Order: `u ⊑_sub w` indicates `u` is embedded within `w` (sublist). -/
@@ -176,7 +229,7 @@ theorem subseq_cost_le {u w : Trace Instr} (h : u ⊑_sub w) :
     dsimp
     omega
 
-/-- Prefix order strictly implies structural subsequence order. -/
+/-- The prefix order is contained in the subsequence order. -/
 theorem prefix_le_subseq {u w : Trace Instr} (h : u ⊑ w) : u ⊑_sub w := by
   rcases h with ⟨v, rfl⟩
   dsimp [SubsequenceOrder]
@@ -187,6 +240,42 @@ theorem prefix_le_subseq {u w : Trace Instr} (h : u ⊑ w) : u ⊑_sub w := by
     | cons b l ih => exact List.Sublist.cons b ih
   | cons a l ih =>
     exact List.Sublist.cons₂ a ih
+
+/-- Transitivity of structural subsequence order. -/
+theorem subseq_trans {u v w : Trace Instr} (h1 : u ⊑_sub v) (h2 : v ⊑_sub w) : u ⊑_sub w :=
+  List.Sublist.trans h1 h2
+
+/-- Monotonicity of any weighted cost under structural subsequence embedding. -/
+theorem subseq_wcost_le (ω : Instr → ℕ) {u w : Trace Instr} (h : u ⊑_sub w) :
+    wcost ω u ≤ wcost ω w := by
+  dsimp [SubsequenceOrder] at h
+  induction h with
+  | slnil => exact Nat.le_refl _
+  | cons a _ ih =>
+    simp only [wcost, List.map_cons, List.sum_cons] at *
+    omega
+  | cons₂ a _ ih =>
+    simp only [wcost, List.map_cons, List.sum_cons] at *
+    omega
+
+/-- The outer-loop scaffolding `t₁^n` is embedded in the nested trace. -/
+theorem iter_subseq_nested (t₁ t₂ : Trace Instr) (n m : ℕ) :
+    (t₁ ^[n]) ⊑_sub (nestedTrace t₁ t₂ n m) := by
+  induction n with
+  | zero => exact List.Sublist.refl _
+  | succ n ih =>
+    show ((t₁ ^[n]) ++ t₁).Sublist ((nestedTrace t₁ t₂ n m) ++ (t₁ ++ (t₂ ^[m])))
+    exact List.Sublist.append ih (List.sublist_append_left t₁ _)
+
+/-- The accumulated inner-loop work `(t₂^m)^n` is embedded in the nested trace. -/
+theorem inner_subseq_nested (t₁ t₂ : Trace Instr) (n m : ℕ) :
+    ((t₂ ^[m]) ^[n]) ⊑_sub (nestedTrace t₁ t₂ n m) := by
+  induction n with
+  | zero => exact List.Sublist.refl _
+  | succ n ih =>
+    show (((t₂ ^[m]) ^[n]) ++ (t₂ ^[m])).Sublist
+      ((nestedTrace t₁ t₂ n m) ++ (t₁ ++ (t₂ ^[m])))
+    exact List.Sublist.append ih (List.sublist_append_right t₁ _)
 
 /-- Outer loop component cost is bounded by nested trace cost. -/
 theorem nested_trace_cost_outer_le (t₁ t₂ : Trace Instr) (n m : ℕ) :

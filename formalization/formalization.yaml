@@ -1,0 +1,91 @@
+# Machine-readable link between the paper (paper/crosscheck.tex) and the Lean 4
+# development. Generated from Table 1 of the paper; keep the two in sync.
+# NOTE: the schema below is project-defined. It has NOT been validated against
+# any community specification for formalization metadata.
+project: CrossCheck
+paper: paper/crosscheck.tex
+lean_toolchain: leanprover/lean4:v4.16.0
+mathlib: v4.16.0
+root_module: ImperativeOptimization
+namespace: ImperativeOptimization
+build: "cd formalization && lake exe cache get && lake build"
+status: "formalized modulo the items listed under not_formalized"
+sorry_free: true
+custom_axioms: []
+standard_axioms: [propext, Quot.sound, Classical.choice]
+statements:
+  - paper_labels: [eq:iter-hom]
+    module: ImperativeOptimization.FixedPoint
+    lean: [evalTrace_concat, evalTrace_iter]
+  - paper_labels: [def:subadditive-norm]
+    module: ImperativeOptimization.Trace
+    lean: [wcost_append, wcost_iter, wcost_one]
+  - paper_labels: [prop:poset-properties]
+    module: ImperativeOptimization.Trace
+    lean: [order_refl, order_trans, order_antisymm, order_cost_le]
+  - paper_labels: [prop:n-monotony]
+    module: ImperativeOptimization.Trace
+    lean: [iter_monotone_iff]
+  - paper_labels: [thm:minimal-trace]
+    module: ImperativeOptimization.Trace
+    lean: [exists_minimal_iteration]
+  - paper_labels: [prop:worst-case-step]
+    module: ImperativeOptimization.WhileLoop
+    lean: [runTrace_cost_le, runTrace_wcost_le]
+  - paper_labels: [prop:nested-cost]
+    module: ImperativeOptimization.Trace
+    lean: [nested_trace_cost, sequential_loops_cost, sequential_loops_prefix]
+  - paper_labels: [prop:tropical-dominance, prop:tropical-collapse]
+    module: ImperativeOptimization.Dominance
+    lean: [condTrace_cost_le, branch_supremum_bound]
+  - paper_labels: [thm:extensional-equivalence]
+    module: ImperativeOptimization.WhileLoop
+    lean: [while_trace_semantics]
+  - paper_labels: [prop:min_x]
+    module: ImperativeOptimization.WhileLoop
+    lean: [whileBigStep_iff_minimalExit, MinimalExit.unique]
+  - paper_labels: [prop:tree-order-properties]
+    module: ImperativeOptimization.Tree
+    lean: [treePrefix_refl, treePrefix_trans, treePrefix_antisymm, treePrefix_size_le, treePrefix_graft, treePrefix_fullTree, size_le_of_depth_le]
+  - paper_labels: [prop:tree-power-complexity]
+    module: ImperativeOptimization.Tree
+    lean: [treePow_leafCount, treePow_size, treePow_cherry, treePow_chain, graft_size, graft_assoc]
+  - paper_labels: [prop:linrec]
+    module: ImperativeOptimization.Recursion
+    lean: [framedBigStep_iff, linRec_iff, linear_recursion_cost]
+  - paper_labels: [prop:tree-optimization]
+    module: ImperativeOptimization.Recursion
+    lean: [exec_least, exec_unique, treeBigStep_iff]
+  - paper_labels: [thm:lyapunov-bound]
+    module: ImperativeOptimization.Ranking
+    lean: [ranking_bound, ranking_terminates, wcet_bound]
+  - paper_labels: [prop:tree-envelope]
+    module: ImperativeOptimization.Recursion
+    lean: [exec_depth_le, exec_size_le]
+  - paper_labels: [thm:lyapunov-bound]
+    note: "relational variant with potentials valued in an ordered field"
+    module: ImperativeOptimization.Certificate
+    lean: [ranking_bound_floor, ranking_bound_of_le, while_ranking_floor, partial_ranking_floor]
+  - paper_labels: [subsubsec:smt-synthesis]
+    note: "soundness direction of Farkas' Lemma"
+    module: ImperativeOptimization.Certificate
+    lean: [farkas_sound, farkas_sound_affine]
+  - paper_labels: [sec:implementation]
+    note: "loop cost formula used by the Clang plugin"
+    module: ImperativeOptimization.Certificate
+    lean: [while_cost_bound]
+  - paper_labels: [prop:size-potential]
+    module: ImperativeOptimization.Arity
+    lean: [callTree_size_le_potential, callTree_size_le_geom, geom_closed, RTree.size_le_geom, RTree.size_le_potential]
+  - paper_labels: [sec:examples]
+    module: ImperativeOptimization.Examples
+    lean: [parametric_loop_minimal, parametric_loop_ranking, infinite_loop_diverges, linear_recursion_bigstep, binary_recursion_bigstep, binary_recursion_envelope]
+not_formalized:
+  - labels: [prop:tree-order-properties, prop:tree-power-complexity, prop:tree-optimization]
+    reason: "formalized for binary trees (b = 2) only; general arity b is proved on paper (the counting bounds are formalized for arbitrary arity, see prop:size-potential)"
+  - labels: [thm:lyapunov-bound]
+    reason: "termination is formalized for total deterministic updates; for relations only the bound on run length is formalized"
+  - labels: [sec:application]
+    reason: "equation-generating rules are described, not formalized; completeness of Farkas' Lemma is cited"
+  - labels: [sec:implementation]
+    reason: "the Clang plugin (C++) and the SMT solver are not verified"

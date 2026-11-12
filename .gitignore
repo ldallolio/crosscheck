@@ -71,3 +71,8 @@ Testing/
 # Temporary editor / OS files
 .DS_Store
 .vscode/.react/
+# Companion guide PDF build (docs/guide/tools/build-pdf.mjs)
+docs/guide/tools/node_modules/
+docs/guide/tools/guide.html
+docs/guide/*.pdf
+docs/guide/tools/node_modules

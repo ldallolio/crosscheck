@@ -1,0 +1,266 @@
+# CrossCheck Clang plugin
+
+A compile-time checker for real-time C++ code. For every annotated function it
+
+1. enforces a **real-time profile** (no dynamic allocation, no exceptions, no
+   virtual or indirect calls, no unbounded loop or recursion), and
+2. derives a **worst-case cost bound** in abstract cost units, and compares it
+   with a deadline if one is given.
+
+A violation is a compile error. The bounds are computed without running or
+unrolling the code: loops and recursion are bounded by affine *ranking
+potentials* found by an SMT solver (Z3), and costs are combined with the
+classical timing-schema rules (sequence = sum, branch = max, loop = bound × body).
+
+> **Status: research prototype.** The cost unit is an abstract instruction
+> count, not time (see [Cost model](#cost-model) and [Limitations](#limitations)).
+> The analyser itself is not formally verified; what is machine-checked in Lean
+> is the mathematics its certificates rely on (see [Soundness](#soundness)).
+
+## Example
+
+```cpp
+#include <crosscheck/attributes.hpp>
+
+CROSSCHECK_DEADLINE(500)
+int sum(const int* a, CROSSCHECK_RANGE(0, 64) int n) {
+  int s = 0;
+  for (int i = 0; i < n; ++i) s += a[i];
+  return s;
+}
+```
+
+```console
+$ clang++ -std=c++20 -fplugin=libCrossCheckPlugin.so -Iclang-plugin/include -c sum.cpp
+sum.cpp:4:5: remark: crosscheck: 'sum': worst-case cost bound 453 units (deadline 500), under 1 assumption(s)
+```
+
+Raise the range to `CROSSCHECK_RANGE(0, 100)` and the build fails:
+
+```console
+sum.cpp:4:5: error: crosscheck: worst-case cost bound 705 of 'sum' exceeds its deadline 500
+```
+
+More examples, taken from typical embedded code, are in
+[`../benchmarks`](../benchmarks/README.md).
+
+## Building
+
+Requirements: LLVM/Clang 18 (development libraries), Z3 (C++ API), CMake ≥ 3.22,
+Ninja, a C++20 compiler, GoogleTest (for the tests).
+
+```bash
+cd clang-plugin
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+ninja -C build
+ctest --test-dir build --output-on-failure
+```
+
+This produces `build/libCrossCheckPlugin.so` (the compiler plugin) and
+`build/crosscheck-tool` (a standalone driver).
+
+If the dependencies are not installed system-wide, a conda environment works:
+
+```bash
+conda create -n crosscheck -c conda-forge clangdev=18 llvmdev=18 clangxx=18 cmake ninja libz3 gtest
+E=$CONDA_PREFIX/../envs/crosscheck     # or the path printed by conda
+cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$E \
+      -DCMAKE_EXE_LINKER_FLAGS="-L$E/lib -Wl,-rpath,$E/lib" \
+      -DCMAKE_MODULE_LINKER_FLAGS="-L$E/lib -Wl,-rpath,$E/lib"
+```
+
+If Clang must be pointed at a particular libstdc++ for the tests, pass for
+instance `-DCROSSCHECK_CLANG_EXTRA_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13`.
+
+## Usage
+
+### As a compiler plugin
+
+```bash
+clang++ -fplugin=/path/to/libCrossCheckPlugin.so [plugin options] file.cpp
+```
+
+The plugin must be loaded by the same Clang major version it was built against.
+Options are passed as `-fplugin-arg-crosscheck-<option>`:
+
+| Option | Meaning |
+|---|---|
+| `report=FILE` | write a JSON report (bounds, loop potentials, assumptions, errors) |
+| `all` | analyse every function defined in the main file, not only annotated ones |
+| `weight-CLASS=N` | weight of an instruction class (see [Cost model](#cost-model)) |
+| `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
+
+### As a standalone tool
+
+```bash
+crosscheck-tool [--summary] [--report=FILE] [--all] [--opt=weight-memory=3] file.cpp -- -std=c++20 -Iinclude
+```
+
+Exit status 0 if every analysed function is accepted, 1 otherwise.
+
+## Annotations
+
+All annotations are macros from `<crosscheck/attributes.hpp>`. They expand to
+`[[clang::annotate]]` (or to an unevaluated `sizeof`) and have no run-time
+effect; other compilers ignore them.
+
+| Annotation | Where | Meaning | Trusted? |
+|---|---|---|---|
+| `CROSSCHECK_REALTIME` | function | enforce the profile, report a bound | – |
+| `CROSSCHECK_DEADLINE(n)` | function | same, and reject if the bound exceeds `n` | – |
+| `CROSSCHECK_RANGE(lo, hi)` | integer parameter | precondition `lo <= p <= hi` | proved at analysed call sites; assumed for external callers |
+| `CROSSCHECK_REQUIRE(cond)` | first statements of a body | precondition relating parameters, e.g. `lo < hi` | as above |
+| `CROSSCHECK_ASSUME(cond)` | statement | fact usable from this point on (e.g. after reading a register) | **yes** |
+| `CROSSCHECK_LOOP_BOUND(n)` | first statement of a loop body | the loop runs at most `n` times | **yes**, unless a tighter bound is derived |
+| `CROSSCHECK_BOUNDED(n)` | variable of a `for` init-statement | same | **yes**, unless a tighter bound is derived |
+| `CROSSCHECK_COST(n)` | function declaration | cost of a function whose body is not analysed | **yes** |
+
+Everything trusted is listed under `assumptions` in the report, so a reviewer
+sees exactly what the bound depends on. Only conjunctions of linear integer
+comparisons are used from `REQUIRE`/`ASSUME`; other conditions are ignored
+(neither assumed nor checked).
+
+## Real-time profile
+
+Rejected inside an annotated function and in everything it calls:
+
+- `new` / `delete`, `malloc`, `calloc`, `realloc`, `free`, `alloca`, … (placement `new` is allowed);
+- `throw`, `try`/`catch`, `dynamic_cast`;
+- virtual calls that cannot be devirtualised, calls through function pointers;
+- `goto`, variable-length arrays, coroutines;
+- local variables and temporaries with non-trivial destructors (hidden cost);
+- loops and recursion for which no bound is derived or stated; mutual recursion;
+- calls to functions with neither a body nor `CROSSCHECK_COST`.
+
+Calls are followed into their definitions, including the standard library, so
+`v.push_back(x)` is rejected because it reaches `operator new`. A violation found
+inside a system header is reported once, at the call site in user code.
+
+## Cost model
+
+The cost of a path is a weighted count of abstract instructions; every weight
+defaults to 1 and can be changed with `weight-CLASS=N`.
+
+| Class | Counted for |
+|---|---|
+| `arith` | each arithmetic, bitwise, comparison or logical-negation operator |
+| `assign` | each assignment, increment, initialisation of an integer variable |
+| `memory` | each array subscript, pointer dereference, `->` |
+| `call` | each call (the callee's bound is added) |
+| `branch` | each evaluated `if`/loop/`switch`/`?:`/`&&`/`||` test, `break`, `continue` |
+| `ret` | each `return` |
+| `convert` | each integer ↔ floating-point conversion |
+
+Reads of local variables, literals and `.` member accesses are free.
+Composition rules:
+
+| Construct | Bound |
+|---|---|
+| `A; B` | `cost(A) + cost(B)` |
+| `if (c) A else B` | `cost(c) + max(cost(A), cost(B))` |
+| `if (c) return x; rest` | `cost(c) + max(cost(return x), cost(rest))` |
+| `switch` | test + sum of all cases (sound with fall-through) |
+| loop with at most `K` iterations | `K · (test + body + step) + test` (+ one body if the loop can be left by `break`/`return`) |
+| function recursing with at most `N` activations | `N · (cost of one activation)` |
+
+These are upper bounds, not exact counts: infeasible paths are not excluded and
+nested loops are multiplied without amortisation.
+
+## How bounds are derived
+
+**State.** Each tracked local integer variable is mapped to an affine expression
+over symbols; path conditions and invariants are linear constraints over the
+same symbols. A local is tracked if its address is never taken and it is not
+captured or bound to a reference. Everything else (globals, fields, memory,
+results of calls) is an unknown value.
+
+**Loops.** For each loop the analyser
+
+1. replaces the variables modified in the loop by fresh symbols (the state at the
+   loop head);
+2. proposes simple invariants — a variable that is only incremented stays above
+   its entry value, `a != b` with `a <= b` initially stays `a <= b` — and keeps
+   those that Z3 proves inductive;
+3. executes the guard and body symbolically, path by path (up to `max-paths`);
+4. asks Z3 for `V(x) = w·x + c0` with, on every path, `V(x) − V(x') ≥ 1` and
+   `V(x) ≥ 1`, and for the smallest `K` with `V(entry) ≤ K`. The universally
+   quantified conditions are turned into linear constraints by Farkas' Lemma.
+   The loop then runs at most `⌊K⌋` times.
+
+**Recursion.** Two certificates are tried and the better one is kept:
+
+- a *depth potential* over the parameters, decreasing at every self-call, which
+  bounds the depth `D`; with at most `b` self-calls per activation there are at
+  most `1 + b + … + b^D` activations;
+- a *size potential* `U` with `U(x) ≥ 1 + Σ U(args of the self-calls)` on every
+  path, which bounds the number of activations by `U(x)` directly. This gives
+  linear bounds for divide-and-conquer (`2·(hi − lo) − 1` activations for a
+  recursive split of a range).
+
+**Arithmetic.** Signed overflow is undefined behaviour and is assumed not to
+happen. Unsigned arithmetic wraps: an unsigned result is used only if Z3 proves
+it does not wrap, otherwise it becomes an unknown value. The limits of 32- and
+64-bit types are never used as bounds.
+
+## Soundness
+
+What a bound means: *if* the assumptions listed in the report hold, the code has
+no undefined behaviour, and the analyser is correct, then every execution of the
+function performs at most the reported number of weighted abstract instructions.
+
+The mathematical steps are machine-checked in Lean 4 (`../formalization`):
+
+| Step in the analyser | Lean theorem |
+|---|---|
+| potential decreasing by ≥ 1 and ≥ 1 on each step ⇒ at most `⌊V⌋` steps (relational, rational-valued) | `ranking_bound_floor`, `ranking_bound_of_le` (`Certificate`) |
+| Farkas multipliers imply the universally quantified condition | `farkas_sound_affine` (`Certificate`) |
+| loop cost `K·(test + body) + test` | `while_cost_bound` (`Certificate`) |
+| branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
+| depth `D`, branching `b` ⇒ at most `1 + b + … + b^D` activations | `callTree_size_le_geom`, `geom_closed` (`Arity`) |
+| size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
+
+**Not verified:** the C++ implementation (the translation from the Clang AST to
+constraints, the invariant generation, the cost counting) and Z3. The tests in
+`tests/` include a set of loops that must be rejected, as regression tests for
+soundness.
+
+## Limitations
+
+- **Cost is not time.** Turning the bound into a time bound needs per-instruction
+  worst-case durations for the target, which depend on caches, pipelines and the
+  compiler's code generation. The analysis works on the source AST, before
+  optimisation.
+- **Linear potentials only.** A loop or recursion that terminates by a
+  logarithmic, lexicographic or non-linear argument gets a linear bound (binary
+  search: depth `≤ n` instead of `log n`) or is rejected; state the bound with
+  `CROSSCHECK_LOOP_BOUND`.
+- **No amortisation.** Nested loops are multiplied; a recursive function is
+  charged the worst-case cost of one activation for every activation (merge sort
+  is bounded by `O(n²)`).
+- **Context-insensitive calls.** A callee is analysed once, under its own
+  preconditions, not per call site.
+- **Integers only.** Loop counters that are pointers, iterators or floating-point
+  values are not tracked; iterate by index or state the bound. Range-`for` is
+  supported over C arrays and `std::array`.
+- **Not supported:** `goto`, mutual recursion, concurrency, condition variables in
+  `while`/`for`, `if consteval`.
+
+## Source layout
+
+```
+include/crosscheck/attributes.hpp   annotations (the only file user code includes)
+src/core/LinExpr.{hpp,cpp}          affine expressions, linear constraints
+src/core/Cost.hpp                   saturating cost arithmetic, tree-size bound
+src/core/Solver.{hpp,cpp}           Z3: entailment, ranking and size potentials (Farkas)
+src/analysis/Analyzer.{hpp,cpp}     the AST walker: profile, cost, symbolic state
+src/analysis/Consumer.{hpp,cpp}     Clang ASTConsumer shared by plugin and tool
+src/analysis/Report.{hpp,cpp}       structured report and JSON output
+src/plugin/Plugin.cpp               plugin registration
+src/tool/Main.cpp                   crosscheck-tool
+tests/core_test.cpp                 solver and arithmetic (no Clang needed)
+tests/analyzer_test.cpp             end-to-end tests on C++ snippets
+tests/benchmarks_test.cpp           expectations on ../benchmarks
+```
+
+`src/core` does not depend on Clang, and `src/analysis` does not depend on how
+the analysis is launched.
