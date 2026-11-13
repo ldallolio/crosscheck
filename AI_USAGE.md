@@ -423,6 +423,27 @@ What the AI did:
   One error fixed (`blazy2013formal`: year 2014). 24 DOIs added. New entry
   `nielson1987hoare` (from Crossref). The content of the papers was not read.
 
+24. "Proceed with the order as you see fit. I would like you to also read cited paper
+    contents (and if possible download them somewhere in this repository) when they are
+    available. I wish that this plugin would allow to check real industrial code in C /
+    C++ (and later on, another plugin for rust) for architectures used in real-time
+    applications (in this case, maybe even temporal checks and some basic parallelism
+    could be integrated ?). I would like that standard libraries with explicit complexity
+    constraint and declared time behaviour would be accepted (such as std library in
+    C++), what do you think ?"
+
+What the AI did: new folder `references/` with `fetch_papers.py`, which downloads the
+open-access copies of the cited papers (21 of 50 entries) into a gitignored folder; the
+PDFs are not committed because most are under publisher or author copyright. The AI
+read abstracts, and for a few papers the sections the text relies on; what was read and
+checked is listed per entry in `references/README.md`. Two statements of the paper were
+corrected after reading: TACLeBench is no longer called "the successor of" the
+Mälardalen benchmarks (the article lists several sources), and the comparison with
+Haslbeck and Nipkow in `subsec:cost-logic` now states what their paper does (three
+logics for deterministic IMP, sound and complete, triples assert termination). Nielson
+1987 was not obtained; the `\authortodo` now names it. The AI also answered the
+questions on industrial use (see the conversation); no code was changed for them.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -518,4 +539,5 @@ is whether each Lean statement says what the paper says, and everything outside 
     resolve the `\authortodo` on how this system differs from theirs.
 18. **Bibliography.** The data of every entry were checked by script against public
     indexes (see session notes); check `matiyasevich1970enumerable` yourself, and read
-    the papers whose content the text relies on.
+    the papers whose content the text relies on. `references/README.md` lists which
+    papers the AI read, how far, and which it could not obtain (29 entries).

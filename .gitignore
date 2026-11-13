@@ -79,3 +79,5 @@ docs/guide/tools/node_modules
 benchmarks/tacle/.cache/
 benchmarks/tpdb/.cache/
 __pycache__/
+references/pdf/
+references/txt/

@@ -1,0 +1,344 @@
+{
+ "agmai2026responsible": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page: https://agmai.org/general-sep29/",
+  "title": "Responsible Release of {AI}-Generated Mathematics"
+ },
+ "albert2011closed": {
+  "doi": "10.1007/s10817-010-9174-1",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Closed-Form Upper Bounds in Static Cost Analysis"
+ },
+ "alias2010multi": {
+  "bytes": 299559,
+  "doi": "10.1007/978-3-642-15769-1_8",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "Multi-dimensional Rankings, Program Termination, and Complexity Bounds of Flowchart Programs",
+  "url": "https://hal.inria.fr/inria-00523298/file/rankingCompsys_sas2010.pdf"
+ },
+ "baccelli1992synchronization": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "Synchronization and Linearity: An Algebra for Discrete Event Systems"
+ },
+ "bardin2008fast": {
+  "doi": "10.1007/s10009-008-0064-3",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "{FAST}: Acceleration from Theory to Practice"
+ },
+ "benamram2014ranking": {
+  "bytes": 1011019,
+  "doi": "10.1145/2629488",
+  "source": "arXiv",
+  "status": "downloaded",
+  "title": "Ranking Functions for Linear-Constraint Loops",
+  "url": "https://arxiv.org/pdf/1208.4041"
+ },
+ "blazy2013formal": {
+  "bytes": 2055954,
+  "doi": "10.1007/978-3-642-54108-7_15",
+  "source": "HAL (Inria)",
+  "status": "downloaded",
+  "title": "Formal Verification of Loop Bound Estimation for {WCET} Analysis",
+  "url": "https://inria.hal.science/hal-00848703/document"
+ },
+ "brockschmidt2016analyzing": {
+  "bytes": 779963,
+  "doi": "10.1145/2866575",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "Analyzing Runtime and Size Complexity of Integer Programs",
+  "url": "https://eprints.bbk.ac.uk/id/eprint/16257/1/16257.pdf"
+ },
+ "carbonneaux2015compositional": {
+  "doi": "10.1145/2737924.2737955",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Compositional Certified Resource Bounds"
+ },
+ "clangeffects": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page: https://clang.llvm.org/docs/FunctionEffectAnalysis.html",
+  "title": "Function Effect Analysis"
+ },
+ "colon2001synthesis": {
+  "bytes": 297188,
+  "doi": "10.1007/3-540-45319-9_6",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "Synthesis of Linear Ranking Functions",
+  "url": "https://link.springer.com/content/pdf/10.1007/3-540-45319-9_6.pdf"
+ },
+ "cormen2009introduction": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "Introduction to Algorithms"
+ },
+ "cousot1977abstract": {
+  "doi": "10.1145/512950.512973",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Abstract Interpretation: A Unified Lattice Model for Static Analysis of Programs by Construction or Approximation of Fixpoints"
+ },
+ "demichiel2008orange": {
+  "doi": "10.1109/RTCSA.2008.53",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Static Loop Bound Analysis of {C} Programs Based on Flow Analysis and Abstract Interpretation"
+ },
+ "demoura2008z3": {
+  "bytes": 250090,
+  "doi": "10.1007/978-3-540-78800-3_24",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "{Z3}: An Efficient {SMT} Solver",
+  "url": "https://link.springer.com/content/pdf/10.1007%2F978-3-540-78800-3_24.pdf"
+ },
+ "demoura2021lean4": {
+  "bytes": 306659,
+  "doi": "10.1007/978-3-030-79876-5_37",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "The {Lean} 4 Theorem Prover and Programming Language",
+  "url": "https://link.springer.com/content/pdf/10.1007/978-3-030-79876-5_37.pdf"
+ },
+ "diekert1995traces": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "The Book of Traces"
+ },
+ "falk2016taclebench": {
+  "bytes": 575113,
+  "doi": "10.4230/OASIcs.WCET.2016.2",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "{TACLeBench}: A Benchmark Collection to Support Worst-Case Execution Time Research",
+  "url": "https://hal.science/hal-02610690/document"
+ },
+ "falke2011termination": {
+  "bytes": 632169,
+  "doi": "10.4230/LIPIcs.RTA.2011.41",
+  "source": "DROPS (Dagstuhl, open access)",
+  "status": "downloaded",
+  "title": "Termination Analysis of {C} Programs Using Compiler Intermediate Languages",
+  "url": "https://drops.dagstuhl.de/storage/00lipics/lipics-vol010-rta2011/LIPIcs.RTA.2011.41/LIPIcs.RTA.2011.41.pdf"
+ },
+ "floresmontoya2014cofloco": {
+  "doi": "10.1007/978-3-319-12736-1_15",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Resource Analysis of Complex Programs with Cost Equations"
+ },
+ "floyd1967assigning": {
+  "doi": "10.1090/psapm/019/0235771",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Assigning Meanings to Programs"
+ },
+ "frohn2020calculus": {
+  "bytes": 326727,
+  "doi": "10.1007/978-3-030-45190-5_4",
+  "source": "arXiv",
+  "status": "downloaded",
+  "title": "A Calculus for Modular Loop Acceleration",
+  "url": "https://arxiv.org/pdf/2001.01516"
+ },
+ "giesl2019termcomp": {
+  "bytes": 2040363,
+  "doi": "10.1007/978-3-030-17502-3_10",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "The Termination and Complexity Competition",
+  "url": "https://link.springer.com/content/pdf/10.1007%2F978-3-030-17502-3_10.pdf"
+ },
+ "gueneau2018fistful": {
+  "bytes": 652599,
+  "doi": "10.1007/978-3-319-89884-1_19",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "A Fistful of Dollars: Formalizing Asymptotic Complexity Claims via Deductive Program Verification",
+  "url": "https://link.springer.com/content/pdf/10.1007%2F978-3-319-89884-1_19.pdf"
+ },
+ "gulwani2009speed": {
+  "doi": "10.1145/1480881.1480898",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "{SPEED}: Precise and Efficient Static Estimation of Program Computational Complexity"
+ },
+ "gustafsson2010malardalen": {
+  "bytes": 471453,
+  "doi": "10.4230/OASIcs.WCET.2010.136",
+  "source": "DROPS (Dagstuhl, open access)",
+  "status": "downloaded",
+  "title": "The {M}{\\\"a}lardalen {WCET} Benchmarks: Past, Present and Future",
+  "url": "https://drops.dagstuhl.de/storage/01oasics/oasics-vol015-wcet2010/OASIcs.WCET.2010.136/OASIcs.WCET.2010.136.pdf"
+ },
+ "haslbeck2018hoare": {
+  "bytes": 925941,
+  "doi": "10.1007/978-3-319-89960-2_9",
+  "source": "publisher (Springer, open access)",
+  "status": "downloaded",
+  "title": "Hoare Logics for Time Bounds: A Study in Meta Theory",
+  "url": "https://link.springer.com/content/pdf/10.1007/978-3-319-89960-2_9.pdf"
+ },
+ "hoffmann2012multivariate": {
+  "doi": "10.1145/2362389.2362393",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Multivariate Amortized Resource Analysis"
+ },
+ "hoffmann2022two": {
+  "bytes": 686013,
+  "doi": "10.1017/S0960129521000487",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "Two Decades of Automatic Amortized Resource Analysis",
+  "url": "https://www.cambridge.org/core/services/aop-cambridge-core/content/view/9A47A8663CD8A7147E2F17865C368094/S0960129521000487a.pdf/div-class-title-two-decades-of-automatic-amortized-resource-analysis-div.pdf"
+ },
+ "infercost": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page: https://fbinfer.com/docs/checker-cost",
+  "title": "Cost: Complexity Analysis"
+ },
+ "kahn1987natural": {
+  "doi": "10.1007/BFb0039592",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Natural Semantics"
+ },
+ "kincaid2019closed": {
+  "doi": "10.1145/3290368",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Closed Forms for Numerical Loops"
+ },
+ "lattner2004llvm": {
+  "bytes": 206829,
+  "doi": "10.1109/CGO.2004.1281665",
+  "source": "LLVM project page",
+  "status": "downloaded",
+  "title": "{LLVM}: A Compilation Framework for Lifelong Program Analysis \\& Transformation",
+  "url": "https://llvm.org/pubs/2004-01-30-CGO-LLVM.pdf"
+ },
+ "leroy2009coinductive": {
+  "bytes": 279341,
+  "doi": "10.1016/j.ic.2007.12.004",
+  "source": "arXiv",
+  "status": "downloaded",
+  "title": "Coinductive Big-Step Operational Semantics",
+  "url": "https://arxiv.org/pdf/0808.0586"
+ },
+ "li1995ilp": {
+  "doi": "10.1145/217474.217570",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Performance Analysis of Embedded Software Using Implicit Path Enumeration"
+ },
+ "lommen2022automatic": {
+  "bytes": 721770,
+  "doi": "10.1007/978-3-031-10769-6_43",
+  "source": "publisher (Springer, open access)",
+  "status": "downloaded",
+  "title": "Automatic Complexity Analysis of Integer Programs via Triangular Weakly Non-Linear Loops",
+  "url": "https://link.springer.com/content/pdf/10.1007/978-3-031-10769-6_43.pdf"
+ },
+ "manna1974mathematical": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "Mathematical Theory of Computation"
+ },
+ "maroneze2014formally": {
+  "bytes": 551872,
+  "doi": "10.4230/OASIcs.WCET.2014.11",
+  "source": "open access (Semantic Scholar)",
+  "status": "downloaded",
+  "title": "A Formally Verified {WCET} Estimation Tool",
+  "url": "https://drops.dagstuhl.de/opus/volltexte/2014/4600/pdf/3.pdf"
+ },
+ "mathlib2020": {
+  "bytes": 913731,
+  "doi": "10.1145/3372885.3373824",
+  "source": "arXiv",
+  "status": "downloaded",
+  "title": "The {Lean} Mathematical Library",
+  "url": "https://arxiv.org/pdf/1910.09336"
+ },
+ "matiyasevich1970enumerable": {
+  "doi": null,
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Enumerable Sets Are Diophantine"
+ },
+ "nielson1987hoare": {
+  "doi": "10.1016/0167-6423(87)90029-3",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "A {H}oare-like Proof System for Analysing the Computation Time of Programs"
+ },
+ "podelski2004complete": {
+  "doi": "10.1007/978-3-540-24622-0_20",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "A Complete Method for the Synthesis of Linear Ranking Functions"
+ },
+ "podelski2004transition": {
+  "doi": "10.1109/LICS.2004.1319598",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Transition Invariants"
+ },
+ "puschner1989calculating": {
+  "doi": "10.1007/BF00571421",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Calculating the Maximum Execution Time of Real-Time Programs"
+ },
+ "schrijver1986theory": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "Theory of Linear and Integer Programming"
+ },
+ "shaw1989reasoning": {
+  "doi": "10.1109/32.29487",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Reasoning About Time in Higher-Level Language Software"
+ },
+ "sinn2014complexity": {
+  "bytes": 292651,
+  "doi": "10.1007/978-3-319-08867-9_50",
+  "source": "arXiv",
+  "status": "downloaded",
+  "title": "A Simple and Scalable Static Analysis for Bound Analysis and Amortized Complexity Analysis",
+  "url": "https://arxiv.org/pdf/1401.5842"
+ },
+ "wegbreit1975mechanical": {
+  "doi": "10.1145/361002.361016",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "Mechanical Program Analysis"
+ },
+ "wilhelm2008worst": {
+  "doi": "10.1145/1347375.1347389",
+  "source": null,
+  "status": "no open-access copy found",
+  "title": "The Worst-Case Execution-Time Problem---Overview of Methods and Survey of Tools"
+ },
+ "winskel1993formal": {
+  "doi": null,
+  "source": null,
+  "status": "book or web page",
+  "title": "The Formal Semantics of Programming Languages: An Introduction"
+ }
+}

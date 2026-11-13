@@ -3,8 +3,8 @@
 [TACLeBench](https://github.com/RTSYork/tacle-bench) (Falk et al., *TACLeBench: A
 Benchmark Collection to Support Worst-Case Execution Time Research*, WCET 2016,
 OASIcs 55, [doi:10.4230/OASIcs.WCET.2016.2](https://doi.org/10.4230/OASIcs.WCET.2016.2))
-is the benchmark collection of the WCET community and the successor of the Mälardalen
-WCET benchmarks (Gustafsson et al., WCET 2010). Its programs are self-contained C, and
+is a benchmark collection for WCET research, gathered from several earlier suites, among
+them the Mälardalen WCET benchmarks (Gustafsson et al., WCET 2010). Its programs are self-contained C, and
 every loop carries a flow fact `#pragma loopbound min X max Y`.
 
 `run_tacle.py` fetches a pinned revision (`4e4fbf7`, 2020-10-15) into `.cache/`

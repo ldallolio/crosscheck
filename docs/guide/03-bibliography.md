@@ -427,7 +427,9 @@ programs (sorting, matrix code, DSP filters, CRC, …) collected in 2005 that WC
 have used to compare themselves, notably in the WCET Tool Challenge 2006. It discusses
 their properties and weaknesses and proposes how the collection should evolve.
 
-**Why cited.** As the predecessor of TACLeBench, in subsection `subsec:tacle`.
+**Why cited.** As one of the suites TACLeBench draws its programs from, in subsection
+`subsec:tacle` (the TACLeBench paper lists several sources; it does not call itself the
+successor of this suite).
 Bibliographic data checked on the publisher's page (DROPS) in November 2026; content
 summarised from the abstract. Confidence: high for the data, medium for the content.
 
@@ -556,8 +558,10 @@ bounds** (e.g. Nielson's logic for big-O bounds, a quantitative Hoare logic in t
 Carbonneaux et al., separation logic with time credits), proving soundness and
 completeness and relating them.
 
-**Why cited.** Formalised program logics for running time. Confidence: medium for the exact
-list of logics.
+**Why cited.** Formalised program logics for running time, and the closest prior work to
+the cost logic of `subsec:cost-logic`. The list of logics, the language (deterministic
+IMP) and the soundness-and-completeness results were read in the paper on 2026-11-13.
+Confidence: high.
 
 ## I. Mathematics and tools
 
