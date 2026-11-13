@@ -1,0 +1,5 @@
+insertsort_initialize	inf {Infinity}
+insertsort_init	inf {Infinity}
+insertsort_return	26 {O(1)}
+insertsort_main	inf {Infinity}
+main	inf {Infinity}

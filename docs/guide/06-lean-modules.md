@@ -57,7 +57,7 @@ examples in `ImperativeOptimization.Examples`. Every file starts with the MIT he
 | `Ranking` | 125 | integer ranking potentials, termination, WCET envelope |
 | `Tree` | 315 | binary computation trees, grafting, tree order, powers |
 | `Recursion` | 236 | linear and binary recursion ⇔ minimisation; depth envelope |
-| `Certificate` | 147 | what the plugin relies on: relational ℚ-potentials, Farkas, loop cost |
+| `Certificate` | 210 | what the plugin relies on: relational ℚ-potentials, invariants and calling contexts, Farkas, loop cost |
 | `Arity` | 230 | trees of any arity; depth and size potentials |
 | `Examples` | 270 | the paper's four examples |
 
@@ -505,6 +505,10 @@ variable {S : Type} {α : Type} [LinearOrderedField α]     -- α = ℚ in the p
 | `farkas_sound` | `λ ≥ 0`, `c = Σ λᵢ aᵢ`, `Σ λᵢ bᵢ ≤ d`, and `aᵢ·x ≤ bᵢ` for all `i` ⇒ `c·x ≤ d` |
 | `farkas_sound_affine` | the form used in `Solver.cpp`: premises `pᵢ·x + qᵢ ≤ 0`, target `c·x + d ≤ 0`, certificate `c = Σ λᵢ pᵢ`, `d ≤ Σ λᵢ qᵢ` |
 | `while_cost_bound` | `n ≤ K` iterations of guard (≤ `Wg`) + body (≤ `Wb`) then a final guard cost ≤ `K·(Wg + Wb) + Wg` |
+| `run_invariant` | a predicate `I` that holds at `σ 0` and is preserved by `step` holds at every `σ k` — the facts kept at a loop exit, by guard or by `break` |
+| `ranking_bound_floor_of_invariant` | `ranking_bound_floor` with the conditions on `V` required only on states in `I` |
+| `ranking_bound_of_context` | same, with `V s ≤ K` for every `s` in a context `C` and `σ 0 ∈ C`: `n ≤ ⌊K⌋₊` — **the number reported for a calling context** (paper: `prop:context-bound`) |
+| `call_bound_of_context` | if `callCost a ≤ B` whenever `C a`, then calls with arguments in `C` cost at most `length · B` in total |
 
 How runs are represented: a run is a sequence `σ : ℕ → S` with `step (σ k) (σ (k+1))`
 for `k < n`. This handles nondeterminism (the relation can have several successors) and
@@ -523,6 +527,13 @@ and termination is not claimed (see the paper's "Scope of the mechanization").
     push_cast
     linarith                                                            -- m + 1 ≤ V(σ 0)
 ```
+
+**`ranking_bound_floor_of_invariant`** is one line: apply `ranking_bound_floor` to the
+restricted relation `fun s s' => I s ∧ step s s'`; the run is a run of that relation
+because `run_invariant` gives `I (σ k)` for every `k`. The context `C` of
+`ranking_bound_of_context` only enters through `Nat.floor_mono`. A calling context is a
+set of *initial* states (intervals on the parameters' entry values), which is why it is a
+separate hypothesis from the invariant `I`.
 
 Compared with `ranking_bound`, the decrease is normalised to 1 and positivity is `≥ 1`,
 so no integrality argument is needed; the floor appears only at the end.

@@ -132,12 +132,53 @@ bounds could feed an IPET tool. Expect this question; agree that IPET is more pr
 **Q. How pessimistic are the bounds?**
 Tight on the paper's examples and on simple counted loops; pessimistic on data-dependent
 branching (no infeasible-path pruning), nested dependent loops, and recursion with
-size-dependent work (merge sort quadratic). There is no systematic evaluation yet
-(Limitations, "Evaluation").
+size-dependent work (merge sort quadratic). On the TACLeBench kernels, in the calling
+contexts reached from `main`, 128 of the 137 loop bounds derived equal the benchmark's
+flow facts and 7 are larger; of the 126 bounds valid for every call, 100 are equal and
+25 larger (Table `tab:tacle`).
 
 **Q. Did you evaluate on Mälardalen / TACLeBench?**
-Not yet; it is the next step (CLAUDE.md "Current focus"). Table `tab:plugin` is the
-tool's output on our own small programs, not an evaluation.
+On the 29 TACLeBench kernels, without annotations (`subsec:tacle`): 137 of 220 loops
+bounded automatically in the program's calling contexts (126 for every call of their
+function), 9 kernels bounded end to end. Always say which of the two kinds of bound a
+figure is. Be ready for the follow-ups:
+(1) *compared with what?* — with the benchmarks' flow facts (which hold for the fixed
+input) and with three tools (`tab:tools`): LLVM's ScalarEvolution, KoAT2 and Infer. Know
+the one-line result for each:
+   - **ScalarEvolution** (the compiler's trip-count analysis): nearly the same loops as
+     CrossCheck (103 in common, 99 identical bounds); it wins on float counters (it
+     evaluates short constant loops exhaustively), CrossCheck wins where LLVM falls back
+     to the range of `int` (`ludcmp`, `minver`).
+   - **KoAT2** (state of the art in complexity analysis of integer programs): sound for
+     the integer program, but llvm2kittel forgets memory, so many bounds are symbolic or
+     missing; it handles `i*i <= n`, which we do not.
+   - **CoFloCo** (cost equations, same integer programs as KoAT2): more numeric bounds
+     than KoAT2 (128 vs 119) and never looser on the same program. Its entry-function
+     bounds cover nearly the same kernels as ours: its limit is still llvm2kittel.
+   - **Infer** (industrial, interprocedural): bounds the most functions thanks to
+     context, but is not designed as a sound bound — it ignores recursion (constant cost
+     for Fibonacci).
+   - **Executions** (our instrumentation, run on the input): no bound of CrossCheck or
+     ScalarEvolution is below an observed loop count. The flow facts are below it on
+     two `while (1)`/`break` loops, by one: say they seem to count only iterations
+     that return to the loop head, not that they are wrong. Expect "is your
+     instrumentation right?": it agrees with the flow facts on 198 of 208 loops.
+   - **oRange** (OTAWA's loop-bound analyser): analyses the whole program from `main`
+     with its fixed input, like our in-context bounds: 131 loops against our 137, and
+     identical bounds on all 113 loops both bound. It wins on float counters and
+     globals; we win on its five failing kernels and on `sizeof` guards. It rejects
+     recursion, and reports 1 for a `while (n-- > 0)` loop that runs twice
+     (`filterbank`). Present that as an observation to be confirmed, not an attack.
+   - **TPDB** (the complexity analysers' own benchmark): CrossCheck is clearly behind
+     (165 programs with input ranges vs 288 for KoAT2). Say so first; then explain that
+     it answers a different question (numeric bounds, no symbolic ones), and name what
+     is missing (disjunctive and multi-phase potentials, facts across loops).
+   If asked "why not SWEET / aiT?": aiT is commercial; check SWEET's availability
+   before answering;
+(2) *why do 83 loops fail?* — mostly bounds held in struct fields or globals, or in
+parameters with no range even at the call (contexts are intervals of integer
+arguments only), then float or `volatile` counters, then non-affine loops (binary search, `i*i <= n`, data-driven loops);
+(3) *kernels are small* — yes; the sequential and application categories are next.
 
 **Q. What about interrupts, preemption, multicore interference?**
 Out of scope: the bound is for one function's sequential execution. Schedulability
@@ -218,7 +259,8 @@ CONFIRM]` marker stays until you have done it).
 
 ## 8. Known weak points, ranked
 
-1. **No systematic evaluation** (most likely referee criticism).
+1. **Thin evaluation** (most likely referee criticism): TACLeBench kernels only (small
+   programs), no dedicated WCET flow-analysis tool in the comparison, no annotations.
 2. **Novelty is in packaging**, not in individual results — must be argued well.
 3. **Plugin unverified**, Z3 models not re-checked; the trusted base is large.
 4. **Precision**: no amortisation, affine potentials only, timing schema without
@@ -239,7 +281,7 @@ CONFIRM]` marker stays until you have done it).
 | "cost bound in abstract units" | "execution time" |
 | "machine-checked in Lean, no axioms beyond the three standard ones" | "fully verified", "zero axioms" |
 | "the timing schema, read in the (max,+) semiring" | "our tropical algebra of control flow" (as if new) |
-| "research prototype; no systematic evaluation" | "the tool scales to real code" |
+| "research prototype; on the TACLeBench kernels, close to LLVM's trip counts, sound where Infer is not" | "the tool scales to real code" |
 | "affine ranking potentials synthesised by Farkas/LP (standard method)" | "our synthesis method" |
 | "the plugin's certificates are justified by Lean theorems" | "the plugin is verified" |
 | "uniform formulation of known ingredients" | "novel framework" without qualification |

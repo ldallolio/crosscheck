@@ -1,0 +1,1 @@
+local_alloc	max([nat(V_n_basic_blocks)*4,nat(V_max_qty)*2+4+nat(V_n_basic_blocks-1)*4])+4 	n 

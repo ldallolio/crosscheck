@@ -1,0 +1,17 @@
+pm_init_lib	245 {O(1)}
+pm_init_pattern	245 {O(1)}
+pm_init	1 {O(1)}
+pm_math_init	1 {O(1)}
+pm_return	1 {O(1)}
+pm_main	!timeout-or-error
+pm_init_data	1 {O(1)}
+pm_kernel	!timeout-or-error
+pm_clean	1 {O(1)}
+pm_floor	1 {O(1)}
+pm_ceil	1 {O(1)}
+pm_pow10f	1 {O(1)}
+pm_log10f	1 {O(1)}
+pm_fabs	1 {O(1)}
+pm_memcpy	2*Arg_1+4 {O(n)}
+pm_memset	2*Arg_1+4 {O(n)}
+main	!timeout-or-error

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="ludcmp_init" numcall="3" line="174" source="ludcmp.c" executed="true" extern="false">
+            <function name="ludcmp_init">
+                <loop loopId="1" line="50" source="ludcmp.c" exact="true" maxcount="6" totalcount="6">
+                    <loop loopId="2" line="53" source="ludcmp.c" exact="true" maxcount="6" totalcount="36">
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <call name="ludcmp_main" numcall="4" line="175" source="ludcmp.c" executed="true" extern="false">
+            <function name="ludcmp_main">
+                <call name="ludcmp_test" numcall="2" line="169" source="ludcmp.c" executed="true" extern="false">
+                    <function name="ludcmp_test">
+                        <conditional id="IF-6"> <condition line="103" source="ludcmp.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="106" source="ludcmp.c">
+                                <loop loopId="4" line="106" source="ludcmp.c" exact="false" maxcount="5" totalcount="5">
+                                    <conditional id="IF-8"> <condition line="108" source="ludcmp.c" executed="true"> </condition>
+                                        <case cond="1" executed="true" line="111" source="ludcmp.c">
+                                            <loop loopId="5" line="111" source="ludcmp.c" exact="false" maxcount="5" totalcount="15">
+                                                <conditional id="IF-9"> <condition line="114" source="ludcmp.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="116" source="ludcmp.c">
+                                                        <loop loopId="6" line="116" source="ludcmp.c" exact="false" maxcount="4" totalcount="60">
+                                                        </loop>
+                                                    </case>
+                                                    <case cond="0" executed="true" >
+                                                    </case>
+                                                </conditional>
+                                            </loop>
+                                            <loop loopId="7" line="124" source="ludcmp.c" exact="false" maxcount="5" totalcount="15">
+                                                <loop loopId="8" line="128" source="ludcmp.c" exact="false" maxcount="5" totalcount="75">
+                                                </loop>
+                                            </loop>
+                                        </case>
+                                        <case cond="0" executed="true" >
+                                        </case>
+                                    </conditional>
+                                </loop>
+                            </case>
+                            <case cond="0" executed="false" >
+                            </case>
+                        </conditional>
+                        <conditional id="IF-10"> <condition line="131" source="ludcmp.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="135" source="ludcmp.c">
+                                <loop loopId="9" line="138" source="ludcmp.c" exact="false" maxcount="5" totalcount="5">
+                                    <loop loopId="10" line="142" source="ludcmp.c" exact="false" maxcount="5" totalcount="15">
+                                    </loop>
+                                </loop>
+                                <loop loopId="11" line="151" source="ludcmp.c" exact="false" maxcount="5" totalcount="5">
+                                    <loop loopId="12" line="155" source="ludcmp.c" exact="false" maxcount="5" totalcount="15">
+                                    </loop>
+                                </loop>
+                            </case>
+                            <case cond="0" executed="true" >
+                            </case>
+                        </conditional>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="ludcmp_return" numcall="5" line="177" source="ludcmp.c" executed="true" extern="false">
+            <function name="ludcmp_return">
+                <loop loopId="3" line="76" source="ludcmp.c" exact="true" maxcount="6" totalcount="6">
+                </loop>
+            </function>
+        </call>
+        <loop source="ludcmp.c" line="50" max="6"  min="6">
+        </loop>
+        <loop source="ludcmp.c" line="53" max="6"  min="6">
+        </loop>
+        <loop source="ludcmp.c" line="76" max="6"  min="6">
+        </loop>
+        <loop source="ludcmp.c" line="106" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="111" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="116" max="4"  min="4">
+        </loop>
+        <loop source="ludcmp.c" line="124" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="128" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="138" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="142" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="151" max="5"  min="5">
+        </loop>
+        <loop source="ludcmp.c" line="155" max="5"  min="5">
+        </loop>
+    </function>
+</flowfacts>
+

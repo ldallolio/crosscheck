@@ -145,7 +145,8 @@ The primary contributions of this work are:
     enforcement of timing budgets (Section~\ref{sec:application}).
     \item \textbf{Prototype:} A Clang plugin implements the relaxed analysis for annotated C++ functions
     (Section~\ref{sec:implementation}). It is a research prototype: it is applied to a small set of example
-    programs, and no systematic evaluation is reported.
+    programs and, without annotations, to the kernels of the TACLeBench collection, where its loop bounds are
+    compared with the flow facts of the benchmarks, with loop counts observed on their inputs, and with five existing analyzers; and on the C programs of the Termination and Complexity Competition, with KoAT2 and CoFloCo.
 \end{itemize}
 
 \section{Related Work}
@@ -686,6 +687,25 @@ Write $s_k \coloneqq f^k(s_0)$ and suppose $P(s_j)$ holds for all $j < n$. By in
 
 The theorem is stated for integer-valued potentials and a deterministic update. The same argument gives a variant that is closer to what a tool computes (\lean{ranking\_\allowbreak bound\_\allowbreak floor}): let $V$ take values in an ordered field (for instance $\mathbb{Q}$) and let $\to$ be a transition \emph{relation} on $S$, possibly nondeterministic or partial; if $V(s') \le V(s) - 1$ and $V(s) \ge 1$ whenever $s \to s'$, then every run $s_0 \to s_1 \to \dots \to s_n$ has $n \le \lfloor V(s_0) \rfloor$. A rational potential with decrease $\Delta$ is brought to this form by dividing by $\Delta$.
 
+In practice the conditions on $V$ hold only on the states that a run can reach, and the bound on the initial potential depends on what is known about the initial state. The next statement separates the two.
+
+\begin{prop}[Bound under an invariant and a context]
+\label{prop:context-bound}
+Let $\to$ be a transition relation on $S$, let $V : S \to \mathbb{Q}$, and let $I, C \subseteq S$. Assume that
+\begin{enumerate}
+    \item $I$ is preserved by steps: if $s \in I$ and $s \to s'$, then $s' \in I$;
+    \item $V(s') \le V(s) - 1$ and $V(s) \ge 1$ whenever $s \in I$ and $s \to s'$;
+    \item $V(s) \le K$ for every $s \in C$.
+\end{enumerate}
+Then every run $s_0 \to s_1 \to \dots \to s_n$ with $s_0 \in I \cap C$ satisfies $s_k \in I$ for all $k \le n$, and $n \le \lfloor K \rfloor$.
+\end{prop}
+
+\begin{proof}
+By induction on $k$ and assumption~(1), $s_k \in I$ for every $k \le n$. The run is therefore a run of the relation $\to_I$ defined by $s \to_I s'$ if and only if $s \in I$ and $s \to s'$, and by assumption~(2) the potential $V$ satisfies the hypotheses of the relational variant above for $\to_I$. Hence $n \le \lfloor V(s_0) \rfloor$, and $\lfloor V(s_0) \rfloor \le \lfloor K \rfloor$ by assumption~(3), since $s_0 \in C$.
+\end{proof}
+
+The set $I$ is an inductive invariant of the loop. The set $C$ is a \emph{context}: a constraint on the initial state, for instance on the values of the parameters of a function at its entry. Two consequences are used in Section~\ref{sec:implementation}. First, since every state of the run is in $I$, the invariant holds wherever the run stops, in particular when a loop is left by an early exit and not by its guard. Second, the bound is a function of the context: if a cost bound $B$ has been derived for a function under a context $C$, it applies to every call whose arguments satisfy $C$, so that $m$ such calls cost at most $m \cdot B$; a function may thus be given different bounds at different call sites, each under a context that is proved at that site.
+
 \subsubsection{Hierarchical and Recursive Composition}
 \label{subsubsec:compositional-wcet}
 
@@ -919,7 +939,7 @@ and the value synthesized at the root is $v_{\varepsilon} = 4$. The function $V_
 \section{Prototype Implementation}
 \label{sec:implementation}
 
-The relaxed analysis of Section~\ref{subsec:asymptotic-relaxation} is implemented as a plugin for the Clang compiler (about 3{,}200 lines of C++ and 1{,}000 lines of tests; directory \lean{clang-plugin} of the repository). It checks functions marked with a source annotation, and a violation is a compilation error. This section describes what the prototype does; it is not an evaluation.
+The relaxed analysis of Section~\ref{subsec:asymptotic-relaxation} is implemented as a plugin for the Clang compiler (about 3{,}400 lines of C++ and 1{,}100 lines of tests; directory \lean{clang-plugin} of the repository). It checks functions marked with a source annotation, and a violation is a compilation error. This section describes what the prototype does and reports a first measurement on an established benchmark collection, with a comparison to existing analyzers (Subsection~\ref{subsec:tacle}).
 
 \paragraph{Input.}
 A function is annotated as real-time, optionally with a deadline in cost units. Integer parameters may carry range preconditions, and a function may state a linear precondition relating its parameters; preconditions are assumed in the function and proved at each analysed call site. Three further annotations introduce \emph{trusted} information: a bound for a loop, a fact that holds at a program point, and the cost of a function whose body is not available. Everything trusted is listed in the report produced by the tool.
@@ -931,7 +951,10 @@ In an annotated function and in everything it calls, the plugin rejects dynamic 
 The cost norm is a weighted count of source-level operations (arithmetic, assignments, memory accesses, calls, branches) with configurable weights; it is the weighted cost of Definition~\ref{def:subadditive-norm}. Costs are composed with the rules of Section~\ref{subsubsec:tropical-semiring}, refined so that a path ending in \texttt{return} is not charged for the code that follows it. A loop with at most $K$ iterations costs at most $K$ times the cost of guard and body, plus one failing guard (\lean{while\_\allowbreak cost\_\allowbreak bound}).
 
 \paragraph{Bounds.}
-Local integer variables whose address is not taken are mapped to affine expressions over symbols, and path conditions to linear constraints. At a loop, the modified variables are replaced by fresh symbols; simple candidate invariants (a variable that is only incremented stays above its initial value; a disequality guard $a \ne b$ with $a \le b$ initially) are kept if the solver proves them inductive. The paths through guard and body, up to a fixed number, give one transition each, and Z3 \cite{demoura2008z3} is asked for an affine potential satisfying the conditions of the relational variant of Theorem~\ref{thm:lyapunov-bound} on every path, encoded through Farkas' Lemma, together with the least constant $K$ dominating the potential on entry; the loop bound is $\lfloor K \rfloor$. Unsigned arithmetic is used only when it is proved not to wrap, and the limits of machine integers are never used as bounds. For recursion, both certificates of Proposition~\ref{prop:size-potential} are attempted, with the self-calls of each path as the summands, and the smaller bound is kept.
+Local integer variables whose address is not taken are mapped to affine expressions over symbols, and path conditions to linear constraints. At a loop, the modified variables are replaced by fresh symbols; simple candidate invariants (a variable that is only incremented stays above its initial value; a disequality guard $a \ne b$ with $a \le b$ initially) are kept if the solver proves them inductive. The paths through guard and body, up to a fixed number, give one transition each, and Z3 \cite{demoura2008z3} is asked for an affine potential satisfying the conditions of the relational variant of Theorem~\ref{thm:lyapunov-bound} on every path, encoded through Farkas' Lemma, together with the least constant $K$ dominating the potential on entry; the loop bound is $\lfloor K \rfloor$. Unsigned arithmetic is used only when it is proved not to wrap, and the limits of machine integers are never used as bounds. For recursion, both certificates of Proposition~\ref{prop:size-potential} are attempted, with the self-calls of each path as the summands, and the smaller bound is kept. After a loop, the analysis keeps one state for the exit through the guard, with the proved invariants and the negated guard, and one state for each path that leaves by \texttt{break}, with the facts of that path; this is justified by the first consequence of Proposition~\ref{prop:context-bound}.
+
+\paragraph{Calls.}
+A callee is analyzed under a calling context, following Proposition~\ref{prop:context-bound}. When a call is evaluated, the solver is asked for the interval of each integer argument in the current symbolic state; the intervals are joined over all the states in which the call is evaluated, which include every path and the generic iteration of each enclosing loop. The callee is then analyzed with these intervals as additional facts on its parameters, and the result is the cost of that call. A context is thus proved at the call site it is used for, and nothing is added to the trusted information. Functions that call themselves are analyzed without context, because the context holds for the first activation only, and the number of contexts per function is limited. The report gives, for each function, the bound that holds for every call satisfying its preconditions, and the bound that holds in the contexts through which a designated entry function reaches it. Contexts are intervals: relations between arguments, the values of global variables and the effects of a callee on memory are not propagated.
 
 \paragraph{Examples.}
 Table~\ref{tab:plugin} reports the output of the prototype on small programs written in the style of embedded firmware (directory \lean{benchmarks}). In addition, three programs are rejected as intended: one that reaches the allocator through a library container, one with a busy-wait loop, and one whose bound exceeds its deadline. The figures illustrate the behaviour of the analysis, including its pessimism: the bound for the merge sort is quadratic because every activation is charged the worst-case cost of a merge, and the recursive table lookup is given a linear depth where the true depth is logarithmic.
@@ -964,10 +987,103 @@ Stepper ramp planning & speed $\le 4000$ & 883 & 79 iterations, derived from the
 \paragraph{Trust.}
 The implementation is not verified. What is machine-checked is the mathematics behind each kind of certificate it produces (Section~\ref{sec:mechanization}); the translation from the Clang syntax tree to constraints, the invariant generation and the SMT solver are trusted. The cost unit is not a duration (Section~\ref{sec:limitations}).
 
+\subsection{TACLeBench kernels}
+\label{subsec:tacle}
+
+TACLeBench \cite{falk2016taclebench} is a collection of self-contained C programs for WCET research and the successor of the M\"alardalen WCET benchmarks \cite{gustafsson2010malardalen}. Every loop of its programs carries a flow fact \texttt{\#pragma loopbound min $X$ max $Y$}. We ran the tool on the 29 programs of its \emph{kernel} category (revision \texttt{4e4fbf7} of the public repository), analysing every function, \emph{without adding any annotation}; the files of each program are concatenated into one translation unit. For each loop with a flow fact, Table~\ref{tab:tacle} compares the bound derived by the tool, if any, with the maximum $Y$ of the flow fact. Two bounds are reported for a loop: the one that holds for every call of its function, and the one that holds in the calling contexts through which the program's \texttt{main} function reaches it (paragraph ``Calls'' above); the second is the one comparable with the flow facts, which describe the program on its fixed input. The script that fetches the benchmarks and produces the table is \lean{benchmarks/tacle/run\_tacle.py}; the whole run takes about one minute.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrrr@{}}
+\toprule
+ & & \multicolumn{6}{c}{For every call} & \multicolumn{2}{c}{In context} \\
+\cmidrule(lr){3-8}\cmidrule(l){9-10}
+Kernel & Loops & Derived & $= Y$ & $> Y$ & $< Y$ & None & \texttt{\_main} & Derived & $= Y$ \\
+\midrule
+binarysearch & 2 & 1 & 1 & 0 & 0 & 1 & -- & 1 & 1 \\
+bitcount & 4 & 2 & 1 & 1 & 0 & 2 & -- & 2 & 1 \\
+bitonic & 3 & 2 & 2 & 0 & 0 & 1 & -- & 2 & 2 \\
+bsort & 4 & 4 & 4 & 0 & 0 & 0 & 240\,702 & 4 & 4 \\
+complex\_updates & 4 & 4 & 4 & 0 & 0 & 0 & 871 & 4 & 4 \\
+cosf & 3 & 0 & 0 & 0 & 0 & 3 & -- & 0 & 0 \\
+countnegative & 4 & 4 & 4 & 0 & 0 & 0 & 5\,752 & 4 & 4 \\
+cubic & 6 & 0 & 0 & 0 & 0 & 6 & -- & 0 & 0 \\
+deg2rad & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+fac & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+fft & 12 & 10 & 8 & 2 & 0 & 2 & -- & 10 & 8 \\
+filterbank & 14 & 11 & 11 & 0 & 0 & 3 & -- & 11 & 11 \\
+fir2dim & 17 & 9 & 9 & 0 & 0 & 8 & -- & 9 & 9 \\
+iir & 6 & 6 & 6 & 0 & 0 & 0 & 210 & 6 & 6 \\
+insertsort & 4 & 2 & 2 & 0 & 0 & 2 & -- & 2 & 2 \\
+isqrt & 5 & 1 & 1 & 0 & 0 & 4 & -- & 2 & 2 \\
+jfdctint & 4 & 4 & 4 & 0 & 0 & 0 & 2\,699 & 4 & 4 \\
+lms & 7 & 4 & 4 & 0 & 0 & 3 & 115\,950 & 7 & 7 \\
+ludcmp & 12 & 12 & 3 & 9 & 0 & 0 & 4\,903 & 12 & 12 \\
+matrix1 & 7 & 7 & 7 & 0 & 0 & 0 & 15\,496 & 7 & 7 \\
+md5 & 9 & 2 & 2 & 0 & 0 & 7 & -- & 5 & 5 \\
+minver & 21 & 17 & 8 & 9 & 0 & 4 & -- & 20 & 20 \\
+pm & 30 & 5 & 5 & 0 & 0 & 25 & -- & 5 & 5 \\
+prime & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+quicksort & 16 & 4 & 3 & 0 & 1 & 12 & -- & 4 & 3 \\
+rad2deg & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+recursion & 0 & 0 & 0 & 0 & 0 & 0 & -- & 0 & 0 \\
+sha & 17 & 10 & 6 & 4 & 0 & 7 & -- & 11 & 6 \\
+st & 5 & 5 & 5 & 0 & 0 & 0 & 65\,074 & 5 & 5 \\
+\midrule
+Total & 220 & 126 & 100 & 25 & 1 & 94 & 9 of 29 & 137 & 128 \\
+\bottomrule
+\end{tabular}
+\caption{The prototype on the TACLeBench kernels, without annotations. Loops: loops with a flow fact. For every call: loops for which a bound is proved that holds for every call of their function, split by comparison with the maximum $Y$ of the flow fact, and cost bound of the entry function \texttt{<kernel>\_main}, in abstract units with unit weights (-- when a loop or a call it reaches is not bounded). In context: loops bounded in the calling contexts through which the program's \texttt{main} reaches them.}
+\label{tab:tacle}
+\end{table}
+
+A bound that holds for every call is derived for 126 of the 220 loops, and 100 of these bounds equal the maximum of the flow fact. The 25 larger bounds are mostly bounds of loops controlled by a parameter, which hold for every admissible value of the parameter (in \texttt{ludcmp} and \texttt{minver}, 99 and 500 for sizes that the program sets to 5 and 3); the others include the logarithmic loops of \texttt{fft}, for which only linear potentials are available. In context, 137 loops are bounded and 128 bounds equal the flow fact: the loops of \texttt{ludcmp}, \texttt{minver} and \texttt{lms} receive the sizes passed by their callers, and the cost bound of \texttt{ludcmp\_main} drops from 22\,961\,019 units to 4\,903. The one smaller bound is a loose flow fact: the inner loop of \texttt{quicksort\_init} is \texttt{for (j = 0; j < 20 - 1; j++)}, which has at most 19 iterations, while the flow fact states 20. Flow facts describe each program on its fixed input; they are a reference, not a proof of the worst case. By inspection of the sources, the loops without a bound (94 for every call, 83 in context) are, in decreasing order of frequency: loops bounded by a structure field or a global variable, or by a parameter whose range is not known at the call either; loops with a floating-point or \texttt{volatile} counter, which the analyser does not model; and loops whose bound is not affine in the program variables (halving and doubling loops, the guard $i \cdot i \le n$, loops driven by the data, such as insertion sort, partitioning and string comparison, and \texttt{while (1)} loops left by \texttt{break}). The two recursive kernels are rejected because the recursion argument has no range. For 9 of the 29 kernels the entry function receives a cost bound with no annotation and no assumption. \authortodo{check the classification of the unbounded loops against the sources, and decide whether to add a run with minimal annotations (ranges for the parameters).}
+
+\paragraph{Comparison with other tools.}
+We ran five existing analyzers on the same files, without annotations: the loop trip-count analysis of LLVM \cite{lattner2004llvm} (\emph{ScalarEvolution}, version~18), which gives a constant maximum number of iterations per loop, intraprocedurally; KoAT2 (release~2.1.0) \cite{brockschmidt2016analyzing,lommen2022automatic}, which bounds the runtime complexity of an integer program translated from C by llvm2kittel \cite{falke2011termination}; CoFloCo \cite{floresmontoya2014cofloco}, which bounds the cost of the same integer programs, converted into cost equations by its own front-end; the cost analysis of Infer \cite{infercost} (version~1.3.0), which computes a symbolic cost per function, interprocedurally; and oRange \cite{demichiel2008orange}, the loop-bound analyzer of the OTAWA WCET tool chain, which analyzes the whole program from its entry point by abstract interpretation (built from its source repository, last changed in 2022). oRange reads \texttt{loopbound} pragmas, so we removed them from the files given to it. The cost units of CrossCheck, KoAT2 and Infer differ, so at the level of functions we compare only whether a finite bound is found; KoAT2 and CoFloCo count the same unit (transitions of the same integer program), so their bounds can also be compared with each other. Table~\ref{tab:tools} summarizes the results; the per-kernel figures, the answers of every tool and the scripts are in the directory \lean{benchmarks/tacle} of the repository.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{CrossCheck} & & & \\
+\cmidrule(lr){2-3}
+All 220 loops & every call & in context & SCEV & oRange & fact \\
+\midrule
+bounded & 126 & 137 & 113 & 131 & \\
+\quad $= Y$ / $> Y$ / $< Y$ & 100 / 25 / 1 & 128 / 7 / 2 & 108 / 5 / 0 & 127 / 3 / 1 & \\
+by the integer type only & -- & -- & 46 & -- & \\
+\midrule
+The 208 loops reached & & & & & \\
+\midrule
+bounded & 126 & 137 & 113 & 131 & 208 \\
+\quad $<$ / $=$ / $>$ observed & 0 / 100 / 26 & 0 / 129 / 8 & 0 / 107 / 6 & 1 / 127 / 3 & 2 / 198 / 8 \\
+\quad mean bound / observed & 1.93 & 1.06 & 1.02 & 1.00 & 1.01 \\
+\midrule
+Functions & CrossCheck & KoAT2 & CoFloCo & Infer & \\
+\midrule
+29 entry functions, numeric & 9 & 5 & 8 & 14 & \\
+entry functions, symbolic & 0 & 5 & 0 & 2 & \\
+all 267: numeric / symbolic & 158 / 0 & 119 / 23 & 128 / 11 & 190 / 14 & \\
+\bottomrule
+\end{tabular}
+\caption{The TACLeBench kernels, without annotations: loop bounds of CrossCheck, LLVM's ScalarEvolution and oRange compared with the flow facts (maximum $Y$) and with the largest number of body executions per entry of the loop observed on the kernel's input (the mean is geometric, over the loops with a nonzero count), and functions for which CrossCheck, KoAT2, CoFloCo and Infer find a finite bound. For CrossCheck, ``every call'' is the bound that holds for every call of the loop's function and ``in context'' the bound in the calling contexts reached from \texttt{main}; SCEV is ScalarEvolution and ``fact'' the flow fact. A symbolic bound depends on values the tool does not know.}
+\label{tab:tools}
+\end{table}
+
+On loops, CrossCheck's bounds for every call and ScalarEvolution's, both obtained from one function at a time, are close. 103 loops are bounded by both; the bounds agree on 99, and on the other 4 CrossCheck's is smaller by one (loops left by \texttt{break}, where the iteration count is one more than LLVM's backedge-taken count). 23 loops are bounded only by CrossCheck, 18 of them in \texttt{ludcmp} and \texttt{minver}, where ScalarEvolution obtains no bound or only the range of the integer type, which CrossCheck never uses. 10 are bounded only by ScalarEvolution: loops with floating-point counters and constant start, step and limit, which it evaluates exhaustively, and one doubling loop. To check the loop bounds against executions, and not only against the flow facts, we instrumented the unoptimized code of each kernel to record, for every loop, the largest number of executions of its body in one entry of the loop, and ran it on its built-in input; 208 of the 220 loops are reached. No bound of CrossCheck, for every call or in context, and no bound of ScalarEvolution is below the observed count. The flow facts are equal to it on 198 loops, and below it by one on two loops of the form \texttt{while (1)} left by \texttt{break}, which is consistent with counting only the iterations that return to the loop head. oRange propagates the values of the whole program from its entry point, so its bounds are bounds for the program with its built-in input, like the flow facts and like CrossCheck's bounds in context: in \texttt{ludcmp} and \texttt{minver} both obtain the sizes 5 and 3 with which the kernel calls the function, where the bounds for every call are 99 and 500. The two agree on every one of the 113 loops that both bound. 24 loops are bounded by CrossCheck in context and not by oRange: 8 in the five kernels on which oRange gave no result (it rejects three because of their recursion, raised an internal error on one, and did not finish within 600 seconds on one), and 16 in \texttt{fft}, \texttt{fir2dim}, \texttt{iir}, \texttt{isqrt}, \texttt{md5} and \texttt{sha}, six of which have a guard of the form \texttt{i < sizeof(a)}. 18 loops are bounded by oRange and not by CrossCheck: loops with floating-point counters (12, eight of them in \texttt{fir2dim}), and loops controlled by a global or \texttt{volatile} variable or by the data. One oRange bound is below the observed count: in \texttt{filterbank}, the loop \texttt{while (n-- > 0)} with $n = 2$ runs twice, and oRange reports at most one iteration. The observed counts hold for one input only, so a bound above them is not necessarily loose; for the bounds that hold for every call, the ratios mainly measure the distance between all admissible calls and the calls the program makes (the largest, $500/3$ in \texttt{minver}, comes from the test $\mathit{side} \le 500$ at the start of a function that the kernel calls with $\mathit{side} = 3$), and in context the geometric mean drops from 1.93 to 1.06. At the level of functions, Infer finds the most bounds, mainly because it is interprocedural: a loop bounded by a parameter is bounded at the call site. Its cost analysis, however, is not designed as a sound upper bound: by its documentation it does not handle recursion, and it reports a constant cost for the recursive Fibonacci kernel. KoAT2 is sound for the integer program it analyzes, but the translation keeps only integer variables, so values in memory become unknown inputs (hence its symbolic bounds), and for 88 functions the translation or the analysis failed or timed out; it is the only tool to bound the kernel \texttt{prime}, whose guard $i \cdot i \le n$ is not affine. On the same 202 integer programs, CoFloCo finds more numeric bounds than KoAT2 (128 against 119) and fewer symbolic ones; of the 117 functions that both bound by a number, the bounds are equal for 97 and CoFloCo's is smaller for 20 (e.g.\ 40{,}798 against 59{,}900 transitions for \texttt{bsort\_main}), never larger. Its entry-function bounds cover the same kernels as CrossCheck's, except \texttt{st}, on which it timed out. No function bounded by CrossCheck is reported unbounded by KoAT2 or CoFloCo (where they fail, the translation failed or they timed out); Infer finds no bound for one of them, whose loop CrossCheck bounds by the guard $i < 64$. The tools answer different questions (constant bounds for real-time code, asymptotic complexity, cost regressions), and none was given annotations or tuned; the comparison shows where each fails, not which is better in general. \authortodo{check the comparison against the files in benchmarks/tacle/results, the description of the five tools against their documentation and papers, the oRange counterexample in filterbank, and the loop instrumentation in benchmarks/tacle/measure\_loops.py.}
+
+\paragraph{Complexity benchmarks.}
+TACLeBench favours CrossCheck, since its loops have constant bounds. Complexity analyzers are evaluated instead on the C programs of the complexity category of the Termination and Complexity Competition \cite{giesl2019termcomp} (directory \lean{Complexity\_C\_Integer} of the Termination Problem Database, 553 programs at the revision we used): functions of integer parameters, often with nondeterministic values, whose costs are symbolic. CrossCheck derives numeric bounds only, so on the unchanged programs it bounds 10, those whose loops have constant bounds. We therefore also ran it with every integer parameter, and every value assigned from an undefined function, restricted to $[-1000, 1000]$ by annotations added by a script. A bound found in this mode holds for those inputs only, so it is compared with the other tools only on which programs receive a bound. In this mode CrossCheck bounds 165 programs; KoAT2 and CoFloCo, run as on TACLeBench, bound 288 and 264 programs for all inputs (305 by at least one of them). Of the 165 programs bounded by CrossCheck, 158 are also bounded by KoAT2 or CoFloCo. Six of the other seven are bounded only because of the ranges: they assign a nondeterministic value to a variable inside the loop, so they have no bound in terms of their inputs, and the other tools are right to report none; on the seventh, a nest of four loops, both tools timed out. 147 programs are bounded by KoAT2 or CoFloCo and not by CrossCheck. In a sample of ten programs of this kind, drawn before the analysis kept facts across \texttt{break} exits, two are now bounded; in the other eight the missing ingredients are bounds that are not given by one linear potential (guards $x \ne y$, counters that are reset, loops whose direction changes) and relations carried from one loop to the next (the bound of a loop depends on a value computed by an earlier loop, or nested loops share a counter). They correspond to the linear template and the dependence on invariants discussed in Section~\ref{sec:limitations}; the comparison measures their effect on programs written to exercise complexity analyzers. \authortodo{check the TPDB comparison (benchmarks/tpdb), in particular that the harness of the bounded mode is a fair way to run CrossCheck on these programs and that the sample analysis is representative.}
+
 \section{Mechanization in Lean 4}
 \label{sec:mechanization}
 
-The development accompanying this paper consists of about 2{,}100 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 137 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+The development accompanying this paper consists of about 2{,}200 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 141 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
 
 \begin{table}[ht]
 \centering
@@ -993,6 +1109,7 @@ Prop.~\ref{prop:tree-optimization} & \lean{exec\_\allowbreak least}, \lean{exec\
 Thm.~\ref{thm:lyapunov-bound} & \lean{ranking\_\allowbreak bound}, \lean{ranking\_\allowbreak terminates}, \lean{wcet\_\allowbreak bound} & \lean{Ranking} \\
 Prop.~\ref{prop:tree-envelope} & \lean{exec\_\allowbreak depth\_\allowbreak le}, \lean{exec\_\allowbreak size\_\allowbreak le} & \lean{Recursion} \\
 Thm.~\ref{thm:lyapunov-bound} (relational) & \lean{ranking\_\allowbreak bound\_\allowbreak floor}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak le}, \lean{partial\_\allowbreak ranking\_\allowbreak floor} & \lean{Certificate} \\
+Prop.~\ref{prop:context-bound} & \lean{run\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak floor\_\allowbreak of\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak context}, \lean{call\_\allowbreak bound\_\allowbreak of\_\allowbreak context} & \lean{Certificate} \\
 Sec.~\ref{subsubsec:smt-synthesis} (Farkas) & \lean{farkas\_\allowbreak sound}, \lean{farkas\_\allowbreak sound\_\allowbreak affine} & \lean{Certificate} \\
 Sec.~\ref{sec:implementation} (loop cost) & \lean{while\_\allowbreak cost\_\allowbreak bound} & \lean{Certificate} \\
 Prop.~\ref{prop:size-potential} & \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak potential}, \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak geom}, \lean{geom\_\allowbreak closed} & \lean{Arity} \\
@@ -1036,7 +1153,7 @@ Exact solutions are available only for fragments with closed-form iterates. The 
 The framework covers structured control flow (sequencing, conditionals, while loops, linear and branching recursion of the given schemes) over a store of scalar variables. Unstructured jumps, pointers and aliasing, dynamic allocation, mutual recursion and concurrency are not covered.
 
 \paragraph{Evaluation.}
-The paper contains no systematic experimental evaluation. The prototype has been run on the small programs of Table~\ref{tab:plugin} only; these were written for the purpose and are not an established benchmark suite. Assessing precision and scalability on real-time benchmark programs, and comparing with existing bound analyzers, is future work.
+The prototype has been run on the small programs of Table~\ref{tab:plugin}, written for the purpose, and on the 29 kernels of TACLeBench (Table~\ref{tab:tacle}), which are small programs. The comparison there is with the flow facts shipped with the benchmarks, which hold for the fixed inputs of the programs, with loop counts observed on those inputs, and with five existing analyzers run without annotations or tuning (Table~\ref{tab:tools}); among WCET flow-analysis tools only oRange was compared. On the C programs of the Termination and Complexity Competition, CrossCheck bounds far fewer programs than KoAT2 and CoFloCo, and only with input ranges supplied by a script. Larger programs and the effect of annotations are future work.
 
 \section*{Conclusions}
 
@@ -1046,11 +1163,11 @@ The translation has been presented as operational rules that emit systems of rec
 
 General recurrence systems are undecidable; restricting programs to decidable fragments, or relaxing exactness into envelopes based on ranking potentials and the tropical semiring, yields mechanically solvable constraint systems and sound cost bounds. The foundations, the envelopes and the examples are machine-checked in Lean~4.
 
-Future work includes the evaluation of the prototype on real-time benchmark suites, lexicographic, logarithmic and amortized potentials, the mechanization of the tree order for arbitrary arity, the verification of the analyzer itself, and the treatment of concurrent execution traces.
+Future work includes the evaluation of the prototype on larger programs and against further analyzers, lexicographic, logarithmic and amortized potentials, the mechanization of the tree order for arbitrary arity, the verification of the analyzer itself, and the treatment of concurrent execution traces.
 
 \section*{Statement on the Use of AI}
 
-Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate} and \lean{Arity} together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin of Section~\ref{sec:implementation}, its tests and its example programs, including the figures of Table~\ref{tab:plugin}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate} and \lean{Arity} together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin of Section~\ref{sec:implementation}, its tests and its example programs, including the figures of Table~\ref{tab:plugin}, and ran the TACLeBench measurement and the comparison with other tools of Tables~\ref{tab:tacle} and~\ref{tab:tools}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
 
 \section*{Acknowledgements}
 

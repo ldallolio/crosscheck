@@ -1,0 +1,1 @@
+t28	max([max([max([nat(-V_x)*2,nat(-V_x/999-999/1000)*2]),nat(V_x-V_y-999/1000)*2+max([nat(-1000*V_x+999*V_y)*2,nat(1000*V_x-999*V_y)*2])]),nat(-V_x)*2+nat(V_y)*2])+6 	n 

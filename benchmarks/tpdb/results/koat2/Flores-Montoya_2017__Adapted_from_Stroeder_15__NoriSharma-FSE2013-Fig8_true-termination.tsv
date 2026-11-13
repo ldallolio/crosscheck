@@ -1,0 +1,1 @@
+foo	3*Arg_5^3+12*Arg_5^2+3*Arg_3*Arg_5+3*Arg_4*Arg_5+12*Arg_5+6*Arg_3+6*Arg_4+11 {O(n^3)}

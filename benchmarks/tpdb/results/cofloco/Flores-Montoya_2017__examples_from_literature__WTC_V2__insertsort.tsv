@@ -1,0 +1,1 @@
+insertsort	nat(V_length-1)*5*nat(V_length-2)+nat(V_length-1)*2+nat(V_length-1)*9+4 	n^2 

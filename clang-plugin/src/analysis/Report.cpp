@@ -46,6 +46,9 @@ std::string Report::toJson() const {
     out += ",\n      \"line\": " + std::to_string(f.line);
     out += ",\n      \"ok\": " + std::string(f.ok ? "true" : "false");
     out += ",\n      \"wcet\": " + (f.bounded ? std::to_string(f.wcet) : std::string("null"));
+    out += ",\n      \"contexts\": " + std::to_string(f.contexts);
+    out += ",\n      \"wcet_in_context\": " +
+           (f.wcetInContext ? std::to_string(*f.wcetInContext) : std::string("null"));
     out += ",\n      \"deadline\": " + (f.deadline ? std::to_string(*f.deadline) : std::string("null"));
     out += ",\n      \"loops\": [";
     for (std::size_t j = 0; j < f.loops.size(); ++j) {
@@ -53,6 +56,7 @@ std::string Report::toJson() const {
       out += std::string(j ? ", " : "") + "{\"line\": " + std::to_string(l.line) +
              ", \"bound\": " + std::to_string(l.bound) +
              ", \"verified\": " + (l.verified ? "true" : "false") +
+             ", \"in_context\": " + (l.inContext ? std::to_string(*l.inContext) : std::string("null")) +
              ", \"potential\": " + quote(l.potential) + "}";
     }
     out += "]";

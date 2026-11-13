@@ -1,0 +1,1 @@
+knuth_morris_pratt	max([7,nat(V_n)*6,nat(V_m-1)*6+5,nat(V_n-1)*6+7])+4 	n 

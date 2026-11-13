@@ -1,0 +1,1 @@
+speed_popl10_simple_single_2	max([nat(V_m)*3,nat(V_m-V_n)*3+nat(V_n)*2])+5 	n 

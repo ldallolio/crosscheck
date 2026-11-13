@@ -1,0 +1,5 @@
+filterbank_init	1 {O(1)}
+filterbank_return	1 {O(1)}
+filterbank_main	!timeout-or-error
+filterbank_core	!timeout-or-error
+main	!timeout-or-error

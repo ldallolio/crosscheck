@@ -1,0 +1,4 @@
+main	inf 	infinity 
+rad2deg_init	1 	constant 
+rad2deg_main	inf 	infinity 
+rad2deg_return	1 	constant 

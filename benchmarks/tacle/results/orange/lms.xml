@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="lms_init" numcall="5" line="200" source="lms.c" executed="true" extern="false">
+            <function name="lms_init">
+                <loop loopId="1" line="84" source="lms.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                </loop>
+                <loop loopId="2" line="100" source="lms.c" exact="true" maxcount="100" totalcount="100">
+                    <loop loopId="3" line="103" source="lms.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <call name="lms_main" numcall="6" line="201" source="lms.c" executed="true" extern="false">
+            <function name="lms_main">
+                <loop loopId="7" line="167" source="lms.c" exact="true" maxcount="21" totalcount="21">
+                </loop>
+                <loop loopId="8" line="173" source="lms.c" exact="true" maxcount="201" totalcount="201">
+                    <call name="lms_calc" numcall="4" line="174" source="lms.c" executed="true" extern="false">
+                        <function name="lms_calc">
+                            <loop loopId="4" line="135" source="lms.c" exact="true" maxcount="20" totalcount="4020">
+                            </loop>
+                            <loop loopId="5" line="144" source="lms.c" exact="true" maxcount="21" totalcount="4221">
+                            </loop>
+                            <loop loopId="6" line="151" source="lms.c" exact="true" maxcount="21" totalcount="4221">
+                            </loop>
+                        </function>
+                    </call>
+                </loop>
+            </function>
+        </call>
+        <call name="lms_return" numcall="7" line="202" source="lms.c" executed="true" extern="false">
+            <function name="lms_return">
+                <loop loopId="9" line="188" source="lms.c" exact="true" maxcount="201" totalcount="201">
+                </loop>
+            </function>
+        </call>
+        <loop source="lms.c" line="84" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="lms.c" line="100" max="100"  min="100">
+        </loop>
+        <loop source="lms.c" line="103" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="lms.c" line="135" max="20"  min="20">
+        </loop>
+        <loop source="lms.c" line="144" max="21"  min="21">
+        </loop>
+        <loop source="lms.c" line="151" max="21"  min="21">
+        </loop>
+        <loop source="lms.c" line="167" max="21"  min="21">
+        </loop>
+        <loop source="lms.c" line="173" max="201"  min="201">
+        </loop>
+        <loop source="lms.c" line="188" max="201"  min="201">
+        </loop>
+    </function>
+</flowfacts>
+

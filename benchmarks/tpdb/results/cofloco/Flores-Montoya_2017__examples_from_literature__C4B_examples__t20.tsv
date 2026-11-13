@@ -1,0 +1,1 @@
+t20	max([nat(-V_x+V_y)*2,nat(V_x-V_y)*2])+5 	n 

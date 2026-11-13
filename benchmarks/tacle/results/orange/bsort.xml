@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="bsort_init" numcall="3" line="129" source="bsort.c" executed="true" extern="false">
+            <function name="bsort_init">
+                <call name="bsort_Initialize" numcall="1" line="65" source="bsort.c" executed="true" extern="false">
+                    <function name="bsort_Initialize">
+                        <loop loopId="1" line="56" source="bsort.c" exact="true" maxcount="100" totalcount="100">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="bsort_main" numcall="4" line="130" source="bsort.c" executed="true" extern="false">
+            <function name="bsort_main">
+                <call name="bsort_BubbleSort" numcall="2" line="119" source="bsort.c" executed="true" extern="false">
+                    <function name="bsort_BubbleSort">
+                        <loop loopId="3" line="94" source="bsort.c" exact="false" maxcount="99" totalcount="99">
+                            <loop loopId="4" line="97" source="bsort.c" exact="false" maxcount="99" totalcount="9801">
+                            </loop>
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="bsort_return" numcall="5" line="132" source="bsort.c" executed="true" extern="false">
+            <function name="bsort_return">
+                <loop loopId="2" line="75" source="bsort.c" exact="true" maxcount="99" totalcount="99">
+                </loop>
+            </function>
+        </call>
+        <loop source="bsort.c" line="56" max="100"  min="100">
+        </loop>
+        <loop source="bsort.c" line="75" max="99"  min="99">
+        </loop>
+        <loop source="bsort.c" line="94" max="99"  min="99">
+        </loop>
+        <loop source="bsort.c" line="97" max="99"  min="99">
+        </loop>
+    </function>
+</flowfacts>
+

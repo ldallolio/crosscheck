@@ -1,0 +1,1 @@
+realbubble	nat(V_length-1)*4+2+max([nat(V_length-1)*5,nat(V_length-1)*9*nat(V_length-1)])+4 	n^2 

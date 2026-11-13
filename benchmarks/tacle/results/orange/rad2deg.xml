@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="rad2deg_main" numcall="2" line="88" source="rad2deg.c" executed="true" extern="false">
+            <function name="rad2deg_main">
+                <loop loopId="1" line="80" source="rad2deg.c" exact="true" maxcount="361" totalcount="361">
+                </loop>
+            </function>
+        </call>
+        <loop source="rad2deg.c" line="80" max="361"  min="361">
+        </loop>
+    </function>
+</flowfacts>
+

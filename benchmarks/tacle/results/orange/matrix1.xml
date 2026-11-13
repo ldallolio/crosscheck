@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="matrix1_init" numcall="2" line="166" source="matrix1.c" executed="true" extern="false">
+            <function name="matrix1_init">
+                <call name="matrix1_pin_down" numcall="1" line="112" source="matrix1.c" executed="true" extern="false">
+                    <function name="matrix1_pin_down">
+                        <loop loopId="1" line="97" source="matrix1.c" exact="true" maxcount="100" totalcount="100">
+                        </loop>
+                        <loop loopId="2" line="101" source="matrix1.c" exact="true" maxcount="100" totalcount="100">
+                        </loop>
+                        <loop loopId="3" line="105" source="matrix1.c" exact="true" maxcount="100" totalcount="100">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="matrix1_main" numcall="3" line="167" source="matrix1.c" executed="true" extern="false">
+            <function name="matrix1_main">
+                <loop loopId="5" line="146" source="matrix1.c" exact="true" maxcount="10" totalcount="10">
+                    <loop loopId="6" line="150" source="matrix1.c" exact="true" maxcount="10" totalcount="100">
+                        <loop loopId="7" line="155" source="matrix1.c" exact="true" maxcount="10" totalcount="1000">
+                        </loop>
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <call name="matrix1_return" numcall="4" line="169" source="matrix1.c" executed="true" extern="false">
+            <function name="matrix1_return">
+                <loop loopId="4" line="125" source="matrix1.c" exact="true" maxcount="100" totalcount="100">
+                </loop>
+            </function>
+        </call>
+        <loop source="matrix1.c" line="97" max="100"  min="100">
+        </loop>
+        <loop source="matrix1.c" line="101" max="100"  min="100">
+        </loop>
+        <loop source="matrix1.c" line="105" max="100"  min="100">
+        </loop>
+        <loop source="matrix1.c" line="125" max="100"  min="100">
+        </loop>
+        <loop source="matrix1.c" line="146" max="10"  min="10">
+        </loop>
+        <loop source="matrix1.c" line="150" max="10"  min="10">
+        </loop>
+        <loop source="matrix1.c" line="155" max="10"  min="10">
+        </loop>
+    </function>
+</flowfacts>
+

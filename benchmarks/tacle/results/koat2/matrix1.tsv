@@ -1,0 +1,5 @@
+matrix1_pin_down	606 {O(1)}
+matrix1_init	610 {O(1)}
+matrix1_return	206 {O(1)}
+matrix1_main	4*Arg_0+2656 {O(n)}
+main	2*Arg_1+23145 {O(n)}

@@ -1,0 +1,1 @@
+speedpldi3	nat(V_n)*2+1+nat(V_n)*2*nat(V_n-1)+nat(V_n-1)*2+3 	n^2 

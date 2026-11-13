@@ -1,0 +1,13 @@
+sha_glibc_memcpy	!timeout-or-error
+sha_wordcopy_fwd_aligned	inf {Infinity}
+sha_glibc_memset	inf {Infinity}
+sha_transform	877 {O(1)}
+sha_byte_reverse	inf {Infinity}
+sha_init	36 {O(1)}
+sha_fread	inf {Infinity}
+sha_update	!timeout-or-error
+sha_final	!timeout-or-error
+sha_stream	!timeout-or-error
+sha_main	!translation-failed
+sha_return	1 {O(1)}
+main	!translation-failed

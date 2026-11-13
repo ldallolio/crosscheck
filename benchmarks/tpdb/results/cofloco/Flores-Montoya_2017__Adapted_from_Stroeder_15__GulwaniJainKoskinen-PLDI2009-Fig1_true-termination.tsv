@@ -1,0 +1,1 @@
+foo	max([max([5,nat(V_maxId)*5+7]),nat(-V_id+V_maxId)*5+5+max([5,nat(V_id)*5+2,nat(V_id-1)*5+5])])+3 	n 

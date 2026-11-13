@@ -1,0 +1,1 @@
+speedSingleSingle2	max([max([5,nat(V_m)*6+5]),nat(V_n)*5+5+nat(V_m-V_n)*6])+3 	n 

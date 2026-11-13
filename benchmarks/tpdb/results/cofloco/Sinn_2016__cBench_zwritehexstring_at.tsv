@@ -1,0 +1,1 @@
+zwritehexstring_at_extracted	max([max([4,nat(V_len-1)+4]),nat(V_len/64-63/64)*67+66])+4 	n 

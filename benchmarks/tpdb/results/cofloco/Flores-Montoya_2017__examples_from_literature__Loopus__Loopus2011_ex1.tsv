@@ -1,0 +1,1 @@
+Loopus2011_ex1	nat(V_n-1)*5+max([4,nat(V_n-2)*5+4+nat(V_n-1)*7])+8 	n 

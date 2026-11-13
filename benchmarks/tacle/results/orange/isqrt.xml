@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="isqrt_main" numcall="5" line="190" source="isqrt.c" executed="true" extern="false">
+            <function name="isqrt_main">
+                <loop loopId="3" line="177" source="isqrt.c" exact="true" maxcount="1000" totalcount="1000">
+                    <call name="isqrt_usqrt" numcall="2" line="178" source="isqrt.c" executed="true" extern="false">
+                        <function name="isqrt_usqrt">
+                            <loop loopId="2" line="158" source="isqrt.c" exact="true" maxcount="32" totalcount="32000">
+                            </loop>
+                            <call name="basicmath_memcpy" numcall="1" line="168" source="isqrt.c" executed="true" extern="false">
+                                <function name="basicmath_memcpy">
+                                    <loop loopId="1" line="31" source="isqrt.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </function>
+                            </call>
+                        </function>
+                    </call>
+                </loop>
+                <call name="isqrt_usqrt" numcall="3" line="182" source="isqrt.c" executed="true" extern="false">
+                    <function name="isqrt_usqrt">
+                        <loop loopId="2" line="158" source="isqrt.c" exact="true" maxcount="32" totalcount="32">
+                        </loop>
+                        <call name="basicmath_memcpy" numcall="1" line="168" source="isqrt.c" executed="true" extern="false">
+                            <function name="basicmath_memcpy">
+                                <loop loopId="1" line="31" source="isqrt.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </function>
+                        </call>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="isqrt.c" line="31" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="isqrt.c" line="158" max="32"  min="32">
+        </loop>
+        <loop source="isqrt.c" line="177" max="1000"  min="1000">
+        </loop>
+    </function>
+</flowfacts>
+

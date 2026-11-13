@@ -1,0 +1,1 @@
+foo	max([nat(-V_y-1/2)*4,nat(V_x/2+V_y)*9+max([nat(V_x/2+V_y)+max([nat(V_x/2-1/2)*7,nat(-V_y-1/2)*4+nat(V_x/2+V_y)*2+nat(V_x/2+V_y-1)*5]),nat(V_x/2+V_y-1)*5+nat(-V_y-1/2)*4])])+4 	n 

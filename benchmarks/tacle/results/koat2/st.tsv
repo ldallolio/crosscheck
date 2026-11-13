@@ -1,0 +1,13 @@
+st_initSeed	1 {O(1)}
+st_randomInteger	1 {O(1)}
+st_initialize	3004 {O(1)}
+st_init	4005 {O(1)}
+st_return	1 {O(1)}
+st_fabs	1 {O(1)}
+st_sqrtf	6990 {O(1)}
+st_square	1 {O(1)}
+st_calc_Sum_Mean	2004 {O(1)}
+st_calc_Var_Stddev	2873 {O(1)}
+st_calc_LinCorrCoef	274316 {O(1)}
+st_main	358968 {O(1)}
+main	!timeout-or-error

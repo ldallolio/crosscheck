@@ -385,6 +385,9 @@ INSTANTIATE_TEST_SUITE_P(
                    "int i = 0; while (i < n) { switch (c[i]) { case 1: i++; break; case 2: break; } } return i;"},
         RejectCase{"BoundGrowsInBody",
                    "int i = 0; while (i < n) { i++; if (c[i]) n = n + 2; } return i;"},
+        RejectCase{"AssignmentThatIsNotAnIncrement",
+                   "int x = 0; while (x < n) { if (c[x]) break; x = m - x; } "
+                   "int s = 0; while (x != n) { x = x + 1; s++; } return s;"},
         RejectCase{"BoundFromIntLimitOnly", "int i = 0; while (c[i] != 0) ++i; return i;"}),
     [](const ::testing::TestParamInfo<RejectCase>& info) { return std::string(info.param.name); });
 
@@ -427,6 +430,168 @@ TEST(Loops, ManyPathsAreJoined) {
     })");
   EXPECT_TRUE(fn(r, "f").ok);
   EXPECT_EQ(fn(r, "f").loops.at(0).bound, 15u);  // ceil(90 / 6)
+}
+
+// --- calling contexts -------------------------------------------------------------
+// A callee is analysed again with the intervals of its arguments at the call
+// site (Lean: `call_bound_of_context`). `cnt` alone has no bound.
+
+const char* kCnt = "static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s++; return s; }\n";
+
+TEST(Contexts, ConstantArgumentBoundsTheCallee) {
+  Report r = check(std::string(kCnt) + "CROSSCHECK_REALTIME int f() { return cnt(8); }");
+  EXPECT_TRUE(fn(r, "f").ok);
+  // Same cost as with the range declared on the parameter.
+  Report d = check("static int cnt(CROSSCHECK_RANGE(8, 8) int n) { int s = 0; "
+                   "for (int i = 0; i < n; i++) s++; return s; }\n"
+                   "CROSSCHECK_REALTIME int f() { return cnt(8); }");
+  EXPECT_EQ(fn(r, "f").wcet, fn(d, "f").wcet);
+  EXPECT_TRUE(fn(r, "f").assumptions.empty());
+}
+
+TEST(Contexts, ArgumentRangeComesFromTheCallersFacts) {
+  Report r = check(std::string(kCnt) +
+                   "CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 5) int n) { return cnt(n + 1); }");
+  EXPECT_TRUE(fn(r, "f").ok);
+  Report d = check("static int cnt(CROSSCHECK_RANGE(1, 6) int n) { int s = 0; "
+                   "for (int i = 0; i < n; i++) s++; return s; }\n"
+                   "CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 5) int n) { return cnt(n + 1); }");
+  EXPECT_EQ(fn(r, "f").wcet, fn(d, "f").wcet);
+}
+
+TEST(Contexts, CallInALoopUsesTheHullOfAllIterations) {
+  // i ranges over [0, 8]: the callee must be bounded for 8, not for the
+  // value of one iteration.
+  const char* caller = "CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 9) int n) {"
+                       "  int s = 0; for (int i = 0; i < n; i++) s += cnt(i); return s; }";
+  Report r = check(std::string(kCnt) + caller);
+  EXPECT_TRUE(fn(r, "f").ok);
+  Report d = check(std::string("static int cnt(CROSSCHECK_RANGE(0, 8) int n) { int s = 0; "
+                               "for (int i = 0; i < n; i++) s++; return s; }\n") + caller);
+  EXPECT_EQ(fn(r, "f").wcet, fn(d, "f").wcet);
+}
+
+TEST(Contexts, TwoPathsToOneCallAreJoined) {
+  const char* caller = "CROSSCHECK_REALTIME int f(bool b) { int k = 3; if (b) k = 7; return cnt(k); }";
+  Report r = check(std::string(kCnt) + caller);
+  EXPECT_TRUE(fn(r, "f").ok);
+  Report d = check(std::string("static int cnt(CROSSCHECK_RANGE(3, 7) int n) { int s = 0; "
+                               "for (int i = 0; i < n; i++) s++; return s; }\n") + caller);
+  EXPECT_EQ(fn(r, "f").wcet, fn(d, "f").wcet);
+}
+
+TEST(Contexts, ReportGivesTheInContextBounds) {
+  Options o;
+  o.analyzeAll = true;
+  ASSERT_TRUE(o.parse("entry=f"));
+  Report r = check(std::string(kCnt) + "int f() { return cnt(8) + cnt(3); }", o);
+  const FunctionReport& c = fn(r, "cnt");
+  EXPECT_FALSE(c.ok);  // alone, `n` is unbounded
+  ASSERT_EQ(c.loops.size(), 1u);
+  EXPECT_FALSE(c.loops[0].verified);
+  ASSERT_TRUE(c.loops[0].inContext.has_value());
+  EXPECT_EQ(*c.loops[0].inContext, 8u);
+  EXPECT_EQ(c.contexts, 2u);
+  EXPECT_TRUE(fn(r, "f").ok);
+}
+
+struct ContextRejectCase {
+  const char* name;
+  const char* code;  // defines CROSSCHECK_REALTIME f
+};
+
+class UnsoundContext : public ::testing::TestWithParam<ContextRejectCase> {};
+
+TEST_P(UnsoundContext, IsRejected) {
+  Report r = check(GetParam().code);
+  EXPECT_FALSE(fn(r, "f").ok);
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Calls, UnsoundContext,
+    ::testing::Values(
+        ContextRejectCase{"UnboundedArgument",
+                          "static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s++; return s; }\n"
+                          "CROSSCHECK_REALTIME int f(int n) { return cnt(n); }"},
+        ContextRejectCase{"ArgumentUnknownInALoop",
+                          "static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s++; return s; }\n"
+                          "CROSSCHECK_REALTIME int f(const int* c) { int s = 0, k = 1;"
+                          "  for (int i = 0; i < 4; i++) { s += cnt(k); k += c[i]; } return s; }"},
+        ContextRejectCase{"ArgumentWrapsInConversion",
+                          "static int cnt(unsigned n) { int s = 0; for (unsigned i = 0; i < n; i++) s++; return s; }\n"
+                          "CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(-1, 3) int n) { return cnt(n); }"},
+        ContextRejectCase{"RecursiveCalleeIsNotSpecialised",
+                          "static int down(int n) { return n <= 0 ? 0 : 1 + down(n - 1); }\n"
+                          "CROSSCHECK_REALTIME int f() { return down(5); }"},
+        ContextRejectCase{"CalleeThroughUnknownGlobal",
+                          "int g;\n"
+                          "static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s++; return s; }\n"
+                          "CROSSCHECK_REALTIME int f() { return cnt(g); }"},
+        ContextRejectCase{"OnlyOneSideKnown",
+                          "static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s++; return s; }\n"
+                          "CROSSCHECK_REALTIME int f(int n) { if (n < 0) return 0; return cnt(n); }"}),
+    [](const ::testing::TestParamInfo<ContextRejectCase>& info) { return std::string(info.param.name); });
+
+// --- facts kept when a loop is left through `break` -------------------------------
+
+TEST(Loops, BreakKeepsTheInvariantsForTheNextLoop) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 50) int n, const int* c) {
+      int x = 0;
+      while (x < n) { if (c[x]) break; x++; }
+      int s = 0;
+      while (x < n) { x++; s++; }   // needs x >= 0 on both exits of the first loop
+      return s;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+  ASSERT_EQ(fn(r, "f").loops.size(), 2u);
+  EXPECT_EQ(fn(r, "f").loops[1].bound, 50u);
+}
+
+TEST(Loops, AssignmentFormOfAnIncrementGivesTheSameInvariant) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 50) int n, const int* c) {
+      int x = 0;
+      while (x < n) { if (c[x]) break; x = x + 1; }
+      int s = 0;
+      while (x < n) { x = 1 + x; s++; }
+      return s;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+  ASSERT_EQ(fn(r, "f").loops.size(), 2u);
+  EXPECT_EQ(fn(r, "f").loops[1].bound, 50u);
+}
+
+TEST(Loops, BreakDoesNotGiveTheNegatedGuard) {
+  // After the first loop x may be anywhere in [0, n]: n - x is at most 9, not 0.
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 9) int n, CROSSCHECK_RANGE(0, 9) int m,
+                              const int* c) {
+      int x = 0;
+      while (x < n) { if (c[x]) break; x++; }
+      int s = 0;
+      for (int j = 0; j < n - x + m; j++) s++;
+      return s;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+  ASSERT_EQ(fn(r, "f").loops.size(), 2u);
+  EXPECT_EQ(fn(r, "f").loops[1].bound, 18u);
+}
+
+TEST(Loops, DoWhileLeftByBreakInItsFirstBody) {
+  // The break may leave before `i` is ever tested against n.
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 9) int n, const int* c) {
+      int i = 20;
+      do { if (c[0]) break; i--; } while (i > n);
+      int s = 0;
+      for (int j = 0; j < i; j++) s++;   // i is 20 after a break in the first body
+      return s;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+  ASSERT_EQ(fn(r, "f").loops.size(), 2u);
+  EXPECT_EQ(fn(r, "f").loops[1].bound, 20u);
 }
 
 // --- recursion ------------------------------------------------------------------

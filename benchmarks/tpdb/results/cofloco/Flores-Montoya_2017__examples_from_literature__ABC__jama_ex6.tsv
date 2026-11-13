@@ -1,0 +1,1 @@
+jama_ex6	nat(2*V_d+1)*2*nat(-V_a+V_b+1)*nat(-V_c+V_d+1)+nat(-V_a+V_b+1)*4*nat(-V_c+V_d+1)+nat(-V_a+V_b+1)*3+4 	n^3 

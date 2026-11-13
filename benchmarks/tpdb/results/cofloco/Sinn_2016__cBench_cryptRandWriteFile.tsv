@@ -1,0 +1,1 @@
+cryptRandWriteFile	max([nat(V_bytes)*2+4,nat(V_bytes-255)*516+514])+4 	n 

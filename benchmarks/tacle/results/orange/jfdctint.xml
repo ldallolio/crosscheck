@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="jfdctint_init" numcall="2" line="316" source="jfdctint.c" executed="true" extern="false">
+            <function name="jfdctint_init">
+                <loop loopId="1" line="153" source="jfdctint.c" exact="true" maxcount="64" totalcount="64">
+                </loop>
+            </function>
+        </call>
+        <call name="jfdctint_main" numcall="3" line="317" source="jfdctint.c" executed="true" extern="false">
+            <function name="jfdctint_main">
+                <call name="jfdctint_jpeg_fdct_islow" numcall="1" line="310" source="jfdctint.c" executed="true" extern="false">
+                    <function name="jfdctint_jpeg_fdct_islow">
+                        <loop loopId="3" line="190" source="jfdctint.c" exact="true" maxcount="8" totalcount="8">
+                        </loop>
+                        <loop loopId="4" line="243" source="jfdctint.c" exact="true" maxcount="8" totalcount="8">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="jfdctint_return" numcall="4" line="319" source="jfdctint.c" executed="true" extern="false">
+            <function name="jfdctint_return">
+                <loop loopId="2" line="166" source="jfdctint.c" exact="true" maxcount="64" totalcount="64">
+                </loop>
+            </function>
+        </call>
+        <loop source="jfdctint.c" line="153" max="64"  min="64">
+        </loop>
+        <loop source="jfdctint.c" line="166" max="64"  min="64">
+        </loop>
+        <loop source="jfdctint.c" line="190" max="8"  min="8">
+        </loop>
+        <loop source="jfdctint.c" line="243" max="8"  min="8">
+        </loop>
+    </function>
+</flowfacts>
+

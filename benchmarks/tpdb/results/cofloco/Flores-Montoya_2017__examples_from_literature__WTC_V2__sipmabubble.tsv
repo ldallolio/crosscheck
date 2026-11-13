@@ -1,0 +1,1 @@
+sipmabubble	max([3,nat(V_n)*3+3+nat(V_n)*5*nat(V_n)])+4 	n^2 

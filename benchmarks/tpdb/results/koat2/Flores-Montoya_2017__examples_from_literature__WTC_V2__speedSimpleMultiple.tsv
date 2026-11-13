@@ -1,0 +1,1 @@
+speedSimpleMultiple	2*Arg_0+2*Arg_1+5 {O(n)}

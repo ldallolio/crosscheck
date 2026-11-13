@@ -165,6 +165,42 @@ bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
   }
 }
 
+std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Constraint>& facts,
+                                 const LinExpr& e) {
+  if (e.poisoned()) return Interval{};
+  if (e.isConstant()) return Interval{e.constantTerm(), e.constantTerm()};
+  std::vector<Constraint> closed = closePremises(syms, facts, {e});
+  Interval out;
+  for (bool upper : {true, false}) {
+    std::optional<std::int64_t> end;
+    try {
+      z3::context ctx;
+      z3::optimize opt(ctx);
+      z3::params p(ctx);
+      p.set("timeout", kTimeoutMs);
+      opt.set(p);
+      for (const Constraint& c : closed) opt.add(encodeInt(ctx, c.e) <= 0);
+      z3::expr target = encodeInt(ctx, e);
+      z3::optimize::handle h = upper ? opt.maximize(target) : opt.minimize(target);
+      z3::check_result r = opt.check();
+      if (r == z3::unsat) return std::nullopt;
+      if (r == z3::sat) {
+        z3::expr v = upper ? opt.upper(h) : opt.lower(h);
+        std::int64_t n = 0;
+        if (v.is_numeral() && v.is_int() && v.is_numeral_i64(n)) end = n;
+      }
+    } catch (const z3::exception&) {
+    }
+    // Never trust the optimiser alone: the bound must be entailed.
+    if (end) {
+      Constraint goal = upper ? le(e, LinExpr::constant(*end)) : ge(e, LinExpr::constant(*end));
+      if (!entails(syms, facts, goal)) end.reset();
+    }
+    (upper ? out.hi : out.lo) = end;
+  }
+  return out;
+}
+
 std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
                                                const RankingProblem& problem) {
   const std::size_t n = problem.slots;

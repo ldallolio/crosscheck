@@ -304,24 +304,33 @@ classDiagram
   direction TB
   class Analyzer {
     -syms_ : SymbolTable
-    -cache_ : Summary per function
+    -cache_ : Summary per function and Context
+    -contracts_ : Contract per function
     -stack_ : FnCtx call stack
     +run() Report
-    -analyzeFunction(def)
+    -analyzeFunction(def, context)
     -exec / execLoop / execIf ...
     -eval / evalCond / exprCost
-    -functionCost(fd, loc)
+    -recordCall / contextFor
+    -functionCost(fd, loc, call)
     -mergeStates / havoc
+    -fillInContext(report)
   }
   class FnCtx {
     +fn, tracked vars
     +slotSyms, recSites
     +loops, speculative
+    +calls : CallRecord per call
   }
   class Summary {
     +ok, wcet
     +paramSyms, requires_
     +assumptions, report
+    +callees : keys of the analyses used
+  }
+  class Context {
+    <<vector of Interval>>
+    one interval per parameter
   }
   class State {
     +val : var to LinExpr
@@ -340,6 +349,7 @@ classDiagram
   Analyzer *-- FnCtx
   Analyzer *-- Summary
   FnCtx *-- Summary
+  Analyzer ..> Context
   Analyzer ..> State
   Analyzer ..> Cost
   Analyzer ..> Visitors
@@ -347,9 +357,13 @@ classDiagram
 
 - `Analyzer` is in an anonymous namespace in `Analyzer.cpp`; the public entry is the free
   function `analyzeTranslationUnit(ASTContext&, const Options&)`.
-- `cache_` memoises one `Summary` per function (callees are analysed once —
-  *context-insensitive*), `stack_` is the analysis call stack (used to detect recursion
-  and mutual recursion).
+- `cache_` memoises one `Summary` per pair (function, `Context`). The empty context is
+  the analysis that holds for every call; a non-empty one adds intervals on the
+  parameters (see section 11). `stack_` is the analysis call stack (used to detect
+  recursion and mutual recursion).
+- `contracts_` holds each function's declared preconditions (`RANGE`/`REQUIRE`), computed
+  by `contractOf` without analysing the body, so that `checkContract` does not depend on
+  the order in which functions are analysed.
 - `FnCtx::speculative > 0` marks "trial" executions (e.g. Houdini rounds): diagnostics
   and loop reports are suppressed so that only the final run produces output.
 
@@ -391,8 +405,9 @@ sequenceDiagram
     Sol-->>An: floor(K)
   end
   opt calls to other functions
-    An->>An: functionCost: analyzeFunction(callee), cached
     An->>Sol: entails(caller facts, callee preconditions)
+    An->>Sol: boundsOf(caller facts, argument) for each integer argument
+    An->>An: functionCost: analyzeFunction(callee, context), cached
   end
   opt self-calls
     An->>Sol: depth potential and size potential
@@ -660,8 +675,8 @@ module `Arity`.
 3. The function itself → self-call (recursion, see above).
 4. A function already on the analysis stack → **error** (mutual recursion).
 5. Trivial methods/constructors → constant.
-6. A body is available → analyse it (`analyzeFunction`, cached), propagate its
-   assumptions, **error** at the call site if it is not real-time safe (with the root
+6. A body is available → analyse it in the calling context of this call
+   (`analyzeFunction(def, context)`, cached; see below), propagate its assumptions, **error** at the call site if it is not real-time safe (with the root
    reason, e.g. "`std::vector<int>::push_back` … `operator new`").
 7. Known constant-time libm/builtins (`sqrt`, `fabs`, `__builtin_clz`, …) → one call unit,
    **assumption** "library function … assumed to cost one call unit".
@@ -671,6 +686,37 @@ module `Arity`.
 Preconditions (`checkContract`): at an analysed call site, the callee's `RANGE`/`REQUIRE`
 facts, instantiated with the argument expressions, must be **entailed** by the caller's
 facts; otherwise error.
+
+**Calling contexts** (paper: `prop:context-bound`; Lean: `ranking_bound_of_context`,
+`call_bound_of_context`). The cost of a call depends on what is known about its
+arguments:
+
+1. `evalCall` → `recordCall`: in each state in which the call is evaluated, ask Z3 for
+   the interval of every integer argument (`boundsOf`, each end re-checked by `entails`)
+   and join it into `FnCtx::calls[call]`. Not done in speculative walks.
+2. `functionCost` → `contextFor(call, def)`: the joined intervals, or no context if
+   nothing is known, or if the function already has 8 contexts.
+3. `analyzeFunction(def, context)` adds the intervals to the initial facts.
+
+Three rules keep this sound, each with a test in the `Calls/UnsoundContext` suite:
+
+- **Evaluate before costing.** Every statement evaluates its expressions on all states
+  first and computes `exprCost` afterwards, so the context covers every state the cost
+  stands for. (The generic iteration of a loop stands for all iterations.)
+- **Same type.** An argument counts only if its expression already has the parameter's
+  type; otherwise a conversion could change the value.
+- **No context for self-recursive functions** (`callsItself`): the context holds for the
+  first activation only.
+
+`fillInContext` computes the report's in-context fields at the end: starting from the
+entry functions (option `entry=NAME`, or the analysed functions nobody calls) it follows
+`Summary::callees` and, for each function, takes the worst result over the analyses
+reached.
+
+**Loop exits.** `execLoop` ends with one state for the exit through the guard
+(invariants + negated guard) and one state per `break` path (Lean: `run_invariant`).
+`mergeStates` keeps, for a variable whose values differ, the constant interval valid on
+all merged paths.
 
 Other profile checks are spread over `exprCost` (`new`, `throw`, `dynamic_cast`,
 temporaries with destructors), `execDecl` (VLAs, locals with destructors), `exec`
@@ -706,13 +752,15 @@ source AST, not on the generated code.
 
 ## 13. Tests
 
-`ctest` runs 102 tests:
+`ctest` runs 120 tests:
 
 | Executable / suite | Count | What it checks |
 |---|---|---|
-| `core_test`: `LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential` | 15 | arithmetic, entailment, potentials on hand-built problems (no Clang) |
-| `analyzer_test`: `Loops` | 24 | loop shapes that must be bounded, with expected bounds |
-| `analyzer_test`: `Loops/Unsound` (parameterised) | 12 | loops that **must be rejected** — soundness regressions |
+| `core_test`: `LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds` | 17 | arithmetic, entailment, intervals, potentials on hand-built problems (no Clang) |
+| `analyzer_test`: `Loops` | 28 | loop shapes that must be bounded, with expected bounds (including facts kept after `break`) |
+| `analyzer_test`: `Loops/Unsound` (parameterised) | 13 | loops that **must be rejected** — soundness regressions |
+| `analyzer_test`: `Contexts` | 5 | calls bounded through the calling context, with the expected costs |
+| `analyzer_test`: `Calls/UnsoundContext` (parameterised) | 6 | calls that **must be rejected** (unknown, wrapping or recursive arguments) |
 | `analyzer_test`: `RealTime/Profile` (parameterised) | 11 | constructs that violate the real-time profile (allocation, `throw`, virtual calls, …) |
 | `analyzer_test`: `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options` | 20 | the other features |
 | `analyzer_test`: `Benchmarks` | 10 | expected figures on `benchmarks/*.cpp` (Table `tab:plugin`) |
@@ -757,8 +805,8 @@ and assumptions; reduce the failing code to a test in `analyzer_test.cpp`; set
    `Solver.cpp` (`addFarkas` first).
 4. `src/plugin/Plugin.cpp`, `src/analysis/Consumer.cpp` — the plumbing (100 lines).
 5. `src/analysis/Analyzer.cpp`, in this order: the `Cost` functions (top), `State`,
-   `analyzeFunction` (≈ line 1800), `exec` (≈ 1680), `execLoop` (≈ 1450),
-   `functionCost` (≈ 1060), `eval`/`evalCond`/`arith` (≈ 550–940), `mergeStates`/`havoc`
-   (≈ 1150).
+   `analyzeFunction` (≈ line 2040), `exec` (≈ 1770), `execLoop` (≈ 1520),
+   `functionCost` (≈ 1110), `eval`/`evalCond`/`arith` (≈ 600–1000), `mergeStates`/`havoc`
+   (≈ 1210), `recordCall`/`contextFor` (≈ 1980), `fillInContext` (≈ 2180).
 6. `tests/analyzer_test.cpp` — the `Unsound` suite is the best specification of what
    the analyser must refuse.

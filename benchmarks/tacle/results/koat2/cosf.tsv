@@ -1,0 +1,15 @@
+cosf_init	1 {O(1)}
+cosf_return	1 {O(1)}
+cosf_main	!timeout-or-error
+basicmath___cosf	1 {O(1)}
+main	!timeout-or-error
+basicmath___ieee754_acosf	inf {Infinity}
+basicmath___ieee754_sqrtf	inf {Infinity}
+basicmath___ieee754_powf	!timeout-or-error
+basicmath___isinff	1 {O(1)}
+basicmath___fabsf	1 {O(1)}
+basicmath___scalbnf	1 {O(1)}
+basicmath___ieee754_rem_pio2f	1 {O(1)}
+basicmath___kernel_cosf	1 {O(1)}
+basicmath___kernel_sinf	1 {O(1)}
+basicmath___copysignf	1 {O(1)}

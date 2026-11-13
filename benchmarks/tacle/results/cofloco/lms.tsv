@@ -1,0 +1,6 @@
+lms_calc	max([4,nat(V_l+1)*4+nat(V_l)*2])+8 	n 
+lms_init	inf 	infinity 
+lms_main	26580 	constant 
+lms_return	406 	constant 
+lms_sinus	1 	constant 
+main	inf 	infinity 

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="minver_init" numcall="5" line="253" source="minver.c" executed="true" extern="false">
+            <function name="minver_init">
+                <loop loopId="14" line="197" source="minver.c" exact="true" maxcount="3" totalcount="3">
+                    <loop loopId="15" line="199" source="minver.c" exact="true" maxcount="3" totalcount="9">
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <call name="minver_main" numcall="6" line="254" source="minver.c" executed="true" extern="false">
+            <function name="minver_main">
+                <loop loopId="18" line="233" source="minver.c" exact="true" maxcount="3" totalcount="3">
+                    <loop loopId="19" line="235" source="minver.c" exact="true" maxcount="3" totalcount="9">
+                    </loop>
+                </loop>
+                <call name="minver_minver" numcall="3" line="239" source="minver.c" executed="true" extern="false">
+                    <function name="minver_minver">
+                        <conditional id="IF-5"> <condition line="109" source="minver.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="110" source="minver.c">
+                                <loop loopId="4" line="113" source="minver.c" exact="false" maxcount="3" totalcount="3">
+                                </loop>
+                                <loop loopId="5" line="116" source="minver.c" exact="false" maxcount="3" totalcount="3">
+                                    <loop loopId="6" line="119" source="minver.c" exact="false" maxcount="3" totalcount="6">
+                                    </loop>
+                                    <conditional id="IF-8"> <condition line="128" source="minver.c" executed="true"> </condition>
+                                        <case cond="1" executed="true" line="129" source="minver.c">
+                                            <conditional id="IF-9"> <condition line="130" source="minver.c" executed="true"> </condition>
+                                                <case cond="1" executed="true" line="132" source="minver.c">
+                                                    <loop loopId="7" line="139" source="minver.c" exact="false" maxcount="3" totalcount="9">
+                                                    </loop>
+                                                </case>
+                                                <case cond="0" executed="true" >
+                                                </case>
+                                            </conditional>
+                                            <loop loopId="8" line="146" source="minver.c" exact="false" maxcount="3" totalcount="9">
+                                            </loop>
+                                            <loop loopId="9" line="149" source="minver.c" exact="false" maxcount="3" totalcount="9">
+                                                <conditional id="IF-10"> <condition line="133" source="minver.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="134" source="minver.c">
+                                                        <conditional id="IF-11"> <condition line="150" source="minver.c" executed="true"> </condition>
+                                                            <case cond="1" executed="true" line="151" source="minver.c">
+                                                                <loop loopId="10" line="154" source="minver.c" exact="false" maxcount="3" totalcount="27">
+                                                                </loop>
+                                                            </case>
+                                                            <case cond="0" executed="true" >
+                                                            </case>
+                                                        </conditional>
+                                                    </case>
+                                                    <case cond="0" executed="true" >
+                                                    </case>
+                                                </conditional>
+                                            </loop>
+                                        </case>
+                                        <case cond="0" executed="true" >
+                                        </case>
+                                    </conditional>
+                                </loop>
+                            </case>
+                            <case cond="0" executed="false" >
+                            </case>
+                        </conditional>
+                        <conditional id="IF-13"> <condition line="155" source="minver.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="155" source="minver.c">
+                                <loop loopId="11" line="165" source="minver.c" exact="false" maxcount="3" totalcount="3">
+                                    <loop loopId="12" line="167" source="minver.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        <conditional id="IF-14"> <condition line="162" source="minver.c" executed="true"> </condition>
+                                            <case cond="1" executed="true" line="165" source="minver.c">
+                                                <loop loopId="13" line="174" source="minver.c" exact="false" maxcount="3" totalcount="NOCOMP">
+                                                </loop>
+                                            </case>
+                                            <case cond="0" executed="true" >
+                                            </case>
+                                        </conditional>
+                                    </loop>
+                                </loop>
+                            </case>
+                            <case cond="0" executed="true" >
+                            </case>
+                        </conditional>
+                    </function>
+                </call>
+                <loop loopId="20" line="241" source="minver.c" exact="true" maxcount="3" totalcount="3">
+                    <loop loopId="21" line="243" source="minver.c" exact="true" maxcount="3" totalcount="9">
+                    </loop>
+                </loop>
+                <call name="minver_mmul" numcall="4" line="247" source="minver.c" executed="true" extern="false">
+                    <function name="minver_mmul">
+                        <conditional id="IF-3"> <condition line="82" source="minver.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="85" source="minver.c">
+                                <loop loopId="1" line="85" source="minver.c" exact="false" maxcount="3" totalcount="3">
+                                    <loop loopId="2" line="87" source="minver.c" exact="false" maxcount="3" totalcount="9">
+                                        <loop loopId="3" line="90" source="minver.c" exact="false" maxcount="3" totalcount="27">
+                                        </loop>
+                                    </loop>
+                                </loop>
+                            </case>
+                            <case cond="0" executed="false" >
+                            </case>
+                        </conditional>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="minver_return" numcall="7" line="256" source="minver.c" executed="true" extern="false">
+            <function name="minver_return">
+                <loop loopId="16" line="211" source="minver.c" exact="true" maxcount="3" totalcount="3">
+                    <loop loopId="17" line="213" source="minver.c" exact="true" maxcount="3" totalcount="9">
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <loop source="minver.c" line="85" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="87" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="90" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="113" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="116" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="119" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="139" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="146" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="149" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="154" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="165" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="167" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="minver.c" line="174" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="197" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="199" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="211" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="213" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="233" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="235" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="241" max="3"  min="3">
+        </loop>
+        <loop source="minver.c" line="243" max="3"  min="3">
+        </loop>
+    </function>
+</flowfacts>
+

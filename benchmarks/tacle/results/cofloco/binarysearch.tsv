@@ -1,0 +1,7 @@
+binarysearch_binary_search	inf 	infinity 
+binarysearch_init	34 	constant 
+binarysearch_initSeed	1 	constant 
+binarysearch_main	inf 	infinity 
+binarysearch_randomInteger	1 	constant 
+binarysearch_return	1 	constant 
+main	inf 	infinity 

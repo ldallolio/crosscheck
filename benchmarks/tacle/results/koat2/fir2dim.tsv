@@ -1,0 +1,5 @@
+fir2dim_init	623 {O(1)}
+fir2dim_return	1 {O(1)}
+fir2dim_pin_down	inf {Infinity}
+fir2dim_main	inf {Infinity}
+main	!timeout-or-error

@@ -1,0 +1,5 @@
+fir2dim_init	623 	constant 
+fir2dim_main	!timeout-or-error
+fir2dim_pin_down	inf 	infinity 
+fir2dim_return	1 	constant 
+main	!timeout-or-error

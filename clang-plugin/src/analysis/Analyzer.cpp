@@ -302,6 +302,23 @@ class ModScan : public RecursiveASTVisitor<ModScan> {
         if (delta && e->getOpcode() == BO_SubAssign)
           delta = *delta == INT64_MIN ? std::nullopt : std::optional<std::int64_t>(-*delta);
       }
+    } else if (e->getOpcode() == BO_Assign) {
+      // `v = v + c`, `v = c + v`, `v = v - c` with a constant c.
+      if (const auto* rhs = dyn_cast<BinaryOperator>(e->getRHS()->IgnoreParenImpCasts());
+          rhs && (rhs->getOpcode() == BO_Add || rhs->getOpcode() == BO_Sub)) {
+        const Expr* l = rhs->getLHS()->IgnoreParenImpCasts();
+        const Expr* r = rhs->getRHS()->IgnoreParenImpCasts();
+        const Expr* other = nullptr;
+        if (TrackScan::varOf(l) == v) other = r;
+        else if (rhs->getOpcode() == BO_Add && TrackScan::varOf(r) == v) other = l;
+        Expr::EvalResult c;
+        if (other && !other->isValueDependent() && isIntType(other->getType()) &&
+            !other->HasSideEffects(ctx_) && other->EvaluateAsInt(c, ctx_)) {
+          delta = toInt64(c.Val.getInt());
+          if (delta && rhs->getOpcode() == BO_Sub)
+            delta = *delta == INT64_MIN ? std::nullopt : std::optional<std::int64_t>(-*delta);
+        }
+      }
     }
     note(v, delta);
     return true;
@@ -330,8 +347,28 @@ class ModScan : public RecursiveASTVisitor<ModScan> {
 // The analyser.
 // ---------------------------------------------------------------------------
 
+/// A calling context: for each parameter, the interval in which its argument
+/// is known to lie at the call sites the analysis is used for. Empty: no
+/// context (the analysis holds for every call that meets the preconditions).
+using Context = std::vector<Interval>;
+using SummaryKey = std::pair<const FunctionDecl*, Context>;
+
+/// Declared preconditions of a function, over its own parameter symbols.
+struct Contract {
+  std::vector<std::optional<SymId>> paramSyms;
+  std::vector<Constraint> requires_;
+};
+
+struct CallRecord {
+  const FunctionDecl* callee = nullptr;  ///< canonical declaration
+  Context hull;                          ///< join of the argument intervals seen
+  bool any = false;
+};
+
 struct Summary {
   bool ok = true;
+  /// Analyses of callees this analysis relies on.
+  std::set<SummaryKey> callees;
   Sat wcet;
   std::vector<std::string> assumptions;
   /// Symbols standing for the integer parameters (by parameter index).
@@ -360,6 +397,8 @@ struct FnCtx {
   unsigned loopDepth = 0;
   std::map<const Stmt*, LoopReport> loops;
   std::set<std::pair<unsigned, std::string>> emitted;
+  /// Argument intervals of the calls evaluated so far (non-speculatively).
+  std::map<const CallExpr*, CallRecord> calls;
   /// Innermost enclosing switch: the havoc state valid at every case label.
   /// An empty entry marks a loop boundary (case labels across it are rejected).
   std::vector<std::optional<State>> switchStack;
@@ -391,6 +430,8 @@ class Analyzer {
     const SourceManager& sm = ctx_.getSourceManager();
     if (loc.isValid() && sm.isInSystemHeader(sm.getExpansionLoc(loc))) return;
     c.summary.report.errors.push_back(describe(loc) + msg);
+    // The same function may be analysed in several calling contexts.
+    if (!printed_.insert({loc.getRawEncoding(), msg}).second) return;
     ctx_.getDiagnostics().Report(loc, errorId_) << msg;
   }
 
@@ -515,7 +556,7 @@ class Analyzer {
   Cost exprCost(const Expr* e);
   Cost childrenCost(const Expr* e);
   Cost calleeCost(const CallExpr* call);
-  Cost functionCost(const FunctionDecl* fd, SourceLocation loc);
+  Cost functionCost(const FunctionDecl* fd, SourceLocation loc, const CallExpr* call = nullptr);
 
   // -- statements -----------------------------------------------------------
   Cost exec(const Stmt* s, std::vector<State>& states);
@@ -534,7 +575,14 @@ class Analyzer {
   std::string potentialString(const RankingResult& r, const std::vector<std::string>& names);
 
   // -- functions ------------------------------------------------------------
-  const Summary& analyzeFunction(const FunctionDecl* def);
+  const Summary& analyzeFunction(const FunctionDecl* def, const Context& context = {});
+  State enterFunction(const FunctionDecl* def, FnCtx& fc);
+  const Contract& contractOf(const FunctionDecl* def);
+  bool callsItself(const FunctionDecl* def);
+  void recordCall(const CallExpr* call, const FunctionDecl* fd, const std::vector<LinExpr>& args,
+                  const std::vector<const Expr*>& argExprs, State& s);
+  Context contextFor(const CallExpr* call, const FunctionDecl* def);
+  void fillInContext(Report& report, const std::vector<const FunctionDecl*>& roots);
   bool onStack(const FunctionDecl* fd) {
     for (const auto& c : stack_)
       if (c->fn->getCanonicalDecl() == fd->getCanonicalDecl()) return true;
@@ -547,7 +595,11 @@ class Analyzer {
   SymbolTable syms_;
   unsigned errorId_ = 0, remarkId_ = 0;
   std::vector<std::unique_ptr<FnCtx>> stack_;
-  std::map<const FunctionDecl*, Summary> cache_;
+  std::map<SummaryKey, Summary> cache_;
+  std::map<const FunctionDecl*, Contract> contracts_;
+  std::map<const FunctionDecl*, bool> selfRecursive_;
+  std::map<const FunctionDecl*, unsigned> specialisations_;
+  std::set<std::pair<unsigned, std::string>> printed_;
 };
 
 // ===========================================================================
@@ -689,12 +741,12 @@ void Analyzer::checkContract(const FunctionDecl* callee, const std::vector<LinEx
     paramSyms = &cur().summary.paramSyms;
     requires_ = &cur().summary.requires_;
   } else {
+    if (cur().speculative) return;  // nothing is reported or recorded there
     const FunctionDecl* def = nullptr;
-    if (!callee->hasBody(def)) return;
-    auto it = cache_.find(def->getCanonicalDecl());
-    if (it == cache_.end()) return;
-    paramSyms = &it->second.paramSyms;
-    requires_ = &it->second.requires_;
+    if (!callee->hasBody(def) || !def->getBody() || def->isDependentContext()) return;
+    const Contract& ct = contractOf(def);
+    paramSyms = &ct.paramSyms;
+    requires_ = &ct.requires_;
   }
   if (!requires_->empty()) {
     std::map<SymId, LinExpr> sigma;
@@ -746,6 +798,7 @@ LinExpr Analyzer::evalCall(const CallExpr* call, State& s) {
         argExprs.erase(argExprs.begin());
       }
     checkContract(fd, args, argExprs, call->getExprLoc(), s);
+    recordCall(call, fd, args, argExprs, s);
   }
   return unknown(call->getType(), "result");
 }
@@ -1054,10 +1107,10 @@ Cost Analyzer::calleeCost(const CallExpr* call) {
       fd = devirt;
     }
   }
-  return functionCost(fd, call->getExprLoc());
+  return functionCost(fd, call->getExprLoc(), call);
 }
 
-Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc) {
+Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc, const CallExpr* call) {
   static const std::set<std::string> banned = {"malloc", "calloc", "realloc", "free",
                                                "aligned_alloc", "posix_memalign", "strdup",
                                                "alloca", "operator_new", "operator_delete"};
@@ -1117,8 +1170,12 @@ Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc) {
 
   const FunctionDecl* def = nullptr;
   if (fd->hasBody(def) && def->getBody() && !def->isDependentContext()) {
+    // Costs computed while candidate invariants are being tested are discarded.
+    if (!stack_.empty() && cur().speculative) return unit(w_.call);
+    Context context = call ? contextFor(call, def) : Context{};
+    if (!stack_.empty()) cur().summary.callees.insert({def->getCanonicalDecl(), context});
     // Copy what is needed: analysing callees may rehash the cache.
-    const Summary& sm = analyzeFunction(def);
+    const Summary& sm = analyzeFunction(def, context);
     bool ok = sm.ok;
     Sat wcet = sm.wcet;
     std::string reason = sm.reason;
@@ -1209,6 +1266,19 @@ State Analyzer::mergeStates(const std::vector<State>& in) {
         if (upper) out.facts.push_back(le(m, v));
         if (lower) out.facts.push_back(ge(m, v));
       }
+      // Interval join: a constant bound that holds on every merged path.
+      Interval hull;
+      bool first_ = true, live = false;
+      for (const State& st : in) {
+        std::optional<Interval> b = boundsOf(syms_, st.facts, st.val.at(var));
+        if (!b) continue;  // unreachable path
+        live = true;
+        if (first_) { hull = *b; first_ = false; continue; }
+        hull.lo = (hull.lo && b->lo) ? std::optional<std::int64_t>(std::min(*hull.lo, *b->lo)) : std::nullopt;
+        hull.hi = (hull.hi && b->hi) ? std::optional<std::int64_t>(std::max(*hull.hi, *b->hi)) : std::nullopt;
+      }
+      if (live && hull.lo) out.facts.push_back(ge(m, LinExpr::constant(*hull.lo)));
+      if (live && hull.hi) out.facts.push_back(le(m, LinExpr::constant(*hull.hi)));
     }
     out.val[var] = m;
   }
@@ -1303,12 +1373,14 @@ Cost Analyzer::execDecl(const DeclStmt* ds, std::vector<State>& states) {
       error(vd->getLocation(), "local variable '" + vd->getNameAsString() +
                                    "' has a non-trivial destructor (hidden cost)");
     const Expr* init = vd->getInit();
-    if (init) c = seq(c, seq(exprCost(init), unit(isIntType(vd->getType()) ? w_.assign : 0)));
     for (State& s : states) {
       if (s.flow != Flow::Normal) continue;
       LinExpr v = init ? eval(init, s) : LinExpr::poison();
       if (tracked(vd)) assignVar(vd, v, s);
     }
+    // Costed after evaluation: the cost of a call uses the argument intervals
+    // recorded while evaluating it (as everywhere below).
+    if (init) c = seq(c, seq(exprCost(init), unit(isIntType(vd->getType()) ? w_.assign : 0)));
   }
   return c;
 }
@@ -1322,7 +1394,6 @@ Cost Analyzer::execIf(const IfStmt* is, std::vector<State>& states) {
   if (const DeclStmt* cv = is->getConditionVariableDeclStmt()) c = seq(c, execDecl(cv, states));
   if (auto taken = is->getNondiscardedCase(ctx_)) return seq(c, exec(*taken, states));
 
-  c = seq(c, seq(exprCost(is->getCond()), unit(w_.branch)));
   std::vector<State> thenStates, elseStates, out;
   for (State& s : states) {
     if (s.flow != Flow::Normal) {
@@ -1336,6 +1407,7 @@ Cost Analyzer::execIf(const IfStmt* is, std::vector<State>& states) {
     thenStates.push_back(std::move(t));
     elseStates.push_back(std::move(e));
   }
+  c = seq(c, seq(exprCost(is->getCond()), unit(w_.branch)));
   Cost ct = exec(is->getThen(), thenStates);
   Cost ce = exec(is->getElse(), elseStates);
   for (State& s : thenStates) out.push_back(std::move(s));
@@ -1348,8 +1420,6 @@ Cost Analyzer::execIf(const IfStmt* is, std::vector<State>& states) {
 Cost Analyzer::execSwitch(const SwitchStmt* ss, std::vector<State>& states) {
   Cost c = exec(ss->getInit(), states);
   if (const DeclStmt* cv = ss->getConditionVariableDeclStmt()) c = seq(c, execDecl(cv, states));
-  c = seq(c, seq(exprCost(ss->getCond()), unit(w_.branch)));
-
   std::vector<State> normals, out;
   for (State& s : states) {
     if (s.flow == Flow::Normal) {
@@ -1359,6 +1429,7 @@ Cost Analyzer::execSwitch(const SwitchStmt* ss, std::vector<State>& states) {
       out.push_back(std::move(s));
     }
   }
+  c = seq(c, seq(exprCost(ss->getCond()), unit(w_.branch)));
   ModScan scan(ctx_);
   scan.TraverseStmt(const_cast<Stmt*>(ss->getBody()));
   // Every case label is reached with the entry state in which all variables
@@ -1421,8 +1492,8 @@ Cost Analyzer::execRangeFor(const CXXForRangeStmt* fs, std::vector<State>& state
   ++fc.loopDepth;
   fc.switchStack.push_back(std::nullopt);
   std::vector<State> st{head};
-  Cost test = seq(exprCost(fs->getCond()), unit(w_.branch));
   eval(fs->getCond(), st.front());
+  Cost test = seq(exprCost(fs->getCond()), unit(w_.branch));
   Cost body = exec(fs->getLoopVarStmt(), st);
   body = flat(seq(body, exec(fs->getBody(), st)));
   Cost inc = exprCost(fs->getInc());
@@ -1472,13 +1543,18 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // do-while: the body runs once before the first test.
   Cost pre{};
   bool earlyFirst = false;
+  std::vector<State> firstBroken;
   State entry = origin;
   if (isDo) {
     std::vector<State> first{origin};
     pre = flat(exec(body, first));
     std::vector<State> cont;
     for (State& s : first) {
-      if (s.flow == Flow::Break) earlyFirst = true;
+      if (s.flow == Flow::Break) {
+        earlyFirst = true;
+        firstBroken.push_back(std::move(s));
+        continue;
+      }
       if (s.flow == Flow::Return) { earlyFirst = true; out.push_back(std::move(s)); continue; }
       if (s.flow == Flow::Normal || s.flow == Flow::Continue) {
         s.flow = Flow::Normal;
@@ -1543,7 +1619,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   }
 
   struct Iteration {
-    std::vector<State> complete, returned;
+    std::vector<State> complete, returned, broken;
     bool early = false;
     Cost test{}, body{}, inc{};
   };
@@ -1552,8 +1628,8 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     State s = head;
     for (const Candidate& c : invs) s.facts.push_back(c.inv);
     if (cond) {
-      it.test = seq(exprCost(cond), unit(w_.branch));
       CondResult r = evalCond(cond, s);
+      it.test = seq(exprCost(cond), unit(w_.branch));
       assumeCond(s, r, true);
       for (const Candidate& c : invs)
         if (c.strict) s.facts.push_back(*c.strict);
@@ -1563,15 +1639,16 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     for (State& x : st)
       if (x.flow == Flow::Continue) x.flow = Flow::Normal;
     if (inc) {
-      it.inc = exprCost(inc);
       for (State& x : st)
         if (x.flow == Flow::Normal) eval(inc, x);
+      it.inc = exprCost(inc);
     }
     for (State& x : st) {
       if (x.flow == Flow::Normal) it.complete.push_back(std::move(x));
       else {
         it.early = true;
         if (x.flow == Flow::Return) it.returned.push_back(std::move(x));
+        else if (x.flow == Flow::Break) it.broken.push_back(std::move(x));
       }
     }
     return it;
@@ -1646,28 +1723,38 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   lr.bound = k;
   if (!fc.speculative) fc.loops[loop] = lr;
 
-  // Exit state: modified variables are unknown; when the loop can only be
-  // left through its guard, the invariants and the negated guard hold.
+  // Exit states. The loop is left either through its guard, at a loop head
+  // where the invariants hold and the guard is false, or through a `break`,
+  // in a state reached by one of the paths of the generic iteration (whose
+  // head satisfies the invariants) or of the first body of a do-while.
   bool early = it.early || earlyFirst;
   for (State& r : it.returned) out.push_back(std::move(r));
   if (reachable) {
-    std::map<const VarDecl*, SymId> exitSym;
-    State exit = havoc(isDo ? origin : entry, scan.mods, &exitSym);
-    if (isDo)
-      for (const VarDecl* v : slots)
-        if (!exitSym.count(v) && !exit.val.count(v)) exit.val[v] = entry.val.at(v);
-    if (!early) {
-      if (isDo) exit.facts = entry.facts;  // no early exit: the first body completed
+    std::size_t before = out.size();
+    if (cond) {
+      std::map<const VarDecl*, SymId> exitSym;
+      State exit = havoc(isDo ? origin : entry, scan.mods, &exitSym);
+      if (isDo) {
+        for (const VarDecl* v : slots)
+          if (!exitSym.count(v) && !exit.val.count(v)) exit.val[v] = entry.val.at(v);
+        exit.facts = entry.facts;  // the test is reached after a completed first body
+      }
       std::map<SymId, LinExpr> toExit;
       for (const auto& [var, id] : headSym)
         if (exitSym.count(var)) toExit[id] = LinExpr::symbol(exitSym[var]);
       for (const Candidate& c : candidates) exit.facts.push_back(Constraint{c.inv.e.substitute(toExit)});
-      if (cond) {
-        CondResult r = evalCond(cond, exit);
-        assumeCond(exit, r, false);
-      }
+      CondResult r = evalCond(cond, exit);
+      assumeCond(exit, r, false);
+      out.push_back(std::move(exit));
     }
-    out.push_back(std::move(exit));
+    for (std::vector<State>* group : {&it.broken, &firstBroken})
+      for (State& b : *group) {
+        b.flow = Flow::Normal;
+        out.push_back(std::move(b));
+      }
+    // `for (;;)` without `break`: nothing leaves the loop normally. Keep one
+    // unconstrained state so that the code after it is still analysed.
+    if (out.size() == before) out.push_back(havoc(isDo ? origin : entry, scan.mods));
   }
   states = std::move(out);
   limitStates(states);
@@ -1736,13 +1823,12 @@ Cost Analyzer::exec(const Stmt* st, std::vector<State>& states) {
     return exec(sc->getSubStmt(), states);
   }
   if (const auto* rs = dyn_cast<ReturnStmt>(st)) {
-    Cost c = returning(seq(exprCost(rs->getRetValue()), unit(w_.ret)));
     for (State& s : states) {
       if (s.flow != Flow::Normal) continue;
       if (rs->getRetValue()) eval(rs->getRetValue(), s);
       s.flow = Flow::Return;
     }
-    return c;
+    return returning(seq(exprCost(rs->getRetValue()), unit(w_.ret)));
   }
   if (isa<BreakStmt>(st) || isa<ContinueStmt>(st)) {
     for (State& s : states)
@@ -1788,10 +1874,9 @@ Cost Analyzer::exec(const Stmt* st, std::vector<State>& states) {
       }
       return Cost{};
     }
-    Cost c = exprCost(e);
     for (State& s : states)
       if (s.flow == Flow::Normal) eval(e, s);
-    return c;
+    return exprCost(e);
   }
   error(st->getBeginLoc(), std::string("unsupported statement (") + st->getStmtClassName() + ")");
   return Cost{};
@@ -1801,24 +1886,9 @@ Cost Analyzer::exec(const Stmt* st, std::vector<State>& states) {
 // Functions.
 // ===========================================================================
 
-const Summary& Analyzer::analyzeFunction(const FunctionDecl* def) {
-  const FunctionDecl* key = def->getCanonicalDecl();
-  if (auto it = cache_.find(key); it != cache_.end()) return it->second;
-
-  stack_.push_back(std::make_unique<FnCtx>());
-  FnCtx& fc = cur();
-  fc.fn = def;
-  FunctionReport& rep = fc.summary.report;
-  rep.name = def->getQualifiedNameAsString();
-  {
-    const SourceManager& sm = ctx_.getSourceManager();
-    PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(def->getLocation()));
-    if (p.isValid()) {
-      rep.file = p.getFilename();
-      rep.line = p.getLine();
-    }
-  }
-
+/// Sets up the analysis of `def` in `fc`: tracked locals, parameter symbols
+/// and declared preconditions. Returns the initial state.
+State Analyzer::enterFunction(const FunctionDecl* def, FnCtx& fc) {
   // Which locals can be tracked?
   TrackScan ts;
   ts.TraverseStmt(def->getBody());
@@ -1868,14 +1938,136 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def) {
       for (const Constraint& c : r.ifTrue) fc.summary.requires_.push_back(c);
     }
   init.facts = fc.summary.requires_;
+  return init;
+}
+
+/// The declared preconditions of `def`, without analysing its body.
+const Contract& Analyzer::contractOf(const FunctionDecl* def) {
+  const FunctionDecl* key = def->getCanonicalDecl();
+  if (auto it = contracts_.find(key); it != contracts_.end()) return it->second;
+  stack_.push_back(std::make_unique<FnCtx>());
+  FnCtx& fc = cur();
+  fc.fn = def;
+  fc.speculative = 1;  // nothing is reported from here
+  enterFunction(def, fc);
+  Contract ct{fc.summary.paramSyms, fc.summary.requires_};
+  stack_.pop_back();
+  return contracts_.emplace(key, std::move(ct)).first->second;
+}
+
+/// Does the body of `def` call `def`? (Such functions are never specialised:
+/// the facts of a calling context hold for the first activation only.)
+bool Analyzer::callsItself(const FunctionDecl* def) {
+  const FunctionDecl* key = def->getCanonicalDecl();
+  if (auto it = selfRecursive_.find(key); it != selfRecursive_.end()) return it->second;
+  struct Scan : RecursiveASTVisitor<Scan> {
+    const FunctionDecl* self = nullptr;
+    bool found = false;
+    bool VisitDeclRefExpr(DeclRefExpr* e) {
+      if (const auto* fd = dyn_cast<FunctionDecl>(e->getDecl()))
+        if (fd->getCanonicalDecl() == self) found = true;
+      return !found;
+    }
+  } scan;
+  scan.self = key;
+  scan.TraverseStmt(def->getBody());
+  return selfRecursive_[key] = scan.found;
+}
+
+/// Joins into the record of `call` the interval of every integer argument in
+/// state `s`. Only done outside speculative walks: the costs computed there
+/// are discarded.
+void Analyzer::recordCall(const CallExpr* call, const FunctionDecl* fd,
+                          const std::vector<LinExpr>& args,
+                          const std::vector<const Expr*>& argExprs, State& s) {
+  FnCtx& fc = cur();
+  if (fc.speculative) return;
+  const FunctionDecl* def = nullptr;
+  if (!fd->hasBody(def) || !def->getBody() || def->isDependentContext()) return;
+  if (def->getCanonicalDecl() == fc.fn->getCanonicalDecl() || callsItself(def)) return;
+
+  Context here(def->getNumParams());
+  for (unsigned i = 0; i < def->getNumParams() && i < args.size(); ++i) {
+    QualType pt = def->getParamDecl(i)->getType();
+    if (!isIntType(pt) || pt.isVolatileQualified() || args[i].poisoned()) continue;
+    // The argument must already have the parameter's type, so that its value
+    // is the parameter's value (no conversion in between).
+    if (!ctx_.hasSameUnqualifiedType(argExprs[i]->getType(), pt)) continue;
+    std::optional<Interval> b = boundsOf(syms_, s.facts, args[i]);
+    if (!b) return;  // contradictory facts: this state stands for no execution
+    here[i] = *b;
+  }
+  CallRecord& rec = fc.calls[call];
+  if (!rec.any) {
+    rec.callee = def->getCanonicalDecl();
+    rec.hull = std::move(here);
+    rec.any = true;
+    return;
+  }
+  if (rec.callee != def->getCanonicalDecl() || rec.hull.size() != here.size()) {
+    rec.hull.assign(rec.hull.size(), Interval{});
+    return;
+  }
+  for (std::size_t i = 0; i < here.size(); ++i) {
+    Interval& h = rec.hull[i];
+    h.lo = (h.lo && here[i].lo) ? std::optional<std::int64_t>(std::min(*h.lo, *here[i].lo)) : std::nullopt;
+    h.hi = (h.hi && here[i].hi) ? std::optional<std::int64_t>(std::max(*h.hi, *here[i].hi)) : std::nullopt;
+  }
+}
+
+/// The context in which `def` is analysed for `call`: the recorded argument
+/// intervals, or no context when nothing useful is known, when the call was
+/// never evaluated, or when `def` already has many specialised analyses.
+Context Analyzer::contextFor(const CallExpr* call, const FunctionDecl* def) {
+  constexpr unsigned kMaxSpecialisations = 8;
+  if (stack_.empty()) return {};
+  const FunctionDecl* key = def->getCanonicalDecl();
+  auto it = cur().calls.find(call);
+  if (it == cur().calls.end() || !it->second.any || it->second.callee != key) return {};
+  const Context& hull = it->second.hull;
+  if (std::all_of(hull.begin(), hull.end(), [](const Interval& i) { return i.unconstrained(); }))
+    return {};
+  if (cache_.count({key, hull})) return hull;
+  if (specialisations_[key] >= kMaxSpecialisations) return {};
+  ++specialisations_[key];
+  return hull;
+}
+
+const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context& context) {
+  SummaryKey key{def->getCanonicalDecl(), context};
+  if (auto it = cache_.find(key); it != cache_.end()) return it->second;
+
+  stack_.push_back(std::make_unique<FnCtx>());
+  FnCtx& fc = cur();
+  fc.fn = def;
+  FunctionReport& rep = fc.summary.report;
+  rep.name = def->getQualifiedNameAsString();
+  {
+    const SourceManager& sm = ctx_.getSourceManager();
+    PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(def->getLocation()));
+    if (p.isValid()) {
+      rep.file = p.getFilename();
+      rep.line = p.getLine();
+    }
+  }
+
+  State init = enterFunction(def, fc);
+  // Calling context: facts on the parameter symbols, proved at the call sites
+  // this analysis is used for (never for functions that call themselves).
+  for (std::size_t i = 0; i < context.size() && i < fc.summary.paramSyms.size(); ++i) {
+    if (!fc.summary.paramSyms[i]) continue;
+    LinExpr p = LinExpr::symbol(*fc.summary.paramSyms[i]);
+    if (context[i].lo) init.facts.push_back(ge(p, LinExpr::constant(*context[i].lo)));
+    if (context[i].hi) init.facts.push_back(le(p, LinExpr::constant(*context[i].hi)));
+  }
 
   // Walk the body.
   Cost cost{};
   std::vector<State> states{init};
   if (const auto* ctor = dyn_cast<CXXConstructorDecl>(def))
     for (const CXXCtorInitializer* ci : ctor->inits()) {
-      cost = seq(cost, seq(exprCost(ci->getInit()), unit(w_.assign)));
       eval(ci->getInit(), states.front());
+      cost = seq(cost, seq(exprCost(ci->getInit()), unit(w_.assign)));
     }
   if (const auto* dtor = dyn_cast<CXXDestructorDecl>(def); dtor && !dtor->getParent()->hasTrivialDestructor()) {
     for (const FieldDecl* f : dtor->getParent()->fields())
@@ -1950,7 +2142,7 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def) {
 
   Summary done = std::move(fc.summary);
   stack_.pop_back();
-  return cache_.emplace(key, std::move(done)).first->second;
+  return cache_.emplace(std::move(key), std::move(done)).first->second;
 }
 
 // ===========================================================================
@@ -1978,14 +2170,69 @@ class Collector : public RecursiveASTVisitor<Collector> {
   bool all_;
 };
 
+/// Fills the "in context" fields of the report: what holds for a function in
+/// the calling contexts in which the program actually uses it. The analyses
+/// that count are those reachable, through the calls they rely on, from the
+/// entry functions: the function named by the `entry` option, or else every
+/// analysed function that no analysed function calls.
+void Analyzer::fillInContext(Report& report, const std::vector<const FunctionDecl*>& order) {
+  std::set<const FunctionDecl*> called;
+  for (const auto& [key, sm] : cache_)
+    for (const SummaryKey& c : sm.callees) called.insert(c.first);
+  std::vector<SummaryKey> work;
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    bool entry = opts_.entry.empty() ? !called.count(order[i]) : report.functions[i].name == opts_.entry;
+    if (entry) work.push_back({order[i], Context{}});
+  }
+  std::set<SummaryKey> reach;
+  while (!work.empty()) {
+    SummaryKey k = std::move(work.back());
+    work.pop_back();
+    auto it = cache_.find(k);
+    if (it == cache_.end() || !reach.insert(k).second) continue;
+    for (const SummaryKey& c : it->second.callees) work.push_back(c);
+  }
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    FunctionReport& f = report.functions[i];
+    std::vector<const FunctionReport*> uses;
+    for (const SummaryKey& k : reach)
+      if (k.first == order[i]) uses.push_back(&cache_.at(k).report);
+    if (uses.empty()) continue;
+    f.reachable = true;
+    f.contexts = static_cast<unsigned>(uses.size());
+    bool allBounded = true;
+    std::uint64_t worst = 0;
+    for (const FunctionReport* u : uses) {
+      allBounded = allBounded && u->bounded;
+      worst = std::max(worst, u->wcet);
+    }
+    if (allBounded) f.wcetInContext = worst;
+    for (std::size_t j = 0; j < f.loops.size(); ++j) {
+      bool all = true;
+      std::uint64_t k = 0;
+      for (const FunctionReport* u : uses) {
+        if (u->loops.size() != f.loops.size() || u->loops[j].line != f.loops[j].line ||
+            !u->loops[j].verified) {
+          all = false;
+          break;
+        }
+        k = std::max(k, u->loops[j].bound);
+      }
+      if (all) f.loops[j].inContext = k;
+    }
+  }
+}
+
 Report Analyzer::run() {
   Collector collector(ctx_, opts_.analyzeAll);
   collector.TraverseDecl(ctx_.getTranslationUnitDecl());
 
   Report report;
   std::set<const FunctionDecl*> seen;
+  std::vector<const FunctionDecl*> order;
   for (const FunctionDecl* fd : collector.roots) {
     if (!seen.insert(fd->getCanonicalDecl()).second) continue;
+    order.push_back(fd->getCanonicalDecl());
     FunctionReport rep = analyzeFunction(fd).report;
 
     DiagnosticsEngine& diags = ctx_.getDiagnostics();
@@ -2017,6 +2264,7 @@ Report Analyzer::run() {
     }
     report.functions.push_back(std::move(rep));
   }
+  fillInContext(report, order);
   return report;
 }
 

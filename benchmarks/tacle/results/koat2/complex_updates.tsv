@@ -1,0 +1,5 @@
+complex_updates_init	69 {O(1)}
+complex_updates_pin_down	36 {O(1)}
+complex_updates_return	36 {O(1)}
+complex_updates_main	36 {O(1)}
+main	140 {O(1)}

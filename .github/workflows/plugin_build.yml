@@ -1,0 +1,60 @@
+name: Clang plugin CI
+
+on:
+  push:
+    branches: [ main, master ]
+    paths: [ 'clang-plugin/**', 'benchmarks/**', '.github/workflows/plugin_build.yml' ]
+  pull_request:
+    branches: [ main, master ]
+    paths: [ 'clang-plugin/**', 'benchmarks/**', '.github/workflows/plugin_build.yml' ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    # Pinned: Ubuntu 24.04 ships LLVM/Clang 18, Z3 4.8 and GoogleTest 1.14 as packages.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install LLVM/Clang 18, Z3, GoogleTest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++ \
+            llvm-18-dev libclang-18-dev clang-18 \
+            libz3-dev libgtest-dev \
+            libzstd-dev zlib1g-dev libedit-dev libcurl4-openssl-dev libxml2-dev libffi-dev
+
+      - name: Configure
+        run: cmake -S clang-plugin -B clang-plugin/build -G Ninja -DCMAKE_PREFIX_PATH=/usr/lib/llvm-18
+
+      - name: Build
+        run: ninja -C clang-plugin/build
+
+      # Unit tests (core, analyser), benchmark checks, and the plugin loaded into clang++.
+      - name: Test
+        run: ctest --test-dir clang-plugin/build --output-on-failure -j4
+
+      - name: Benchmark summary
+        run: |
+          for f in benchmarks/*.cpp; do
+            echo "== $f"
+            clang-plugin/build/crosscheck-tool --summary "$f" -- -std=c++20 -Iclang-plugin/include || true
+          done
+
+      # Fetches a pinned TACLeBench revision; see benchmarks/tacle/README.md.
+      - name: TACLeBench kernels (loop bounds vs. flow facts)
+        run: python3 benchmarks/tacle/run_tacle.py --markdown=tacle.md --json=tacle.json && cat tacle.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Also runs every kernel instrumented, and fails if a CrossCheck loop bound is
+      # below a loop count observed on the kernel's input.
+      - name: TACLeBench, comparison with LLVM ScalarEvolution and observed loop counts
+        run: python3 benchmarks/tacle/compare_tools.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt --check
+
+      - name: Upload TACLeBench results
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacle-results
+          path: tacle.json

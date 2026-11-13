@@ -1,0 +1,1 @@
+t62	max([max([7,nat(V_h-V_l-2)*8+max([nat(V_h-V_l-4)*4+nat(V_h-V_l-2)*10,nat(V_h/2-V_l/2-1)*10+nat(V_h-V_l-3)*4])+(nat(V_h-V_l-2)*4+7)]),nat(V_h-V_l-1)*8+max([nat(V_h-V_l-4)*4+nat(V_h-V_l-1)*10,nat(V_h/2-V_l/2-1)*10+nat(V_h-V_l-3)*4])+(nat(V_h-V_l-1)*4+4)])+3 	n 

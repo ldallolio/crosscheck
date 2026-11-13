@@ -24,6 +24,13 @@ are sound.
   quantified conditions on `V` to linear constraints on its coefficients.
 * `while_cost_bound`: the cost formula `K · (guard + body) + guard` of a loop with at
   most `K` iterations.
+* `run_invariant`, `ranking_bound_floor_of_invariant`: the conditions on `V` are only
+  needed on the states of an inductive invariant. This is how the analyser uses the
+  loop invariants it proves and the facts of a *calling context* (intervals of the
+  arguments at a call site, which speak of the parameters' initial values and are
+  therefore preserved by every step).
+* `call_bound_of_context`: a cost bound proved for a function under a context holds
+  for every call whose argument satisfies the context.
 -/
 
 variable {S : Type} {α : Type} [LinearOrderedField α]
@@ -143,5 +150,61 @@ theorem while_cost_bound {Instr : Type} (g τ : S → Trace Instr) (f : S → S)
   have h2 := hg (f^[n] s)
   have h3 : n * (Wg + Wb) ≤ K * (Wg + Wb) := Nat.mul_le_mul_right _ hn
   omega
+
+/-- **Invariants along a run.** A predicate that holds initially and is preserved by
+    every step holds at every state of a run. The analyser uses it for the facts it
+    keeps at a loop exit, whether the loop is left through its guard or through a
+    `break`: the loop head it leaves from satisfies the invariant. -/
+theorem run_invariant (step : S → S → Prop) (I : S → Prop)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0)) :
+    ∀ k ≤ n, I (σ k) := by
+  intro k hk
+  induction k with
+  | zero => exact h0
+  | succ k ih => exact h_inv _ _ (ih (by omega)) (h_run k (by omega))
+
+/-- **Ranking certificate under an invariant.** The descent and positivity conditions
+    are required only on states that satisfy an inductive invariant `I` which holds
+    initially. `I` stands for the loop invariants the analyser proves and for the
+    facts of the calling context (constraints on the parameters' initial values). -/
+theorem ranking_bound_floor_of_invariant (step : S → S → Prop) (V : S → α) (I : S → Prop)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_decr : ∀ s s', I s → step s s' → V s' ≤ V s - 1)
+    (h_pos : ∀ s s', I s → step s s' → 1 ≤ V s)
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0)) :
+    n ≤ ⌊V (σ 0)⌋₊ :=
+  ranking_bound_floor (fun s s' => I s ∧ step s s') V
+    (fun s s' hs => h_decr s s' hs.1 hs.2) (fun s s' hs => h_pos s s' hs.1 hs.2) σ n
+    (fun k hk => ⟨run_invariant step I h_inv σ n h_run h0 k (by omega), h_run k hk⟩)
+
+/-- The same with an upper bound `K` of the potential that is valid under the
+    context `C` of the initial state: the number reported for a calling context. -/
+theorem ranking_bound_of_context (step : S → S → Prop) (V : S → α) (I C : S → Prop)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_decr : ∀ s s', I s → step s s' → V s' ≤ V s - 1)
+    (h_pos : ∀ s s', I s → step s s' → 1 ≤ V s)
+    (K : α) (hK : ∀ s, C s → V s ≤ K)
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1)))
+    (h0 : I (σ 0)) (hC : C (σ 0)) :
+    n ≤ ⌊K⌋₊ :=
+  le_trans (ranking_bound_floor_of_invariant step V I h_inv h_decr h_pos σ n h_run h0)
+    (Nat.floor_mono (hK _ hC))
+
+/-- **Call rule.** If the cost of a function is at most `B` for every argument that
+    satisfies a context `C`, then calls whose arguments all satisfy `C` cost at most
+    `B` each. The analyser takes for `C` an interval that contains the argument in
+    every state in which the call is evaluated. -/
+theorem call_bound_of_context {A : Type} (callCost : A → ℕ) (C : A → Prop) (B : ℕ)
+    (h : ∀ a, C a → callCost a ≤ B) (args : List A) (hC : ∀ a ∈ args, C a) :
+    (args.map callCost).sum ≤ args.length * B := by
+  induction args with
+  | nil => simp
+  | cons a t ih =>
+    have h1 := h a (hC a (List.mem_cons_self a t))
+    have h2 := ih (fun x hx => hC x (List.mem_cons_of_mem a hx))
+    simp only [List.map_cons, List.sum_cons, List.length_cons]
+    rw [Nat.succ_mul]
+    omega
 
 end ImperativeOptimization

@@ -1,0 +1,11 @@
+sha_byte_reverse	nat(V_count/8)*2+4 	n 
+sha_final	!timeout-or-error
+sha_fread	inf 	infinity 
+sha_glibc_memcpy	!timeout-or-error
+sha_glibc_memset	inf 	infinity 
+sha_init	36 	constant 
+sha_return	1 	constant 
+sha_stream	!timeout-or-error
+sha_transform	333 	constant 
+sha_update	!timeout-or-error
+sha_wordcopy_fwd_aligned	inf 	infinity 

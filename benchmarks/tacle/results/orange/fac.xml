@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="fac_main" numcall="3" line="98" source="fac.c" executed="true" extern="false">
+            <function name="fac_main">
+                <loop loopId="3" line="86" source="fac.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                    <call name="fac_fac" numcall="1" line="88" source="fac.c" executed="true" extern="false">
+                        <function name="fac_fac">
+                            <loop loopId="1" line="69" source="fac.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                            <loop loopId="2" line="71" source="fac.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                        </function>
+                    </call>
+                </loop>
+            </function>
+        </call>
+        <loop source="fac.c" line="69" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fac.c" line="71" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fac.c" line="86" max="NOCOMP"  min="NOCOMP">
+        </loop>
+    </function>
+</flowfacts>
+

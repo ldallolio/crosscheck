@@ -1,0 +1,4 @@
+rad2deg_init	1 {O(1)}
+rad2deg_return	1 {O(1)}
+rad2deg_main	inf {Infinity}
+main	inf {Infinity}

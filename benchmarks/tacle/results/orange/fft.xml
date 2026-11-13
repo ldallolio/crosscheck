@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="fft_init" numcall="7" line="329" source="fft.c" executed="true" extern="false">
+            <function name="fft_init">
+                <call name="fft_pin_down" numcall="5" line="288" source="fft.c" executed="true" extern="false">
+                    <function name="fft_pin_down">
+                        <call name="fft_float2fract" numcall="4" line="268" source="fft.c" executed="true" extern="false">
+                            <function name="fft_float2fract">
+                                <loop loopId="8" line="257" source="fft.c" exact="true" maxcount="1024" totalcount="1024">
+                                    <call name="fft_convert" numcall="3" line="259" source="fft.c" executed="true" extern="false">
+                                        <function name="fft_convert">
+                                            <call name="fft_exp2f" numcall="1" line="233" source="fft.c" executed="true" extern="false">
+                                                <function name="fft_exp2f">
+                                                    <loop loopId="7" line="208" source="fft.c" exact="true" maxcount="13" totalcount="13312">
+                                                    </loop>
+                                                </function>
+                                            </call>
+                                        </function>
+                                    </call>
+                                </loop>
+                            </function>
+                        </call>
+                        <loop loopId="9" line="276" source="fft.c" exact="true" maxcount="1024" totalcount="1024">
+                        </loop>
+                    </function>
+                </call>
+                <loop loopId="10" line="292" source="fft.c" exact="true" maxcount="2046" totalcount="2046">
+                </loop>
+                <loop loopId="11" line="297" source="fft.c" exact="true" maxcount="2" totalcount="2">
+                </loop>
+            </function>
+        </call>
+        <call name="fft_main" numcall="8" line="331" source="fft.c" executed="true" extern="false">
+            <function name="fft_main">
+                <call name="fft_bit_reduct" numcall="6" line="323" source="fft.c" executed="true" extern="false">
+                    <function name="fft_bit_reduct">
+                        <loop loopId="1" line="118" source="fft.c" exact="true" maxcount="1024" totalcount="1024">
+                            <loop loopId="2" line="132" source="fft.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                        </loop>
+                        <loop loopId="3" line="145" source="fft.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            <loop loopId="4" line="149" source="fft.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                <loop loopId="5" line="155" source="fft.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </loop>
+                            <loop loopId="6" line="185" source="fft.c" exact="false" maxcount="2048" totalcount="NOCOMP">
+                            </loop>
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="fft_return" numcall="9" line="333" source="fft.c" executed="true" extern="false">
+            <function name="fft_return">
+                <loop loopId="12" line="309" source="fft.c" exact="true" maxcount="2048" totalcount="2048">
+                </loop>
+            </function>
+        </call>
+        <loop source="fft.c" line="118" max="1024"  min="1024">
+        </loop>
+        <loop source="fft.c" line="132" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fft.c" line="145" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fft.c" line="149" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fft.c" line="155" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fft.c" line="185" max="2048"  min="2048">
+        </loop>
+        <loop source="fft.c" line="208" max="13"  min="13">
+        </loop>
+        <loop source="fft.c" line="257" max="1024"  min="1024">
+        </loop>
+        <loop source="fft.c" line="276" max="1024"  min="1024">
+        </loop>
+        <loop source="fft.c" line="292" max="2046"  min="2046">
+        </loop>
+        <loop source="fft.c" line="297" max="2"  min="2">
+        </loop>
+        <loop source="fft.c" line="309" max="2048"  min="2048">
+        </loop>
+    </function>
+</flowfacts>
+

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(CrossCheck VERSION 0.1.0 LANGUAGES CXX)
+# C is enabled only because LLVMConfig.cmake runs C feature checks (FindLibEdit).
+project(CrossCheck VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +13,17 @@ endif()
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(Clang REQUIRED CONFIG)
-find_package(Z3 REQUIRED CONFIG)
+find_package(Z3 CONFIG QUIET)
+if(NOT Z3_FOUND)
+  # Some distributions (e.g. Ubuntu's libz3-dev) ship no CMake package file.
+  find_path(Z3_CXX_INCLUDE_DIRS z3++.h PATH_SUFFIXES z3 REQUIRED)
+  find_library(Z3_LIBRARY NAMES z3 REQUIRED)
+  add_library(z3::libz3 UNKNOWN IMPORTED)
+  set_target_properties(z3::libz3 PROPERTIES
+    IMPORTED_LOCATION "${Z3_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${Z3_CXX_INCLUDE_DIRS}")
+  set(Z3_VERSION_STRING "(found without CMake package: ${Z3_LIBRARY})")
+endif()
 message(STATUS "LLVM ${LLVM_PACKAGE_VERSION}, Z3 ${Z3_VERSION_STRING}")
 if(LLVM_VERSION_MAJOR LESS 18)
   message(FATAL_ERROR "CrossCheck needs LLVM/Clang 18 or newer")

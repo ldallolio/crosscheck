@@ -1,0 +1,1 @@
+foo	max([4,nat(V_x)*4+4+nat(V_x)*2*nat(V_x)])+4 	n^2 

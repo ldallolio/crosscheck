@@ -15,14 +15,17 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 12 modules, 137 theorems. |
-| `paper/crosscheck.tex`, `paper/crosscheck.bib` | amsart LaTeX preprint (25 pages). Target venue: **arXiv**. Compiles with no warnings. |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 102 CTest tests pass. See `clang-plugin/README.md`. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 12 modules, 141 theorems. |
+| `paper/crosscheck.tex`, `paper/crosscheck.bib` | amsart LaTeX preprint (31 pages). Target venue: **arXiv**. Compiles with no warnings. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 120 CTest tests pass. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
+| `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
+| `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
 | `AI_USAGE.md` | AI usage record required by the AGMAI guidelines (see below). |
 | `docs/guide/` | Companion guide for the author (background, paper walkthrough, bibliography summaries, plugin UML, Lean tutorial and module docs, expert Q&A). Quotes Lean names, plugin classes and paper labels: update it when they change. |
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
-| `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. No CI for the plugin yet. |
+| `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. |
+| `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`), on changes to `clang-plugin/` or `benchmarks/`. |
 
 Toolchain on this machine: `lake`, `lean`, `pdflatex`, `latexmk`, system `g++` 13. Clang 18, Z3,
 CMake, Ninja and GoogleTest live in the conda env `crosscheck`
@@ -44,7 +47,7 @@ latexmk -pdf crosscheck.tex
 # Clang plugin (from clang-plugin/), on this machine:
 E=/home/ldallolio/miniforge3/envs/crosscheck
 $E/bin/cmake -S . -B build -G Ninja -DCMAKE_MAKE_PROGRAM=$E/bin/ninja -DCMAKE_PREFIX_PATH=$E \
-  -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+  -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
   -DCMAKE_EXE_LINKER_FLAGS="-L$E/lib -Wl,-rpath,$E/lib" \
   -DCMAKE_MODULE_LINKER_FLAGS="-L$E/lib -Wl,-rpath,$E/lib" \
   -DCROSSCHECK_CLANG_EXTRA_FLAGS="--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13"
@@ -133,11 +136,17 @@ Axioms: only Lean's standard `propext`, `Quot.sound`, `Classical.choice` may app
   `\cost`, `\depth`, `\leaves`, `\lfp`, `\bigstep`; `\authortodo{...}` marks text the author
   must confirm — the paper must not be submitted while any `\authortodo` remains.
 - Keep the file ASCII (it is loaded with `latin9` inputenc); write accents as `\"o`, `\'e`.
-- Do not over-claim: the Clang plugin is an unverified research prototype, there is no systematic
-  evaluation (Table 2 is the tool's output on our own small examples), and cost bounds are not
+- Do not over-claim: the Clang plugin is an unverified research prototype; the evaluation is
+  `tab:plugin` (our own small examples) plus `tab:tacle`/`tab:tools` (TACLeBench kernels compared
+  with their flow facts, which hold for fixed inputs, with observed loop counts, and with LLVM, KoAT2, CoFloCo, Infer and oRange, untuned); cost bounds are not
   timing bounds (see the Limitations section).
-- Table 2 (plugin results) must match `benchmarks/README.md` and the tool's actual output;
-  re-run the tool before changing any figure.
+- `tab:plugin` must match `benchmarks/README.md` and the tool's actual output; `tab:tacle` and the
+  numbers in subsection `subsec:tacle` must match `run_tacle.py --latex` output (state for each
+  figure whether it is a bound for every call or in context) and
+  `benchmarks/tacle/README.md`; `tab:tools` and the paragraph "Comparison with other tools" must
+  match `compare_tools.py` output; the paragraph "Complexity benchmarks" must match
+  `run_tpdb.py` output and `benchmarks/tpdb/README.md`. Re-run before changing any figure; a change to the analyser
+  that changes these figures must update the tables, the paper text and the READMEs together.
 - Build artifacts (`.aux`, `.log`, `.pdf`, …) are gitignored; don't commit them.
 
 ## Clang plugin (`clang-plugin/`)
@@ -156,11 +165,16 @@ expressions over immutable symbols + linear facts) → Z3 via Farkas (`src/core/
   - anything trusted (LOOP_BOUND, BOUNDED, ASSUME, COST, libm, external preconditions) goes into
     the report's `assumptions`;
   - a new loop/recursion feature needs a "must be rejected" test in `tests/analyzer_test.cpp`
-    (suite `Unsound`).
+    (suites `Unsound`, `UnsoundContext`);
+  - calling contexts: expressions are evaluated on all states before they are costed; an
+    argument counts only if it already has the parameter's type; functions that call
+    themselves get no context; every interval end is re-checked by `entails`.
 - Each kind of certificate has a Lean theorem (table in `clang-plugin/README.md`, section
   "Soundness"). When you add a cost rule or certificate, add the Lean theorem or say none exists.
 - Known imprecision (documented, not bugs): linear potentials only (binary search gets a linear
-  depth), no amortisation (merge sort is quadratic), context-insensitive callees, `switch` = sum of cases.
+  depth), no amortisation (merge sort is quadratic), calling contexts are intervals of integer
+  arguments only (no relations, globals or callee effects; none for self-recursive functions),
+  numeric bounds only, `switch` = sum of cases.
 
 ## Responsible release of AI-assisted mathematics (MANDATORY)
 An objective of this project is publication on **arXiv**. All work on the paper, the
@@ -190,8 +204,15 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
 ## Current focus
 1. Pre-submission: resolve every open item of `AI_USAGE.md` (author verification, references,
    archived artifact, remaining `\authortodo`).
-2. Plugin: CI workflow, evaluation on an established benchmark suite (e.g. Mälardalen / TACLeBench),
-   comparison with existing bound analysers; then an evaluation section in the paper.
-3. Plugin precision: logarithmic and lexicographic potentials, amortised recursion cost,
-   pointer/iterator loop counters.
+2. Plugin evaluation: TACLeBench kernels done (unannotated); next a run with minimal annotations,
+   the sequential/app categories (done: observed loop counts, LLVM ScalarEvolution,
+   KoAT2, CoFloCo, Infer, oRange, TPDB C complexity programs).
+3. Plugin precision. Done (Nov 2026): calling contexts as argument intervals
+   (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
+   remains, agreed with the author — **with theory and Lean** (new certificates): symbolic
+   bounds in the parameters used as function summaries; lexicographic, multi-phase and
+   max-of-affine potentials; logarithmic potentials; amortised recursion cost. **Engineering
+   under existing certificates** (must-reject tests, assumptions listed): global variables;
+   exact evaluation of constant float loops; pointer/iterator counters; relations between
+   arguments in contexts.
 4. Optional Lean extensions: tree order for arbitrary arity; termination for relational updates.

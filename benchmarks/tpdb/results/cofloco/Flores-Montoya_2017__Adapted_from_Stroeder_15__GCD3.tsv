@@ -1,0 +1,1 @@
+foo	nat(V_x+V_y-1)*2+max([nat(V_y)*5,nat(V_x)*5+5])+4 	n 

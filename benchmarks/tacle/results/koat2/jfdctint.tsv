@@ -1,0 +1,5 @@
+jfdctint_init	132 {O(1)}
+jfdctint_return	134 {O(1)}
+jfdctint_jpeg_fdct_islow	37 {O(1)}
+jfdctint_main	37 {O(1)}
+main	297 {O(1)}

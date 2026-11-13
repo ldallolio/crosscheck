@@ -16,6 +16,9 @@ struct LoopReport {
   /// false when it comes from a user annotation (an assumption).
   bool verified = false;
   std::string potential;    ///< the ranking potential, when synthesised
+  /// Largest bound over the calling contexts in which the program uses the
+  /// function, when the loop is bounded in all of them (see FunctionReport).
+  std::optional<std::uint64_t> inContext;
 };
 
 struct RecursionReport {
@@ -35,6 +38,13 @@ struct FunctionReport {
   std::optional<std::uint64_t> deadline;
   std::vector<LoopReport> loops;
   std::optional<RecursionReport> recursion;
+  /// "In context": the function analysed with the argument intervals of the
+  /// call sites through which the entry functions reach it. `wcet`, `bounded`
+  /// and the loops' `bound` hold for every call that meets the preconditions;
+  /// the in-context values only for the program as analysed.
+  bool reachable = false;
+  unsigned contexts = 0;  ///< number of analyses (contexts) that reach it
+  std::optional<std::uint64_t> wcetInContext;
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
 };

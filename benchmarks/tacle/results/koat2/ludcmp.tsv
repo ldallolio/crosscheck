@@ -1,0 +1,6 @@
+ludcmp_init	22*Arg_1+997 {O(n)}
+ludcmp_return	19 {O(1)}
+ludcmp_fabs	1 {O(1)}
+ludcmp_test	115548303*Arg_10+4017840 {O(n)}
+ludcmp_main	2*Arg_6+1725 {O(n)}
+main	10*Arg_7+2*Arg_9+2343 {O(n)}

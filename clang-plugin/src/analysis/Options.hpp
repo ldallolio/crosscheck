@@ -41,6 +41,9 @@ struct Options {
   std::string reportPath;
   /// Analyse every function defined in the main file, not only annotated ones.
   bool analyzeAll = false;
+  /// Entry function for the "in context" results of the report (qualified
+  /// name). Empty: every analysed function that no analysed function calls.
+  std::string entry;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -50,6 +53,7 @@ struct Options {
     if (eq == std::string::npos) return false;
     std::string key = arg.substr(0, eq), value = arg.substr(eq + 1);
     if (key == "report") { reportPath = value; return !value.empty(); }
+    if (key == "entry") { entry = value; return !value.empty(); }
     if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
         value.size() > 18)
       return false;

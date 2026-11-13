@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="filterbank_main" numcall="3" line="168" source="filterbank.c" executed="true" extern="false">
+            <function name="filterbank_main">
+                <loop loopId="1" line="80" source="filterbank.c" exact="true" maxcount="256" totalcount="256">
+                </loop>
+                <loop loopId="2" line="84" source="filterbank.c" exact="true" maxcount="32" totalcount="32">
+                    <loop loopId="3" line="87" source="filterbank.c" exact="true" maxcount="8" totalcount="256">
+                    </loop>
+                </loop>
+                <loop loopId="4" line="94" source="filterbank.c" exact="true" maxcount="1" totalcount="1">
+                    <call name="filterbank_core" numcall="1" line="95" source="filterbank.c" executed="true" extern="false">
+                        <function name="filterbank_core">
+                            <loop loopId="5" line="111" source="filterbank.c" exact="true" maxcount="256" totalcount="256">
+                            </loop>
+                            <loop loopId="6" line="115" source="filterbank.c" exact="true" maxcount="8" totalcount="8">
+                                <loop loopId="7" line="123" source="filterbank.c" exact="true" maxcount="256" totalcount="2048">
+                                    <loop loopId="8" line="126" source="filterbank.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </loop>
+                                <loop loopId="9" line="132" source="filterbank.c" exact="true" maxcount="32" totalcount="256">
+                                </loop>
+                                <loop loopId="10" line="137" source="filterbank.c" exact="true" maxcount="256" totalcount="2048">
+                                </loop>
+                                <loop loopId="11" line="140" source="filterbank.c" exact="true" maxcount="32" totalcount="256">
+                                </loop>
+                                <loop loopId="12" line="145" source="filterbank.c" exact="true" maxcount="256" totalcount="2048">
+                                    <loop loopId="13" line="148" source="filterbank.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </loop>
+                                <loop loopId="14" line="155" source="filterbank.c" exact="true" maxcount="256" totalcount="2048">
+                                </loop>
+                            </loop>
+                        </function>
+                    </call>
+                </loop>
+            </function>
+        </call>
+        <loop source="filterbank.c" line="80" max="256"  min="256">
+        </loop>
+        <loop source="filterbank.c" line="84" max="32"  min="32">
+        </loop>
+        <loop source="filterbank.c" line="87" max="8"  min="8">
+        </loop>
+        <loop source="filterbank.c" line="94" max="1"  min="1">
+        </loop>
+        <loop source="filterbank.c" line="111" max="256"  min="256">
+        </loop>
+        <loop source="filterbank.c" line="115" max="8"  min="8">
+        </loop>
+        <loop source="filterbank.c" line="123" max="256"  min="256">
+        </loop>
+        <loop source="filterbank.c" line="126" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="filterbank.c" line="132" max="32"  min="32">
+        </loop>
+        <loop source="filterbank.c" line="137" max="256"  min="256">
+        </loop>
+        <loop source="filterbank.c" line="140" max="32"  min="32">
+        </loop>
+        <loop source="filterbank.c" line="145" max="256"  min="256">
+        </loop>
+        <loop source="filterbank.c" line="148" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="filterbank.c" line="155" max="256"  min="256">
+        </loop>
+    </function>
+</flowfacts>
+

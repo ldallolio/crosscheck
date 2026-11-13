@@ -1,0 +1,10 @@
+main	inf 	infinity 
+prime_divides	1 	constant 
+prime_even	1 	constant 
+prime_init	1 	constant 
+prime_initSeed	1 	constant 
+prime_main	inf 	infinity 
+prime_prime	inf 	infinity 
+prime_randomInteger	1 	constant 
+prime_return	1 	constant 
+prime_swap	1 	constant 

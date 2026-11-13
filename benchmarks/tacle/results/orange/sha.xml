@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="sha_init" numcall="18" line="2187" source="sha.c" executed="true" extern="false">
+            <function name="sha_init">
+                <loop loopId="15" line="2091" source="sha.c" exact="true" maxcount="16" totalcount="16">
+                </loop>
+            </function>
+        </call>
+        <call name="sha_main" numcall="19" line="2188" source="sha.c" executed="true" extern="false">
+            <function name="sha_main">
+                <call name="sha_stream" numcall="17" line="2175" source="sha.c" executed="true" extern="false">
+                    <function name="sha_stream">
+                        <call name="sha_fread" numcall="13" line="2162" source="sha.c" executed="true" extern="false">
+                            <function name="sha_fread">
+                                <loop loopId="16" line="2103" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </function>
+                        </call>
+                        <loop loopId="18" line="2162" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            <call name="sha_update" numcall="14" line="2163" source="sha.c" executed="true" extern="false">
+                                <function name="sha_update">
+                                    <loop loopId="17" line="2120" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        <call name="sha_glibc_memcpy" numcall="2" line="2121" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_glibc_memcpy">
+                                                <conditional id="IF-1"> <condition line="1690" source="sha.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="1692" source="sha.c">
+                                                        <loop loopId="1" line="1696" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <conditional id="IF-2"> <condition line="1715" source="sha.c" executed="true"> </condition>
+                                                            <case cond="1" executed="true" line="1716" source="sha.c">
+                                                                <call name="sha_wordcopy_fwd_aligned" numcall="1" line="1716" source="sha.c" executed="true" extern="false">
+                                                                    <function name="sha_wordcopy_fwd_aligned">
+                                                                        <conditional id="IF-35"> <condition line="1836" source="sha.c" executed="true"> </condition>
+                                                                            <case cond="1" executed="true" >
+                                                                                <loop loopId="3" line="1841" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                                                </loop>
+                                                                            </case>
+                                                                            <case cond="0" executed="true" >
+                                                                            </case>
+                                                                        </conditional>
+                                                                    </function>
+                                                                </call>
+                                                            </case>
+                                                            <case cond="0" executed="true" line="1718" source="sha.c">
+                                                            </case>
+                                                        </conditional>
+                                                    </case>
+                                                    <case cond="0" executed="true" >
+                                                    </case>
+                                                </conditional>
+                                                <loop loopId="2" line="1729" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <call name="sha_byte_reverse" numcall="3" line="2122" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_byte_reverse">
+                                                <loop loopId="14" line="2067" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <call name="sha_transform" numcall="4" line="2123" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_transform">
+                                                <loop loopId="8" line="2025" source="sha.c" exact="false" maxcount="16" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="9" line="2028" source="sha.c" exact="false" maxcount="64" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="10" line="2039" source="sha.c" exact="false" maxcount="20" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="11" line="2042" source="sha.c" exact="false" maxcount="20" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="12" line="2045" source="sha.c" exact="false" maxcount="20" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="13" line="2048" source="sha.c" exact="false" maxcount="20" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                    </loop>
+                                    <call name="sha_glibc_memcpy" numcall="5" line="2128" source="sha.c" executed="true" extern="false">
+                                        <function name="sha_glibc_memcpy">
+                                            <conditional id="IF-1"> <condition line="1690" source="sha.c" executed="true"> </condition>
+                                                <case cond="1" executed="true" line="1692" source="sha.c">
+                                                    <loop loopId="1" line="1696" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                    </loop>
+                                                    <conditional id="IF-2"> <condition line="1715" source="sha.c" executed="true"> </condition>
+                                                        <case cond="1" executed="true" line="1716" source="sha.c">
+                                                            <call name="sha_wordcopy_fwd_aligned" numcall="1" line="1716" source="sha.c" executed="true" extern="false">
+                                                                <function name="sha_wordcopy_fwd_aligned">
+                                                                    <conditional id="IF-35"> <condition line="1836" source="sha.c" executed="true"> </condition>
+                                                                        <case cond="1" executed="true" >
+                                                                            <loop loopId="3" line="1841" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                                            </loop>
+                                                                        </case>
+                                                                        <case cond="0" executed="true" >
+                                                                        </case>
+                                                                    </conditional>
+                                                                </function>
+                                                            </call>
+                                                        </case>
+                                                        <case cond="0" executed="true" line="1718" source="sha.c">
+                                                        </case>
+                                                    </conditional>
+                                                </case>
+                                                <case cond="0" executed="true" >
+                                                </case>
+                                            </conditional>
+                                            <loop loopId="2" line="1729" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                            </loop>
+                                        </function>
+                                    </call>
+                                </function>
+                            </call>
+                            <call name="sha_fread" numcall="15" line="2162" source="sha.c" executed="true" extern="false">
+                                <function name="sha_fread">
+                                    <loop loopId="16" line="2103" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </function>
+                            </call>
+                        </loop>
+                        <call name="sha_final" numcall="16" line="2165" source="sha.c" executed="true" extern="false">
+                            <function name="sha_final">
+                                <conditional id="IF-68"> <condition line="1920" source="sha.c" executed="true"> </condition>
+                                    <case cond="1" executed="true" line="1922" source="sha.c">
+                                        <call name="sha_glibc_memset" numcall="6" line="2142" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_glibc_memset">
+                                                <conditional id="IF-65"> <condition line="1870" source="sha.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="1871" source="sha.c">
+                                                        <loop loopId="4" line="1927" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="5" line="1936" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="6" line="1953" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                    </case>
+                                                    <case cond="0" executed="true" >
+                                                    </case>
+                                                </conditional>
+                                                <loop loopId="7" line="1963" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <call name="sha_byte_reverse" numcall="7" line="2143" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_byte_reverse">
+                                                <loop loopId="14" line="2067" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <call name="sha_transform" numcall="8" line="2144" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_transform">
+                                                <loop loopId="8" line="2025" source="sha.c" exact="true" maxcount="16" totalcount="16">
+                                                </loop>
+                                                <loop loopId="9" line="2028" source="sha.c" exact="true" maxcount="64" totalcount="64">
+                                                </loop>
+                                                <loop loopId="10" line="2039" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                                </loop>
+                                                <loop loopId="11" line="2042" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                                </loop>
+                                                <loop loopId="12" line="2045" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                                </loop>
+                                                <loop loopId="13" line="2048" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <call name="sha_glibc_memset" numcall="9" line="2145" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_glibc_memset">
+                                                <conditional id="IF-65"> <condition line="1870" source="sha.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="1871" source="sha.c">
+                                                        <loop loopId="4" line="1927" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="5" line="1936" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="6" line="1953" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                    </case>
+                                                    <case cond="0" executed="false" >
+                                                    </case>
+                                                </conditional>
+                                                <loop loopId="7" line="1963" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                    </case>
+                                    <case cond="0" executed="true" >
+                                        <call name="sha_glibc_memset" numcall="10" line="2147" source="sha.c" executed="true" extern="false">
+                                            <function name="sha_glibc_memset">
+                                                <conditional id="IF-65"> <condition line="1870" source="sha.c" executed="true"> </condition>
+                                                    <case cond="1" executed="true" line="1871" source="sha.c">
+                                                        <loop loopId="4" line="1927" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="5" line="1936" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                        <loop loopId="6" line="1953" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                    </case>
+                                                    <case cond="0" executed="true" >
+                                                    </case>
+                                                </conditional>
+                                                <loop loopId="7" line="1963" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                    </case>
+                                </conditional>
+                                <call name="sha_byte_reverse" numcall="11" line="2149" source="sha.c" executed="true" extern="false">
+                                    <function name="sha_byte_reverse">
+                                        <loop loopId="14" line="2067" source="sha.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        </loop>
+                                    </function>
+                                </call>
+                                <call name="sha_transform" numcall="12" line="2152" source="sha.c" executed="true" extern="false">
+                                    <function name="sha_transform">
+                                        <loop loopId="8" line="2025" source="sha.c" exact="true" maxcount="16" totalcount="16">
+                                        </loop>
+                                        <loop loopId="9" line="2028" source="sha.c" exact="true" maxcount="64" totalcount="64">
+                                        </loop>
+                                        <loop loopId="10" line="2039" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                        </loop>
+                                        <loop loopId="11" line="2042" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                        </loop>
+                                        <loop loopId="12" line="2045" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                        </loop>
+                                        <loop loopId="13" line="2048" source="sha.c" exact="true" maxcount="20" totalcount="20">
+                                        </loop>
+                                    </function>
+                                </call>
+                            </function>
+                        </call>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="sha.c" line="1696" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1729" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1841" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1927" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1936" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1953" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="1963" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="2025" max="16"  min="16">
+        </loop>
+        <loop source="sha.c" line="2028" max="64"  min="64">
+        </loop>
+        <loop source="sha.c" line="2039" max="20"  min="20">
+        </loop>
+        <loop source="sha.c" line="2042" max="20"  min="20">
+        </loop>
+        <loop source="sha.c" line="2045" max="20"  min="20">
+        </loop>
+        <loop source="sha.c" line="2048" max="20"  min="20">
+        </loop>
+        <loop source="sha.c" line="2067" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="2091" max="16"  min="16">
+        </loop>
+        <loop source="sha.c" line="2103" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="2120" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="sha.c" line="2162" max="NOCOMP"  min="NOCOMP">
+        </loop>
+    </function>
+</flowfacts>
+

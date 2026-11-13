@@ -76,3 +76,6 @@ docs/guide/tools/node_modules/
 docs/guide/tools/guide.html
 docs/guide/*.pdf
 docs/guide/tools/node_modules
+benchmarks/tacle/.cache/
+benchmarks/tpdb/.cache/
+__pycache__/

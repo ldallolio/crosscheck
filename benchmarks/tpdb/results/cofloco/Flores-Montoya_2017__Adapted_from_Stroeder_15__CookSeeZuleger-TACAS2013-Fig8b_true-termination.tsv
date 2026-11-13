@@ -1,0 +1,1 @@
+foo	max([1,nat(V_M)*2+3,nat(V_M-V_x)*2+1])+3 	n 

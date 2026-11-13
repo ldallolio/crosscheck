@@ -1,0 +1,17 @@
+basicmath_memcpy	2*Arg_0+4 {O(n)}
+isqrt_init	1 {O(1)}
+isqrt_return	1 {O(1)}
+isqrt_usqrt	1136 {O(1)}
+isqrt_main	inf {Infinity}
+main	inf {Infinity}
+basicmath___ieee754_acosf	inf {Infinity}
+basicmath___ieee754_sqrtf	inf {Infinity}
+basicmath___ieee754_powf	!timeout-or-error
+basicmath___isinff	1 {O(1)}
+basicmath___fabsf	1 {O(1)}
+basicmath___scalbnf	1 {O(1)}
+basicmath___ieee754_rem_pio2f	1 {O(1)}
+basicmath___kernel_cosf	1 {O(1)}
+basicmath___kernel_sinf	1 {O(1)}
+basicmath___copysignf	1 {O(1)}
+basicmath___cosf	1 {O(1)}

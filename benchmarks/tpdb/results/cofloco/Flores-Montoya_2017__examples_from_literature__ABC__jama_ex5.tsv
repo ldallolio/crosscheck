@@ -1,0 +1,1 @@
+jama_ex5	nat(V_n+1)*2*nat(V_n/2+1/2)+nat(V_n/2+1/2)*3+4 	n^2 

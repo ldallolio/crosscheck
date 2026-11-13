@@ -1,0 +1,1 @@
+exp_paper3	nat(V_x)*8*nat(V_z)+nat(V_x)*16+(nat(V_y)*8+nat(V_x)*8)+4 	n^2 

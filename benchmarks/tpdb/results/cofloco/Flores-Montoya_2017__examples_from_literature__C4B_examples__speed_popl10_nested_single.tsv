@@ -1,0 +1,1 @@
+speed_popl10_nested_single	nat(V_n-1)+max([nat(V_n-2)*4,nat(V_n-1)*4+max([nat(V_n-1),nat(V_n-2)*4])])+nat(V_n-1)*4+6 	n 

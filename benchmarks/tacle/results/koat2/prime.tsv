@@ -1,0 +1,10 @@
+prime_initSeed	1 {O(1)}
+prime_randomInteger	1 {O(1)}
+prime_init	1 {O(1)}
+prime_return	1 {O(1)}
+prime_divides	1 {O(1)}
+prime_even	1 {O(1)}
+prime_prime	3*Arg_1+37 {O(n)}
+prime_swap	1 {O(1)}
+prime_main	24*Arg_0+3*Arg_1+73 {O(n)}
+main	196376678 {O(1)}

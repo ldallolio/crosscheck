@@ -1,0 +1,1 @@
+jama_ex7	2*Arg_2*Arg_3+2*Arg_2+3*Arg_3+4 {O(n^2)}

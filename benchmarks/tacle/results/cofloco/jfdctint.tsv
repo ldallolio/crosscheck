@@ -1,0 +1,5 @@
+jfdctint_init	132 	constant 
+jfdctint_jpeg_fdct_islow	37 	constant 
+jfdctint_main	37 	constant 
+jfdctint_return	132 	constant 
+main	295 	constant 

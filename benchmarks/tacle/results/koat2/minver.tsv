@@ -1,0 +1,7 @@
+minver_fabs	1 {O(1)}
+minver_mmul	4*Arg_1*Arg_5*Arg_6+4*Arg_1*Arg_5+4*Arg_1*Arg_6+4*Arg_1+4*Arg_5+4*Arg_6+10 {O(n^3)}
+minver_minver	!timeout-or-error
+minver_init	47 {O(1)}
+minver_return	47 {O(1)}
+minver_main	!timeout-or-error
+main	!timeout-or-error

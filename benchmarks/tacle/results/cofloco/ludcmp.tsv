@@ -1,0 +1,6 @@
+ludcmp_fabs	1 	constant 
+ludcmp_init	726 	constant 
+ludcmp_main	996 	constant 
+ludcmp_return	18 	constant 
+ludcmp_test	max([34,nat(V_n)*9+10+max([max([max([2,nat(V_n)*8+3+nat(V_n)*4*nat(V_n)+nat(V_n-1)*8]),nat(V_n-2)*8+2]),nat(9604*V_n-19207)*15+max([nat(V_n-2)*4*nat(9604*V_n-19207)+nat(V_n-2)*8+max([2,nat(V_n-2)*4*nat(9604*V_n-19207)+nat(9604*V_n-19207)*15+2]),nat(V_n)*8+3+nat(V_n)*4*nat(V_n)+nat(V_n-1)*8+nat(V_n-1)*4*nat(9604*V_n-19207)+(nat(V_n-1)*4*nat(9604*V_n-19207)+nat(9604*V_n-19207)*15)])])])+3 	n^2 
+main	!timeout-or-error

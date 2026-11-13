@@ -11,6 +11,11 @@ Run one yourself:
 ../clang-plugin/build/crosscheck-tool --summary fir_filter.cpp -- -std=c++20 -I../clang-plugin/include
 ```
 
+The TACLeBench kernels, analysed without annotations and compared with the
+benchmarks' loop-bound flow facts, are in [`tacle/`](tacle/README.md). The C programs of
+the Termination and Complexity Competition, compared with KoAT2 and CoFloCo, are in
+[`tpdb/`](tpdb/README.md).
+
 ## Accepted
 
 Bounds are in abstract cost units with all weights equal to 1.

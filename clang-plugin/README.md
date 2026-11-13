@@ -89,6 +89,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `all` | analyse every function defined in the main file, not only annotated ones |
 | `weight-CLASS=N` | weight of an instruction class (see [Cost model](#cost-model)) |
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
+| `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
 
 ### As a standalone tool
 
@@ -187,6 +188,34 @@ results of calls) is an unknown value.
    quantified conditions are turned into linear constraints by Farkas' Lemma.
    The loop then runs at most `⌊K⌋` times.
 
+After the loop, the state keeps what is known on each way out: through the guard,
+the proved invariants and the negated guard; through a `break`, the facts of the
+path that reaches it (each `break` path is one exit state). Where paths are joined,
+a variable keeps the constant interval that holds on all of them.
+
+**Calls.** While a call is evaluated, the analyser asks Z3 for the interval of
+each integer argument in the current state, and joins these intervals over all the
+states in which the call is evaluated (all paths, and the generic iteration of
+every enclosing loop). The callee is then analysed with these intervals as facts
+on its parameters — a *calling context* — in addition to its declared
+preconditions, and that analysis gives the cost of the call. So
+`sum(a, 8)` is bounded although `sum` alone, with an unconstrained `n`, is not.
+Details:
+
+- an argument contributes only if its expression already has the parameter's type
+  (no conversion in between) and Z3's bounds are confirmed by an entailment check;
+- a function that calls itself is never analysed in a context: the context holds
+  for the first activation only;
+- at most 8 contexts are analysed per function; further calls use the analysis
+  without context;
+- nothing is assumed: a context is proved at the call it is used for.
+
+The report keeps both views of a function: `wcet` and the loops' `bound` hold for
+*every* call that meets the declared preconditions; `wcet_in_context` and the
+loops' `in_context` hold for the calls through which the entry functions reach it
+(the function named by the option `entry=NAME`, or else every analysed function
+that no analysed function calls), and `contexts` counts those analyses.
+
 **Recursion.** Two certificates are tried and the better one is kept:
 
 - a *depth potential* over the parameters, decreasing at every self-call, which
@@ -213,6 +242,9 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | Step in the analyser | Lean theorem |
 |---|---|
 | potential decreasing by ≥ 1 and ≥ 1 on each step ⇒ at most `⌊V⌋` steps (relational, rational-valued) | `ranking_bound_floor`, `ranking_bound_of_le` (`Certificate`) |
+| the same when the conditions hold only under proved loop invariants and the facts of a calling context | `ranking_bound_floor_of_invariant`, `ranking_bound_of_context` (`Certificate`) |
+| invariants hold at every loop head, hence at every exit (guard or `break`) | `run_invariant` (`Certificate`) |
+| a bound proved under a context holds for every call whose arguments satisfy it | `call_bound_of_context` (`Certificate`) |
 | Farkas multipliers imply the universally quantified condition | `farkas_sound_affine` (`Certificate`) |
 | loop cost `K·(test + body) + test` | `while_cost_bound` (`Certificate`) |
 | branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
@@ -237,8 +269,10 @@ soundness.
 - **No amortisation.** Nested loops are multiplied; a recursive function is
   charged the worst-case cost of one activation for every activation (merge sort
   is bounded by `O(n²)`).
-- **Context-insensitive calls.** A callee is analysed once, under its own
-  preconditions, not per call site.
+- **Calling contexts are intervals of integer arguments.** Relations between
+  arguments, values of globals, and what a callee leaves in memory are not passed
+  to the callee or back; recursive functions get no context. Bounds are numbers,
+  not expressions in the parameters.
 - **Integers only.** Loop counters that are pointers, iterators or floating-point
   values are not tracked; iterate by index or state the bound. Range-`for` is
   supported over C arrays and `std::array`.

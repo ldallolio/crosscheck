@@ -1,6 +1,7 @@
 # CrossCheck
 
 [![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
+[![Clang plugin CI](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml)
 
 **CrossCheck** is a dual-layer semantic framework for formal verification, optimization, and compile-time constraint enforcement for imperative programs. By bridging **intensional execution traces** (operational semantics and cost models) with **extensional state equations** (algebraic valuation models), CrossCheck enables verified static analysis, bounded execution checks, and real-time profile enforcement.
 
@@ -55,6 +56,8 @@ crosscheck/
 │   ├── src/plugin/, src/tool/   # compiler plugin and standalone driver
 │   └── tests/                   # GoogleTest / CTest suite
 ├── benchmarks/                  # Annotated real-time example programs
+│   ├── tacle/                   # TACLeBench kernels: loop bounds vs. flow facts and other tools
+│   └── tpdb/                    # TPDB complexity programs: comparison with KoAT2 and CoFloCo
 ├── docs/guide/                  # Companion guide: concepts, paper walkthrough, bibliography,
 │                                #   plugin UML, Lean tutorial and module docs, expert Q&A
 └── README.md

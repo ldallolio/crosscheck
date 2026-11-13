@@ -22,6 +22,21 @@ bool isFeasible(const SymbolTable& syms, const std::vector<Constraint>& facts);
 bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
              const Constraint& goal);
 
+/// A closed integer interval with optional ends.
+struct Interval {
+  std::optional<std::int64_t> lo, hi;
+  bool unconstrained() const { return !lo && !hi; }
+  bool operator==(const Interval& o) const { return lo == o.lo && hi == o.hi; }
+  bool operator<(const Interval& o) const { return lo != o.lo ? lo < o.lo : hi < o.hi; }
+};
+
+/// The tightest interval that `facts` (with the symbol ranges) imply for `e`
+/// over the integers, as far as Z3 finds it; every returned end is re-checked
+/// with `entails`, so a returned bound always holds. No value when `facts` are
+/// contradictory (the state is unreachable). "Unknown" yields a missing end.
+std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Constraint>& facts,
+                                 const LinExpr& e);
+
 struct Rational {
   std::int64_t num = 0;
   std::int64_t den = 1;

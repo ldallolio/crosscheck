@@ -1,0 +1,1 @@
+cf_decode_eol	max([67,nat(V_pr_limit-V_pr_ptr)*19+34+nat(V_pr_limit/3-V_pr_ptr/3-2/3)*50+max([nat(V_ss_bits_left+252)*2+33,nat(V_ss_bits_left+253)*2+33])])+7 	n 

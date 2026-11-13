@@ -1,0 +1,1 @@
+foo	max([nat(V_x)*2+3,nat(V_y)*2+3])+4 	n 

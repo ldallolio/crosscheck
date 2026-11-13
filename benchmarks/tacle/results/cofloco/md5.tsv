@@ -1,0 +1,13 @@
+md5_R_GetRandomBytesNeeded	1 	constant 
+md5_R_RandomInit	36 	constant 
+md5_R_memset	inf 	infinity 
+md5_decode	nat(V_len/4)*2+4 	n 
+md5_encode	nat(V_len/4)*2+4 	n 
+md5_init	1 	constant 
+md5_memcpy	nat(V_len)*2+4 	n 
+md5_memset	nat(V_len)*2+4 	n 
+md5_memset_x	inf 	infinity 
+md5_orig_init	1 	constant 
+md5_return	1 	constant 
+md5_transform	294 	constant 
+md5_update	inf 	infinity 

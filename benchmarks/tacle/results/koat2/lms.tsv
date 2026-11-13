@@ -1,0 +1,6 @@
+lms_sinus	1 {O(1)}
+lms_init	!timeout-or-error
+lms_calc	12*Arg_3+12 {O(n)}
+lms_main	2*Arg_3+2*Arg_4+306*Arg_1+1314289 {O(n)}
+lms_return	406 {O(1)}
+main	!timeout-or-error

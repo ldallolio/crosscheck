@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="st_init" numcall="17" line="223" source="st.c" executed="true" extern="false">
+            <function name="st_init">
+                <call name="st_initialize" numcall="3" line="90" source="st.c" executed="true" extern="false">
+                    <function name="st_initialize">
+                        <loop loopId="1" line="82" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                    </function>
+                </call>
+                <call name="st_initialize" numcall="4" line="91" source="st.c" executed="true" extern="false">
+                    <function name="st_initialize">
+                        <loop loopId="1" line="82" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="st_main" numcall="18" line="224" source="st.c" executed="true" extern="false">
+            <function name="st_main">
+                <call name="st_calc_Sum_Mean" numcall="12" line="211" source="st.c" executed="true" extern="false">
+                    <function name="st_calc_Sum_Mean">
+                        <loop loopId="3" line="167" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                    </function>
+                </call>
+                <call name="st_calc_Var_Stddev" numcall="13" line="212" source="st.c" executed="true" extern="false">
+                    <function name="st_calc_Var_Stddev">
+                        <loop loopId="4" line="179" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                        <call name="st_sqrtf" numcall="7" line="183" source="st.c" executed="true" extern="false">
+                            <function name="st_sqrtf">
+                                <conditional id="IF-2"> <condition line="130" source="st.c" executed="true"> </condition>
+                                    <case cond="1" executed="true" line="131" source="st.c">
+                                    </case>
+                                    <case cond="0" executed="true" line="134" source="st.c">
+                                        <loop loopId="2" line="134" source="st.c" exact="false" maxcount="19" totalcount="19">
+                                        </loop>
+                                    </case>
+                                </conditional>
+                            </function>
+                        </call>
+                    </function>
+                </call>
+                <call name="st_calc_Sum_Mean" numcall="14" line="214" source="st.c" executed="true" extern="false">
+                    <function name="st_calc_Sum_Mean">
+                        <loop loopId="3" line="167" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                    </function>
+                </call>
+                <call name="st_calc_Var_Stddev" numcall="15" line="215" source="st.c" executed="true" extern="false">
+                    <function name="st_calc_Var_Stddev">
+                        <loop loopId="4" line="179" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                        <call name="st_sqrtf" numcall="7" line="183" source="st.c" executed="true" extern="false">
+                            <function name="st_sqrtf">
+                                <conditional id="IF-2"> <condition line="130" source="st.c" executed="true"> </condition>
+                                    <case cond="1" executed="true" line="131" source="st.c">
+                                    </case>
+                                    <case cond="0" executed="true" line="134" source="st.c">
+                                        <loop loopId="2" line="134" source="st.c" exact="false" maxcount="19" totalcount="19">
+                                        </loop>
+                                    </case>
+                                </conditional>
+                            </function>
+                        </call>
+                    </function>
+                </call>
+                <call name="st_calc_LinCorrCoef" numcall="16" line="217" source="st.c" executed="true" extern="false">
+                    <function name="st_calc_LinCorrCoef">
+                        <loop loopId="5" line="194" source="st.c" exact="true" maxcount="1000" totalcount="1000">
+                        </loop>
+                        <call name="st_sqrtf" numcall="10" line="200" source="st.c" executed="true" extern="false">
+                            <function name="st_sqrtf">
+                                <conditional id="IF-2"> <condition line="130" source="st.c" executed="true"> </condition>
+                                    <case cond="1" executed="true" line="131" source="st.c">
+                                    </case>
+                                    <case cond="0" executed="true" line="134" source="st.c">
+                                        <loop loopId="2" line="134" source="st.c" exact="false" maxcount="19" totalcount="19">
+                                        </loop>
+                                    </case>
+                                </conditional>
+                            </function>
+                        </call>
+                        <call name="st_sqrtf" numcall="11" line="200" source="st.c" executed="true" extern="false">
+                            <function name="st_sqrtf">
+                                <conditional id="IF-2"> <condition line="130" source="st.c" executed="true"> </condition>
+                                    <case cond="1" executed="true" line="131" source="st.c">
+                                    </case>
+                                    <case cond="0" executed="true" line="134" source="st.c">
+                                        <loop loopId="2" line="134" source="st.c" exact="false" maxcount="19" totalcount="19">
+                                        </loop>
+                                    </case>
+                                </conditional>
+                            </function>
+                        </call>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="st.c" line="82" max="1000"  min="1000">
+        </loop>
+        <loop source="st.c" line="134" max="19"  min="19">
+        </loop>
+        <loop source="st.c" line="167" max="1000"  min="1000">
+        </loop>
+        <loop source="st.c" line="179" max="1000"  min="1000">
+        </loop>
+        <loop source="st.c" line="194" max="1000"  min="1000">
+        </loop>
+    </function>
+</flowfacts>
+

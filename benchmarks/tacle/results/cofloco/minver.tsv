@@ -1,0 +1,7 @@
+main	!timeout-or-error
+minver_fabs	1 	constant 
+minver_init	34 	constant 
+minver_main	!timeout-or-error
+minver_minver	!timeout-or-error
+minver_mmul	nat(V_col_b)*4*nat(V_row_a)+1+nat(V_row_a)*4+nat(V_row_b)*2*nat(V_col_b)*nat(V_row_a)+3 	n^3 
+minver_return	34 	constant 

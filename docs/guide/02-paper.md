@@ -448,6 +448,17 @@ continuing iteration `n−1`, positivity gives `0 < V(s₀) − (n−1)Δ`, so
 normalise. This is what the plugin uses. Lean: `ranking_bound_floor`,
 `ranking_bound_of_le`, `partial_ranking_floor`, `while_ranking_floor`.
 
+**`prop:context-bound` — Bound under an invariant and a context** (added November
+2026). Same relational setting, with two sets of states: an *invariant* `I` preserved by
+steps, and a *context* `C` of initial states. If the descent and positivity conditions
+hold on `I`, and `V ≤ K` on `C`, every run starting in `I ∩ C` stays in `I` and has
+length `≤ ⌊K⌋`. Proof: restrict the relation to `I` and apply the relational variant.
+Two uses: (1) the invariant holds wherever the run stops, so facts survive a `break`;
+(2) the bound depends on the context, so a function can have a different bound at each
+call site (the "call rule": a bound proved under `C` holds for every call whose
+arguments are in `C`). Lean: `run_invariant`, `ranking_bound_floor_of_invariant`,
+`ranking_bound_of_context`, `call_bound_of_context`.
+
 Why two versions? The integer/deterministic one gives **termination** too (some
 iterate exits); the relational one gives only a bound on **run length** (for a
 nondeterministic loop, "terminates" needs more care), but that is what a bound
@@ -587,13 +598,50 @@ Describes the Clang plugin (details in [Part 4](04-plugin.md)):
   conditions on every path, plus the least `K` dominating it on entry; bound `⌊K⌋`.
   Unsigned arithmetic only when proved not to wrap; machine-integer limits never used
   as bounds. Recursion: both certificates of `prop:size-potential`, smaller kept.
+  After a loop: one state for the guard exit, one per `break` path.
+- **Calls** (paragraph added November 2026): a callee is analysed under a *calling
+  context* — the intervals of its integer arguments, obtained from Z3 at the call and
+  joined over all states in which the call is evaluated (`prop:context-bound`). Proved
+  at the call site, so nothing is trusted. Not for self-recursive functions. The report
+  gives both the bound valid for every call and the bound in the contexts reached from
+  an entry function.
 - **Table `tab:plugin`**: results on the benchmark programs, with honest pessimism
   (merge sort quadratic, table lookup linear depth).
 - **Trust**: implementation not verified; certificate mathematics is.
+- **Subsection `subsec:tacle`, Table `tab:tacle`**: the tool, with no annotation, on the
+  29 TACLeBench kernels. Two kinds of bound per loop. *For every call* of its function:
+  126 of 220 loops, 100 equal to the benchmark's flow fact, 25 larger (they cover every
+  admissible argument; logarithmic loops), 1 smaller because the flow fact is loose.
+  *In context* (the calls the program makes from `main`): 137 loops, 128 equal. 9
+  kernels get a bound for their entry function. See
+  `benchmarks/tacle/README.md` for the reasons loops fail.
+- **Paragraph "Comparison with other tools", Table `tab:tools`**: the same kernels
+  through LLVM's ScalarEvolution (loop trip counts; 113 loops bounded, 108 equal to the
+  flow fact), KoAT2 (complexity of the integer program llvm2kittel extracts; 5 entry
+  functions with a numeric bound, 5 symbolic) and Infer's cost analysis (14 numeric,
+  2 symbolic, but it ignores recursion). Only finiteness is compared at function level,
+  because the cost units differ.
+  The same table checks the loop bounds against executions: each kernel is
+  instrumented and run on its input (208 of 220 loops reached); no bound of
+  CrossCheck (either kind) or ScalarEvolution is below the observed count. The bounds
+  for every call are on average further above it (geometric mean 1.93, `minver`: 500
+  for 3); in context the mean is 1.06 (ScalarEvolution 1.02, oRange 1.00).
+  oRange (OTAWA's loop-bound analyser, whole-program from `main`) is the fourth tool:
+  131 loops bounded, almost all equal to the flow facts, because it propagates the
+  program's own input values; on the 113 loops it shares with CrossCheck in context the
+  bounds are identical. It rejects recursive programs, and one of its bounds is below
+  the observed count (`filterbank`).
+  CoFloCo runs on the same integer programs as KoAT2 and counts the same unit, so their
+  numbers can be compared: CoFloCo is never looser, and tighter on 20 of 117 functions.
+- **Paragraph "Complexity benchmarks"**: the 553 C programs of the Termination and
+  Complexity Competition (TPDB). CrossCheck bounds 10 as is (it has no symbolic bounds)
+  and 165 when a script restricts inputs to [-1000, 1000] (141 before facts were kept
+  across `break` exits); KoAT2 288, CoFloCo 264. What it misses: non-linear-potential
+  loops (`x != y`, resets, phase changes) and relations carried across loops.
 
 ## 9. Mechanization in Lean 4
 
-~2,100 lines, 137 theorems, no `sorry`, no axioms beyond the three standard ones.
+~2,200 lines, 141 theorems, no `sorry`, no axioms beyond the three standard ones.
 Table `tab:lean` maps statements to theorems (mirrored by
 `formalization/formalization.yaml`).
 
@@ -613,10 +661,12 @@ rules; completeness of Farkas; the plugin itself.
 exponential branching envelope unless a size potential exists, every activation
 charged the worst case); completeness (closed forms only for fragments; linear
 templates; needs invariants); language coverage (no pointers/aliasing, allocation,
-mutual recursion, concurrency, `goto`); no systematic evaluation.
+mutual recursion, concurrency, `goto`); evaluation limited to the paper's examples
+and the TACLeBench kernels (flow facts, LLVM, KoAT2, Infer); no WCET flow-analysis tool
+compared, no large programs.
 
 **Conclusions** restate the chain of argument (Section 1 above) and future work:
-evaluation on benchmark suites, lexicographic/logarithmic/amortised potentials,
+larger programs and WCET flow-analysis tools, lexicographic/logarithmic/amortised potentials,
 arbitrary-arity tree order in Lean, a verified analyser, concurrency.
 
 **Statement on the Use of AI**: required by the AGMAI recommendations; contains an

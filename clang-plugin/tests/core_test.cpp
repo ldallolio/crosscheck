@@ -180,3 +180,31 @@ TEST(SizePotential, UnboundedRecursionFails) {
 }
 
 }  // namespace
+
+// --- intervals ---------------------------------------------------------------
+
+namespace {
+
+TEST(Bounds, IntervalImpliedByFacts) {
+  SymbolTable syms;
+  LinExpr x = LinExpr::symbol(syms.fresh("x")), y = LinExpr::symbol(syms.fresh("y"));
+  std::vector<Constraint> facts{ge(x, LinExpr::constant(2)), le(x, LinExpr::constant(5)),
+                                ge(y, x), le(y, x + LinExpr::constant(3))};
+  std::optional<Interval> b = boundsOf(syms, facts, y + x);
+  ASSERT_TRUE(b.has_value());
+  EXPECT_EQ(b->lo, std::optional<std::int64_t>(4));
+  EXPECT_EQ(b->hi, std::optional<std::int64_t>(13));
+}
+
+TEST(Bounds, MissingEndsAndDeadStates) {
+  SymbolTable syms;
+  LinExpr x = LinExpr::symbol(syms.fresh("x"));
+  std::optional<Interval> b = boundsOf(syms, {ge(x, LinExpr::constant(0))}, x);
+  ASSERT_TRUE(b.has_value());
+  EXPECT_EQ(b->lo, std::optional<std::int64_t>(0));
+  EXPECT_FALSE(b->hi.has_value());
+  // Contradictory facts: no interval at all.
+  EXPECT_FALSE(boundsOf(syms, {ge(x, LinExpr::constant(1)), le(x, LinExpr::constant(0))}, x).has_value());
+}
+
+}  // namespace

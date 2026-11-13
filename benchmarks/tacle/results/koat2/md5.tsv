@@ -1,0 +1,18 @@
+md5_orig_init	1 {O(1)}
+md5_update	inf {Infinity}
+md5_memcpy	2*Arg_1+4 {O(n)}
+md5_transform	2280 {O(1)}
+md5_final	!translation-failed-or-timeout
+md5_encode	2*Arg_1+7 {O(n)}
+md5_memset	2*Arg_1+4 {O(n)}
+md5_decode	2*Arg_1+7 {O(n)}
+md5_R_memset	inf {Infinity}
+md5_memset_x	inf {Infinity}
+md5_R_RandomInit	inf {Infinity}
+md5_R_RandomUpdate	!translation-failed-or-timeout
+md5_InitRandomStruct	!translation-failed-or-timeout
+md5_R_GetRandomBytesNeeded	1 {O(1)}
+md5_init	1 {O(1)}
+md5_return	1 {O(1)}
+md5_main	!translation-failed-or-timeout
+main	!translation-failed-or-timeout

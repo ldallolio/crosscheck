@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="pm_main" numcall="25" line="741" source="pm.c" executed="true" extern="false">
+            <function name="pm_main">
+                <call name="pm_init_lib" numcall="2" line="195" source="pm.c" executed="true" extern="false">
+                    <function name="pm_init_lib">
+                        <loop loopId="1" line="140" source="pm.c" exact="true" maxcount="60" totalcount="60">
+                        </loop>
+                        <loop loopId="2" line="144" source="pm.c" exact="true" maxcount="60" totalcount="60">
+                        </loop>
+                    </function>
+                </call>
+                <call name="pm_init_pattern" numcall="3" line="196" source="pm.c" executed="true" extern="false">
+                    <function name="pm_init_pattern">
+                        <loop loopId="3" line="164" source="pm.c" exact="true" maxcount="60" totalcount="60">
+                        </loop>
+                        <loop loopId="4" line="168" source="pm.c" exact="true" maxcount="60" totalcount="60">
+                        </loop>
+                    </function>
+                </call>
+                <call name="pm_kernel" numcall="5" line="198" source="pm.c" executed="true" extern="false">
+                    <function name="pm_kernel">
+                        <loop loopId="5" line="355" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                        </loop>
+                        <loop loopId="6" line="362" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                        </loop>
+                        <call name="pm_memcpy" numcall="14" line="389" source="pm.c" executed="true" extern="false">
+                            <function name="pm_memcpy">
+                                <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </function>
+                        </call>
+                        <call name="pm_memcpy" numcall="15" line="391" source="pm.c" executed="true" extern="false">
+                            <function name="pm_memcpy">
+                                <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </function>
+                        </call>
+                        <call name="pm_memcpy" numcall="16" line="393" source="pm.c" executed="true" extern="false">
+                            <function name="pm_memcpy">
+                                <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </function>
+                        </call>
+                        <loop loopId="7" line="400" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                        </loop>
+                        <loop loopId="8" line="409" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            <loop loopId="9" line="423" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                        </loop>
+                        <loop loopId="10" line="439" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            <loop loopId="11" line="448" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                            <call name="pm_memset" numcall="17" line="461" source="pm.c" executed="true" extern="false">
+                                <function name="pm_memset">
+                                    <loop loopId="30" line="2226" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </function>
+                            </call>
+                            <loop loopId="12" line="481" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                            <loop loopId="13" line="496" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                            <conditional id="IF-8"> <condition line="530" source="pm.c" executed="true"> </condition>
+                                <case cond="1" executed="true" line="531" source="pm.c">
+                                    <loop loopId="14" line="535" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        <call name="pm_memcpy" numcall="21" line="538" source="pm.c" executed="true" extern="false">
+                                            <function name="pm_memcpy">
+                                                <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </function>
+                                        </call>
+                                        <conditional id="IF-9"> <condition line="542" source="pm.c" executed="true"> </condition>
+                                            <case cond="1" executed="true" line="547" source="pm.c">
+                                                <loop loopId="15" line="555" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </case>
+                                            <case cond="0" executed="true" line="567" source="pm.c">
+                                                <loop loopId="16" line="569" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </case>
+                                        </conditional>
+                                        <loop loopId="17" line="580" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        </loop>
+                                    </loop>
+                                </case>
+                                <case cond="0" executed="true" line="589" source="pm.c">
+                                    <loop loopId="18" line="592" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        <conditional id="IF-13"> <condition line="595" source="pm.c" executed="true"> </condition>
+                                            <case cond="1" executed="true" line="596" source="pm.c">
+                                            </case>
+                                            <case cond="0" executed="true" line="600" source="pm.c">
+                                                <call name="pm_memcpy" numcall="22" line="600" source="pm.c" executed="true" extern="false">
+                                                    <function name="pm_memcpy">
+                                                        <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                        </loop>
+                                                    </function>
+                                                </call>
+                                                <loop loopId="19" line="604" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </case>
+                                        </conditional>
+                                        <loop loopId="20" line="616" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                        </loop>
+                                    </loop>
+                                </case>
+                            </conditional>
+                            <loop loopId="21" line="631" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                            </loop>
+                            <call name="pm_memcpy" numcall="23" line="639" source="pm.c" executed="true" extern="false">
+                                <function name="pm_memcpy">
+                                    <loop loopId="29" line="2216" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </function>
+                            </call>
+                            <conditional id="IF-16"> <condition line="643" source="pm.c" executed="true"> </condition>
+                                <case cond="1" executed="true" line="644" source="pm.c">
+                                    <conditional id="IF-17"> <condition line="644" source="pm.c" executed="true"> </condition>
+                                        <case cond="1" executed="true" line="648" source="pm.c">
+                                            <loop loopId="22" line="652" source="pm.c" exact="false" maxcount="21" totalcount="NOCOMP">
+                                                <loop loopId="23" line="657" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                                <loop loopId="24" line="667" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                                </loop>
+                                            </loop>
+                                        </case>
+                                        <case cond="0" executed="true" >
+                                        </case>
+                                    </conditional>
+                                </case>
+                                <case cond="0" executed="true" line="680" source="pm.c">
+                                    <loop loopId="25" line="682" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                    <loop loopId="26" line="692" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                    </loop>
+                                </case>
+                            </conditional>
+                            <conditional id="IF-20"> <condition line="703" source="pm.c" executed="true"> </condition>
+                                <case cond="1" executed="true" line="705" source="pm.c">
+                                    <loop loopId="27" line="708" source="pm.c" exact="false" maxcount="20" totalcount="NOCOMP">
+                                    </loop>
+                                </case>
+                                <case cond="0" executed="true" >
+                                </case>
+                            </conditional>
+                        </loop>
+                        <loop loopId="28" line="723" source="pm.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="pm.c" line="140" max="60"  min="60">
+        </loop>
+        <loop source="pm.c" line="144" max="60"  min="60">
+        </loop>
+        <loop source="pm.c" line="164" max="60"  min="60">
+        </loop>
+        <loop source="pm.c" line="168" max="60"  min="60">
+        </loop>
+        <loop source="pm.c" line="355" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="362" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="400" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="409" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="423" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="439" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="448" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="481" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="496" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="535" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="555" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="569" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="580" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="592" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="604" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="616" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="631" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="652" max="21"  min="21">
+        </loop>
+        <loop source="pm.c" line="657" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="667" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="682" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="692" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="708" max="20"  min="20">
+        </loop>
+        <loop source="pm.c" line="723" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="2216" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="pm.c" line="2226" max="NOCOMP"  min="NOCOMP">
+        </loop>
+    </function>
+</flowfacts>
+

@@ -1,0 +1,8 @@
+countnegative_initSeed	1 {O(1)}
+countnegative_randomInteger	1 {O(1)}
+countnegative_initialize	3*Arg_1+1284 {O(n)}
+countnegative_init	2*Arg_1+884 {O(n)}
+countnegative_return	1 {O(1)}
+countnegative_sum	7*Arg_0+17284 {O(n)}
+countnegative_main	7*Arg_0+17284 {O(n)}
+main	2*Arg_2+3788 {O(n)}

@@ -1,0 +1,10 @@
+fft_bit_reduct	inf {Infinity}
+fft_exp2f	inf {Infinity}
+fft_modff	1 {O(1)}
+fft_convert	inf {Infinity}
+fft_float2fract	inf {Infinity}
+fft_pin_down	inf {Infinity}
+fft_init	inf {Infinity}
+fft_return	4102 {O(1)}
+fft_main	inf {Infinity}
+main	inf {Infinity}

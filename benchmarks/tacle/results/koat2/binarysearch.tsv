@@ -1,0 +1,7 @@
+binarysearch_initSeed	1 {O(1)}
+binarysearch_randomInteger	1 {O(1)}
+binarysearch_init	34 {O(1)}
+binarysearch_return	1 {O(1)}
+binarysearch_binary_search	inf {Infinity}
+binarysearch_main	inf {Infinity}
+main	inf {Infinity}

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="prime_main" numcall="11" line="135" source="prime.c" executed="true" extern="false">
+            <function name="prime_main">
+                <call name="prime_prime" numcall="8" line="128" source="prime.c" executed="true" extern="false">
+                    <function name="prime_prime">
+                        <conditional id="IF-2"> <condition line="101" source="prime.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="103" source="prime.c">
+                                <loop loopId="1" line="103" source="prime.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </case>
+                            <case cond="0" executed="true" >
+                            </case>
+                        </conditional>
+                    </function>
+                </call>
+                <call name="prime_prime" numcall="9" line="128" source="prime.c" executed="true" extern="false">
+                    <function name="prime_prime">
+                        <conditional id="IF-2"> <condition line="101" source="prime.c" executed="true"> </condition>
+                            <case cond="1" executed="true" line="103" source="prime.c">
+                                <loop loopId="1" line="103" source="prime.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                                </loop>
+                            </case>
+                            <case cond="0" executed="true" >
+                            </case>
+                        </conditional>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="prime.c" line="103" max="NOCOMP"  min="NOCOMP">
+        </loop>
+    </function>
+</flowfacts>
+

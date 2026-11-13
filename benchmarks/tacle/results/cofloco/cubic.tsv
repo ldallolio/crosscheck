@@ -1,0 +1,14 @@
+basicmath___copysignf	1 	constant 
+basicmath___cosf	1 	constant 
+basicmath___fabsf	1 	constant 
+basicmath___ieee754_acosf	inf 	infinity 
+basicmath___ieee754_powf	!timeout-or-error
+basicmath___ieee754_rem_pio2f	1 	constant 
+basicmath___ieee754_sqrtf	inf 	infinity 
+basicmath___isinff	1 	constant 
+basicmath___kernel_cosf	1 	constant 
+basicmath___kernel_sinf	1 	constant 
+basicmath___scalbnf	1 	constant 
+cubic_init	1 	constant 
+cubic_return	1 	constant 
+cubic_solveCubic	!timeout-or-error

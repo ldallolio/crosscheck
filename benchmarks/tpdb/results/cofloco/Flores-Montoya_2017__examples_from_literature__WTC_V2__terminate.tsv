@@ -1,0 +1,1 @@
+terminate	max([nat(-V_i/2-V_j/2+V_k/2+51)*2,nat(V_k-100)*2])+4 	n 

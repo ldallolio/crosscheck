@@ -66,6 +66,10 @@ statements:
     note: "relational variant with potentials valued in an ordered field"
     module: ImperativeOptimization.Certificate
     lean: [ranking_bound_floor, ranking_bound_of_le, while_ranking_floor, partial_ranking_floor]
+  - paper_labels: [prop:context-bound]
+    note: "bounds under proved invariants and calling contexts; call rule"
+    module: ImperativeOptimization.Certificate
+    lean: [run_invariant, ranking_bound_floor_of_invariant, ranking_bound_of_context, call_bound_of_context]
   - paper_labels: [subsubsec:smt-synthesis]
     note: "soundness direction of Farkas' Lemma"
     module: ImperativeOptimization.Certificate

@@ -1,0 +1,1 @@
+insertsort	6*Arg_4^2+26*Arg_4+31 {O(n^2)}

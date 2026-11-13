@@ -1,0 +1,1 @@
+foo	nat(2*V_r+2)*4*nat(V_r-1)+nat(2*V_r+2)*4+(nat(V_r+1)*4+2)+3 	n^2 

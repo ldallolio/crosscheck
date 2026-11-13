@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="insertsort_init" numcall="2" line="136" source="insertsort.c" executed="true" extern="false">
+            <function name="insertsort_init">
+                <call name="insertsort_initialize" numcall="1" line="73" source="insertsort.c" executed="true" extern="false">
+                    <function name="insertsort_initialize">
+                        <loop loopId="1" line="56" source="insertsort.c" exact="true" maxcount="10" totalcount="10">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="insertsort_main" numcall="3" line="137" source="insertsort.c" executed="true" extern="false">
+            <function name="insertsort_main">
+                <loop loopId="3" line="102" source="insertsort.c" exact="true" maxcount="9" totalcount="9">
+                    <loop loopId="4" line="111" source="insertsort.c" exact="false" maxcount="10" totalcount="54">
+                    </loop>
+                </loop>
+            </function>
+        </call>
+        <call name="insertsort_return" numcall="4" line="138" source="insertsort.c" executed="true" extern="false">
+            <function name="insertsort_return">
+                <loop loopId="2" line="81" source="insertsort.c" exact="true" maxcount="10" totalcount="10">
+                </loop>
+            </function>
+        </call>
+        <loop source="insertsort.c" line="56" max="10"  min="10">
+        </loop>
+        <loop source="insertsort.c" line="81" max="10"  min="10">
+        </loop>
+        <loop source="insertsort.c" line="102" max="9"  min="9">
+        </loop>
+        <loop source="insertsort.c" line="111" max="10"  min="10">
+        </loop>
+    </function>
+</flowfacts>
+

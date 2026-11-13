@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="countnegative_init" numcall="4" line="132" source="countnegative.c" executed="true" extern="false">
+            <function name="countnegative_init">
+                <call name="countnegative_initialize" numcall="2" line="85" source="countnegative.c" executed="true" extern="false">
+                    <function name="countnegative_initialize">
+                        <loop loopId="1" line="77" source="countnegative.c" exact="true" maxcount="20" totalcount="20">
+                            <loop loopId="2" line="79" source="countnegative.c" exact="true" maxcount="20" totalcount="400">
+                            </loop>
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <call name="countnegative_main" numcall="5" line="137" source="countnegative.c" executed="true" extern="false">
+            <function name="countnegative_main">
+                <call name="countnegative_sum" numcall="3" line="86" source="countnegative.c" executed="true" extern="false">
+                    <function name="countnegative_sum">
+                        <loop loopId="3" line="109" source="countnegative.c" exact="true" maxcount="20" totalcount="20">
+                            <loop loopId="4" line="111" source="countnegative.c" exact="true" maxcount="20" totalcount="400">
+                            </loop>
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="countnegative.c" line="77" max="20"  min="20">
+        </loop>
+        <loop source="countnegative.c" line="79" max="20"  min="20">
+        </loop>
+        <loop source="countnegative.c" line="109" max="20"  min="20">
+        </loop>
+        <loop source="countnegative.c" line="111" max="20"  min="20">
+        </loop>
+    </function>
+</flowfacts>
+

@@ -1,0 +1,10 @@
+fft_bit_reduct	inf 	infinity 
+fft_convert	inf 	infinity 
+fft_exp2f	inf 	infinity 
+fft_float2fract	inf 	infinity 
+fft_init	inf 	infinity 
+fft_main	inf 	infinity 
+fft_modff	1 	constant 
+fft_pin_down	inf 	infinity 
+fft_return	4100 	constant 
+main	inf 	infinity 

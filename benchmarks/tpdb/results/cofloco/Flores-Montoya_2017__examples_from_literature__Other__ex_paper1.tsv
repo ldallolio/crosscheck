@@ -1,0 +1,1 @@
+ex_paper1	nat(V_x)*5+2+nat(V_x+V_y)*6+max([nat(2*V_x+V_y-1)*6,nat(V_x+V_y)*3+max([nat(V_x+V_y)*3,nat(V_z)*4*nat(V_x+V_y)])])+3 	n^2 

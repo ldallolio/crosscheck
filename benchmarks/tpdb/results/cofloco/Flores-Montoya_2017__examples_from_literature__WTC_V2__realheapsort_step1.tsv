@@ -1,0 +1,1 @@
+realheapsort_step1	nat(V_N-1)*8*nat(V_N-2)+nat(V_N-1)*4+(nat(V_N-1)*7+1)+3 	n^2 

@@ -417,6 +417,94 @@ Bound-T, RapiTime, SWEET, Heptane, Chronos, …) by their authors.
 **Why cited.** The definition of WCET and the decomposition CrossCheck positions itself in
 (Limitations: "cost is not time"). Confidence: high.
 
+### `gustafsson2010malardalen` — J. Gustafsson, A. Betts, A. Ermedahl, B. Lisper, *The Mälardalen WCET Benchmarks: Past, Present and Future*, WCET 2010, OASIcs 15, pp. 136–146
+
+**What it is.** The paper describing the Mälardalen benchmarks, the set of small C
+programs (sorting, matrix code, DSP filters, CRC, …) collected in 2005 that WCET tools
+have used to compare themselves, notably in the WCET Tool Challenge 2006. It discusses
+their properties and weaknesses and proposes how the collection should evolve.
+
+**Why cited.** As the predecessor of TACLeBench, in subsection `subsec:tacle`.
+Bibliographic data checked on the publisher's page (DROPS) in November 2026; content
+summarised from the abstract. Confidence: high for the data, medium for the content.
+
+### `falk2016taclebench` — H. Falk et al. (10 authors), *TACLeBench: A Benchmark Collection to Support Worst-Case Execution Time Research*, WCET 2016, OASIcs 55, pp. 2:1–2:10
+
+**What it is.** The successor collection (53 programs in the paper), gathered from
+several research groups and tool vendors, Mälardalen included, and made uniform: self-contained C with no library or OS
+dependency, fixed inputs, and **flow facts** written as `#pragma loopbound min X max Y`
+on every loop. Programs are grouped as kernel, sequential, application, test and
+parallel.
+
+**Why cited.** Subsection `subsec:tacle` runs the plugin on the 29 *kernel* programs
+and compares its loop bounds with the flow facts (Table `tab:tacle`; script
+`benchmarks/tacle/run_tacle.py`). Flow facts hold for the fixed input, so they are a
+reference rather than a proven worst case; one of them is loose (quicksort, 20 vs 19).
+Bibliographic data checked on DROPS; content from the paper's abstract and the
+repository. Confidence: high.
+
+### `lattner2004llvm` — C. Lattner & V. Adve, *LLVM: A Compilation Framework for Lifelong Program Analysis & Transformation*, CGO 2004, pp. 75–86
+
+**What it is.** The paper introducing LLVM: a typed SSA intermediate representation
+kept through the whole life of a program, with analyses and optimisations as passes.
+*ScalarEvolution* is LLVM's analysis of how integer values evolve in loops (chains of
+recurrences); among other things it computes a loop's maximum *backedge-taken count*.
+
+**Why cited.** As the baseline loop-bound analysis of `tab:tools`. Data checked on
+Crossref. Confidence: high.
+
+### `falke2011termination` — S. Falke, D. Kapur, C. Sinz, *Termination Analysis of C Programs Using Compiler Intermediate Languages*, RTA 2011, LIPIcs 10, pp. 41–50
+
+**What it is.** Proving termination of C by compiling to LLVM IR and translating the IR
+into integer term rewrite systems (tool KITTeL; converter llvm2kittel). Memory
+contents are abstracted away: only integer variables in registers are kept.
+
+**Why cited.** llvm2kittel is KoAT2's C front-end in the comparison; its abstraction of
+memory explains KoAT2's symbolic and missing bounds. Data checked on DROPS. Confidence:
+high.
+
+### `giesl2019termcomp` — J. Giesl, A. Rubio, C. Sternagel, J. Waldmann, A. Yamada, *The Termination and Complexity Competition*, TACAS 2019 (TOOLympics), LNCS, pp. 156–166
+
+**What it is.** The description of the yearly competition of termination and
+complexity provers, and of its benchmark collection, the Termination Problem Database
+(TPDB).
+
+**Why cited.** The paragraph "Complexity benchmarks" uses TPDB's C complexity programs
+(`benchmarks/tpdb`), on which KoAT2 and CoFloCo are evaluated. Data checked on Crossref
+(DOI 10.1007/978-3-030-17502-3_10). Confidence: high.
+
+### `floresmontoya2014cofloco` — A. Flores-Montoya, R. Hähnle, *Resource Analysis of Complex Programs with Cost Equations*, APLAS 2014, LNCS, pp. 275–295
+
+**What it is.** The paper behind CoFloCo: cost bounds for programs given as cost
+equations, with a control-flow refinement that splits loops into phases before bounding
+them.
+
+**Why cited.** CoFloCo is run in the comparison (`tab:tools`) on the integer programs
+llvm2kittel produces for KoAT2, which makes the two complexity analysers directly
+comparable. Data checked on Crossref (DOI 10.1007/978-3-319-12736-1_15); the description
+is from the tool's README. Confidence: high for the reference.
+
+### `demichiel2008orange` — M. de Michiel, A. Bonenfant, H. Cassé, P. Sainrat, *Static Loop Bound Analysis of C Programs Based on Flow Analysis and Abstract Interpretation*, RTCSA 2008, pp. 161–166
+
+**What it is.** The paper behind oRange, the loop-bound analyser of the OTAWA WCET
+tool chain: it works on C source, analyses the program from its entry point, and
+produces loop bounds (and flow facts) by abstract interpretation over the program's
+values.
+
+**Why cited.** oRange is the WCET flow-analysis tool in the comparison (`tab:tools`).
+Its whole-program analysis explains why it bounds more loops, and more tightly, than
+CrossCheck on TACLeBench. Data checked on Crossref (DOI 10.1109/RTCSA.2008.53); the
+paper's content is described from memory and the tool's README. Confidence: high for
+the reference, medium for the description.
+
+### `infercost` — The Infer Team, *Cost: Complexity Analysis* (Infer documentation, v1.3.0)
+
+**What it is.** Meta's Infer computes, per function, a symbolic execution cost (from
+its interval analysis InferBo), to flag cost regressions in code review. The
+documentation lists its limits, including "We do not handle recursion".
+
+**Why cited.** Third tool of `tab:tools`. A tool documentation page, not a paper.
+
 ## H. Mechanised cost analysis
 
 ### `blazy2013formal` — S. Blazy, A. Maroneze, D. Pichardie, *Formal Verification of Loop Bound Estimation for WCET Analysis*, VSTTE 2013
@@ -551,5 +639,4 @@ A referee may ask why these are absent. None is required, but have an answer rea
 | Cook, Podelski, Rybalchenko 2006, *Terminator* | termination tools | Transition Invariants is cited |
 | Kozen 1997, KAT | algebra of while programs | removed with the KAT remark (Nov 2026) |
 | AbsInt aiT, OTAWA, SWEET papers | WCET tools | Wilhelm et al. survey covers them |
-| Mälardalen / TACLeBench | benchmark suites | evaluation is future work |
 | Carbonneaux et al. 2017 (Pastis), Fiedor et al., Sinn et al. JAR 2017 | newer bound analyses | candidates if a referee asks for more recent bound-analysis work |

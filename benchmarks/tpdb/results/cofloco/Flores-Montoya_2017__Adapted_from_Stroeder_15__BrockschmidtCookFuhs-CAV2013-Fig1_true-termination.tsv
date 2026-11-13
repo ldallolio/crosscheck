@@ -1,0 +1,1 @@
+foo	max([nat(V_n)*2*nat(-V_i+V_n)+nat(-V_i+V_n)*3,nat(V_n)*2*nat(V_n)+nat(V_n)*3+nat(-V_i)*3])+4 	n^2 

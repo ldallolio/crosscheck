@@ -1,0 +1,1 @@
+sendMTFValues	nat(V_alphaSize)*8+max([nat(V_nGroups-1)*16+nat(2*V_alphaSize)*4+nat(V_alphaSize+V_nGroups-1)*8,nat(2*V_alphaSize-2)*4+nat(V_nGroups)*15+nat(V_alphaSize+V_nGroups-2)*4])+nat(V_alphaSize)*4+11 	n 

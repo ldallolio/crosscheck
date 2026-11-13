@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flowfacts>
+    <function name="main" executed="true" extern="false">
+        <call name="fir2dim_init" numcall="3" line="195" source="fir2dim.c" executed="true" extern="false">
+            <function name="fir2dim_init">
+                <loop loopId="1" line="70" source="fir2dim.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                </loop>
+                <loop loopId="2" line="75" source="fir2dim.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                </loop>
+                <loop loopId="3" line="80" source="fir2dim.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                </loop>
+                <loop loopId="4" line="85" source="fir2dim.c" exact="false" maxcount="NOCOMP" totalcount="NOCOMP">
+                </loop>
+            </function>
+        </call>
+        <call name="fir2dim_main" numcall="4" line="196" source="fir2dim.c" executed="true" extern="false">
+            <function name="fir2dim_main">
+                <call name="fir2dim_pin_down" numcall="1" line="153" source="fir2dim.c" executed="true" extern="false">
+                    <function name="fir2dim_pin_down">
+                        <loop loopId="5" line="106" source="fir2dim.c" exact="true" maxcount="4" totalcount="4">
+                            <loop loopId="6" line="108" source="fir2dim.c" exact="true" maxcount="4" totalcount="16">
+                            </loop>
+                        </loop>
+                        <loop loopId="7" line="115" source="fir2dim.c" exact="true" maxcount="9" totalcount="9">
+                        </loop>
+                        <loop loopId="8" line="119" source="fir2dim.c" exact="true" maxcount="6" totalcount="6">
+                        </loop>
+                        <loop loopId="9" line="123" source="fir2dim.c" exact="true" maxcount="4" totalcount="4">
+                            <loop loopId="10" line="126" source="fir2dim.c" exact="true" maxcount="4" totalcount="16">
+                            </loop>
+                        </loop>
+                        <loop loopId="11" line="132" source="fir2dim.c" exact="true" maxcount="6" totalcount="6">
+                        </loop>
+                        <loop loopId="12" line="136" source="fir2dim.c" exact="true" maxcount="16" totalcount="16">
+                        </loop>
+                    </function>
+                </call>
+                <loop loopId="13" line="159" source="fir2dim.c" exact="true" maxcount="4" totalcount="4">
+                    <loop loopId="14" line="162" source="fir2dim.c" exact="true" maxcount="4" totalcount="16">
+                        <loop loopId="15" line="171" source="fir2dim.c" exact="true" maxcount="3" totalcount="48">
+                        </loop>
+                        <loop loopId="16" line="175" source="fir2dim.c" exact="true" maxcount="3" totalcount="48">
+                        </loop>
+                        <loop loopId="17" line="179" source="fir2dim.c" exact="true" maxcount="3" totalcount="48">
+                        </loop>
+                    </loop>
+                </loop>
+                <call name="fir2dim_pin_down" numcall="2" line="188" source="fir2dim.c" executed="true" extern="false">
+                    <function name="fir2dim_pin_down">
+                        <loop loopId="5" line="106" source="fir2dim.c" exact="true" maxcount="4" totalcount="4">
+                            <loop loopId="6" line="108" source="fir2dim.c" exact="true" maxcount="4" totalcount="16">
+                            </loop>
+                        </loop>
+                        <loop loopId="7" line="115" source="fir2dim.c" exact="true" maxcount="9" totalcount="9">
+                        </loop>
+                        <loop loopId="8" line="119" source="fir2dim.c" exact="true" maxcount="6" totalcount="6">
+                        </loop>
+                        <loop loopId="9" line="123" source="fir2dim.c" exact="true" maxcount="4" totalcount="4">
+                            <loop loopId="10" line="126" source="fir2dim.c" exact="true" maxcount="4" totalcount="16">
+                            </loop>
+                        </loop>
+                        <loop loopId="11" line="132" source="fir2dim.c" exact="true" maxcount="6" totalcount="6">
+                        </loop>
+                        <loop loopId="12" line="136" source="fir2dim.c" exact="true" maxcount="16" totalcount="16">
+                        </loop>
+                    </function>
+                </call>
+            </function>
+        </call>
+        <loop source="fir2dim.c" line="70" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fir2dim.c" line="75" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fir2dim.c" line="80" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fir2dim.c" line="85" max="NOCOMP"  min="NOCOMP">
+        </loop>
+        <loop source="fir2dim.c" line="106" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="108" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="115" max="9"  min="9">
+        </loop>
+        <loop source="fir2dim.c" line="119" max="6"  min="6">
+        </loop>
+        <loop source="fir2dim.c" line="123" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="126" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="132" max="6"  min="6">
+        </loop>
+        <loop source="fir2dim.c" line="136" max="16"  min="16">
+        </loop>
+        <loop source="fir2dim.c" line="159" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="162" max="4"  min="4">
+        </loop>
+        <loop source="fir2dim.c" line="171" max="3"  min="3">
+        </loop>
+        <loop source="fir2dim.c" line="175" max="3"  min="3">
+        </loop>
+        <loop source="fir2dim.c" line="179" max="3"  min="3">
+        </loop>
+    </function>
+</flowfacts>
+

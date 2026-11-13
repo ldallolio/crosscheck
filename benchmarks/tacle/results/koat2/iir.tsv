@@ -1,0 +1,4 @@
+iir_init	288 {O(1)}
+iir_return	20 {O(1)}
+iir_main	12 {O(1)}
+main	321 {O(1)}

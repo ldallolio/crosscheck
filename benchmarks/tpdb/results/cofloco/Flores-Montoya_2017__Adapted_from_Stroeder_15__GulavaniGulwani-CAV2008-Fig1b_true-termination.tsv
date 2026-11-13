@@ -1,0 +1,1 @@
+foo	max([nat(V_m-V_x)*2,nat(V_n-V_x)*2+nat(V_m-V_n)*2])+5 	n 

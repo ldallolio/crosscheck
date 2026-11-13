@@ -1,0 +1,5050 @@
+[
+  {
+    "kernel": "binarysearch",
+    "cofloco_vs_koat": {
+      "both": 4,
+      "cofloco_lower": 0,
+      "equal": 4,
+      "koat_lower": 0
+    },
+    "loops": 2,
+    "functions": 7,
+    "crosscheck": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 2,
+      "equal": 1,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 1,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "observed": {
+      "94": 15,
+      "120": 4
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 2,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 2,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 2,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 2,
+        "bounded": 2,
+        "below": 0,
+        "equal": 1,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.25
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 2,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 3
+      },
+      "cofloco": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 3
+      },
+      "infer": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "bitcount",
+    "cofloco_vs_koat": {
+      "both": 0,
+      "cofloco_lower": 0,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 15,
+    "crosscheck": {
+      "bounded": 2,
+      "equal": 1,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 2,
+      "equal": 1,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 1,
+    "overlap": {
+      "cc_only": 1,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "31": 8,
+      "309": 31,
+      "354": 8,
+      "356": 10
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 2,
+        "below": 0,
+        "equal": 1,
+        "above": 1,
+        "ratios": [
+          2.064516129032258,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 2,
+        "below": 0,
+        "equal": 1,
+        "above": 1,
+        "ratios": [
+          2.064516129032258,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 8
+      },
+      "koat": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 15
+      },
+      "cofloco": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 15
+      },
+      "infer": {
+        "const": 12,
+        "symbolic": 0,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "bitonic",
+    "cofloco_vs_koat": {
+      "both": 0,
+      "cofloco_lower": 0,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 3,
+    "functions": 7,
+    "crosscheck": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 1,
+    "overlap": {
+      "cc_only": 1,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "54": 32,
+      "98": 16,
+      "147": 32
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 3,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 3,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 3,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 3,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 3,
+        "bounded": 3,
+        "below": 0,
+        "equal": 3,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 4
+      },
+      "koat": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 7
+      },
+      "cofloco": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 7
+      },
+      "infer": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 4
+      }
+    }
+  },
+  {
+    "kernel": "bsort",
+    "cofloco_vs_koat": {
+      "both": 6,
+      "cofloco_lower": 4,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 6,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 2,
+      "looser": 2,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 2,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "56": 100,
+      "75": 99,
+      "94": 99,
+      "97": 99
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 2,
+        "above": 2,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0101010101010102,
+          1.0101010101010102
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "const",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 6,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 6,
+        "symbolic": 0,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 6,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 6,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "complex_updates",
+    "cofloco_vs_koat": {
+      "both": 5,
+      "cofloco_lower": 0,
+      "equal": 5,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "68": 16,
+      "82": 16,
+      "101": 16,
+      "120": 16
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "const",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "cosf",
+    "cofloco_vs_koat": {
+      "both": 10,
+      "cofloco_lower": 0,
+      "equal": 10,
+      "koat_lower": 0
+    },
+    "loops": 3,
+    "functions": 15,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "76": 100
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 5
+      },
+      "koat": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 5
+      },
+      "cofloco": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 5
+      },
+      "infer": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 5
+      }
+    }
+  },
+  {
+    "kernel": "countnegative",
+    "cofloco_vs_koat": {
+      "both": 3,
+      "cofloco_lower": 0,
+      "equal": 3,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 8,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "77": 20,
+      "79": 20,
+      "109": 20,
+      "111": 20
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "symbolic",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 8,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 3,
+        "symbolic": 5,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 8,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 8,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "cubic",
+    "cofloco_vs_koat": {
+      "both": 10,
+      "cofloco_lower": 0,
+      "equal": 10,
+      "koat_lower": 0
+    },
+    "loops": 6,
+    "functions": 16,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "107": 5,
+      "109": 5,
+      "111": 7,
+      "113": 5,
+      "721": 25
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 5,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 5,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 5,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 5,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 6
+      },
+      "koat": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 6
+      },
+      "cofloco": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 6
+      },
+      "infer": {
+        "const": 10,
+        "symbolic": 0,
+        "none": 6
+      }
+    }
+  },
+  {
+    "kernel": "deg2rad",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 0,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 1,
+    "functions": 4,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "81": 361
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "cofloco": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "infer": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      }
+    }
+  },
+  {
+    "kernel": "fac",
+    "cofloco_vs_koat": {
+      "both": 0,
+      "cofloco_lower": 0,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 1,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "86": 6
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "symbolic"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 5
+      },
+      "cofloco": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 5
+      },
+      "infer": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 1
+      }
+    }
+  },
+  {
+    "kernel": "fft",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 1,
+      "equal": 1,
+      "koat_lower": 0
+    },
+    "loops": 12,
+    "functions": 10,
+    "crosscheck": {
+      "bounded": 10,
+      "equal": 8,
+      "looser": 2,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 10,
+      "equal": 8,
+      "looser": 2,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 10,
+      "equal": 9,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 8,
+      "equal": 8,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 9,
+    "overlap": {
+      "cc_only": 1,
+      "other_only": 1,
+      "cc_tighter": 1,
+      "other_tighter": 0,
+      "same": 8
+    },
+    "overlap_orange": {
+      "cc_only": 3,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 3,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "observed": {
+      "118": 1024,
+      "132": 10,
+      "145": 10,
+      "149": 512,
+      "155": 512,
+      "185": 2048,
+      "208": 13,
+      "257": 1024,
+      "276": 1024,
+      "292": 2046,
+      "297": 2,
+      "309": 2048
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 12,
+        "bounded": 10,
+        "below": 0,
+        "equal": 8,
+        "above": 2,
+        "ratios": [
+          1.0,
+          102.3,
+          1.998046875,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 12,
+        "bounded": 10,
+        "below": 0,
+        "equal": 8,
+        "above": 2,
+        "ratios": [
+          1.0,
+          102.3,
+          1.998046875,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 12,
+        "bounded": 10,
+        "below": 0,
+        "equal": 9,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.0,
+          2.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 12,
+        "bounded": 8,
+        "below": 0,
+        "equal": 8,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 12,
+        "bounded": 12,
+        "below": 0,
+        "equal": 12,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 8
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 8
+      },
+      "cofloco": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 8
+      },
+      "infer": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "filterbank",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 0,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 14,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 11,
+      "equal": 11,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 11,
+      "equal": 11,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 11,
+      "equal": 11,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 12,
+      "equal": 11,
+      "looser": 0,
+      "tighter": 1,
+      "type_range": 0
+    },
+    "both_loops": 11,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 11
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 11
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 11
+    },
+    "observed": {
+      "80": 256,
+      "84": 32,
+      "87": 8,
+      "94": 2,
+      "111": 256,
+      "115": 8,
+      "123": 256,
+      "126": 32,
+      "132": 32,
+      "137": 256,
+      "140": 32,
+      "145": 256,
+      "148": 32,
+      "155": 256
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 14,
+        "bounded": 11,
+        "below": 0,
+        "equal": 11,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 14,
+        "bounded": 11,
+        "below": 0,
+        "equal": 11,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 14,
+        "bounded": 11,
+        "below": 0,
+        "equal": 11,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 14,
+        "bounded": 12,
+        "below": 1,
+        "equal": 11,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          0.5,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": [
+          [
+            94,
+            1,
+            2
+          ]
+        ]
+      },
+      "flow_fact": {
+        "reached": 14,
+        "bounded": 14,
+        "below": 0,
+        "equal": 14,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "symbolic"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "cofloco": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "infer": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 1
+      }
+    }
+  },
+  {
+    "kernel": "fir2dim",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 0,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 17,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 9,
+      "equal": 9,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 9,
+      "equal": 9,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 17,
+      "equal": 17,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 13,
+      "equal": 13,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 9,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 8,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 9
+    },
+    "overlap_orange": {
+      "cc_only": 4,
+      "other_only": 8,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 4,
+      "other_only": 8,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "observed": {
+      "70": 36,
+      "75": 64,
+      "80": 144,
+      "85": 64,
+      "106": 4,
+      "108": 4,
+      "115": 9,
+      "119": 6,
+      "123": 4,
+      "126": 4,
+      "132": 6,
+      "136": 16,
+      "159": 4,
+      "162": 4,
+      "171": 3,
+      "175": 3,
+      "179": 3
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 17,
+        "bounded": 9,
+        "below": 0,
+        "equal": 9,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 17,
+        "bounded": 9,
+        "below": 0,
+        "equal": 9,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 17,
+        "bounded": 17,
+        "below": 0,
+        "equal": 17,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 17,
+        "bounded": 13,
+        "below": 0,
+        "equal": 13,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 17,
+        "bounded": 17,
+        "below": 0,
+        "equal": 17,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "cofloco": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "iir",
+    "cofloco_vs_koat": {
+      "both": 4,
+      "cofloco_lower": 1,
+      "equal": 3,
+      "koat_lower": 0
+    },
+    "loops": 6,
+    "functions": 4,
+    "crosscheck": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 6,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 6
+    },
+    "overlap_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "83": 20,
+      "87": 8,
+      "97": 80,
+      "102": 32,
+      "114": 8,
+      "141": 4
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 6,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 6,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 6,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 6,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 6,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "const",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 4,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "insertsort",
+    "cofloco_vs_koat": {
+      "both": 1,
+      "cofloco_lower": 1,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 3,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 2,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 2,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 2,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "observed": {
+      "56": 10,
+      "81": 10,
+      "102": 9,
+      "111": 9
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 3,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.1111111111111112
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 1,
+        "symbolic": 0,
+        "none": 4
+      },
+      "koat": {
+        "const": 1,
+        "symbolic": 0,
+        "none": 4
+      },
+      "cofloco": {
+        "const": 1,
+        "symbolic": 0,
+        "none": 4
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "isqrt",
+    "cofloco_vs_koat": {
+      "both": 11,
+      "cofloco_lower": 1,
+      "equal": 10,
+      "koat_lower": 0
+    },
+    "loops": 5,
+    "functions": 17,
+    "crosscheck": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 1,
+      "equal": 1,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 1
+    },
+    "orange": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 1,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 1,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 1
+    },
+    "observed": {
+      "31": 4,
+      "158": 32,
+      "177": 1000
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 3,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 3,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 3,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 3,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 3,
+        "bounded": 3,
+        "below": 0,
+        "equal": 3,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 11,
+        "symbolic": 0,
+        "none": 6
+      },
+      "koat": {
+        "const": 11,
+        "symbolic": 1,
+        "none": 5
+      },
+      "cofloco": {
+        "const": 11,
+        "symbolic": 1,
+        "none": 5
+      },
+      "infer": {
+        "const": 13,
+        "symbolic": 1,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "jfdctint",
+    "cofloco_vs_koat": {
+      "both": 5,
+      "cofloco_lower": 2,
+      "equal": 3,
+      "koat_lower": 0
+    },
+    "loops": 4,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "153": 64,
+      "166": 64,
+      "190": 8,
+      "243": 8
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 4,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "const",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "lms",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 0,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 7,
+    "functions": 6,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 1
+    },
+    "orange": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 3,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "observed": {
+      "100": 100,
+      "135": 20,
+      "144": 21,
+      "151": 21,
+      "167": 21,
+      "173": 201,
+      "188": 201
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 7,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 7,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "symbolic",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 2,
+        "none": 2
+      },
+      "cofloco": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 2
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 1,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "ludcmp",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 1,
+      "equal": 1,
+      "koat_lower": 0
+    },
+    "loops": 12,
+    "functions": 6,
+    "crosscheck": {
+      "bounded": 12,
+      "equal": 3,
+      "looser": 9,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 12,
+      "equal": 12,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 3,
+      "equal": 3,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 4
+    },
+    "orange": {
+      "bounded": 12,
+      "equal": 12,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 3,
+    "overlap": {
+      "cc_only": 9,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 3
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 9,
+      "same": 3
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 12
+    },
+    "observed": {
+      "50": 6,
+      "53": 6,
+      "76": 6,
+      "106": 5,
+      "111": 5,
+      "116": 4,
+      "124": 5,
+      "128": 5,
+      "138": 5,
+      "142": 5,
+      "151": 5,
+      "155": 5
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 12,
+        "bounded": 12,
+        "below": 0,
+        "equal": 3,
+        "above": 9,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          19.8,
+          19.8,
+          24.5,
+          19.8,
+          19.8,
+          19.8,
+          19.8,
+          19.8,
+          19.8
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 12,
+        "bounded": 12,
+        "below": 0,
+        "equal": 12,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 12,
+        "bounded": 3,
+        "below": 0,
+        "equal": 3,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 12,
+        "bounded": 12,
+        "below": 0,
+        "equal": 12,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 12,
+        "bounded": 12,
+        "below": 0,
+        "equal": 12,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "symbolic",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 6,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 4,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 4,
+        "symbolic": 1,
+        "none": 1
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 1,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "matrix1",
+    "cofloco_vs_koat": {
+      "both": 3,
+      "cofloco_lower": 1,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 7,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 7,
+      "equal": 7,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 7,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 7
+    },
+    "observed": {
+      "97": 100,
+      "101": 100,
+      "105": 100,
+      "125": 100,
+      "146": 10,
+      "150": 10,
+      "155": 10
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 7,
+        "bounded": 7,
+        "below": 0,
+        "equal": 7,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "symbolic",
+      "cofloco": "const",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 3,
+        "symbolic": 2,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "md5",
+    "cofloco_vs_koat": {
+      "both": 5,
+      "cofloco_lower": 1,
+      "equal": 4,
+      "koat_lower": 0
+    },
+    "loops": 9,
+    "functions": 18,
+    "crosscheck": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 2,
+      "equal": 2,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 1
+    },
+    "orange": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 2,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 2,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 2
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 1,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 4
+    },
+    "observed": {
+      "289": 0,
+      "338": 208,
+      "441": 16,
+      "458": 16,
+      "471": 55,
+      "491": 64,
+      "527": 16,
+      "562": 257,
+      "602": 10
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 9,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 9,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 9,
+        "bounded": 2,
+        "below": 0,
+        "equal": 2,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 9,
+        "bounded": 4,
+        "below": 0,
+        "equal": 4,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 9,
+        "bounded": 9,
+        "below": 1,
+        "equal": 8,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.9961089494163424,
+          1.0
+        ],
+        "below_at": [
+          [
+            562,
+            256,
+            257
+          ]
+        ]
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 13
+      },
+      "koat": {
+        "const": 5,
+        "symbolic": 4,
+        "none": 9
+      },
+      "cofloco": {
+        "const": 6,
+        "symbolic": 4,
+        "none": 8
+      },
+      "infer": {
+        "const": 6,
+        "symbolic": 5,
+        "none": 7
+      }
+    }
+  },
+  {
+    "kernel": "minver",
+    "cofloco_vs_koat": {
+      "both": 3,
+      "cofloco_lower": 2,
+      "equal": 1,
+      "koat_lower": 0
+    },
+    "loops": 21,
+    "functions": 7,
+    "crosscheck": {
+      "bounded": 17,
+      "equal": 8,
+      "looser": 9,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 20,
+      "equal": 20,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 8,
+      "equal": 8,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 12
+    },
+    "orange": {
+      "bounded": 20,
+      "equal": 20,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 8,
+    "overlap": {
+      "cc_only": 9,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 8
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 3,
+      "cc_tighter": 0,
+      "other_tighter": 9,
+      "same": 8
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 20
+    },
+    "observed": {
+      "85": 3,
+      "87": 3,
+      "90": 3,
+      "113": 3,
+      "116": 3,
+      "119": 3,
+      "139": 3,
+      "146": 3,
+      "149": 3,
+      "154": 3,
+      "165": 3,
+      "167": 3,
+      "174": 3,
+      "197": 3,
+      "199": 3,
+      "211": 3,
+      "213": 3,
+      "233": 3,
+      "235": 3,
+      "241": 3,
+      "243": 3
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 21,
+        "bounded": 17,
+        "below": 0,
+        "equal": 8,
+        "above": 9,
+        "ratios": [
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          166.66666666666666,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 21,
+        "bounded": 20,
+        "below": 0,
+        "equal": 20,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 21,
+        "bounded": 8,
+        "below": 0,
+        "equal": 8,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 21,
+        "bounded": 20,
+        "below": 0,
+        "equal": 20,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 21,
+        "bounded": 21,
+        "below": 0,
+        "equal": 21,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 4
+      },
+      "koat": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 3
+      },
+      "cofloco": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 3
+      },
+      "infer": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "pm",
+    "cofloco_vs_koat": {
+      "both": 12,
+      "cofloco_lower": 0,
+      "equal": 12,
+      "koat_lower": 0
+    },
+    "loops": 30,
+    "functions": 17,
+    "crosscheck": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 24
+    },
+    "orange": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 5,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "observed": {
+      "140": 60,
+      "144": 60,
+      "164": 60,
+      "168": 60,
+      "355": 64,
+      "362": 63,
+      "400": 64,
+      "409": 21,
+      "423": 64,
+      "439": 60,
+      "448": 63,
+      "481": 64,
+      "496": 64,
+      "535": 21,
+      "555": 64,
+      "580": 64,
+      "631": 20,
+      "652": 21,
+      "657": 64,
+      "667": 64,
+      "708": 20,
+      "723": 59,
+      "2216": 256,
+      "2226": 64
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 24,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 24,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 24,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 24,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 24,
+        "bounded": 24,
+        "below": 0,
+        "equal": 24,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 12,
+        "symbolic": 0,
+        "none": 5
+      },
+      "koat": {
+        "const": 12,
+        "symbolic": 2,
+        "none": 3
+      },
+      "cofloco": {
+        "const": 12,
+        "symbolic": 2,
+        "none": 3
+      },
+      "infer": {
+        "const": 12,
+        "symbolic": 2,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "prime",
+    "cofloco_vs_koat": {
+      "both": 7,
+      "cofloco_lower": 0,
+      "equal": 7,
+      "koat_lower": 0
+    },
+    "loops": 1,
+    "functions": 10,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "103": 15
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 0,
+        "above": 1,
+        "ratios": [
+          1.0666666666666667
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "symbolic",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 8,
+        "symbolic": 2,
+        "none": 0
+      },
+      "cofloco": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 3
+      },
+      "infer": {
+        "const": 7,
+        "symbolic": 0,
+        "none": 3
+      }
+    }
+  },
+  {
+    "kernel": "quicksort",
+    "cofloco_vs_koat": {
+      "both": 0,
+      "cofloco_lower": 0,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 16,
+    "functions": 24,
+    "crosscheck": {
+      "bounded": 4,
+      "equal": 3,
+      "looser": 0,
+      "tighter": 1,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 4,
+      "equal": 3,
+      "looser": 0,
+      "tighter": 1,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 4,
+      "equal": 4,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 4,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 1,
+      "other_tighter": 0,
+      "same": 3
+    },
+    "overlap_orange": {
+      "cc_only": 4,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 4,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "677": 3000,
+      "682": 681,
+      "684": 13,
+      "697": 1000,
+      "733": 8,
+      "745": 170,
+      "747": 26,
+      "752": 23,
+      "782": 6,
+      "794": 250,
+      "796": 51,
+      "801": 27,
+      "1262": 25,
+      "1957": 11,
+      "2001": 24
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 15,
+        "bounded": 4,
+        "below": 0,
+        "equal": 3,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.0,
+          1.4615384615384615,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 15,
+        "bounded": 4,
+        "below": 0,
+        "equal": 3,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.0,
+          1.4615384615384615,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 15,
+        "bounded": 4,
+        "below": 0,
+        "equal": 3,
+        "above": 1,
+        "ratios": [
+          1.0,
+          1.0,
+          1.5384615384615385,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 15,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 15,
+        "bounded": 15,
+        "below": 1,
+        "equal": 12,
+        "above": 2,
+        "ratios": [
+          1.0,
+          1.0,
+          1.5384615384615385,
+          1.0,
+          1.0,
+          0.9941176470588236,
+          1.0,
+          1.0,
+          2.5,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": [
+          [
+            745,
+            169,
+            170
+          ]
+        ]
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 13,
+        "symbolic": 0,
+        "none": 11
+      },
+      "koat": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 24
+      },
+      "cofloco": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 24
+      },
+      "infer": {
+        "const": 16,
+        "symbolic": 0,
+        "none": 8
+      }
+    }
+  },
+  {
+    "kernel": "rad2deg",
+    "cofloco_vs_koat": {
+      "both": 2,
+      "cofloco_lower": 0,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 1,
+    "functions": 4,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 1,
+      "equal": 0,
+      "looser": 1,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 1,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {
+      "80": 360
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 1,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 0,
+        "above": 1,
+        "ratios": [
+          1.0027777777777778
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 1,
+        "bounded": 1,
+        "below": 0,
+        "equal": 1,
+        "above": 0,
+        "ratios": [
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "koat": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "cofloco": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      },
+      "infer": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 2
+      }
+    }
+  },
+  {
+    "kernel": "recursion",
+    "cofloco_vs_koat": {
+      "both": 0,
+      "cofloco_lower": 0,
+      "equal": 0,
+      "koat_lower": 0
+    },
+    "loops": 0,
+    "functions": 5,
+    "crosscheck": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 0,
+      "equal": 0,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 0,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 0
+    },
+    "observed": {},
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 0,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 0,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 0,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 0,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 0,
+        "bounded": 0,
+        "below": 0,
+        "equal": 0,
+        "above": 0,
+        "ratios": [],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 2,
+        "symbolic": 0,
+        "none": 3
+      },
+      "koat": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 5
+      },
+      "cofloco": {
+        "const": 0,
+        "symbolic": 0,
+        "none": 5
+      },
+      "infer": {
+        "const": 5,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  },
+  {
+    "kernel": "sha",
+    "cofloco_vs_koat": {
+      "both": 3,
+      "cofloco_lower": 1,
+      "equal": 2,
+      "koat_lower": 0
+    },
+    "loops": 17,
+    "functions": 13,
+    "crosscheck": {
+      "bounded": 10,
+      "equal": 6,
+      "looser": 4,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 11,
+      "equal": 6,
+      "looser": 4,
+      "tighter": 1,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 8,
+      "equal": 6,
+      "looser": 2,
+      "tighter": 0,
+      "type_range": 3
+    },
+    "orange": {
+      "bounded": 6,
+      "equal": 6,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 8,
+    "overlap": {
+      "cc_only": 2,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 8
+    },
+    "overlap_orange": {
+      "cc_only": 4,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 6
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 5,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 6
+    },
+    "observed": {
+      "1696": 0,
+      "1729": 7,
+      "1841": 1,
+      "1927": 0,
+      "1936": 0,
+      "1953": 2,
+      "1963": 0,
+      "2025": 16,
+      "2028": 64,
+      "2039": 20,
+      "2042": 20,
+      "2045": 20,
+      "2048": 20,
+      "2067": 8,
+      "2103": 8192,
+      "2120": 128,
+      "2162": 4
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 17,
+        "bounded": 10,
+        "below": 0,
+        "equal": 6,
+        "above": 4,
+        "ratios": [
+          2.142857142857143,
+          3.5,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 17,
+        "bounded": 11,
+        "below": 0,
+        "equal": 7,
+        "above": 4,
+        "ratios": [
+          2.142857142857143,
+          3.5,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 17,
+        "bounded": 8,
+        "below": 0,
+        "equal": 6,
+        "above": 2,
+        "ratios": [
+          3.5,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 17,
+        "bounded": 6,
+        "below": 0,
+        "equal": 6,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 17,
+        "bounded": 17,
+        "below": 0,
+        "equal": 12,
+        "above": 5,
+        "ratios": [
+          1.0,
+          2.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          2.0,
+          1.0,
+          1.0,
+          1.25
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "none",
+      "koat": "none",
+      "cofloco": "none",
+      "infer": "none"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 10
+      },
+      "koat": {
+        "const": 3,
+        "symbolic": 0,
+        "none": 10
+      },
+      "cofloco": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 9
+      },
+      "infer": {
+        "const": 3,
+        "symbolic": 1,
+        "none": 9
+      }
+    }
+  },
+  {
+    "kernel": "st",
+    "cofloco_vs_koat": {
+      "both": 11,
+      "cofloco_lower": 4,
+      "equal": 7,
+      "koat_lower": 0
+    },
+    "loops": 5,
+    "functions": 13,
+    "crosscheck": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "crosscheck_ctx": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "scev": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "orange": {
+      "bounded": 5,
+      "equal": 5,
+      "looser": 0,
+      "tighter": 0,
+      "type_range": 0
+    },
+    "both_loops": 5,
+    "overlap": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "overlap_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "overlap_ctx_orange": {
+      "cc_only": 0,
+      "other_only": 0,
+      "cc_tighter": 0,
+      "other_tighter": 0,
+      "same": 5
+    },
+    "observed": {
+      "82": 1000,
+      "134": 19,
+      "167": 1000,
+      "179": 1000,
+      "194": 1000
+    },
+    "vs_observed": {
+      "crosscheck": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "crosscheck_ctx": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "scev": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "orange": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      },
+      "flow_fact": {
+        "reached": 5,
+        "bounded": 5,
+        "below": 0,
+        "equal": 5,
+        "above": 0,
+        "ratios": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "below_at": []
+      }
+    },
+    "main": {
+      "crosscheck": "const",
+      "koat": "const",
+      "cofloco": "none",
+      "infer": "const"
+    },
+    "funcs": {
+      "crosscheck": {
+        "const": 13,
+        "symbolic": 0,
+        "none": 0
+      },
+      "koat": {
+        "const": 12,
+        "symbolic": 0,
+        "none": 1
+      },
+      "cofloco": {
+        "const": 11,
+        "symbolic": 0,
+        "none": 2
+      },
+      "infer": {
+        "const": 13,
+        "symbolic": 0,
+        "none": 0
+      }
+    }
+  }
+]

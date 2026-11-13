@@ -1,0 +1,1 @@
+foo	3*Arg_6*Arg_7+2*Arg_5+3*Arg_6+5*Arg_7+9 {O(n^2)}

@@ -1,0 +1,1 @@
+foo	max([max([max([5,nat(-V_y)*3+5,nat(V_x-1)*2+5]),nat(V_x-V_y)*2+nat(V_y)*2+max([nat(V_x-V_y)*3,nat(V_x-V_y-1)*3+5])]),nat(V_x)*2+max([nat(-V_y)*3+nat(V_x)*3,nat(V_x-1)*3+5+nat(-V_y)*3])])+5 	n 
