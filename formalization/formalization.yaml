@@ -66,6 +66,17 @@ statements:
     note: "relational variant with potentials valued in an ordered field"
     module: ImperativeOptimization.Certificate
     lean: [ranking_bound_floor, ranking_bound_of_le, while_ranking_floor, partial_ranking_floor]
+  - paper_labels: [def:valid-triple, def:derivable-triple]
+    note: "small imperative language, cost semantics (terminating executions and prefixes), cost triples"
+    module: ImperativeOptimization.Language
+    lean: [Cmd, Exec, Pre, Valid, Derivable]
+  - paper_labels: [thm:cost-logic-soundness]
+    module: ImperativeOptimization.Language
+    lean: [soundness, valid_skip, valid_atom, valid_seq, valid_ite, valid_while, valid_conseq, while_exec_bound, while_pre_bound, derivable_cost_le, countLoop_derivable, countLoop_cost]
+  - paper_labels: [prop:summary-call]
+    note: "symbolic bounds and the call rule for function summaries"
+    module: ImperativeOptimization.Language
+    lean: [ValidSym, validSym_iff, validSym_call, validSym_seq]
   - paper_labels: [prop:context-bound]
     note: "bounds under proved invariants and calling contexts; call rule"
     module: ImperativeOptimization.Certificate

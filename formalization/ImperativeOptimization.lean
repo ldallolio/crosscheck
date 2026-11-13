@@ -12,6 +12,7 @@ import ImperativeOptimization.Ranking
 import ImperativeOptimization.Recursion
 import ImperativeOptimization.Certificate
 import ImperativeOptimization.Arity
+import ImperativeOptimization.Language
 import ImperativeOptimization.FixedPoint
 import ImperativeOptimization.OperationalSemantics
 import ImperativeOptimization.Examples
@@ -49,5 +50,8 @@ in `Dominance`.
 - `Certificate`: Soundness of the certificates used by the Clang plugin: relational ranking
   bound with field-valued potentials, Farkas certificates, loop cost formula.
 - `Arity`: Call trees of arbitrary arity; depth envelope and size potentials.
+- `Language`: A small imperative language with a cost semantics (terminating executions and
+  execution prefixes), a cost logic (`Derivable`) and its soundness; symbolic bounds and
+  the call rule for function summaries.
 - `Examples`: Machine-checked versions of the paper's worked examples.
 -/

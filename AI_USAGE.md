@@ -374,6 +374,55 @@ What the AI did (first milestone only; **stopped before finishing, see below**):
   were re-checked and are unchanged. The paper is 31 pages. Symbolic bounds, global
   variables, new potential shapes and float loops are not done.
 
+22. "I would like you to work on theory and lean first. Before that, I would like you to
+    answer a few important questions honestly : - now that you have a comparison with
+    existing tools and benchmark results, do you think that there is a concrete
+    engineering advantage for the industry in crosscheck or not ? If yes, which one ? If
+    not, could this be fixed, and how ? - is there a concrete scientific interest in the
+    theory described in the paper, with respect to the state of the art in the field ? If
+    yes, describe which one, if not, is there anything that should be done ? - is it
+    possible and usefult to include concurrency and parallelism constraint
+    (multithreading, multiprocessing) in the theory ? - is the paper too long and complex
+    for a single article, should it be split in different publications ? If yes, how ? -
+    after this part will be completed and the author todo removed, would you suggest
+    publishing it on arxiv or there should be more work done ? - what would be the next
+    evolution that you would suggest that would improve this work, both on theorical and
+    implementation point of vues ?"
+
+What the AI did: answered, no changes. Its assessment, in short: no decisive industrial
+advantage today and little theoretical novelty (the ingredients are classical); both
+could come from a language-level soundness theorem plus certificates checked by a
+verified checker; concurrency only as a remark (work/span); split the paper in two
+before a venue submission; arXiv is reasonable once the author has verified everything,
+the claims about other tools are confirmed and the artifact is archived.
+
+23. "Let's go for the small language route first, then treat all other suggestions you
+    gave, I fill follow your lead. I aim for industrial value and scientific innovation.
+    Also check the bibliography to make sure it does not only comes from your memory, if
+    it is in the scope of your abilities. Feel free to commit and push now or later on.
+    Thank you for your valuable advice."
+
+What the AI did:
+- Committed and pushed the state so far on branch `evaluation-and-contexts`.
+- Lean: new module `Language` (425 lines, 16 theorems): commands with weighted relational
+  atoms, cost semantics for terminating executions (`Exec`) and for execution prefixes
+  (`Pre`), valid triples, the rules, the proof system `Derivable` and `soundness`;
+  symbolic bounds (`ValidSym`, `validSym_call`, `validSym_seq`); an example with a
+  derivable bound. Totals: 13 modules, 157 theorems, standard axioms only, no warnings.
+  The design (prefix costs to cover divergence; symbolic bounds encoded by a budget) is
+  the AI's.
+- Paper: subsection `subsec:cost-logic` (definitions, Theorem `thm:cost-logic-soundness`
+  with a proof, Proposition `prop:summary-call`), a Contributions item, rows of Table
+  `tab:lean`, the scope list, the AI statement; an `\authortodo` on the relation to
+  Nielson and to Haslbeck and Nipkow. 33 pages.
+- Bibliography check, by script: every entry with a DOI was fetched from Crossref and
+  compared (title, authors, year, pages); entries without DOI were searched on Crossref;
+  the four Dagstuhl DOIs were fetched from DataCite; six books were looked up on Open
+  Library; the three web pages return HTTP 200. DBLP refused automated queries. Result:
+  all entries confirmed except `matiyasevich1970enumerable` (only a reprint is indexed).
+  One error fixed (`blazy2013formal`: year 2014). 24 DOIs added. New entry
+  `nielson1987hoare` (from Crossref). The content of the papers was not read.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -462,3 +511,11 @@ is whether each Lean statement says what the paper says, and everything outside 
     functions) and the `Calls/UnsoundContext` tests; check that the report's two kinds
     of bound (for every call / in context) are described correctly wherever figures are
     quoted.
+17. **Cost logic** (`subsec:cost-logic`). Check that the definitions in the text
+    (`\Downarrow`, `\uparrow`, valid and derivable triples) say what `Exec`, `Pre`,
+    `Valid` and `Derivable` say in `Language.lean`; read the proof of
+    `thm:cost-logic-soundness`; read Nielson 1987 and Haslbeck and Nipkow 2018 and
+    resolve the `\authortodo` on how this system differs from theirs.
+18. **Bibliography.** The data of every entry were checked by script against public
+    indexes (see session notes); check `matiyasevich1970enumerable` yourself, and read
+    the papers whose content the text relies on.

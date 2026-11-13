@@ -515,6 +515,34 @@ The certificate `max(0, ⌈(wᵀx₀ + c₀)/Δ⌉)·‖t_wc‖ ≤ Deadline` is
 admissible inputs; it can be re-checked without the solver. Unsat ⟹ the routine is
 rejected (no linear potential for the given guard and invariant).
 
+### `subsec:cost-logic` — A cost logic for a small language (added November 2026)
+
+The step from "bounds for one loop" to "bounds for a program".
+
+- **Language**: `skip`, atomic actions (a *relation* on states with a weight), sequence,
+  `if`, `while`; tests have a weight.
+- **Two cost relations**: `c : s ⇓ₙ t` (terminates in `t` at cost `n`) and `c : s ↑ n`
+  (some execution, *terminated or not*, has spent `n`). The second is what makes the
+  bound mean something for a program that might not terminate.
+- **`def:valid-triple`**: `{P} c {Q}↓B` is valid if from every state of `P` all prefix
+  costs are `≤ B` and all terminating executions end in `Q`.
+- **`def:derivable-triple`**: six rules — skip (0), atom (its weight), sequence (sum),
+  conditional (test + max), loop, consequence. The loop rule needs an invariant `I`, a
+  rational potential `V` that the body decreases by ≥ 1 (stated with a triple for each
+  value `v` of `V`), `V ≥ 1` when the test holds, and `V ≤ K` on a context `C`; it
+  gives `⌊K⌋·(ω(b) + W) + ω(b)`.
+- **`thm:cost-logic-soundness`**: derivable ⇒ valid. Proof by induction on the
+  derivation; the loop case is an induction on the execution with a budget `m`.
+- **Remark**: with positive test weights, a derivable bound excludes infinite
+  executions.
+- **Symbolic bounds** and **`prop:summary-call`**: a bound `B(s)` depending on the
+  initial state is a family of numeric triples, one per budget `k`. A function's
+  summary can then be used at any call where its precondition holds and `B ≤ k`. A
+  calling context is the case where `B` is constant.
+
+Prior work to name: Nielson 1987 (Hoare-like system for computation time), Haslbeck &
+Nipkow 2018 (Isabelle). Not claimed as a new idea. Lean: module `Language`.
+
 ## 7. Examples, recomputed by hand
 
 ### 7.1 Parametric while loop
@@ -641,7 +669,7 @@ Describes the Clang plugin (details in [Part 4](04-plugin.md)):
 
 ## 9. Mechanization in Lean 4
 
-~2,200 lines, 141 theorems, no `sorry`, no axioms beyond the three standard ones.
+~2,600 lines, 157 theorems, no `sorry`, no axioms beyond the three standard ones.
 Table `tab:lean` maps statements to theorems (mirrored by
 `formalization/formalization.yaml`).
 

@@ -47,8 +47,19 @@ remark "Fixed-point reading". The paper does not develop the domain-theoretic si
 
 **Q. Your big-step semantics only covers terminating runs. What about divergence?**
 Divergence = infeasibility of the minimisation (no `n̄`). We prove the negative statement
-on the example (`infinite_loop_diverges`). A positive account would use coinductive
-big-step semantics (Leroy & Grall); not done.
+on the example (`infinite_loop_diverges`). For bounds, the cost logic of
+`subsec:cost-logic` does cover it: the relation `c : s ↑ n` describes execution
+*prefixes*, and a derivable bound holds for all of them, so a program with a derivable
+bound and positive test weights cannot diverge. A coinductive big-step semantics (Leroy
+& Grall) is not used.
+
+**Q. Isn't your cost logic just a Hoare logic for time, which exists?**
+Yes: Nielson 1987, and Haslbeck & Nipkow 2018 mechanised several in Isabelle. Say so
+first. What is specific: the loop rule takes exactly what the tool computes (invariant,
+rational potential decreasing by 1, context), atoms are relations (unknown inputs,
+faults), and bounds hold for non-terminating executions. Its role is to connect the
+tool's certificates to a program-level guarantee, not to be a new logic. Read both
+papers before the talk (`\authortodo` in the paper).
 
 **Q. Why traces of *instructions* rather than states?**
 Because cost is intensional: it depends on the instructions executed, not only on the
@@ -194,12 +205,16 @@ not bound loops or recursion. The plugin's profile overlaps with them and adds b
 The equivalences (minimisation ⇔ big-step) for while loops, linear recursion and binary
 branching recursion; the orders and their properties; the cost identities; the ranking
 bounds (integer, and relational over ordered fields); the soundness direction of Farkas;
-the depth and size bounds for call trees of any arity; the examples. Table `tab:lean`.
+the depth and size bounds for call trees of any arity; the examples; and, for a small
+language with nondeterministic atoms, the soundness of a cost logic whose loop rule is
+the plugin's certificate (`thm:cost-logic-soundness`), including symbolic bounds used as
+function summaries. Table `tab:lean`.
 
 **Q. What is not?**
 `b > 2` for the tree order/powers/least execution tree; termination for
 partial/nondeterministic updates (only run-length bounds); the equation-generation rules;
-Farkas completeness; the plugin and Z3 (`sec:mechanization`).
+Farkas completeness; recursion inside the cost logic; the translation from C++ to the
+language of the cost logic; the plugin and Z3 (`sec:mechanization`).
 
 **Q. Any axioms or `sorry`?**
 No `sorry`; no axioms beyond `propext`, `Quot.sound`, `Classical.choice` (`#print axioms`).
@@ -211,10 +226,11 @@ total updates in `Ranking`, conditions over all continuing states, abstract valu
 `exists_minimal_iteration`). The author has to compare them (`AI_USAGE.md` §3).
 
 **Q. Why is the verified part not connected to the plugin?**
-The plugin is C++; the Lean theorems justify each *kind* of certificate it emits.
-Closing the gap would mean either verifying the analyser (Blazy et al.-style) or having
-the plugin emit certificates that a Lean checker validates (proof-producing / certificate
-checking). Neither is done; certificate re-checking is the cheaper next step.
+The plugin is C++; the Lean theorems justify each *kind* of certificate it emits, and
+since November 2026 a cost logic (`Derivable`, module `Language`) says how they compose
+over a program. Still missing: the plugin emitting a derivation, and a Lean-verified
+checker for it. That is the planned next step; verifying the analyser itself (Blazy et
+al.-style) is not planned.
 
 **Q. Why Lean and not Coq/Isabelle?**
 mathlib's order theory, arithmetic and automation (`omega`, `linarith`); a choice, not a

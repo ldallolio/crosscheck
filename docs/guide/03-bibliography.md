@@ -1,9 +1,12 @@
 # Part 3 — The bibliography, explained
 
 > **Read this first.** The summaries below were written by an AI from its general
-> knowledge of the literature. The bibliographic data (authors, venue, year, pages)
-> of the entries added in November 2026 were checked on the web; the **content** of
-> the papers was **not** read in this session. The "confidence" line says how
+> knowledge of the literature. The **bibliographic data** (authors, title, venue, year,
+> pages) of *every* entry of `crosscheck.bib` were checked on 2026-11-13 against
+> Crossref (by DOI), DataCite (the Dagstuhl papers) or Open Library (the books); the
+> three web pages were checked to exist. Not confirmable this way: Matiyasevich 1970
+> (only a reprint is indexed). One error was found and fixed (Blazy et al.: published
+> 2014, not 2013). The **content** of the papers was **not** read. The "confidence" line says how
 > standard the summarised facts are: *high* = textbook-level, widely repeated
 > facts; *medium* = specific details (tool names, exact scope) that you should check
 > in the paper before quoting them. `AI_USAGE.md` §3 item 7 asks you to read every
@@ -535,6 +538,16 @@ to verified algorithms.
 
 **Why cited.** Mechanised (interactive) cost reasoning — a different point in the design
 space: manual proofs per program vs CrossCheck's automatic bounds. Confidence: high.
+
+### `nielson1987hoare` — H. R. Nielson, *A Hoare-like Proof System for Analysing the Computation Time of Programs*, Science of Computer Programming 9(2), 1987, pp. 107–136
+
+**What it is.** An early Hoare-style proof system in which triples also bound the
+computation time of a program.
+
+**Why cited.** The cost logic of `subsec:cost-logic` is of this kind; cited so that the
+idea is not presented as new. Data checked on Crossref (DOI 10.1016/0167-6423(87)90029-3).
+Confidence: high for the reference; the content was not read — the paper carries an
+`\authortodo` asking you to state the differences precisely.
 
 ### `haslbeck2018hoare` — M. P. L. Haslbeck & T. Nipkow, *Hoare Logics for Time Bounds: A Study in Meta Theory*, TACAS 2018
 

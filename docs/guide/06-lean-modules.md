@@ -40,6 +40,7 @@ flowchart BT
   Root --> Certificate
   Root --> Arity
   Root --> Dominance
+  Root --> Language["Language (imports mathlib only)"]
 ```
 
 (Arrows point from a module to what it imports.) Everything is in
@@ -59,6 +60,7 @@ examples in `ImperativeOptimization.Examples`. Every file starts with the MIT he
 | `Recursion` | 236 | linear and binary recursion ⇔ minimisation; depth envelope |
 | `Certificate` | 210 | what the plugin relies on: relational ℚ-potentials, invariants and calling contexts, Farkas, loop cost |
 | `Arity` | 230 | trees of any arity; depth and size potentials |
+| `Language` | 425 | a small imperative language, its cost semantics, a cost logic and its soundness; symbolic bounds |
 | `Examples` | 270 | the paper's four examples |
 
 ---
@@ -600,6 +602,53 @@ the paper says "if the call terminates, its call tree has …". The link "a term
 call has a call tree" is by definition in the paper and is not a separate Lean theorem
 (there is no big-step semantics for general-arity recursion in Lean; for binary
 recursion, `treeBigStep_iff` provides it).
+
+## `Language`
+
+The language-level result (paper: `subsec:cost-logic`, `def:valid-triple`,
+`def:derivable-triple`, `thm:cost-logic-soundness`, `prop:summary-call`). The other modules
+bound one loop or one recursion; this one shows that the rules *compose* over whole
+programs.
+
+```lean
+inductive Cmd (S : Type) where
+  | skip | atom (w : ℕ) (r : S → S → Prop) | seq (c₁ c₂ : Cmd S)
+  | ite (w : ℕ) (b : S → Bool) (c₁ c₂ : Cmd S) | while (w : ℕ) (b : S → Bool) (c : Cmd S)
+```
+
+An atom is a *relation* with a weight: it can be nondeterministic (an unknown input) or
+partial (a fault). Tests have a weight too.
+
+| Lean | Statement |
+|---|---|
+| `Exec c s t n` | big-step: `c` from `s` terminates in `t` at cost `n` |
+| `Pre c s n` | some execution of `c` from `s`, **terminated or not**, has spent `n` (rules: stop anywhere; inside either part of a sequence; inside a branch; inside or after any iteration) |
+| `Valid P c B Q` | from `P`: every `Pre` cost is `≤ B`, every `Exec` ends in `Q` |
+| `valid_skip`, `valid_atom`, `valid_seq`, `valid_ite`, `valid_conseq` | the rules: `0`; the weight; sum; test + max; consequence |
+| `while_exec_bound`, `while_pre_bound` | with invariant `I` and potential `V < m + 1`: cost `≤ m·(w + Wb) + w`, for terminating executions and for prefixes |
+| `valid_while` | the loop rule: body triple for every value `v` of `V` (post: `I ∧ V ≤ v − 1`), `1 ≤ V` under `I ∧ b`, `V ≤ K` on the context `C` ⇒ bound `⌊K⌋₊·(w + Wb) + w` from `I ∧ C` |
+| `Derivable` | the same rules as an inductive proof system (potentials in `ℚ`) |
+| `soundness` | `Derivable P c B Q → Valid P c B Q` — **the main theorem** |
+| `derivable_cost_le` | restated: every prefix cost of a derivable program is `≤ B` |
+| `ValidSym P c B Q` | bound `B : S → ℕ` depending on the initial state: `∀ k, Valid (P ∧ B ≤ k) c k Q` |
+| `validSym_iff` | equivalently, state by state: prefixes from `s` cost `≤ B s` |
+| `validSym_call` | a summary used at a call site where `P` holds and `B ≤ k` gives the numeric bound `k` |
+| `validSym_seq` | symbolic bounds in sequence, when the second bound is dominated by an expression of the initial state |
+| `countLoop_derivable`, `countLoop_cost` | `while (i < n) i := i + 1` from `i = 0`, `n ≤ 10`: derivable bound 21 — shows the hypotheses can be met |
+
+How the loop proof goes (`while_exec_bound`): `generalize hW : Cmd.while w b c = W` so
+that `induction` on the execution is possible, then every non-loop case is closed by
+`cases hW`. The statement is quantified over the budget `m` *inside* the induction; in
+the `whileTrue` case, `1 ≤ V s < m + 1` gives `m = k + 1`, the body triple (used with
+`v = V s`) gives `V u ≤ V s − 1 < k + 1`, and the induction hypothesis is applied with
+`k`. `while_pre_bound` repeats this for prefixes and uses `while_exec_bound` for the
+prefix that is a complete execution.
+
+What to say about it: this is a time Hoare logic in the tradition of Nielson (1987),
+mechanised before by Haslbeck & Nipkow in Isabelle; what is specific here is the loop
+rule shaped like the plugin's certificate, relational atoms, and bounds on execution
+*prefixes* (so divergence is excluded, not ignored). No recursion yet; no link from C++
+to `Cmd` yet.
 
 ## `Examples`
 
