@@ -69,10 +69,20 @@ statements:
   - paper_labels: [def:valid-triple, def:derivable-triple]
     note: "small imperative language, cost semantics (terminating executions and prefixes), cost triples"
     module: ImperativeOptimization.Language
-    lean: [Cmd, Exec, Pre, Valid, Derivable]
+    lean: [Cmd, Exec, Pre, Valid, Specs, Derivable]
   - paper_labels: [thm:cost-logic-soundness]
     module: ImperativeOptimization.Language
-    lean: [soundness, valid_skip, valid_atom, valid_seq, valid_ite, valid_while, valid_conseq, while_exec_bound, while_pre_bound, derivable_cost_le, countLoop_derivable, countLoop_cost]
+    lean: [soundness, valid_skip, valid_atom, valid_unreachable, valid_seq, valid_ite, valid_while, valid_call, valid_conseq, while_exec_bound, while_pre_bound, derivable_cost_le, countLoop_derivable, countLoop_cost, down_derivable, down_cost]
+  - paper_labels: [def:certificate]
+    note: "linear certificates and the executable checker"
+    module: ImperativeOptimization.Checker
+    lean: [PExp, Lin, ACmd, ACmd.toCmd, check, entails1, entailsAll]
+  - paper_labels: [thm:checker-soundness]
+    module: ImperativeOptimization.Checker
+    lean: [check_sound, certified_cost_le, entails1_sound, entailsAll_sound, Lin.subst_eval, Lin.eval_update, holds_update_logical, countCert_checks, countCert_cost]
+  - paper_labels: [prop:lex-log]
+    module: ImperativeOptimization.Certificate
+    lean: [lex_ranking_bound, log_ranking_bound]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

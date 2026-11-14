@@ -41,6 +41,8 @@ flowchart BT
   Root --> Arity
   Root --> Dominance
   Root --> Language["Language (imports mathlib only)"]
+  Checker --> Language
+  Root --> Checker
 ```
 
 (Arrows point from a module to what it imports.) Everything is in
@@ -58,9 +60,10 @@ examples in `ImperativeOptimization.Examples`. Every file starts with the MIT he
 | `Ranking` | 125 | integer ranking potentials, termination, WCET envelope |
 | `Tree` | 315 | binary computation trees, grafting, tree order, powers |
 | `Recursion` | 236 | linear and binary recursion ⇔ minimisation; depth envelope |
-| `Certificate` | 210 | what the plugin relies on: relational ℚ-potentials, invariants and calling contexts, Farkas, loop cost |
+| `Certificate` | 280 | what the plugin relies on: relational ℚ-potentials, invariants and calling contexts, Farkas, loop cost; lexicographic and logarithmic potentials |
 | `Arity` | 230 | trees of any arity; depth and size potentials |
-| `Language` | 425 | a small imperative language, its cost semantics, a cost logic and its soundness; symbolic bounds |
+| `Language` | 563 | a small imperative language with procedures, its cost semantics, a cost logic (contracts, recursion) and its soundness; symbolic bounds |
+| `Checker` | 477 | linear certificates and an executable checker, proved sound |
 | `Examples` | 270 | the paper's four examples |
 
 ---
@@ -511,6 +514,8 @@ variable {S : Type} {α : Type} [LinearOrderedField α]     -- α = ℚ in the p
 | `ranking_bound_floor_of_invariant` | `ranking_bound_floor` with the conditions on `V` required only on states in `I` |
 | `ranking_bound_of_context` | same, with `V s ≤ K` for every `s` in a context `C` and `σ 0 ∈ C`: `n ≤ ⌊K⌋₊` — **the number reported for a calling context** (paper: `prop:context-bound`) |
 | `call_bound_of_context` | if `callCost a ≤ B` whenever `C a`, then calls with arguments in `C` cost at most `length · B` in total |
+| `lex_ranking_bound` | two potentials: each step decreases `V₁` by ≥ 1, or keeps `V₁` and decreases `V₂` by ≥ 1; with `0 ≤ V₁`, `0 ≤ V₂ ≤ K₂` on the invariant, `n ≤ ⌊V₁·(K₂+1) + V₂⌋₊` (paper: `prop:lex-log`). Proof: `W = V₁·(K₂+1) + V₂` is a ranking potential |
+| `log_ranking_bound` | `V : S → ℕ` with `b · V s' ≤ V s` and `1 ≤ V s` on every step (`b ≥ 2`): `n ≤ Nat.log b (V (σ 0)) + 1`. Proof: `b^k · V (σ k) ≤ V (σ 0)` by induction, then `Nat.le_log_of_pow_le` |
 
 How runs are represented: a run is a sequence `σ : ℕ → S` with `step (σ k) (σ (k+1))`
 for `k < n`. This handles nondeterminism (the relation can have several successors) and
@@ -611,13 +616,16 @@ bound one loop or one recursion; this one shows that the rules *compose* over wh
 programs.
 
 ```lean
-inductive Cmd (S : Type) where
-  | skip | atom (w : ℕ) (r : S → S → Prop) | seq (c₁ c₂ : Cmd S)
-  | ite (w : ℕ) (b : S → Bool) (c₁ c₂ : Cmd S) | while (w : ℕ) (b : S → Bool) (c : Cmd S)
+inductive Cmd (ι S : Type) where
+  | skip | atom (w : ℕ) (r : S → S → Prop) | seq (c₁ c₂ : Cmd ι S)
+  | ite (w : ℕ) (b : S → Bool) (c₁ c₂ : Cmd ι S) | while (w : ℕ) (b : S → Bool) (c : Cmd ι S)
+  | call (w : ℕ) (p : ι)
 ```
 
 An atom is a *relation* with a weight: it can be nondeterministic (an unknown input) or
-partial (a fault). Tests have a weight too.
+partial (a fault). Tests have a weight too. `ι` is the type of procedure names; the
+bodies are given by an environment `Φ : ι → Cmd ι S`, which is a parameter of `Exec`,
+`Pre`, `Valid` and `Derivable`. A body may call any procedure, itself included.
 
 | Lean | Statement |
 |---|---|
@@ -627,9 +635,13 @@ partial (a fault). Tests have a weight too.
 | `valid_skip`, `valid_atom`, `valid_seq`, `valid_ite`, `valid_conseq` | the rules: `0`; the weight; sum; test + max; consequence |
 | `while_exec_bound`, `while_pre_bound` | with invariant `I` and potential `V < m + 1`: cost `≤ m·(w + Wb) + w`, for terminating executions and for prefixes |
 | `valid_while` | the loop rule: body triple for every value `v` of `V` (post: `I ∧ V ≤ v − 1`), `1 ≤ V` under `I ∧ b`, `V ≤ K` on the context `C` ⇒ bound `⌊K⌋₊·(w + Wb) + w` from `I ∧ C` |
-| `Derivable` | the same rules as an inductive proof system (potentials in `ℚ`) |
-| `soundness` | `Derivable P c B Q → Valid P c B Q` — **the main theorem** |
-| `derivable_cost_le` | restated: every prefix cost of a derivable program is `≤ B` |
+| `valid_call`, `valid_unreachable` | a call costs its weight plus the body; a triple with precondition `False` is valid (dead code) |
+| `Specs ι S` | a set of triples, as a predicate — used for the *assumed* triples `Γ` |
+| `Derivable Φ Γ` | the rules as an inductive proof system (potentials in `ℚ`), plus `unreachable`, `assume` (a triple of `Γ`: the contract of code that is not analysed) and `call` |
+| `Derivable.call` | for a family of triples about calls, indexed by `κ` with `rank : κ → ℕ`: if each body triple is derivable from `Γ` plus the family's triples of smaller rank, every call triple of the family is derivable. Covers recursion and mutual recursion |
+| `soundness` | `Derivable Φ Γ P c B Q → (every triple of Γ is valid) → Valid Φ P c B Q` — **the main theorem** |
+| `derivable_cost_le` | with `Γ = noSpecs`: every prefix cost of a derivable program is `≤ B` |
+| `down_derivable`, `down_cost` | a recursive procedure `down() { if (x > 0) { x := x − 1; down() } }` from `x ≤ n`: cost `≤ 3n + 2`, family indexed and ranked by `n` |
 | `ValidSym P c B Q` | bound `B : S → ℕ` depending on the initial state: `∀ k, Valid (P ∧ B ≤ k) c k Q` |
 | `validSym_iff` | equivalently, state by state: prefixes from `s` cost `≤ B s` |
 | `validSym_call` | a summary used at a call site where `P` holds and `B ≤ k` gives the numeric bound `k` |
@@ -644,11 +656,52 @@ the `whileTrue` case, `1 ≤ V s < m + 1` gives `m = k + 1`, the body triple (us
 `k`. `while_pre_bound` repeats this for prefixes and uses `while_exec_bound` for the
 prefix that is a complete execution.
 
+How the recursion case of `soundness` goes: `Γ` is an *index* of `Derivable` (it grows in
+the premise of `call`), so the theorem is stated as an implication and each case starts
+with `intro hΓ`. In the `call` case, a strong induction on `n` shows that every triple of
+rank `n` is valid: the assumptions used for the body are either in `Γ` (valid by `hΓ`) or
+family triples of smaller rank (valid by the inner induction hypothesis); then
+`valid_call`.
+
 What to say about it: this is a time Hoare logic in the tradition of Nielson (1987),
-mechanised before by Haslbeck & Nipkow in Isabelle; what is specific here is the loop
-rule shaped like the plugin's certificate, relational atoms, and bounds on execution
-*prefixes* (so divergence is excluded, not ignored). No recursion yet; no link from C++
-to `Cmd` yet.
+mechanised before by Haslbeck & Nipkow in Isabelle (three logics, sound *and* complete,
+for deterministic IMP); what is specific here is the loop rule shaped like the plugin's
+certificate, relational atoms, and bounds on execution *prefixes* (so divergence is
+excluded, not ignored). No link from C++ to `Cmd` yet.
+
+## `Checker`
+
+The concrete instance that a program can check (paper: `subsec:checker`,
+`def:certificate`, `thm:checker-soundness`). Namespace `ImperativeOptimization.Checker`.
+
+| Lean | What it is |
+|---|---|
+| `Env := ℕ → ℤ` | a valuation of variables (program state, or logical variables) |
+| `dot`, `vadd`, `vsmul`, `unit`, `coeff`, `isZero` | dense integer vectors; `dot l f = Σ l[i]·f i` |
+| `dot_update` | `dot l (update f i v) = dot l f + coeff l i · (v − f i)` — the key lemma for assignments |
+| `PExp {sv, c}` | a program expression; `PExp.eval` |
+| `Lin {sv, lv, c}` | an affine form over program and logical variables; as a constraint, `≤ 0`; `Lin.eval ρ s` |
+| `holds A ρ s` | every constraint of the list `A` holds |
+| `Lin.subst`, `Lin.subst_eval` | substitution of an expression for a variable; evaluating after the assignment = evaluating the substituted form before |
+| `comb`, `entails1`, `entails1_sound` | Farkas certificate `(mu, lam)`: `mu·g − Σ lam[i]·ps[i]` has zero coefficients and constant `≤ 0`; then the premises imply `g ≤ 0` |
+| `ACmd` | the certificate: `skip`, `assign`, `havoc`, `seq` (with middle assertion and bounds), `ite`, `while` (invariant, potential `pot/d`, entry bound `k`, logical variable `j`, positivity certificate, body bound), `weaken`, `dead` |
+| `ACmd.toCmd` | the `Cmd Empty Env` that the certificate is about |
+| `check P c B Q : Bool` | the checker, by structural recursion |
+| `check_sound` | `check P c B Q = true → ∀ ρ, Valid Φ₀ (holds P ρ) c.toCmd B (holds Q ρ)` |
+| `certified_cost_le` | an accepted certificate bounds every execution prefix by `B` |
+| `countCert`, `countCert_checks`, `countCert_cost` | the counting loop as a certificate; `check … = true` is proved by `decide`, i.e. by running the checker in the kernel |
+
+The one idea to understand is the **logical variable** in the loop case. The rule of
+`Language` asks for a body triple for every value `v` of the potential ("if `V = v`
+before, then `V ≤ v − 1` after"). A checker cannot quantify over `v`, so assertions may
+mention variables `γⱼ` that live in a second valuation `ρ` and that no program can
+change. The body is checked once, from `pot ≤ γⱼ` to `pot + d ≤ γⱼ`; since
+`check_sound` holds for *every* `ρ`, the proof instantiates `γⱼ := pot.eval s` for the
+state `s` at hand (`Function.update ρ j (pot.eval s)`), and `holds_update_logical` shows
+the invariant is unaffected because `γⱼ` does not occur in it (which `check` verifies).
+
+Limits (stated in the paper): single linear guards, no calls, no `break`, affine
+potentials only. `docs/implementation-plan.md` lists the extensions in order.
 
 ## `Examples`
 

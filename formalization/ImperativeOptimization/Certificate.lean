@@ -31,6 +31,9 @@ are sound.
   therefore preserved by every step).
 * `call_bound_of_context`: a cost bound proved for a function under a context holds
   for every call whose argument satisfies the context.
+* `lex_ranking_bound`, `log_ranking_bound`: certificates for loops that have no single
+  affine potential: a lexicographic pair of potentials, and a potential divided by a
+  constant factor at every step.
 -/
 
 variable {S : Type} {α : Type} [LinearOrderedField α]
@@ -205,6 +208,73 @@ theorem call_bound_of_context {A : Type} (callCost : A → ℕ) (C : A → Prop)
     have h2 := ih (fun x hx => hC x (List.mem_cons_of_mem a hx))
     simp only [List.map_cons, List.sum_cons, List.length_cons]
     rw [Nat.succ_mul]
+    omega
+
+/-- **Lexicographic certificate.** Let every step, from a state of the invariant, either
+    decrease `V₁` by at least `1` (with `V₁ ≥ 1`), or leave `V₁` not larger and decrease
+    `V₂` by at least `1` (with `V₂ ≥ 1`); and let `0 ≤ V₁`, `0 ≤ V₂ ≤ K₂` on the
+    invariant. Then every run has at most `⌊V₁ · (K₂ + 1) + V₂⌋` steps (evaluated in the
+    initial state): the combination `V₁ · (K₂ + 1) + V₂` is a ranking potential. This
+    covers loops whose inner counter is reset when the outer one advances. -/
+theorem lex_ranking_bound (step : S → S → Prop) (V₁ V₂ : S → α) (I : S → Prop) (K₂ : α)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_range : ∀ s, I s → 0 ≤ V₁ s ∧ 0 ≤ V₂ s ∧ V₂ s ≤ K₂)
+    (h_step : ∀ s s', I s → step s s' →
+      (V₁ s' ≤ V₁ s - 1 ∧ 1 ≤ V₁ s) ∨ (V₁ s' ≤ V₁ s ∧ V₂ s' ≤ V₂ s - 1 ∧ 1 ≤ V₂ s))
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0)) :
+    n ≤ ⌊V₁ (σ 0) * (K₂ + 1) + V₂ (σ 0)⌋₊ := by
+  refine ranking_bound_floor_of_invariant step (fun s => V₁ s * (K₂ + 1) + V₂ s) I h_inv
+    ?_ ?_ σ n h_run h0
+  · intro s s' hI hs
+    obtain ⟨h1, h2, h3⟩ := h_range s hI
+    obtain ⟨h1', h2', h3'⟩ := h_range s' (h_inv s s' hI hs)
+    have hK : 0 < K₂ + 1 := by linarith
+    rcases h_step s s' hI hs with ⟨hd, _⟩ | ⟨hle, hd, _⟩
+    · have := mul_le_mul_of_nonneg_right hd (le_of_lt hK)
+      show V₁ s' * (K₂ + 1) + V₂ s' ≤ V₁ s * (K₂ + 1) + V₂ s - 1
+      nlinarith
+    · have := mul_le_mul_of_nonneg_right hle (le_of_lt hK)
+      show V₁ s' * (K₂ + 1) + V₂ s' ≤ V₁ s * (K₂ + 1) + V₂ s - 1
+      linarith
+  · intro s s' hI hs
+    obtain ⟨h1, h2, h3⟩ := h_range s hI
+    have hK : 0 < K₂ + 1 := by linarith
+    rcases h_step s s' hI hs with ⟨_, hp⟩ | ⟨_, _, hp⟩
+    · have := mul_le_mul_of_nonneg_right hp (le_of_lt hK)
+      show 1 ≤ V₁ s * (K₂ + 1) + V₂ s
+      nlinarith
+    · have := mul_nonneg h1 (le_of_lt hK)
+      show 1 ≤ V₁ s * (K₂ + 1) + V₂ s
+      linarith
+
+/-- **Logarithmic certificate.** If every step, from a state of the invariant, divides a
+    natural-valued potential by at least `b ≥ 2` (`b · V s' ≤ V s`) and `V ≥ 1` whenever a
+    step is taken, every run has at most `log_b (V (σ 0)) + 1` steps. This covers halving
+    and doubling loops such as binary search. -/
+theorem log_ranking_bound (step : S → S → Prop) (V : S → ℕ) (I : S → Prop) (b : ℕ) (hb : 1 < b)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_step : ∀ s s', I s → step s s' → b * V s' ≤ V s ∧ 1 ≤ V s)
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0)) :
+    n ≤ Nat.log b (V (σ 0)) + 1 := by
+  have hI := run_invariant step I h_inv σ n h_run h0
+  have key : ∀ k ≤ n, b ^ k * V (σ k) ≤ V (σ 0) := by
+    intro k hk
+    induction k with
+    | zero => simp
+    | succ k ih =>
+      have h1 := ih (by omega)
+      have h2 := (h_step _ _ (hI k (by omega)) (h_run k (by omega))).1
+      calc b ^ (k + 1) * V (σ (k + 1)) = b ^ k * (b * V (σ (k + 1))) := by ring
+        _ ≤ b ^ k * V (σ k) := Nat.mul_le_mul_left _ h2
+        _ ≤ V (σ 0) := h1
+  cases n with
+  | zero => exact Nat.zero_le _
+  | succ m =>
+    have h1 := key m (by omega)
+    have h2 := (h_step _ _ (hI m (by omega)) (h_run m (by omega))).2
+    have h3 : b ^ m ≤ V (σ 0) :=
+      le_trans (by simpa using Nat.mul_le_mul_left (b ^ m) h2) h1
+    have := Nat.le_log_of_pow_le hb h3
     omega
 
 end ImperativeOptimization

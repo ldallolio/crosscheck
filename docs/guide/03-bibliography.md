@@ -551,6 +551,33 @@ idea is not presented as new. Data checked on Crossref (DOI 10.1016/0167-6423(87
 Confidence: high for the reference; the content was not read — the paper carries an
 `\authortodo` asking you to state the differences precisely.
 
+### `nipkow2002hoare` — T. Nipkow, *Hoare Logics for Recursive Procedures and Unbounded Nondeterminism*, CSL 2002, LNCS, pp. 103–119
+
+**What it is.** Hoare logics for a language with recursive procedures (and
+nondeterminism), with soundness and completeness proved in Isabelle/HOL.
+
+**Why cited.** For the rule for recursive procedures (rule 9 of `def:derivable-triple`).
+Data checked on Crossref (DOI 10.1007/3-540-45793-3_8). **Content not read** (the paper
+carries an `\authortodo`). Confidence: medium.
+
+### `necula1997proof` — G. C. Necula, *Proof-Carrying Code*, POPL 1997, pp. 106–119
+
+**What it is.** The paper that introduced proof-carrying code: untrusted code is shipped
+with a proof that a small trusted checker validates.
+
+**Why cited.** The certificates and checker of `subsec:checker` follow this idea. Data
+checked on Crossref (DOI 10.1145/263699.263712). **Content not read.** Confidence: high
+for the general idea.
+
+### `blumofe1999scheduling` — R. D. Blumofe & C. E. Leiserson, *Scheduling Multithreaded Computations by Work Stealing*, Journal of the ACM 46(5), 1999, pp. 720–748
+
+**What it is.** The analysis of work-stealing schedulers for fork-join computations, in
+terms of total work and critical-path length (span).
+
+**Why cited.** For the notions of work and span in the paragraph on parallel composition.
+Data checked on Crossref (DOI 10.1145/324133.324234). **Content not read.** Confidence:
+medium (check that the paper uses these notions as described).
+
 ### `haslbeck2018hoare` — M. P. L. Haslbeck & T. Nipkow, *Hoare Logics for Time Bounds: A Study in Meta Theory*, TACAS 2018
 
 **What it is.** In Isabelle/HOL, formalises and compares several **Hoare logics with time

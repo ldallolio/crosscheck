@@ -444,6 +444,34 @@ logics for deterministic IMP, sound and complete, triples assert termination). N
 1987 was not obtained; the `\authortodo` now names it. The AI also answered the
 questions on industrial use (see the conversation); no code was changed for them.
 
+25. "Implement the theory part of your plan (theory, paper, lean), read the papers as you
+    feel a need for it. I want to swith to Opus for implementation once the foundations
+    are set."
+
+What the AI did (design choices are the AI's):
+- Lean `Language`, rewritten: commands gain `call`, with procedure bodies in an
+  environment `Φ` (recursion allowed); `Derivable` gains a set `Γ` of assumed triples
+  (contracts), a dead-code rule, and a call rule for a ranked family of triples
+  (recursion, mutual recursion); `soundness` is relative to the validity of `Γ`;
+  example of a recursive procedure with a derivable bound (`down_cost`).
+- Lean `Checker` (new, 477 lines): affine expressions and constraints over program and
+  logical variables, Farkas certificates, annotated programs `ACmd`, an executable
+  `check`, and `check_sound` / `certified_cost_le`; an example certificate accepted by
+  `decide`. The use of logical variables for the loop rule, and the certificate layout,
+  are the AI's design.
+- Lean `Certificate`: `lex_ranking_bound`, `log_ranking_bound`.
+- Totals: 14 modules, 185 theorems, about 3,300 lines, no warnings, standard axioms only.
+- Paper: `subsec:cost-logic` extended (calls, rules 7 to 9, relative soundness, a
+  paragraph on weights, architectures and parallel composition, not formalized); new
+  `subsec:checker` (Definition `def:certificate`, Theorem `thm:checker-soundness` with
+  proof); Proposition `prop:lex-log` with proof; Contributions, Table `tab:lean`, scope
+  list, Conclusions, AI statement. 37 pages.
+- References added, data from Crossref, content **not** read: `necula1997proof`,
+  `nipkow2002hoare`, `blumofe1999scheduling` (an `\authortodo` says so).
+- `docs/implementation-plan.md`: what is proved, the certificate format, and the ordered
+  implementation tasks, for the implementation phase.
+- No plugin code was changed in this step.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -541,3 +569,10 @@ is whether each Lean statement says what the paper says, and everything outside 
     indexes (see session notes); check `matiyasevich1970enumerable` yourself, and read
     the papers whose content the text relies on. `references/README.md` lists which
     papers the AI read, how far, and which it could not obtain (29 entries).
+19. **Procedures, recursion, checker, new potentials.** Read rules 7 to 9 and the recursion
+    case of the proof of `thm:cost-logic-soundness`; compare `def:certificate` and the
+    description of the checker with `ACmd` and `check` in `Checker.lean`, and read the
+    proof of `thm:checker-soundness`; check `prop:lex-log` and its proof; read Necula
+    1997, Nipkow 2002 and Blumofe and Leiserson 1999 before keeping their citations;
+    decide whether the unformalized paragraph on weights and parallel composition should
+    stay.

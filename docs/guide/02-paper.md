@@ -459,6 +459,14 @@ call site (the "call rule": a bound proved under `C` holds for every call whose
 arguments are in `C`). Lean: `run_invariant`, `ranking_bound_floor_of_invariant`,
 `ranking_bound_of_context`, `call_bound_of_context`.
 
+**`prop:lex-log` — Lexicographic and logarithmic potentials** (added November 2026).
+(1) Two potentials: each step decreases `V₁` by ≥ 1, or keeps `V₁` and decreases `V₂` by
+≥ 1; with `V₁ ≥ 0` and `0 ≤ V₂ ≤ K₂`, at most `⌊V₁(K₂+1) + V₂⌋` steps. Proof: that
+combination is a ranking potential. Use: an inner counter reset when the outer advances.
+(2) A natural-valued potential divided by `b ≥ 2` at each step: at most `⌊log_b V⌋ + 1`
+steps. Use: binary search. Both are bounds on run length; they are not yet rules of the
+cost logic or of the checker. Lean: `lex_ranking_bound`, `log_ranking_bound`.
+
 Why two versions? The integer/deterministic one gives **termination** too (some
 iterate exits); the relational one gives only a bound on **run length** (for a
 nondeterministic loop, "terminates" needs more care), but that is what a bound
@@ -540,8 +548,38 @@ The step from "bounds for one loop" to "bounds for a program".
   summary can then be used at any call where its precondition holds and `B ≤ k`. A
   calling context is the case where `B` is constant.
 
+- **Procedures, contracts, recursion** (added after the first version): commands include
+  `call p`, with bodies given by an environment; rule 7 (dead code: precondition empty),
+  rule 8 (assumption: a triple of a set `Γ`, e.g. a library contract), rule 9 (call: a
+  ranked family of call triples, each body proved assuming the family's triples of
+  smaller rank — this is how recursion is handled). Soundness is *relative*: if the
+  assumed triples are valid, so is everything derived.
+- **Weights, architectures, parallel composition**: one paragraph, not formalized. The
+  logic is parametric in the weights; work = sum, span = max for fork-join.
+
 Prior work to name: Nielson 1987 (Hoare-like system for computation time), Haslbeck &
-Nipkow 2018 (Isabelle). Not claimed as a new idea. Lean: module `Language`.
+Nipkow 2018 (Isabelle), Nipkow 2002 for the recursion rule. Not claimed as a new idea.
+Lean: module `Language`.
+
+### `subsec:checker` — Certificates and a verified checker (added November 2026)
+
+The step from "a derivation exists" to "a program can check it".
+
+- **Linear instance**: integer variables, affine expressions, tests `e ≤ 0`, assertions =
+  conjunctions of constraints `ℓ ≤ 0` that may mention *logical variables* `γⱼ`.
+- **`def:certificate`**: the program annotated with what a derivation needs — middle
+  assertions, bounds, loop invariant, potential `e/d`, entry bound `k`, Farkas multipliers
+  for every implication.
+- **The checker** is structural recursion and comparison of integer coefficients: no
+  search, no solver, no rationals.
+- **`thm:checker-soundness`**: accepted ⇒ the triple is valid ⇒ every execution of the
+  certificate's program costs at most `B`.
+- Why it matters: the analyser (2,000 lines of C++ and Z3) no longer has to be trusted
+  for a bound whose certificate is accepted; only the checker and the translation from
+  source to the certificate's program do. The plugin does **not** emit certificates yet.
+
+Prior work to name: proof-carrying code (Necula 1997); Carbonneaux et al. 2015 check
+resource-bound certificates in Coq. Lean: module `Checker`.
 
 ## 7. Examples, recomputed by hand
 
@@ -669,7 +707,7 @@ Describes the Clang plugin (details in [Part 4](04-plugin.md)):
 
 ## 9. Mechanization in Lean 4
 
-~2,600 lines, 157 theorems, no `sorry`, no axioms beyond the three standard ones.
+~3,300 lines, 185 theorems, no `sorry`, no axioms beyond the three standard ones.
 Table `tab:lean` maps statements to theorems (mirrored by
 `formalization/formalization.yaml`).
 

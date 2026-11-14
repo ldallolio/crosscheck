@@ -139,8 +139,13 @@ The primary contributions of this work are:
     recursion (Proposition~\ref{prop:tree-envelope}).
     \item \textbf{A Sound Cost Logic:} For a small imperative language with nondeterministic atomic actions we give a
     proof system for cost bounds whose loop rule takes these certificates as premises, and prove it sound for
-    terminating and non-terminating executions (Theorem~\ref{thm:cost-logic-soundness}); bounds that depend on the
-    initial state are covered, with a call rule for function summaries (Proposition~\ref{prop:summary-call}).
+    terminating and non-terminating executions (Theorem~\ref{thm:cost-logic-soundness}); the system has assumed
+    triples for code that is not analyzed and a rule for recursive procedures, and covers bounds that depend on the
+    initial state, with a call rule for function summaries (Proposition~\ref{prop:summary-call}).
+    \item \textbf{A Verified Certificate Checker:} For the linear instance of the logic we define certificates,
+    programs annotated with invariants, potentials and Farkas multipliers, and a checker that uses integer
+    arithmetic only; a certificate that it accepts bounds the cost of every execution of its program
+    (Theorem~\ref{thm:checker-soundness}).
     \item \textbf{Machine-Checked Soundness:} All of the above, together with the worked examples, are formalized
     in Lean~4 \cite{demoura2021lean4} on top of mathlib \cite{mathlib2020}, without \lean{sorry} and without any axiom
     beyond the three standard axioms of Lean's logic (Section~\ref{sec:mechanization}).
@@ -710,6 +715,23 @@ By induction on $k$ and assumption~(1), $s_k \in I$ for every $k \le n$. The run
 
 The set $I$ is an inductive invariant of the loop. The set $C$ is a \emph{context}: a constraint on the initial state, for instance on the values of the parameters of a function at its entry. Two consequences are used in Section~\ref{sec:implementation}. First, since every state of the run is in $I$, the invariant holds wherever the run stops, in particular when a loop is left by an early exit and not by its guard. Second, the bound is a function of the context: if a cost bound $B$ has been derived for a function under a context $C$, it applies to every call whose arguments satisfy $C$, so that $m$ such calls cost at most $m \cdot B$; a function may thus be given different bounds at different call sites, each under a context that is proved at that site.
 
+Two classical shapes of termination argument give bounds for loops that have no single affine potential; lexicographic and multi-dimensional rankings are studied in \cite{alias2010multi,benamram2014ranking}.
+
+\begin{prop}[Lexicographic and logarithmic potentials]
+\label{prop:lex-log}
+Let $\to$ be a transition relation on $S$ and $I \subseteq S$ a set preserved by steps.
+\begin{enumerate}
+    \item Let $V_1, V_2 : S \to \mathbb{Q}$ and $K_2 \in \mathbb{Q}$ with $V_1 \ge 0$ and $0 \le V_2 \le K_2$ on $I$. If every step $s \to s'$ with $s \in I$ either satisfies $V_1(s') \le V_1(s) - 1$ and $V_1(s) \ge 1$, or satisfies $V_1(s') \le V_1(s)$, $V_2(s') \le V_2(s) - 1$ and $V_2(s) \ge 1$, then every run from $s_0 \in I$ has at most $\lfloor V_1(s_0) (K_2 + 1) + V_2(s_0) \rfloor$ steps.
+    \item Let $V : S \to \mathbb{N}$ and $b \ge 2$ an integer. If every step $s \to s'$ with $s \in I$ satisfies $b \cdot V(s') \le V(s)$ and $V(s) \ge 1$, then every run from $s_0 \in I$ has at most $\lfloor \log_b V(s_0) \rfloor + 1$ steps.
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+(1) Let $W = V_1 (K_2 + 1) + V_2$. A step of the first kind decreases $V_1 (K_2 + 1)$ by at least $K_2 + 1$ and increases $V_2$ by at most $K_2$, since $V_2(s') \le K_2$ and $V_2(s) \ge 0$; a step of the second kind does not increase $V_1 (K_2 + 1)$ and decreases $V_2$ by at least $1$. In both cases $W(s') \le W(s) - 1$, and $W(s) \ge 1$ because either $V_1(s) \ge 1$ and $V_2(s) \ge 0$, or $V_2(s) \ge 1$ and $V_1(s) \ge 0$. Proposition~\ref{prop:context-bound} applies to $W$. (2) By induction, $b^k V(s_k) \le V(s_0)$ along a run. If the run has $n \ge 1$ steps, the last one starts from $s_{n-1}$ with $V(s_{n-1}) \ge 1$, so $b^{n-1} \le V(s_0)$ and $n - 1 \le \lfloor \log_b V(s_0) \rfloor$.
+\end{proof}
+
+The first statement covers loops in which an inner counter is reset when an outer one advances; the second covers halving loops such as binary search, for which an affine potential gives only a linear bound.
+
 \subsubsection{Hierarchical and Recursive Composition}
 \label{subsubsec:compositional-wcet}
 
@@ -784,9 +806,9 @@ The bounds above concern one loop or one recursion at a time. To state that they
 \paragraph{Language.}
 Let $S$ be a set of states. \emph{Commands} are given by
 \[
-c \;::=\; \mathtt{skip} \;\mid\; a \;\mid\; c_1 ; c_2 \;\mid\; \mathtt{if}\ b\ \mathtt{then}\ c_1\ \mathtt{else}\ c_2 \;\mid\; \mathtt{while}\ b\ \mathtt{do}\ c,
+c \;::=\; \mathtt{skip} \;\mid\; a \;\mid\; c_1 ; c_2 \;\mid\; \mathtt{if}\ b\ \mathtt{then}\ c_1\ \mathtt{else}\ c_2 \;\mid\; \mathtt{while}\ b\ \mathtt{do}\ c \;\mid\; \mathtt{call}\ p,
 \]
-where an atomic action $a$ is a relation ${\to_a} \subseteq S \times S$ with a weight $\omega(a) \in \mathbb{N}$, and a test $b : S \to \{\mathit{true}, \mathit{false}\}$ has a weight $\omega(b) \in \mathbb{N}$. We write $c : s \Downarrow_n t$ when $c$, started in $s$, terminates in $t$ with cost $n$; this relation is defined by the usual big-step rules, in which an atomic step $s \to_a t$ costs $\omega(a)$, each evaluation of a test costs its weight, and costs add along the execution. We write $c : s \uparrow n$ when some execution of $c$ from $s$, \emph{terminated or not}, has accumulated cost $n$: this relation contains $c : s \uparrow 0$, every $n$ with $c : s \Downarrow_n t$, and is closed under the rules that let an execution stop inside the first or the second component of a sequence, inside a branch, and inside or after any iteration of a loop body. A program that diverges has prefixes of every length; bounding $\uparrow$ therefore bounds its cost as well.
+where an atomic action $a$ is a relation ${\to_a} \subseteq S \times S$ with a weight $\omega(a) \in \mathbb{N}$, a test $b : S \to \{\mathit{true}, \mathit{false}\}$ has a weight $\omega(b) \in \mathbb{N}$, and $p$ ranges over a set of procedure names; a call has a weight $\omega_{\mathrm{call}} \in \mathbb{N}$, and an environment $\Phi$ assigns to every procedure name a command, its body, which may call any procedure, itself included. Parameter passing is not primitive: arguments and results are passed through the state by atomic actions. We write $c : s \Downarrow_n t$ when $c$, started in $s$, terminates in $t$ with cost $n$; this relation is defined by the usual big-step rules, in which an atomic step $s \to_a t$ costs $\omega(a)$, each evaluation of a test costs its weight, a call costs $\omega_{\mathrm{call}}$ plus the cost of the body, and costs add along the execution. We write $c : s \uparrow n$ when some execution of $c$ from $s$, \emph{terminated or not}, has accumulated cost $n$: this relation contains $c : s \uparrow 0$, every $n$ with $c : s \Downarrow_n t$, and is closed under the rules that let an execution stop inside the first or the second component of a sequence, inside a branch, inside or after any iteration of a loop body, and inside the body of a called procedure. A program that diverges has prefixes of every length; bounding $\uparrow$ therefore bounds its cost as well.
 
 \begin{defn}[Valid cost triple]
 \label{def:valid-triple}
@@ -795,7 +817,7 @@ For $P, Q \subseteq S$, a command $c$ and $B \in \mathbb{N}$, the triple $\{P\}\
 
 \begin{defn}[Derivable cost triple]
 \label{def:derivable-triple}
-The \emph{derivable} triples are generated by the following rules, where $b$ also denotes the set of states in which the test is true and $\neg b$ its complement.
+Let $\Gamma$ be a set of cost triples, the \emph{assumed} triples. The triples \emph{derivable from} $\Gamma$ are generated by the following rules, where $b$ also denotes the set of states in which the test is true and $\neg b$ its complement.
 \begin{enumerate}
     \item $\{P\}\ \mathtt{skip}\ \{P\}\!\downarrow\! 0$.
     \item $\{P\}\ a\ \{Q\}\!\downarrow\! \omega(a)$, if $t \in Q$ whenever $s \in P$ and $s \to_a t$.
@@ -810,23 +832,28 @@ The \emph{derivable} triples are generated by the following rules, where $b$ als
     \]
     where $\lfloor K \rfloor$ is read as $0$ when $K < 0$.
     \item (Consequence.) If $P' \subseteq P$, $\{P\}\ c\ \{Q\}\!\downarrow\! B$, $B \le B'$ and $Q \subseteq Q'$, then $\{P'\}\ c\ \{Q'\}\!\downarrow\! B'$.
+    \item (Dead code.) $\{\emptyset\}\ c\ \{Q\}\!\downarrow\! 0$.
+    \item (Assumption.) Every triple of $\Gamma$.
+    \item (Call.) Let $(\{P_k\}\ \mathtt{call}\ p_k\ \{Q_k\}\!\downarrow\! \omega_{\mathrm{call}} + B_k)_{k \in \kappa}$ be a family of triples about calls, with a rank $r(k) \in \mathbb{N}$ for each index. If, for every $k$, the triple $\{P_k\}\ \Phi(p_k)\ \{Q_k\}\!\downarrow\! B_k$ about the \emph{body} is derivable from $\Gamma$ together with the triples of the family whose rank is smaller than $r(k)$, then every triple of the family is derivable from $\Gamma$.
 \end{enumerate}
 \end{defn}
 
-Rules (3) and (4) are the sum and maximum rules of Section~\ref{subsubsec:tropical-semiring}; rule (5) combines Proposition~\ref{prop:context-bound} with the loop cost formula; rule (6) is the rule by which a bound derived under a context is used wherever the context holds.
+Rules (3) and (4) are the sum and maximum rules of Section~\ref{subsubsec:tropical-semiring}; rule (5) combines Proposition~\ref{prop:context-bound} with the loop cost formula; rule (6) is the rule by which a bound derived under a context is used wherever the context holds. Rule (8) is how code that is not analyzed enters a derivation: the contract of a library function, or a cost stated by an annotation, is an assumed triple about the command that stands for it. Rule (9) is the usual rule for recursive procedures \cite{nipkow2002hoare}, with the well-founded argument made explicit by the rank: typically the family is indexed by the value $k$ of a measure of the arguments, $P_k$ states that the measure is at most $k$, and $B_k$ is the bound for that value; for a procedure that is not recursive, the family has one element and no assumption is used.
 
 \begin{thm}[Soundness of the cost logic]
 \label{thm:cost-logic-soundness}
-Every derivable cost triple is valid.
+If every triple of $\Gamma$ is valid, every cost triple derivable from $\Gamma$ is valid. In particular, every triple derivable from no assumption is valid.
 \end{thm}
 
 \begin{proof}
-By induction on the derivation. For rules (1) and (2) the executions and prefixes of the command are immediate from the definitions. For rule (3), a terminating execution of $c_1 ; c_2$ from $s \in P$ is an execution $c_1 : s \Downarrow_{n_1} u$ followed by $c_2 : u \Downarrow_{n_2} t$; by the induction hypotheses $n_1 \le B_1$, $u \in R$, $n_2 \le B_2$ and $t \in Q$. A prefix is either a prefix of $c_1$, of cost at most $B_1$, or an execution $c_1 : s \Downarrow_{n_1} u$ followed by a prefix of $c_2$ from $u \in R$, of cost at most $n_1 + B_2$. Rule (4) is similar, the test being paid once and one branch being executed. Rule (6) is immediate.
+By induction on the derivation, for all sets $\Gamma$ of valid triples simultaneously. Rules (7) and (8) are immediate. For rules (1) and (2) the executions and prefixes of the command are immediate from the definitions. For rule (3), a terminating execution of $c_1 ; c_2$ from $s \in P$ is an execution $c_1 : s \Downarrow_{n_1} u$ followed by $c_2 : u \Downarrow_{n_2} t$; by the induction hypotheses $n_1 \le B_1$, $u \in R$, $n_2 \le B_2$ and $t \in Q$. A prefix is either a prefix of $c_1$, of cost at most $B_1$, or an execution $c_1 : s \Downarrow_{n_1} u$ followed by a prefix of $c_2$ from $u \in R$, of cost at most $n_1 + B_2$. Rule (4) is similar, the test being paid once and one branch being executed. Rule (6) is immediate.
 
 For rule (5), write $w = \omega(b)$ and let $L$ be the loop. We show, for every $m \in \mathbb{N}$ and every $s \in I$ with $V(s) < m + 1$: (i) if $L : s \Downarrow_n t$ then $n \le m (w + W) + w$ and $t \in I \cap \neg b$; (ii) if $L : s \uparrow n$ then $n \le m (w + W) + w$. Both are proved by induction on the derivation of the execution, for all $m$ simultaneously. If the test is false in $s$, the execution is the single test, of cost $w$, and $t = s$. If it is true, then $V(s) \ge 1$, hence $m \ge 1$; the body executes as $c : s \Downarrow_{n_1} u$, and by the induction hypothesis on the derivation of the triple, applied with $v = V(s)$, we get $n_1 \le W$, $u \in I$ and $V(u) \le V(s) - 1 < m$. The rest of the execution is an execution (for (i)) or a prefix (for (ii)) of $L$ from $u$, to which the induction hypothesis applies with $m - 1$; the total cost is at most $w + W + (m - 1)(w + W) + w = m (w + W) + w$. In case (ii) the execution may also stop inside the body of the current iteration, after a prefix of $c$ of cost at most $W$, for a total of at most $w + W \le m (w + W) + w$. Finally, for $s \in I \cap C$ we have $V(s) \le K < \lfloor K \rfloor + 1$, so the claim applies with $m = \lfloor K \rfloor$.
+
+For rule (9), we show by strong induction on $n$ that every triple of the family of rank $n$ is valid. Let $r(k) = n$. The triples of the family of smaller rank are valid by the induction hypothesis on $n$, and those of $\Gamma$ by assumption; by the induction hypothesis on the derivation, the triple $\{P_k\}\ \Phi(p_k)\ \{Q_k\}\!\downarrow\! B_k$ is therefore valid. An execution of $\mathtt{call}\ p_k$, terminated or not, is the payment of $\omega_{\mathrm{call}}$ followed by an execution of the body, so the triple about the call is valid with the bound $\omega_{\mathrm{call}} + B_k$.
 \end{proof}
 
-In particular, if every test has a positive weight, a program with a derivable bound $B$ has no infinite execution from its precondition, since an execution that evaluates $B + 1$ tests has a prefix of cost greater than $B$.
+In particular, if every test and every call has a positive weight, a program with a bound $B$ derivable from no assumption has no infinite execution from its precondition, since an infinite execution evaluates infinitely many tests or performs infinitely many calls, and so has prefixes of cost greater than $B$.
 
 \paragraph{Symbolic bounds and function summaries.}
 A bound may depend on the initial state. For $B : S \to \mathbb{N}$, we say that $\{P\}\ c\ \{Q\}\!\downarrow\! B$ holds \emph{symbolically} if, for every $k \in \mathbb{N}$, the triple $\{P \cap \{B \le k\}\}\ c\ \{Q\}\!\downarrow\! k$ is valid; equivalently, for every $s \in P$, every prefix of $c$ from $s$ costs at most $B(s)$ and every terminating execution ends in $Q$. Symbolic bounds are thus expressed with numeric triples, and they are the form in which the bound of a function can be stated once and used at every call:
@@ -840,7 +867,36 @@ Let $\{P\}\ c\ \{Q\}\!\downarrow\! B$ hold symbolically, and let $P' \subseteq S
 The first statement is rule (6) applied to the triple for the budget $k$. The second follows from the state-by-state reading of symbolic bounds, as in the case of rule (3) above, with $B_2(u) \le B_2'(s)$ used to express the cost of $c_2$ in terms of the initial state.
 \end{proof}
 
-A calling context is the special case in which $B$ is constant on $P$. The language has no recursive procedures; recursion is covered by the statements of Section~\ref{sec:optimization} and by Proposition~\ref{prop:size-potential}, which are not yet part of the proof system.
+A calling context is the special case in which $B$ is constant on $P$. The bounds of Proposition~\ref{prop:size-potential} for branching recursion bound the \emph{number} of activations; rule (9) bounds the cost of a recursive procedure directly, level by level, and the two are not yet connected in the mechanization.
+
+\paragraph{Weights, architectures and parallel composition.}
+The logic is parametric in the weights. A cost model for a target is a choice of $\omega$: for a processor on which the duration of an instruction does not depend on the execution history, $\omega$ may be an upper bound of that duration, and the derived bound is then a time bound; for processors with caches or speculative execution no such context-independent weights exist in general (Section~\ref{sec:limitations}), and the loop and recursion bounds derived here are better used as flow facts for a timing analysis of the binary. For fork--join parallelism, the same rules bound two quantities: the \emph{work}, with the parallel composition of two commands that do not interfere costing the sum of their costs, and the \emph{span}, with parallel composition costing the maximum, as in the analysis of multithreaded computations \cite{blumofe1999scheduling}; the span rule for parallel composition is the rule for a conditional without its test. We do not formalize a parallel composition here, and interference between threads through shared state is outside the scope of the framework.
+
+\subsection{Certificates and a verified checker}
+\label{subsec:checker}
+
+A derivation in the cost logic is a mathematical object. To make it a \emph{certificate} that a program can produce and another program can check, in the manner of proof-carrying code \cite{necula1997proof}, we fix a concrete instance in which every side condition is decidable by integer arithmetic.
+
+\paragraph{Linear instance.}
+States are valuations of integer variables $x_0, x_1, \dots$. Expressions are affine with integer coefficients; an atomic action is an assignment $x_i := e$ or the assignment of an unknown value $x_i := {?}$; a test is $e \le 0$. An \emph{assertion} is a finite conjunction of constraints $\ell \le 0$, where $\ell$ is affine with integer coefficients in the program variables and in \emph{logical variables} $\gamma_0, \gamma_1, \dots$, which no program modifies; a triple is understood for every value of the logical variables.
+
+\begin{defn}[Linear cost certificate]
+\label{def:certificate}
+A \emph{certificate} is a program of the linear instance in which: every sequence carries its intermediate assertion and the bounds of its two components; every conditional carries the bounds of its branches; every loop carries an invariant (an assertion), a potential $e/d$ with $e$ an affine expression and $d \ge 1$ an integer, an integer $k$, a logical variable $\gamma_j$ that does not occur in the invariant, the bound of its body, and Farkas multipliers for the implication ``invariant and test imply $e \ge d$''; and where two further constructs may enclose any part: a \emph{weakening}, which carries an inner precondition, bound and postcondition together with Farkas multipliers for each constraint of the two implications it uses, and a \emph{dead-code} mark, which carries Farkas multipliers showing that the precondition implies $1 \le 0$.
+\end{defn}
+
+Farkas multipliers for an implication $\ell_1 \le 0 \wedge \dots \wedge \ell_m \le 0 \Rightarrow \ell \le 0$ are natural numbers $\mu \ge 1$ and $\lambda_1, \dots, \lambda_m$ such that $\mu \ell - \sum_i \lambda_i \ell_i$ is a constant, and this constant is at most $0$; checking them is a comparison of coefficients (soundness direction of Farkas' Lemma, Section~\ref{subsubsec:smt-synthesis}). The \emph{checker} takes a precondition, a certificate, a bound and a postcondition, and proceeds by structural recursion: for an assignment it requires the precondition to be, syntactically, the postcondition with $e$ substituted for $x_i$; for an unknown value, that $x_i$ does not occur in the assertion; for a loop with test $g \le 0$, invariant $I$, potential $e/d$ and constant $k$, that the precondition is $I \wedge e \le k$, that the postcondition is $I \wedge g \ge 1$, that the multipliers prove $e \ge d$ from $I \wedge g \le 0$, that the body is accepted with precondition $I \wedge g \le 0 \wedge e \le \gamma_j$ and postcondition $I \wedge e + d \le \gamma_j$, and that the bound is $\lfloor k/d \rfloor \cdot (\omega + W) + \omega$ where $W$ is the bound of the body; the other cases follow the rules of Definition~\ref{def:derivable-triple}. The logical variable $\gamma_j$ plays the role of the value $v$ in rule (5): the triple about the body holds for every value of $\gamma_j$, in particular for the value of $e$ before the iteration.
+
+\begin{thm}[Soundness of the checker]
+\label{thm:checker-soundness}
+If the checker accepts a certificate with precondition $P$, bound $B$ and postcondition $Q$, then for every value of the logical variables the triple $\{P\}\ c\ \{Q\}\!\downarrow\! B$ is valid for the program $c$ of the certificate. In particular, every execution of $c$ from a state satisfying $P$, terminated or not, costs at most $B$.
+\end{thm}
+
+\begin{proof}
+By induction on the certificate, each case being an instance of the corresponding rule of Theorem~\ref{thm:cost-logic-soundness}, whose side conditions are established as follows. For an assignment $x_i := e$, the value of an affine form $\ell$ after the assignment equals the value of $\ell[e/x_i]$ before it. For an unknown value, the value of $\ell$ does not depend on $x_i$ when the coefficient of $x_i$ in $\ell$ is zero. For the implications, if $\mu \ell = \sum_i \lambda_i \ell_i + r$ with $r \le 0$ a constant, $\lambda_i \ge 0$ and $\mu > 0$, then $\ell_i \le 0$ for all $i$ implies $\mu \ell \le 0$ and hence $\ell \le 0$. For a loop, let the logical variables be given and let $s$ satisfy the invariant and the test. Giving $\gamma_j$ the value $e(s)$ does not affect the invariant, in which $\gamma_j$ does not occur; the precondition of the body holds, so its executions cost at most $W$, and those that terminate do so in a state $t$ satisfying the invariant and $e(t) + d \le e(s)$. Hence $V = e/d$ satisfies the premises of rule (5) with $K = k/d$, and $\lfloor k/d \rfloor$ is computed by integer division. For a dead-code mark, the precondition is unsatisfiable and rule (7) applies.
+\end{proof}
+
+The checker is a small program, independent of the analysis that produces certificates: it does not search for invariants, potentials or multipliers, and uses neither an SMT solver nor rational arithmetic. Its soundness is Theorem~\ref{thm:checker-soundness}; an analyzer need not be trusted if its output is checked. This fragment does not yet contain procedure calls, guards that are conjunctions, or the potentials of Proposition~\ref{prop:lex-log}. \authortodo{check that Definition~\ref{def:certificate} and the description of the checker say what \lean{ACmd} and \lean{check} do in Checker.lean; read \cite{necula1997proof}, \cite{nipkow2002hoare} and \cite{blumofe1999scheduling}, which are cited from the assistant's general knowledge and whose content was not read.}
 
 \section{Examples}
 \label{sec:examples}
@@ -1153,7 +1209,7 @@ TACLeBench favours CrossCheck, since its loops have constant bounds. Complexity 
 \section{Mechanization in Lean 4}
 \label{sec:mechanization}
 
-The development accompanying this paper consists of about 2{,}600 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 157 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+The development accompanying this paper consists of about 3{,}300 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 185 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
 
 \begin{table}[ht]
 \centering
@@ -1179,8 +1235,11 @@ Prop.~\ref{prop:tree-optimization} & \lean{exec\_\allowbreak least}, \lean{exec\
 Thm.~\ref{thm:lyapunov-bound} & \lean{ranking\_\allowbreak bound}, \lean{ranking\_\allowbreak terminates}, \lean{wcet\_\allowbreak bound} & \lean{Ranking} \\
 Prop.~\ref{prop:tree-envelope} & \lean{exec\_\allowbreak depth\_\allowbreak le}, \lean{exec\_\allowbreak size\_\allowbreak le} & \lean{Recursion} \\
 Thm.~\ref{thm:lyapunov-bound} (relational) & \lean{ranking\_\allowbreak bound\_\allowbreak floor}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak le}, \lean{partial\_\allowbreak ranking\_\allowbreak floor} & \lean{Certificate} \\
-Def.~\ref{def:valid-triple}, \ref{def:derivable-triple} & \lean{Cmd}, \lean{Exec}, \lean{Pre}, \lean{Valid}, \lean{Derivable} & \lean{Language} \\
-Thm.~\ref{thm:cost-logic-soundness} & \lean{soundness}, \lean{valid\_\allowbreak seq}, \lean{valid\_\allowbreak ite}, \lean{valid\_\allowbreak while}, \lean{valid\_\allowbreak conseq}, \lean{derivable\_\allowbreak cost\_\allowbreak le}, \lean{countLoop\_\allowbreak cost} & \lean{Language} \\
+Def.~\ref{def:valid-triple}, \ref{def:derivable-triple} & \lean{Cmd}, \lean{Exec}, \lean{Pre}, \lean{Valid}, \lean{Specs}, \lean{Derivable} & \lean{Language} \\
+Thm.~\ref{thm:cost-logic-soundness} & \lean{soundness}, \lean{valid\_\allowbreak seq}, \lean{valid\_\allowbreak ite}, \lean{valid\_\allowbreak while}, \lean{valid\_\allowbreak call}, \lean{valid\_\allowbreak conseq}, \lean{valid\_\allowbreak unreachable}, \lean{derivable\_\allowbreak cost\_\allowbreak le}; examples \lean{countLoop\_\allowbreak cost}, \lean{down\_\allowbreak cost} (recursion) & \lean{Language} \\
+Def.~\ref{def:certificate} & \lean{ACmd}, \lean{Lin}, \lean{PExp}, \lean{check}, \lean{entails1} & \lean{Checker} \\
+Thm.~\ref{thm:checker-soundness} & \lean{check\_\allowbreak sound}, \lean{certified\_\allowbreak cost\_\allowbreak le}, \lean{entails1\_\allowbreak sound}, \lean{Lin.subst\_\allowbreak eval}; example \lean{countCert\_\allowbreak checks}, \lean{countCert\_\allowbreak cost} & \lean{Checker} \\
+Prop.~\ref{prop:lex-log} & \lean{lex\_\allowbreak ranking\_\allowbreak bound}, \lean{log\_\allowbreak ranking\_\allowbreak bound} & \lean{Certificate} \\
 Prop.~\ref{prop:summary-call} & \lean{validSym\_\allowbreak iff}, \lean{validSym\_\allowbreak call}, \lean{validSym\_\allowbreak seq} & \lean{Language} \\
 Prop.~\ref{prop:context-bound} & \lean{run\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak floor\_\allowbreak of\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak context}, \lean{call\_\allowbreak bound\_\allowbreak of\_\allowbreak context} & \lean{Certificate} \\
 Sec.~\ref{subsubsec:smt-synthesis} (Farkas) & \lean{farkas\_\allowbreak sound}, \lean{farkas\_\allowbreak sound\_\allowbreak affine} & \lean{Certificate} \\
@@ -1207,8 +1266,9 @@ The following points are \emph{not} mechanized, and the corresponding statements
     \item branching factors $b > 2$ in the order-theoretic statements: the tree order, tree powers and the minimality of the execution tree (Propositions~\ref{prop:tree-order-properties}, \ref{prop:tree-power-complexity} and~\ref{prop:tree-optimization}) are mechanized for binary trees. A branching step with $L$ leaves is represented by a binary tree with $L - 1$ internal nodes, for which Proposition~\ref{prop:tree-power-complexity} reads $\cost(B^{\otimes d}) = 2L^d - 1$ (\lean{treePow\_\allowbreak size}). The counting bounds, in contrast, are mechanized for arbitrary arity on call trees (Proposition~\ref{prop:size-potential});
     \item Theorem~\ref{thm:lyapunov-bound} as stated (termination together with the bound) is proved for a total state update; for partial or nondeterministic updates the bound on the length of runs is proved (\lean{ranking\_\allowbreak bound\_\allowbreak floor}), not the existence of a terminating run;
     \item the equation-generating rules of Section~\ref{sec:application}; and the completeness direction of Farkas' Lemma, which is cited;
-    \item in Section~\ref{subsec:cost-logic}, the remark that a program with a derivable bound and positive test weights has no infinite execution (the bound on all execution prefixes, from which it follows, is mechanized); recursive procedures are not part of the language;
-    \item the Clang plugin of Section~\ref{sec:implementation}: its implementation is not verified, only the soundness of the certificates it relies on. In particular, the translation from C++ source to commands and triples of Section~\ref{subsec:cost-logic} is not formalized, and the plugin does not yet emit derivations that a checker could validate.
+    \item in Section~\ref{subsec:cost-logic}, the remark that a program with a derivable bound and positive test and call weights has no infinite execution (the bound on all execution prefixes, from which it follows, is mechanized), and the paragraph on weights and parallel composition, which is not formalized;
+    \item the potentials of Proposition~\ref{prop:lex-log} are mechanized as bounds on the length of runs, but they are not rules of the cost logic and are not accepted by the checker; the checker of Section~\ref{subsec:checker} covers assignments, unknown values, sequences, conditionals and loops with a single linear test, without procedure calls;
+    \item the Clang plugin of Section~\ref{sec:implementation}: its implementation is not verified, only the soundness of the certificates it relies on. In particular, the translation from C++ source to commands and triples of Section~\ref{subsec:cost-logic} is not formalized, and the plugin does not yet emit the certificates of Section~\ref{subsec:checker}.
 \end{itemize}
 
 \section{Limitations}
@@ -1235,13 +1295,13 @@ The relation \textit{order-by-composition} ($\sqsubseteq$) has been defined on t
 
 The translation has been presented as operational rules that emit systems of recurrence equations from imperative source code. Through the dual-layer semantics, a solution provides both the extensional terminal state $\bar{s}$ and the intensional execution complexity $\bar{n}$, or the tree work $\cost(\bar{T})$. The extension to branching recursion shows that divide-and-conquer control flow fits the same scheme, with grafting of trees in place of concatenation.
 
-General recurrence systems are undecidable; restricting programs to decidable fragments, or relaxing exactness into envelopes based on ranking potentials and the tropical semiring, yields mechanically solvable constraint systems and sound cost bounds. The foundations, the envelopes and the examples are machine-checked in Lean~4.
+General recurrence systems are undecidable; restricting programs to decidable fragments, or relaxing exactness into envelopes based on ranking potentials and the tropical semiring, yields mechanically solvable constraint systems and sound cost bounds. The bounds compose over whole programs, with procedures, recursion and assumed contracts, in a cost logic that is sound for terminating and non-terminating executions, and a linear instance of the logic has certificates that a small checker validates with integer arithmetic only. The foundations, the envelopes, the cost logic, the checker and the examples are machine-checked in Lean~4.
 
 Future work includes the evaluation of the prototype on larger programs and against further analyzers, lexicographic, logarithmic and amortized potentials, the mechanization of the tree order for arbitrary arity, the verification of the analyzer itself, and the treatment of concurrent execution traces.
 
 \section*{Statement on the Use of AI}
 
-Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity} and \lean{Language} (with the cost logic of Section~\ref{subsec:cost-logic} and its statements in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin of Section~\ref{sec:implementation}, its tests and its example programs, including the figures of Table~\ref{tab:plugin}, and ran the TACLeBench measurement and the comparison with other tools of Tables~\ref{tab:tacle} and~\ref{tab:tools}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language} and \lean{Checker} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin of Section~\ref{sec:implementation}, its tests and its example programs, including the figures of Table~\ref{tab:plugin}, and ran the TACLeBench measurement and the comparison with other tools of Tables~\ref{tab:tacle} and~\ref{tab:tools}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
 
 \section*{Acknowledgements}
 

@@ -213,8 +213,10 @@ function summaries. Table `tab:lean`.
 **Q. What is not?**
 `b > 2` for the tree order/powers/least execution tree; termination for
 partial/nondeterministic updates (only run-length bounds); the equation-generation rules;
-Farkas completeness; recursion inside the cost logic; the translation from C++ to the
-language of the cost logic; the plugin and Z3 (`sec:mechanization`).
+Farkas completeness; parallel composition; lexicographic and logarithmic potentials as
+rules of the logic or of the checker (they are theorems on runs); calls and conjunctive
+guards in the checker; the translation from C++ to the language of the cost logic; the
+plugin and Z3 (`sec:mechanization`).
 
 **Q. Any axioms or `sorry`?**
 No `sorry`; no axioms beyond `propext`, `Quot.sound`, `Classical.choice` (`#print axioms`).
@@ -226,11 +228,18 @@ total updates in `Ranking`, conditions over all continuing states, abstract valu
 `exists_minimal_iteration`). The author has to compare them (`AI_USAGE.md` §3).
 
 **Q. Why is the verified part not connected to the plugin?**
-The plugin is C++; the Lean theorems justify each *kind* of certificate it emits, and
-since November 2026 a cost logic (`Derivable`, module `Language`) says how they compose
-over a program. Still missing: the plugin emitting a derivation, and a Lean-verified
-checker for it. That is the planned next step; verifying the analyser itself (Blazy et
-al.-style) is not planned.
+The plugin is C++; the Lean theorems justify each *kind* of certificate it emits, a cost
+logic (`Derivable`, module `Language`) says how they compose over a program, and a
+checker for concrete linear certificates is proved sound (`check_sound`, module
+`Checker`). Still missing: the plugin emitting those certificates, and an argument that
+the certificate's program is the C++ function. That is the next implementation step
+(`docs/implementation-plan.md`); verifying the analyser itself (Blazy et al.-style) is
+not planned.
+
+**Q. So is this proof-carrying code?**
+In spirit, for cost bounds: the producer (an untrusted analyser) would ship a certificate
+and the consumer runs a small verified checker. Today only the checker and its soundness
+exist; say "designed for", not "does".
 
 **Q. Why Lean and not Coq/Isabelle?**
 mathlib's order theory, arithmetic and automation (`omega`, `linarith`); a choice, not a
