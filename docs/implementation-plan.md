@@ -5,6 +5,9 @@ implementation phase. It says what is proved, what the implementation must produ
 connect to it, and in which order. Read `CLAUDE.md` first: its soundness rules and AGMAI
 obligations apply to everything below.
 
+See `docs/proposals.md` (2026-11-14) for the argued order of the next steps after tasks
+1 and 2; it refines tasks 3 to 8 below.
+
 ## 1. What is proved (and where)
 
 | Result | Paper | Lean |

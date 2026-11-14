@@ -525,6 +525,8 @@ What the AI did for 27:
   Lean tutorial and module parts merged, a new part for Paper II, the bibliography as a
   map with what was read). Content updated for the cost logic, the checker, the
   certificates and the split.
+- Proposals (the last request of 27): `docs/proposals.md`, with the argued order of the
+  next steps; written by the AI from the measurements of this session.
 
 ### Earlier work
 
