@@ -34,7 +34,8 @@ add_compile_options(-Wall -Wextra)
 # --- core: affine expressions and the SMT back-end (no Clang dependency) -----
 add_library(crosscheck_core STATIC
   src/core/LinExpr.cpp
-  src/core/Solver.cpp)
+  src/core/Solver.cpp
+  src/core/Cert.cpp)
 target_include_directories(crosscheck_core PUBLIC src)
 target_include_directories(crosscheck_core SYSTEM PRIVATE ${Z3_CXX_INCLUDE_DIRS})
 target_link_libraries(crosscheck_core PUBLIC z3::libz3)
@@ -112,6 +113,13 @@ if(BUILD_TESTING)
     add_test(NAME plugin_accepts_${name}
       COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)
   endforeach()
+  # Certificates checked by the verified Lean checker (formalization/: lake build crosscheck-check).
+  set(CROSSCHECK_CHECKER "" CACHE FILEPATH "Path to the crosscheck-check executable (optional)")
+  if(CROSSCHECK_CHECKER)
+    add_test(NAME certificates_accepted_by_lean_checker
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_certificates.sh $<TARGET_FILE:crosscheck-tool>
+        ${CROSSCHECK_CHECKER} ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+  endif()
   foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)
     add_test(NAME plugin_rejects_${name}
       COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)

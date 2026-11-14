@@ -18,42 +18,9 @@ obligations apply to everything below.
 Not proved, and to be kept out of any claim: the translation from C/C++ (or Rust) to
 `ACmd`; parallel composition; time on real processors.
 
-## 2. The certificate format (target of the first implementation task)
+## 2. The certificate format
 
-The checker's input is the Lean type `ACmd` of
-`formalization/ImperativeOptimization/Checker.lean`, with a precondition, a bound and a
-postcondition. Everything is integer data:
-
-- **Variables** are numbered `0, 1, 2, …`. The emitter assigns a number to every tracked
-  program variable of the function (parameters first) and keeps the table in the
-  certificate for readability.
-- **`PExp`** `{sv, c}`: the affine expression `Σ sv[i]·xᵢ + c` (dense coefficient list).
-- **`Lin`** `{sv, lv, c}`: an affine form over program variables (`sv`) and logical
-  variables (`lv`); as a constraint it means `≤ 0`. An assertion is a list of `Lin`.
-- **Farkas certificate** `(mu, lam)`: `mu ≥ 1` and one multiplier per premise, in the
-  order of the premise list, such that `mu·goal − Σ lam[i]·premise[i]` is a constant
-  `≤ 0`. Z3 gives rational multipliers: multiply by the common denominator.
-- **Nodes** (`ACmd`):
-
-| Node | Fields | Accepted when |
-|---|---|---|
-| `skip` | – | `P = Q`, `B = 0` |
-| `assign w x a` | weight, variable, `PExp` | `P = Q[a/x]` (syntactically, constraint by constraint), `B = w` |
-| `havoc w x` | weight, variable | `P = Q`, `x` does not occur in `Q`, `B = w` |
-| `seq c₁ mid B₁ B₂ c₂` | intermediate assertion, two bounds | both parts accepted, `B = B₁ + B₂` |
-| `ite w g B₁ B₂ c₁ c₂` | test `g ≤ 0`, two bounds | `c₁` accepted from `g ≤ 0 :: P`, `c₂` from `1 − g ≤ 0 :: P`, `B = w + max B₁ B₂` |
-| `while w g inv pot d k j posCert Wb body` | invariant, potential `pot/d`, entry bound `k`, logical variable `j`, certificate of `pot ≥ d`, body bound | `d ≥ 1`; `P = (pot − k ≤ 0) :: inv`; `Q = (1 − g ≤ 0) :: inv`; `γⱼ` not in `inv`; `posCert` proves `d − pot ≤ 0` from `g :: inv`; body accepted from `(pot − γⱼ ≤ 0) :: g :: inv` to `(pot + d − γⱼ ≤ 0) :: inv` with bound `Wb`; `B = ⌊k/d⌋·(w + Wb) + w` |
-| `weaken P' preCerts B' Q' postCerts c` | inner triple and certificates | `P ⊢ P'` and `Q' ⊢ Q` constraint by constraint, `B' ≤ B`, `c` accepted for the inner triple |
-| `dead cert c` | certificate | `P ⊢ 1 ≤ 0` |
-
-Syntactic equalities (`P = …`) are exact list equalities: the emitter must produce the
-vectors the checker computes (e.g. for `assign`, apply the same substitution as
-`Lin.subst`), or wrap the node in a `weaken`. `countCert` in `Checker.lean` is a complete
-worked example; use it as the first test.
-
-Proposed file format: JSON with exactly these constructors (`{"node": "while", "w": 1,
-"g": {"sv": [1,-1], "c": 1}, …}`), one certificate per analysed function, next to the
-existing report (`--opt=certificates=DIR`).
+See `docs/certificate-format.md`.
 
 ## 3. Tasks, in order
 
@@ -61,11 +28,14 @@ Each task ends with: tests (including must-reject cases), figures re-run
 (`run_tacle.py`, `compare_tools.py --check`, `run_tpdb.py`), paper/README/guide/
 `AI_USAGE.md` updated together.
 
-1. **Checker executable** (Lean). `lake exe crosscheck-check cert.json`: parse the JSON
+1. **Checker executable** (Lean). **Done (Nov 2026)**: `lake build crosscheck-check`. `lake exe crosscheck-check cert.json`: parse the JSON
    into `ACmd`, run `check`, exit status. The parser is untrusted in the sense that a
    wrong parse can only make `check` examine a different certificate, so print the
    program it checked. No `native_decide` in proofs; the executable just runs `check`.
-2. **Certificate emission** (plugin). For a function whose analysis used only what the
+2. **Certificate emission** (plugin). **Done (Nov 2026)**: `--opt=certificates=FILE`;
+   TACLeBench 142 of 158 bounded functions, all accepted by the checker; the example
+   programs 7 of 13; calls (by inlining) and early returns are handled on the generator
+   side, without changing the checker. Original description: For a function whose analysis used only what the
    fragment covers (tracked integer locals, single linear guards, assignments, unknown
    values, affine potentials, invariants found by the Houdini step), emit the `ACmd`.
    Count how many TACLeBench / TPDB / example functions get a certificate that the

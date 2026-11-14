@@ -45,12 +45,17 @@ struct FunctionReport {
   bool reachable = false;
   unsigned contexts = 0;  ///< number of analyses (contexts) that reach it
   std::optional<std::uint64_t> wcetInContext;
+  /// Certificate: "emitted", or why none was produced (empty: not requested).
+  std::string certificate;
+  std::optional<std::uint64_t> certificateBound;  ///< the bound the certificate proves
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
 };
 
 struct Report {
   std::vector<FunctionReport> functions;
+  /// Certificates in the JSON format of `cert::toJson` (one per emitted function).
+  std::vector<std::string> certificates;
 
   const FunctionReport* find(const std::string& name) const {
     for (const FunctionReport& f : functions)

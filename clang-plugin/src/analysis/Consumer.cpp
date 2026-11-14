@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Luca Dall'Olio. Released under the MIT license.
 #include "Consumer.hpp"
+#include "../core/Cert.hpp"
 
 #include <fstream>
 
@@ -28,6 +29,16 @@ class Consumer : public clang::ASTConsumer {
         unsigned id = diags.getCustomDiagID(clang::DiagnosticsEngine::Error,
                                             "crosscheck: cannot write report '%0'");
         diags.Report(id) << options_.reportPath;
+      }
+    }
+    if (!options_.certificatesPath.empty() && !out_) {
+      // Plugin: one file per translation unit (the tool combines its inputs itself).
+      std::ofstream file(options_.certificatesPath);
+      file << cert::fileJson(report.certificates);
+      if (!file) {
+        unsigned id = diags.getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                            "crosscheck: cannot write certificates '%0'");
+        diags.Report(id) << options_.certificatesPath;
       }
     }
     if (out_) *out_ = std::move(report);

@@ -5,6 +5,7 @@
 //   crosscheck-tool [--report=out.json] [--all] [--opt=weight-memory=3] file.cpp -- -std=c++20 -Iinclude
 //
 // Exit status 0 when every analysed function is accepted, 1 otherwise.
+#include "../core/Cert.hpp"
 #include <iostream>
 
 #include "clang/AST/ASTConsumer.h"
@@ -38,7 +39,9 @@ class Action : public clang::ASTFrontendAction {
   }
   void EndSourceFileAction() override {
     for (auto& f : last_.functions) combined.functions.push_back(std::move(f));
+    for (auto& c : last_.certificates) combined.certificates.push_back(std::move(c));
     last_.functions.clear();
+    last_.certificates.clear();
   }
 
  private:
@@ -73,6 +76,15 @@ int main(int argc, const char** argv) {
       return 2;
     }
     out << combined.toJson();
+  }
+  if (!options.certificatesPath.empty()) {
+    std::error_code ec;
+    llvm::raw_fd_ostream out(options.certificatesPath, ec);
+    if (ec) {
+      llvm::errs() << "crosscheck-tool: cannot write '" << options.certificatesPath << "'\n";
+      return 2;
+    }
+    out << crosscheck::cert::fileJson(combined.certificates);
   }
   if (summary)
     for (const auto& f : combined.functions)

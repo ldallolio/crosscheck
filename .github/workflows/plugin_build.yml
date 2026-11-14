@@ -3,10 +3,12 @@ name: Clang plugin CI
 on:
   push:
     branches: [ main, master ]
-    paths: [ 'clang-plugin/**', 'benchmarks/**', '.github/workflows/plugin_build.yml' ]
+    paths: [ 'clang-plugin/**', 'benchmarks/**', 'formalization/CheckerMain.lean',
+             'formalization/ImperativeOptimization/CheckerCore.lean', '.github/workflows/plugin_build.yml' ]
   pull_request:
     branches: [ main, master ]
-    paths: [ 'clang-plugin/**', 'benchmarks/**', '.github/workflows/plugin_build.yml' ]
+    paths: [ 'clang-plugin/**', 'benchmarks/**', 'formalization/CheckerMain.lean',
+             'formalization/ImperativeOptimization/CheckerCore.lean', '.github/workflows/plugin_build.yml' ]
   workflow_dispatch:
 
 jobs:
@@ -45,8 +47,22 @@ jobs:
           done
 
       # Fetches a pinned TACLeBench revision; see benchmarks/tacle/README.md.
-      - name: TACLeBench kernels (loop bounds vs. flow facts)
-        run: python3 benchmarks/tacle/run_tacle.py --markdown=tacle.md --json=tacle.json && cat tacle.md >> "$GITHUB_STEP_SUMMARY"
+      - name: TACLeBench kernels (loop bounds vs. flow facts; cost certificates)
+        run: python3 benchmarks/tacle/run_tacle.py --markdown=tacle.md --json=tacle.json --certificates=certificates/tacle && cat tacle.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Certificates of the example programs
+        run: |
+          mkdir -p certificates/examples
+          for f in benchmarks/*.cpp; do
+            clang-plugin/build/crosscheck-tool --opt=certificates=certificates/examples/$(basename $f .cpp).json \
+              "$f" -- -std=c++20 -Iclang-plugin/include >/dev/null 2>&1 || true
+          done
+
+      - name: Upload certificates
+        uses: actions/upload-artifact@v4
+        with:
+          name: certificates
+          path: certificates/
 
       # Also runs every kernel instrumented, and fails if a CrossCheck loop bound is
       # below a loop count observed on the kernel's input.
@@ -58,3 +74,30 @@ jobs:
         with:
           name: tacle-results
           path: tacle.json
+
+  # The certificates emitted above, checked by the verified Lean checker.
+  check-certificates:
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Elan (Lean toolchain manager)
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Build the checker
+        run: cd formalization && lake build crosscheck-check
+
+      - name: Download certificates
+        uses: actions/download-artifact@v4
+        with:
+          name: certificates
+          path: certificates
+
+      - name: Check every certificate
+        run: |
+          formalization/.lake/build/bin/crosscheck-check certificates/*/*.json | tee checked.txt
+          echo "Accepted: $(grep -c '^ACCEPTED' checked.txt)" >> "$GITHUB_STEP_SUMMARY"

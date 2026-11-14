@@ -208,3 +208,44 @@ TEST(Bounds, MissingEndsAndDeadStates) {
 }
 
 }  // namespace
+
+// --- certificates (the checker's own operations, src/core/Cert.hpp) -------------
+
+#include "core/Cert.hpp"
+
+namespace {
+
+using namespace crosscheck::cert;
+
+TEST(Cert, SubstitutionMatchesTheChecker) {
+  // e = -x0 + x1 <= 0; x0 := x0 + 1  gives  -x0 + x1 - 1 <= 0, vectors as in Lean.
+  Lin e{{-1, 1}, {}, 0};
+  Lin s = subst(e, 0, PExp{{1}, 1});
+  EXPECT_EQ(s.sv, (Vec{-1, 1}));
+  EXPECT_EQ(s.c, -1);
+  EXPECT_EQ(negLin(PExp{{1, -1}, 1}).c, 0);
+  EXPECT_EQ(ghost(PExp{{-1, 1}, 0}, 0, 1).lv, (Vec{-1}));
+}
+
+TEST(Cert, FarkasCertificates) {
+  // i <= 0, -i <= 0, n - 10 <= 0  |-  n - i - 10 <= 0  with multipliers (0, 1, 1).
+  Assn p{Lin{{1}, {}, 0}, Lin{{-1}, {}, 0}, Lin{{0, 1}, {}, -10}};
+  std::optional<Farkas> f = farkas(p, Lin{{-1, 1}, {}, -10});
+  ASSERT_TRUE(f.has_value());
+  EXPECT_EQ(f->mu, 1u);
+  EXPECT_EQ(f->lam, (std::vector<std::uint64_t>{0, 1, 1}));
+  EXPECT_FALSE(farkas(p, Lin{{0, 1}, {}, -9}).has_value());  // n <= 9 does not follow
+}
+
+TEST(Cert, EliminationAndBounds) {
+  // x - y <= 0, y - 5 <= 0: eliminating y gives x - 5 <= 0.
+  Assn p{Lin{{1, -1}, {}, 0}, Lin{{0, 1}, {}, -5}};
+  Assn q = eliminate(p, 1);
+  ASSERT_EQ(q.size(), 1u);
+  EXPECT_EQ(q[0], (Lin{{1}, {}, -5}));
+  EXPECT_EQ(upperBound(p, PExp{{1}, 0}), std::optional<std::int64_t>(5));
+  EXPECT_EQ(whileBound(10, 1, 1, 1), 21u);
+  EXPECT_EQ(whileBound(-3, 2, 1, 1), 1u);
+}
+
+}  // namespace

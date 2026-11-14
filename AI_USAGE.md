@@ -472,6 +472,41 @@ What the AI did (design choices are the AI's):
   implementation tasks, for the implementation phase.
 - No plugin code was changed in this step.
 
+From here on the model is Claude Opus 5.5 (`claude-opus-5-5`), same tool.
+
+26. "proceed with the next implementation phase as indicated"
+
+27. (sent while the AI was working) "Once you have finished all the remaining tasks, I
+    would like you to consider splitting the paper in two as discussed previously. Also,
+    please update the guide with the latest developments; if you can, make it a bit
+    shorter (without losing what is needed to learn and understand) maybe using more
+    diagrams and less text ? After that, propose improvements to augment scientific
+    relevance and innovative contibution as well as industrial value and engineering
+    interest, maybe extending the subset of the language so that a larger part of legacy
+    codebase can be handled ?"
+
+What the AI did for 26 (tasks 1 and 2 of `docs/implementation-plan.md`):
+- Lean: the checker's definitions moved to `CheckerCore.lean` (no mathlib) so that they
+  can be compiled; `CheckerMain.lean` reads JSON certificates and runs `check`
+  (`lake build crosscheck-check`); test certificates (one accepted, three rejected).
+  The proofs (`Checker.lean`) are unchanged in substance.
+- Plugin: `src/core/Cert.{hpp,cpp}` (dense constraints reproducing the checker's vector
+  operations, Fourier-Motzkin elimination, Farkas multipliers by Z3, JSON); certificate
+  generation in `Analyzer.cpp` (lowering, forward assertions, Houdini invariants, the
+  analysis' potentials, call inlining in the calling context, restructuring of early
+  returns, a relevance filter on variables); option `certificates=FILE`; report fields
+  `certificate`, `certificate_bound`; 6 new tests and a ctest that runs the Lean checker
+  on the examples' certificates.
+- Results: TACLeBench 142 of 158 bounded functions certified, all 142 accepted by the
+  checker; examples 7 of 13. The AI investigated the four certified bounds that are
+  smaller than the plugin's (`__kernel_cosf`) and found an infeasible path excluded by
+  the certificate's assertions, not a missing cost.
+- CI: the Lean workflow builds and runs the checker; the plugin workflow emits the
+  certificates and a second job checks them.
+- Paper: paragraph "Certificates" and figures in the prototype section, "Trust"
+  rewritten, scope list updated; `docs/certificate-format.md`; plugin and TACLeBench
+  READMEs; `CLAUDE.md`; `docs/implementation-plan.md` (tasks 1 and 2 done).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -576,3 +611,8 @@ is whether each Lean statement says what the paper says, and everything outside 
     1997, Nipkow 2002 and Blumofe and Leiserson 1999 before keeping their citations;
     decide whether the unformalized paragraph on weights and parallel composition should
     stay.
+20. **Certificate emission.** Read `docs/certificate-format.md` and the paragraph
+    "Certificates" of the paper; check the claim that inlining a callee is sound (a
+    callee cannot modify the caller's tracked variables) and that moving the statements
+    after a returning conditional into its branches preserves the cost semantics;
+    inspect a few certificates with `crosscheck-check --print`.

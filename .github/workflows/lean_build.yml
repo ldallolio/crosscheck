@@ -33,3 +33,14 @@ jobs:
         run: |
           cd formalization
           lake build
+
+      # The verified checker as a program (CheckerMain.lean; no mathlib needed).
+      - name: Certificate checker
+        run: |
+          cd formalization
+          lake build crosscheck-check
+          .lake/build/bin/crosscheck-check --print test/certificates/count.json
+          # These three must be rejected (exit status 1).
+          if .lake/build/bin/crosscheck-check test/certificates/count_rejected.json; then
+            echo "a wrong certificate was accepted"; exit 1
+          fi

@@ -533,6 +533,44 @@ INSTANTIATE_TEST_SUITE_P(
                           "CROSSCHECK_REALTIME int f(int n) { if (n < 0) return 0; return cnt(n); }"}),
     [](const ::testing::TestParamInfo<ContextRejectCase>& info) { return std::string(info.param.name); });
 
+// --- certificates (docs/certificate-format.md) ------------------------------------
+
+TEST(Certificates, EmittedWithTheSameBound) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();  // keep them in the report, do not write a file
+  Report r = check(R"(
+    static int cnt(int n) { int s = 0; for (int i = 0; i < n; i++) s += 2; return s; }
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 10) int n) {
+      if (n < 3) return cnt(n);
+      int s = 0;
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < i; j++) s = s + 1;
+      return s + cnt(4);
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.ok);
+  EXPECT_EQ(f.certificate, "emitted");
+  ASSERT_TRUE(f.certificateBound.has_value());
+  EXPECT_EQ(*f.certificateBound, f.wcet);
+  ASSERT_FALSE(r.certificates.empty());
+  EXPECT_NE(r.certificates.back().find("\"while\""), std::string::npos);
+}
+
+TEST(Certificates, OutsideTheFragmentSaysWhy) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 10) int n, const int* c) {
+      int i = 0;
+      while (i < n) { if (c[i]) break; i++; }
+      return i;
+    })", o);
+  EXPECT_TRUE(fn(r, "f").ok);
+  EXPECT_NE(fn(r, "f").certificate.find("break"), std::string::npos);
+}
+
 // --- facts kept when a loop is left through `break` -------------------------------
 
 TEST(Loops, BreakKeepsTheInvariantsForTheNextLoop) {

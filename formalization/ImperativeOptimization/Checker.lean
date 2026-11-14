@@ -5,6 +5,7 @@ Authors: Luca Dall'Olio
 -/
 import Mathlib.Tactic
 import ImperativeOptimization.Language
+import ImperativeOptimization.CheckerCore
 
 namespace ImperativeOptimization.Checker
 
@@ -24,6 +25,9 @@ concrete, executable instance and a *checker*:
   `Language.Valid`; `certified_cost_le` restates it: every execution of the program from
   a state satisfying `P`, terminated or not, costs at most `B`.
 
+The definitions (everything the checker program runs) are in `CheckerCore`, which does
+not depend on mathlib; this file proves their properties.
+
 The checker does not search: every implication it needs is given with its Farkas
 multipliers and verified by comparing coefficients (`entails1`). An analyser, however
 complex and unverified, only has to *emit* such a certificate.
@@ -31,36 +35,6 @@ complex and unverified, only has to *emit* such a certificate.
 Assertions may mention *logical variables* (a second valuation `ρ`), which programs
 cannot modify; the loop rule uses one to state that the potential decreases.
 -/
-
-/-- Valuations of variables. -/
-abbrev Env := ℕ → ℤ
-
-/-! ### Dense integer vectors -/
-
-/-- `dot l f = Σᵢ l[i] * f i`. -/
-def dot : List ℤ → Env → ℤ
-  | [], _ => 0
-  | a :: l, f => a * f 0 + dot l (fun i => f (i + 1))
-
-/-- Componentwise sum, the shorter vector being padded with zeros. -/
-def vadd : List ℤ → List ℤ → List ℤ
-  | [], m => m
-  | a :: l, [] => a :: l
-  | a :: l, b :: m => (a + b) :: vadd l m
-
-/-- Multiplication by a scalar. -/
-def vsmul (k : ℤ) (l : List ℤ) : List ℤ := l.map (k * ·)
-
-/-- The `i`-th unit vector. -/
-def unit : ℕ → List ℤ
-  | 0 => [1]
-  | i + 1 => 0 :: unit i
-
-/-- The `i`-th coefficient (zero beyond the end). -/
-def coeff (l : List ℤ) (i : ℕ) : ℤ := l.getD i 0
-
-/-- All coefficients are zero. -/
-def isZero (l : List ℤ) : Bool := l.all (fun a => decide (a = 0))
 
 theorem dot_vadd (l m : List ℤ) (f : Env) : dot (vadd l m) f = dot l f + dot m f := by
   induction l generalizing m f with
@@ -113,42 +87,6 @@ theorem dot_update (l : List ℤ) (f : Env) (i : ℕ) (v : ℤ) :
 
 /-! ### Affine expressions and assertions -/
 
-/-- A program expression `Σ sv[i] * xᵢ + c` over the program variables. -/
-structure PExp where
-  sv : List ℤ
-  c : ℤ
-  deriving DecidableEq, Repr
-
-/-- An affine form over program variables (`sv`) and logical variables (`lv`). As a
-    constraint it means `eval ≤ 0`. -/
-structure Lin where
-  sv : List ℤ
-  lv : List ℤ
-  c : ℤ
-  deriving DecidableEq, Repr
-
-def PExp.eval (a : PExp) (s : Env) : ℤ := dot a.sv s + a.c
-
-def Lin.eval (e : Lin) (ρ s : Env) : ℤ := dot e.sv s + dot e.lv ρ + e.c
-
-/-- The guard `a ≤ 0` as a constraint. -/
-def PExp.toLin (a : PExp) : Lin := ⟨a.sv, [], a.c⟩
-
-/-- The negation of the guard `a ≤ 0` over the integers: `1 - a ≤ 0`. -/
-def PExp.negLin (a : PExp) : Lin := ⟨vsmul (-1) a.sv, [], 1 - a.c⟩
-
-def Lin.add (e f : Lin) : Lin := ⟨vadd e.sv f.sv, vadd e.lv f.lv, e.c + f.c⟩
-
-def Lin.smul (k : ℤ) (e : Lin) : Lin := ⟨vsmul k e.sv, vsmul k e.lv, k * e.c⟩
-
-/-- Substitution of the expression `a` for the program variable `x`. -/
-def Lin.subst (e : Lin) (x : ℕ) (a : PExp) : Lin :=
-  let k := coeff e.sv x
-  ⟨vadd e.sv (vsmul k (vadd a.sv (vsmul (-1) (unit x)))), e.lv, e.c + k * a.c⟩
-
-/-- An assertion is a conjunction of constraints. -/
-def holds (A : List Lin) (ρ s : Env) : Prop := ∀ e ∈ A, e.eval ρ s ≤ 0
-
 @[simp] theorem holds_cons (e : Lin) (A : List Lin) (ρ s : Env) :
     holds (e :: A) ρ s ↔ e.eval ρ s ≤ 0 ∧ holds A ρ s := by
   simp [holds]
@@ -182,12 +120,6 @@ theorem Lin.eval_update_logical (e : Lin) (ρ s : Env) (j : ℕ) (v : ℤ) :
 
 /-! ### Farkas certificates -/
 
-/-- `Σᵢ lam[i] • ps[i]` (the shorter list decides the length). -/
-def comb : List ℕ → List Lin → Lin
-  | [], _ => ⟨[], [], 0⟩
-  | _ :: _, [] => ⟨[], [], 0⟩
-  | k :: lam, p :: ps => (p.smul k).add (comb lam ps)
-
 theorem comb_nonpos (lam : List ℕ) (ps : List Lin) (ρ s : Env) (h : holds ps ρ s) :
     (comb lam ps).eval ρ s ≤ 0 := by
   induction lam generalizing ps with
@@ -202,12 +134,6 @@ theorem comb_nonpos (lam : List ℕ) (ps : List Lin) (ρ s : Env) (h : holds ps 
         mul_nonpos_of_nonneg_of_nonpos (Int.natCast_nonneg k) h.1
       simp only [comb, Lin.add_eval, Lin.smul_eval]
       linarith
-
-/-- A Farkas certificate `(mu, lam)` for `ps ⊢ g`: `mu > 0` and
-    `mu • g - Σ lam[i] • ps[i]` is a non-positive constant. -/
-def entails1 (ps : List Lin) (g : Lin) (cert : ℕ × List ℕ) : Bool :=
-  let r := (g.smul cert.1).add ((comb cert.2 ps).smul (-1))
-  decide (0 < cert.1) && isZero r.sv && isZero r.lv && decide (r.c ≤ 0)
 
 theorem entails1_sound {ps : List Lin} {g : Lin} {cert : ℕ × List ℕ}
     (h : entails1 ps g cert = true) {ρ s : Env} (hps : holds ps ρ s) : g.eval ρ s ≤ 0 := by
@@ -224,12 +150,6 @@ theorem entails1_sound {ps : List Lin} {g : Lin} {cert : ℕ × List ℕ}
   have := mul_pos hmu' hg
   linarith
 
-/-- One certificate per goal. -/
-def entailsAll (ps : List Lin) : List Lin → List (ℕ × List ℕ) → Bool
-  | [], [] => true
-  | g :: gs, cert :: certs => entails1 ps g cert && entailsAll ps gs certs
-  | _, _ => false
-
 theorem entailsAll_sound {ps gs : List Lin} {certs : List (ℕ × List ℕ)}
     (h : entailsAll ps gs certs = true) {ρ s : Env} (hps : holds ps ρ s) : holds gs ρ s := by
   induction gs generalizing certs with
@@ -244,30 +164,6 @@ theorem entailsAll_sound {ps gs : List Lin} {certs : List (ℕ × List ℕ)}
 
 /-! ### Certificates -/
 
-/-- An annotated program: the program together with everything the checker needs. -/
-inductive ACmd where
-  | skip : ACmd
-  /-- `x := a`, at cost `w`. -/
-  | assign (w : ℕ) (x : ℕ) (a : PExp) : ACmd
-  /-- `x := ?` (an unknown value), at cost `w`. -/
-  | havoc (w : ℕ) (x : ℕ) : ACmd
-  /-- `c₁ ; c₂` with the intermediate assertion and the two bounds. -/
-  | seq (c₁ : ACmd) (mid : List Lin) (B₁ B₂ : ℕ) (c₂ : ACmd) : ACmd
-  /-- `if (g ≤ 0) c₁ else c₂`, the test costing `w`, with the bounds of the branches. -/
-  | ite (w : ℕ) (g : PExp) (B₁ B₂ : ℕ) (c₁ c₂ : ACmd) : ACmd
-  /-- `while (g ≤ 0) body`, the test costing `w`, with: the invariant `inv`; the
-      potential `pot / d`; an upper bound `k` of `pot` on entry; a logical variable `j`
-      not used by `inv`; the Farkas certificate of `inv ∧ g ⊢ pot ≥ d`; the bound `Wb` of
-      the body. -/
-  | while (w : ℕ) (g : PExp) (inv : List Lin) (pot : PExp) (d : ℕ) (k : ℤ) (j : ℕ)
-      (posCert : ℕ × List ℕ) (Wb : ℕ) (body : ACmd) : ACmd
-  /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
-      follows by the given Farkas certificates. -/
-  | weaken (P' : List Lin) (preCerts : List (ℕ × List ℕ)) (B' : ℕ) (Q' : List Lin)
-      (postCerts : List (ℕ × List ℕ)) (c : ACmd) : ACmd
-  /-- Dead code: the precondition is contradictory, by the given certificate. -/
-  | dead (cert : ℕ × List ℕ) (c : ACmd) : ACmd
-
 /-- The program of a certificate, as a command of `Language` over valuations. -/
 def ACmd.toCmd : ACmd → Cmd Empty Env
   | .skip => Cmd.skip
@@ -278,34 +174,6 @@ def ACmd.toCmd : ACmd → Cmd Empty Env
   | .while w g _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
-
-/-- `pot - γⱼ + extra ≤ 0`, where `γⱼ` is the logical variable `j`. -/
-def ghost (pot : PExp) (j : ℕ) (extra : ℤ) : Lin :=
-  ⟨pot.sv, vsmul (-1) (unit j), pot.c + extra⟩
-
-/-- **The checker.** -/
-def check (P : List Lin) : ACmd → ℕ → List Lin → Bool
-  | .skip, B, Q => decide (P = Q) && decide (B = 0)
-  | .assign w x a, B, Q => decide (P = Q.map (fun e => e.subst x a)) && decide (B = w)
-  | .havoc w x, B, Q =>
-      decide (P = Q) && Q.all (fun e => decide (coeff e.sv x = 0)) && decide (B = w)
-  | .seq c₁ mid B₁ B₂ c₂, B, Q =>
-      check P c₁ B₁ mid && check mid c₂ B₂ Q && decide (B = B₁ + B₂)
-  | .ite w g B₁ B₂ c₁ c₂, B, Q =>
-      check (g.toLin :: P) c₁ B₁ Q && check (g.negLin :: P) c₂ B₂ Q &&
-        decide (B = w + max B₁ B₂)
-  | .while w g inv pot d k j posCert Wb body, B, Q =>
-      decide (0 < d) &&
-      decide (P = ⟨pot.sv, [], pot.c - k⟩ :: inv) &&
-      decide (Q = g.negLin :: inv) &&
-      inv.all (fun e => decide (coeff e.lv j = 0)) &&
-      entails1 (g.toLin :: inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
-      check (ghost pot j 0 :: g.toLin :: inv) body Wb (ghost pot j d :: inv) &&
-      decide (B = (k / d).toNat * (w + Wb) + w)
-  | .weaken P' preCerts B' Q' postCerts c, B, Q =>
-      entailsAll P P' preCerts && check P' c B' Q' && decide (B' ≤ B) &&
-        entailsAll Q' Q postCerts
-  | .dead cert _, _, _ => entails1 P ⟨[], [], 1⟩ cert
 
 /-- The environment of a program without procedures. -/
 abbrev Φ₀ : Empty → Cmd Empty Env := noProcs

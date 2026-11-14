@@ -72,6 +72,23 @@ loops bounded in context, and how many of those bounds equal the pragma's maximu
 | st | 5 | 5 | 5 | 0 | 0 | 0 | 65 074 | 5 | 5 |
 | **Total** | **220** | **126** | **100** | **25** | **1** | **94** | **9 of 29** | **137** | **128** |
 
+## Certificates
+
+With `--certificates=DIR` the script also emits a cost certificate for every function in
+the certificate fragment (see `docs/certificate-format.md`), and with
+`--checker=formalization/.lake/build/bin/crosscheck-check` it runs the verified Lean
+checker on them and fails if one is rejected.
+
+On 2026-11-14: **142 of the 158 bounded functions** get a certificate, **all accepted
+by the checker**; the entry functions `<kernel>_main` of 7 kernels (complex_updates,
+countnegative, iir, jfdctint, lms, matrix1, st) are certified, bsort and ludcmp are not.
+137 certified bounds equal the plugin's bound; 4 are smaller (`__kernel_cosf`, in four
+kernels that include it: the forward assertions show that an expensive branch cannot
+follow an earlier test) and 1 is larger (`pm_init_data`: entry bound of a loop rounded
+up). Not certified: `return` inside a `switch` or a loop (8), loop tests that are not one
+comparison of signed integers (4: `i < sizeof(a)` compares with an unsigned value, and
+one in `md5`), `break` (3), an assignment inside an expression (1).
+
 ## Reading the results
 
 - **Flow facts are a reference, not ground truth.** They describe each program on its

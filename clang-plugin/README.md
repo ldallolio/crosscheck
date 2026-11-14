@@ -90,6 +90,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `weight-CLASS=N` | weight of an instruction class (see [Cost model](#cost-model)) |
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
 | `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
+| `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
 
 ### As a standalone tool
 
@@ -255,6 +256,26 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 constraints, the invariant generation, the cost counting) and Z3. The tests in
 `tests/` include a set of loops that must be rejected, as regression tests for
 soundness.
+
+## Certificates
+
+With `certificates=FILE` (tool: `--opt=certificates=FILE`) the plugin writes, for each
+function in the fragment, a certificate in the format of
+[`docs/certificate-format.md`](../docs/certificate-format.md): the function lowered to a
+small integer program, annotated with assertions, loop invariants, potentials and
+Farkas multipliers. The checker is compiled from its Lean definition:
+
+```bash
+(cd ../formalization && lake build crosscheck-check)
+../formalization/.lake/build/bin/crosscheck-check --print FILE
+```
+
+An accepted certificate bounds every execution of its program
+(`Checker.check_sound`): the bound then does not depend on this analyser or on Z3, only
+on the checker and on the lowering from C++ to the certificate's program, which is not
+verified. The report says, per function, `certificate: "emitted"` with the certified
+bound, or why there is none. The ctest `certificates_accepted_by_lean_checker` runs this
+on the example programs when CMake is given `-DCROSSCHECK_CHECKER=<path>`.
 
 ## Limitations
 

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <map>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -35,6 +36,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
 
+#include "../core/Cert.hpp"
 #include "../core/Cost.hpp"
 #include "../core/LinExpr.hpp"
 #include "../core/Solver.hpp"
@@ -365,8 +367,15 @@ struct CallRecord {
   bool any = false;
 };
 
+struct LoopPotential;
+
 struct Summary {
   bool ok = true;
+  /// For certificates: the loops' potentials, the tracked variables, and the
+  /// analysis used for each call (filled when the analysis ends).
+  std::shared_ptr<const std::map<const Stmt*, struct LoopPotential>> potentials;
+  std::set<const VarDecl*> tracked;
+  std::map<const CallExpr*, SummaryKey> callKeys;
   /// Analyses of callees this analysis relies on.
   std::set<SummaryKey> callees;
   Sat wcet;
@@ -385,8 +394,16 @@ struct RecSite {
   std::vector<LinExpr> args;  ///< one entry per recursion slot
 };
 
+/// The potential the analysis proved for a loop, kept for certificate emission.
+struct LoopPotential {
+  std::vector<const VarDecl*> slots;
+  RankingResult rank;
+};
+
 struct FnCtx {
   const FunctionDecl* fn = nullptr;
+  std::map<const Stmt*, LoopPotential> potentials;
+  std::map<const CallExpr*, SummaryKey> callKeys;
   std::set<const VarDecl*> tracked;
   Summary summary;
   std::vector<SymId> slotSyms;        ///< recursion slots: integer parameters
@@ -583,6 +600,32 @@ class Analyzer {
                   const std::vector<const Expr*>& argExprs, State& s);
   Context contextFor(const CallExpr* call, const FunctionDecl* def);
   void fillInContext(Report& report, const std::vector<const FunctionDecl*>& roots);
+
+  // -- certificates (docs/certificate-format.md) ------------------------------
+ public:
+  struct CertCtx;
+  struct CertPiece;
+
+ private:
+  std::optional<std::string> certificate(const FunctionDecl* def, std::string& reason,
+                                         std::uint64_t& bound);
+  std::optional<CertPiece> certStmt(CertCtx& cc, const Stmt* s, const cert::Assn& pre);
+  std::optional<CertPiece> certList(CertCtx& cc, const std::vector<const Stmt*>& list,
+                                    std::size_t from, const cert::Assn& pre);
+  std::optional<CertPiece> certExpr(CertCtx& cc, const Expr* e, const cert::Assn& pre);
+  std::optional<CertPiece> certExprAfterCalls(CertCtx& cc, const Expr* e, const cert::Assn& pre);
+  std::optional<CertPiece> certIf(CertCtx& cc, const IfStmt* is, const std::vector<const Stmt*>& thenList,
+                                  const std::vector<const Stmt*>& elseList, const cert::Assn& pre);
+  std::optional<CertPiece> certCall(CertCtx& cc, const CallExpr* call, const cert::Assn& pre);
+  std::optional<CertPiece> certCallsIn(CertCtx& cc, const Expr* e, const cert::Assn& pre);
+  std::optional<CertPiece> certLoop(CertCtx& cc, const Stmt* loop, const Expr* cond,
+                                    const Stmt* body, const Expr* inc, const cert::Assn& pre);
+  std::optional<CertPiece> certAssign(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                      const std::optional<cert::PExp>& a, const cert::Assn& pre);
+  std::optional<cert::PExp> certAffine(CertCtx& cc, const Expr* e);
+  std::optional<cert::PExp> certTest(CertCtx& cc, const Expr* e);
+  std::uint64_t costOf(const Expr* e);
+  std::vector<std::string> certificates_;
   bool onStack(const FunctionDecl* fd) {
     for (const auto& c : stack_)
       if (c->fn->getCanonicalDecl() == fd->getCanonicalDecl()) return true;
@@ -1174,6 +1217,7 @@ Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc, const Ca
     if (!stack_.empty() && cur().speculative) return unit(w_.call);
     Context context = call ? contextFor(call, def) : Context{};
     if (!stack_.empty()) cur().summary.callees.insert({def->getCanonicalDecl(), context});
+    if (call && !stack_.empty()) cur().callKeys[call] = {def->getCanonicalDecl(), context};
     // Copy what is needed: analysing callees may rehash the cache.
     const Summary& sm = analyzeFunction(def, context);
     bool ok = sm.ok;
@@ -1710,6 +1754,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   if (rank && (!user || rank->bound <= *user)) {
     k = rank->bound;
     lr.verified = true;
+    if (!fc.speculative) fc.potentials[loop] = LoopPotential{slots, *rank};
     lr.potential = potentialString(*rank, names);
   } else if (user) {
     k = *user;
@@ -2139,10 +2184,1027 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
             [](const LoopReport& a, const LoopReport& b) { return a.line < b.line; });
   rep.assumptions = fc.summary.assumptions;
   rep.ok = fc.summary.ok;
+  if (opts_.certificates && context.empty()) {
+    if (!rep.ok || !rep.bounded) {
+      rep.certificate = "no certificate: the function is not bounded";
+    } else {
+      std::string reason;
+      std::uint64_t cb = 0;
+      if (std::optional<std::string> js = certificate(def, reason, cb)) {
+        certificates_.push_back(std::move(*js));
+        rep.certificate = "emitted";
+        rep.certificateBound = cb;
+      } else {
+        rep.certificate = "no certificate: " + reason;
+      }
+    }
+  }
 
+  fc.summary.potentials =
+      std::make_shared<const std::map<const Stmt*, LoopPotential>>(fc.potentials);
+  fc.summary.tracked = fc.tracked;
+  fc.summary.callKeys = fc.callKeys;
   Summary done = std::move(fc.summary);
   stack_.pop_back();
   return cache_.emplace(std::move(key), std::move(done)).first->second;
+}
+
+// ===========================================================================
+// Certificates (docs/certificate-format.md).
+//
+// A function is lowered to the program of a certificate (the Lean type
+// `Checker.ACmd`): tracked signed integer variables become the variables
+// x_0, x_1, ...; assignments with an affine right-hand side are assignments,
+// other assignments are unknown values; statements that do not write a
+// tracked variable cost their weight and nothing else (an unknown value given
+// to a variable that no assertion mentions). Assertions are computed forwards
+// (strongest postconditions, Fourier-Motzkin elimination); every step is
+// justified by Farkas multipliers. Loops use the potential the analysis found.
+// Nothing here is trusted: the Lean checker validates the result.
+// ===========================================================================
+
+struct Analyzer::CertCtx {
+  std::map<const VarDecl*, std::size_t> var;
+  std::vector<std::string> names;
+  std::size_t choice = 0;  ///< the variable of nondeterministic tests
+  std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
+  std::size_t depth = 0;   ///< loop nesting: index of the logical variable
+  /// The function whose code is being lowered (the analysed one, or an inlined callee).
+  const std::map<const Stmt*, LoopPotential>* potentials = nullptr;
+  const std::map<const CallExpr*, SummaryKey>* callKeys = nullptr;
+  std::set<const FunctionDecl*> inlining;
+  std::string prefix;      ///< for the names of inlined variables
+  std::set<const VarDecl*> relevant;  ///< variables that can influence control
+  unsigned line = 0;       ///< line of the statement being lowered (for messages)
+  std::string fail;
+  std::size_t temp() const { return names.size(); }  ///< scratch variable for eliminations
+  void addVar(const VarDecl* v) {
+    if (var.count(v) || !relevant.count(v)) return;
+    var[v] = names.size();
+    names.push_back(prefix + v->getNameAsString());
+  }
+  bool failed(const std::string& why) {
+    if (fail.empty()) fail = why + (line ? " (line " + std::to_string(line) + ")" : "");
+    return false;
+  }
+};
+
+struct Analyzer::CertPiece {
+  cert::NodeP node;
+  cert::Assn post;
+  std::uint64_t bound = 0;
+};
+
+namespace {
+Analyzer::CertPiece seqPiece(const Analyzer::CertPiece& a, const Analyzer::CertPiece& b) {
+  cert::Node n;
+  n.kind = cert::Node::Seq;
+  n.c1 = a.node;
+  n.mid = a.post;
+  n.b1 = a.bound;
+  n.b2 = b.bound;
+  n.c2 = b.node;
+  return Analyzer::CertPiece{std::make_shared<const cert::Node>(std::move(n)), b.post, a.bound + b.bound};
+}
+}  // namespace
+
+namespace {
+
+using cert::Assn;
+using cert::Farkas;
+using cert::Lin;
+using cert::Node;
+using cert::NodeP;
+using cert::PExp;
+using cert::Vec;
+
+NodeP mk(Node n) { return std::make_shared<const Node>(std::move(n)); }
+
+std::vector<Farkas> identityCerts(const Assn& a) {
+  std::vector<Farkas> out;
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    Farkas f;
+    f.lam.assign(a.size(), 0);
+    f.lam[i] = 1;
+    out.push_back(f);
+  }
+  return out;
+}
+
+/// `weaken`: c is checked from P' to Q'; the surrounding triple is (outer, B, Q).
+NodeP weaken(Assn pPrime, std::vector<Farkas> preCerts, std::uint64_t bound, Assn qPrime,
+             std::vector<Farkas> postCerts, NodeP c) {
+  Node n;
+  n.kind = Node::Weaken;
+  n.pre = std::move(pPrime);
+  n.preCerts = std::move(preCerts);
+  n.bound = bound;
+  n.post = std::move(qPrime);
+  n.postCerts = std::move(postCerts);
+  n.c1 = std::move(c);
+  return mk(std::move(n));
+}
+
+/// A node checked from `pre` whose precondition is contradictory.
+std::optional<NodeP> deadNode(const Assn& pre) {
+  std::optional<Farkas> f = cert::farkas(pre, Lin{{}, {}, 1});
+  if (!f) return std::nullopt;
+  Node n;
+  n.kind = Node::Dead;
+  n.deadCert = *f;
+  n.c1 = mk(Node{});
+  return mk(std::move(n));
+}
+
+bool signedInt(QualType t) {
+  return !t.isNull() && t->isIntegerType() && t->isSignedIntegerType() && !t->isBooleanType();
+}
+
+struct Scan : RecursiveASTVisitor<Scan> {
+  const std::map<const VarDecl*, std::size_t>* vars = nullptr;
+  bool writes = false, calls = false, jumps = false, markers = false;
+  const VarDecl* target(const Expr* e) {
+    if (const auto* d = dyn_cast<DeclRefExpr>(e->IgnoreParenImpCasts()))
+      if (const auto* v = dyn_cast<VarDecl>(d->getDecl()))
+        if (vars->count(v)) return v;
+    return nullptr;
+  }
+  bool VisitBinaryOperator(BinaryOperator* e) {
+    if (e->isAssignmentOp() && target(e->getLHS())) writes = true;
+    return true;
+  }
+  bool VisitUnaryOperator(UnaryOperator* e) {
+    if (e->isIncrementDecrementOp() && target(e->getSubExpr())) writes = true;
+    return true;
+  }
+  bool VisitCallExpr(CallExpr*) { calls = true; return true; }
+  bool VisitCXXConstructExpr(CXXConstructExpr* e) {
+    if (e->getConstructor() && !e->getConstructor()->isTrivial()) calls = true;
+    return true;
+  }
+  bool VisitBreakStmt(BreakStmt*) { jumps = true; return true; }
+  bool VisitContinueStmt(ContinueStmt*) { jumps = true; return true; }
+  bool VisitReturnStmt(ReturnStmt*) { jumps = true; return true; }
+  bool VisitGotoStmt(GotoStmt*) { jumps = true; return true; }
+  bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr* e) {
+    // Unevaluated: annotation markers live here.
+    if (e->getKind() == UETT_SizeOf && e->isArgumentType() == false) markers = true;
+    return true;
+  }
+};
+
+Scan scanOf(const Stmt* s, const std::map<const VarDecl*, std::size_t>& vars) {
+  Scan sc;
+  sc.vars = &vars;
+  if (s) sc.TraverseStmt(const_cast<Stmt*>(s));
+  return sc;
+}
+
+std::vector<const Stmt*> flatten(const Stmt* s) {
+  std::vector<const Stmt*> out;
+  if (!s) return out;
+  if (const auto* cs = dyn_cast<CompoundStmt>(s)) out.assign(cs->body_begin(), cs->body_end());
+  else out.push_back(s);
+  return out;
+}
+
+struct ReturnScan : RecursiveASTVisitor<ReturnScan> {
+  bool found = false;
+  bool VisitReturnStmt(ReturnStmt*) { found = true; return false; }
+  bool TraverseLambdaExpr(LambdaExpr*) { return true; }
+};
+bool hasReturn(const Stmt* s) {
+  ReturnScan r;
+  r.TraverseStmt(const_cast<Stmt*>(s));
+  return r.found;
+}
+
+
+bool addChecked(std::int64_t a, std::int64_t b, std::int64_t& r) { return !__builtin_add_overflow(a, b, &r); }
+bool mulChecked(std::int64_t a, std::int64_t b, std::int64_t& r) { return !__builtin_mul_overflow(a, b, &r); }
+
+std::optional<PExp> addP(const PExp& a, const PExp& b, std::int64_t kb) {
+  PExp r;
+  r.sv.assign(std::max(a.sv.size(), b.sv.size()), 0);
+  for (std::size_t i = 0; i < r.sv.size(); ++i) {
+    std::int64_t x = i < a.sv.size() ? a.sv[i] : 0, y = i < b.sv.size() ? b.sv[i] : 0, t;
+    if (!mulChecked(kb, y, t) || !addChecked(x, t, r.sv[i])) return std::nullopt;
+  }
+  std::int64_t t;
+  if (!mulChecked(kb, b.c, t) || !addChecked(a.c, t, r.c)) return std::nullopt;
+  return r;
+}
+
+std::optional<PExp> scaleP(const PExp& a, std::int64_t k) {
+  PExp r;
+  for (std::int64_t c : a.sv) {
+    std::int64_t t;
+    if (!mulChecked(k, c, t)) return std::nullopt;
+    r.sv.push_back(t);
+  }
+  if (!mulChecked(k, a.c, r.c)) return std::nullopt;
+  return r;
+}
+
+void trimP(PExp& p) {
+  while (!p.sv.empty() && p.sv.back() == 0) p.sv.pop_back();
+}
+
+/// Strongest postcondition of `x := a` (exact over the rationals).
+Assn spAssign(const Assn& pre, std::size_t x, const PExp& a, std::size_t temp) {
+  std::int64_t s = cert::coeff(a.sv, x);
+  Assn out;
+  if (s == 1 || s == -1) {
+    // x_old = s * (x_new - r), where a = s*x_old + r.
+    PExp r = a;
+    if (x < r.sv.size()) r.sv[x] = 0;
+    PExp old;  // s*x - s*r
+    old.sv = cert::vadd(cert::vsmul(s, cert::unitVec(x)), cert::vsmul(-s, r.sv));
+    old.c = -s * r.c;
+    for (const Lin& e : pre) {
+      std::int64_t k = cert::coeff(e.sv, x);
+      if (k == 0) { out.push_back(e); continue; }
+      Lin f = e;
+      if (x < f.sv.size()) f.sv[x] = 0;
+      f.sv = cert::vadd(f.sv, cert::vsmul(k, old.sv));
+      f.c = e.c + k * old.c;
+      out.push_back(f);
+    }
+    return cert::normalize(out);
+  }
+  // Rename x to `temp`, add x = a[temp/x], eliminate temp.
+  auto rename = [&](Vec v) {
+    std::int64_t k = cert::coeff(v, x);
+    if (k != 0) {
+      v[x] = 0;
+      if (v.size() <= temp) v.resize(temp + 1, 0);
+      v[temp] = k;
+    }
+    return v;
+  };
+  for (const Lin& e : pre) out.push_back(Lin{rename(e.sv), e.lv, e.c});
+  Vec av = rename(a.sv);
+  Vec xv = cert::unitVec(x);
+  out.push_back(Lin{cert::vadd(xv, cert::vsmul(-1, av)), {}, -a.c});
+  out.push_back(Lin{cert::vadd(av, cert::vsmul(-1, xv)), {}, a.c});
+  return cert::eliminate(cert::normalize(out), temp);
+}
+
+}  // namespace
+
+std::uint64_t Analyzer::costOf(const Expr* e) {
+  ++cur().speculative;
+  Cost c = flat(exprCost(e));
+  --cur().speculative;
+  return c.units.inf ? 0 : c.units.v;
+}
+
+std::optional<cert::PExp> Analyzer::certAffine(CertCtx& cc, const Expr* e) {
+  if (!e) return std::nullopt;
+  if (std::optional<std::int64_t> v = constantValue(e)) return PExp{{}, *v};
+  e = e->IgnoreParens();
+  if (const auto* ce = dyn_cast<ImplicitCastExpr>(e)) {
+    CastKind k = ce->getCastKind();
+    if (k == CK_LValueToRValue || k == CK_NoOp ||
+        (k == CK_IntegralCast && signedInt(ce->getType()) && signedInt(ce->getSubExpr()->getType()) &&
+         widens(ce->getSubExpr()->getType(), ce->getType())))
+      return certAffine(cc, ce->getSubExpr());
+    return std::nullopt;
+  }
+  if (const auto* dr = dyn_cast<DeclRefExpr>(e)) {
+    const auto* v = dyn_cast<VarDecl>(dr->getDecl());
+    auto it = v ? cc.var.find(v) : cc.var.end();
+    if (it == cc.var.end()) return std::nullopt;
+    return PExp{cert::unitVec(it->second), 0};
+  }
+  if (!signedInt(e->getType())) return std::nullopt;
+  if (const auto* uo = dyn_cast<UnaryOperator>(e)) {
+    if (uo->getOpcode() == UO_Minus)
+      if (auto a = certAffine(cc, uo->getSubExpr())) return scaleP(*a, -1);
+    if (uo->getOpcode() == UO_Plus) return certAffine(cc, uo->getSubExpr());
+    return std::nullopt;
+  }
+  if (const auto* bo = dyn_cast<BinaryOperator>(e)) {
+    BinaryOperatorKind op = bo->getOpcode();
+    if (op == BO_Add || op == BO_Sub) {
+      auto a = certAffine(cc, bo->getLHS()), b = certAffine(cc, bo->getRHS());
+      if (a && b) return addP(*a, *b, op == BO_Add ? 1 : -1);
+      return std::nullopt;
+    }
+    if (op == BO_Mul) {
+      auto a = certAffine(cc, bo->getLHS()), b = certAffine(cc, bo->getRHS());
+      if (!a || !b) return std::nullopt;
+      trimP(*a), trimP(*b);
+      if (a->sv.empty()) return scaleP(*b, a->c);
+      if (b->sv.empty()) return scaleP(*a, b->c);
+      return std::nullopt;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<cert::PExp> Analyzer::certTest(CertCtx& cc, const Expr* e) {
+  e = e->IgnoreParenImpCasts();
+  if (const auto* uo = dyn_cast<UnaryOperator>(e); uo && uo->getOpcode() == UO_LNot) {
+    if (auto g = certTest(cc, uo->getSubExpr())) {
+      // not (g <= 0)  is  1 - g <= 0
+      auto n = scaleP(*g, -1);
+      if (n) n->c += 1;
+      return n;
+    }
+    return std::nullopt;
+  }
+  const auto* bo = dyn_cast<BinaryOperator>(e);
+  if (!bo || !bo->isRelationalOp()) return std::nullopt;
+  auto a = certAffine(cc, bo->getLHS()), b = certAffine(cc, bo->getRHS());
+  if (!a || !b) return std::nullopt;
+  std::optional<PExp> d;
+  switch (bo->getOpcode()) {
+    case BO_LT: d = addP(*a, *b, -1); if (d) d->c += 1; break;   // a - b + 1 <= 0
+    case BO_LE: d = addP(*a, *b, -1); break;                       // a - b <= 0
+    case BO_GT: d = addP(*b, *a, -1); if (d) d->c += 1; break;   // b - a + 1 <= 0
+    case BO_GE: d = addP(*b, *a, -1); break;                       // b - a <= 0
+    default: break;
+  }
+  if (d) trimP(*d);
+  return d;
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certAssign(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                                       const std::optional<cert::PExp>& a,
+                                                       const cert::Assn& pre) {
+  if (!cert::feasible(pre))
+    if (auto d = deadNode(pre)) return CertPiece{*d, pre, 0};
+  Node n;
+  n.w = w;
+  n.x = x;
+  Assn q, pPrime;
+  if (a) {
+    n.kind = Node::Assign;
+    n.a = *a;
+    q = spAssign(pre, x, *a, cc.temp());
+    for (const Lin& e : q) pPrime.push_back(cert::subst(e, x, *a));
+  } else {
+    n.kind = Node::Havoc;
+    q = cert::eliminate(pre, x);
+    pPrime = q;
+  }
+  std::optional<std::vector<Farkas>> pc = cert::farkasAll(pre, pPrime);
+  if (!pc) return cc.failed("internal: an assignment could not be justified"), std::nullopt;
+  return CertPiece{weaken(pPrime, *pc, w, q, identityCerts(q), mk(n)), q, w};
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certExpr(CertCtx& cc, const Expr* e,
+                                                     const cert::Assn& pre) {
+  Scan sc = scanOf(e, cc.var);
+  if (sc.calls) {
+    // Inline the calls, then lower the expression with their results unknown.
+    std::optional<CertPiece> c = certCallsIn(cc, e, pre);
+    if (!c) return std::nullopt;
+    std::optional<CertPiece> rest = certExprAfterCalls(cc, e, c->post);
+    if (!rest) return std::nullopt;
+    return seqPiece(*c, *rest);
+  }
+  return certExprAfterCalls(cc, e, pre);
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certExprAfterCalls(CertCtx& cc, const Expr* e,
+                                                               const cert::Assn& pre) {
+  Scan sc = scanOf(e, cc.var);
+  const Expr* x = e->IgnoreParenImpCasts();
+  std::uint64_t w = costOf(e);
+  if (!sc.writes) {
+    // Cost only: an unknown value for a variable that no assertion mentions.
+    Node n;
+    n.kind = Node::Havoc;
+    n.w = w;
+    n.x = cc.dummy;
+    return CertPiece{mk(n), pre, w};
+  }
+  auto targetOf = [&](const Expr* t) -> std::optional<std::size_t> {
+    if (const auto* d = dyn_cast<DeclRefExpr>(t->IgnoreParenImpCasts()))
+      if (const auto* v = dyn_cast<VarDecl>(d->getDecl()))
+        if (auto it = cc.var.find(v); it != cc.var.end()) return it->second;
+    return std::nullopt;
+  };
+  if (const auto* bo = dyn_cast<BinaryOperator>(x); bo && bo->isAssignmentOp()) {
+    std::optional<std::size_t> t = targetOf(bo->getLHS());
+    if (!t || scanOf(bo->getRHS(), cc.var).writes)
+      return cc.failed("assignment inside an expression"), std::nullopt;
+    std::optional<PExp> rhs = certAffine(cc, bo->getRHS());
+    std::optional<PExp> a;
+    PExp self{cert::unitVec(*t), 0};
+    switch (bo->getOpcode()) {
+      case BO_Assign: a = rhs; break;
+      case BO_AddAssign: if (rhs) a = addP(self, *rhs, 1); break;
+      case BO_SubAssign: if (rhs) a = addP(self, *rhs, -1); break;
+      default: break;  // other compound assignments: unknown value
+    }
+    if (a) trimP(*a);
+    return certAssign(cc, w, *t, a, pre);
+  }
+  if (const auto* uo = dyn_cast<UnaryOperator>(x); uo && uo->isIncrementDecrementOp()) {
+    std::optional<std::size_t> t = targetOf(uo->getSubExpr());
+    if (!t) return cc.failed("assignment inside an expression"), std::nullopt;
+    PExp a{cert::unitVec(*t), uo->isIncrementOp() ? 1 : -1};
+    return certAssign(cc, w, *t, a, pre);
+  }
+  if (const auto* co = dyn_cast<BinaryOperator>(x); co && co->getOpcode() == BO_Comma) {
+    // `a, b` in a for-increment: a then b. The cost of the comma itself is zero.
+    auto p1 = certExpr(cc, co->getLHS(), pre);
+    if (!p1) return std::nullopt;
+    auto p2 = certExpr(cc, co->getRHS(), p1->post);
+    if (!p2) return std::nullopt;
+    Node n;
+    n.kind = Node::Seq;
+    n.c1 = p1->node;
+    n.mid = p1->post;
+    n.b1 = p1->bound;
+    n.b2 = p2->bound;
+    n.c2 = p2->node;
+    return CertPiece{mk(n), p2->post, p1->bound + p2->bound};
+  }
+  return cc.failed("assignment inside an expression"), std::nullopt;
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::vector<const Stmt*>& list,
+                                                     std::size_t from, const cert::Assn& pre) {
+  if (from >= list.size()) return CertPiece{mk(Node{}), pre, 0};
+  const Stmt* st = list[from];
+  // Control that leaves the function: the rest of the list follows only the paths
+  // that do not return (guard clauses become conditionals over the rest).
+  if (hasReturn(st)) {
+    std::vector<const Stmt*> rest(list.begin() + static_cast<std::ptrdiff_t>(from) + 1, list.end());
+    if (const auto* rs = dyn_cast<ReturnStmt>(st)) return certStmt(cc, rs, pre);
+    if (const auto* cs = dyn_cast<CompoundStmt>(st)) {
+      std::vector<const Stmt*> l(cs->body_begin(), cs->body_end());
+      l.insert(l.end(), rest.begin(), rest.end());
+      return certList(cc, l, 0, pre);
+    }
+    if (const auto* is = dyn_cast<IfStmt>(st)) {
+      std::vector<const Stmt*> t = flatten(is->getThen()), e = flatten(is->getElse());
+      t.insert(t.end(), rest.begin(), rest.end());
+      e.insert(e.end(), rest.begin(), rest.end());
+      return certIf(cc, is, t, e, pre);
+    }
+    if (const auto* as = dyn_cast<AttributedStmt>(st)) {
+      std::vector<const Stmt*> l{as->getSubStmt()};
+      l.insert(l.end(), rest.begin(), rest.end());
+      return certList(cc, l, 0, pre);
+    }
+    return cc.failed("return inside a loop or a switch (not in the fragment yet)"), std::nullopt;
+  }
+  std::optional<CertPiece> first = certStmt(cc, st, pre);
+  if (!first) return std::nullopt;
+  if (from + 1 == list.size()) return first;
+  std::optional<CertPiece> rest = certList(cc, list, from + 1, first->post);
+  if (!rest) return std::nullopt;
+  return seqPiece(*first, *rest);
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certIf(CertCtx& cc, const IfStmt* is,
+                                                   const std::vector<const Stmt*>& thenList,
+                                                   const std::vector<const Stmt*>& elseList,
+                                                   const cert::Assn& pre) {
+  if (is->getInit() || is->getConditionVariable() || is->isConsteval() || is->isConstexpr())
+    return cc.failed("if with an initialiser, a condition variable or constexpr"), std::nullopt;
+  Scan sc = scanOf(is->getCond(), cc.var);
+  if (sc.writes) return cc.failed("test with an assignment"), std::nullopt;
+  std::optional<CertPiece> calls;
+  if (sc.calls) {
+    calls = certCallsIn(cc, is->getCond(), pre);
+    if (!calls) return std::nullopt;
+  }
+  const Assn& pre0 = calls ? calls->post : pre;
+  std::uint64_t w = costOf(is->getCond()) + w_.branch;
+  std::optional<PExp> g = certTest(cc, is->getCond());
+  Assn start = pre0;
+  NodeP choose;
+  if (!g) {
+    // A test the fragment cannot express: a nondeterministic choice.
+    start = cert::eliminate(pre0, cc.choice);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(pre0, start);
+    if (!pc) return cc.failed("internal: choice"), std::nullopt;
+    Node h;
+    h.kind = Node::Havoc;
+    h.x = cc.choice;
+    choose = weaken(start, *pc, 0, start, identityCerts(start), mk(h));
+    g = PExp{cert::unitVec(cc.choice), 0};
+  }
+  Assn pre1 = start, pre2 = start;
+  pre1.insert(pre1.begin(), cert::toLin(*g));
+  pre2.insert(pre2.begin(), cert::negLin(*g));
+  auto branch = [&](const std::vector<const Stmt*>& l, const Assn& p) -> std::optional<CertPiece> {
+    if (!cert::feasible(p))
+      if (auto d = deadNode(p)) return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
+    return certList(cc, l, 0, p);
+  };
+  std::optional<CertPiece> b1 = branch(thenList, pre1);
+  if (!b1) return std::nullopt;
+  std::optional<CertPiece> b2 = branch(elseList, pre2);
+  if (!b2) return std::nullopt;
+  bool dead1 = b1->node->kind == Node::Dead, dead2 = b2->node->kind == Node::Dead;
+  Assn join;
+  if (dead1) join = b2->post;
+  else if (dead2) join = b1->post;
+  else {
+    Assn cands = b1->post;
+    cands.insert(cands.end(), b2->post.begin(), b2->post.end());
+    for (const Lin& e : cert::normalize(cands))
+      if (cert::farkas(b1->post, e) && cert::farkas(b2->post, e)) join.push_back(e);
+  }
+  auto wrap = [&](CertPiece& b, const Assn& p) -> std::optional<NodeP> {
+    if (b.node->kind == Node::Dead) return b.node;
+    std::optional<std::vector<Farkas>> qc = cert::farkasAll(b.post, join);
+    if (!qc) return std::nullopt;
+    return weaken(p, identityCerts(p), b.bound, b.post, *qc, b.node);
+  };
+  std::optional<NodeP> n1 = wrap(*b1, pre1), n2 = wrap(*b2, pre2);
+  if (!n1 || !n2) return cc.failed("internal: join"), std::nullopt;
+  Node n;
+  n.kind = Node::Ite;
+  n.w = w;
+  n.a = *g;
+  n.b1 = b1->bound;
+  n.b2 = b2->bound;
+  n.c1 = *n1;
+  n.c2 = *n2;
+  std::uint64_t bound = w + std::max(b1->bound, b2->bound);
+  CertPiece out{mk(n), join, bound};
+  if (choose) out = seqPiece(CertPiece{choose, start, 0}, out);
+  if (calls) out = seqPiece(*calls, out);
+  return out;
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* loop, const Expr* cond,
+                                                     const Stmt* body, const Expr* inc,
+                                                     const cert::Assn& pre) {
+  auto pit = cc.potentials->find(loop);
+  if (pit == cc.potentials->end())
+    return cc.failed("loop without a derived potential (annotated or not bounded)"), std::nullopt;
+  if (!cond) return cc.failed("loop without a test"), std::nullopt;
+  Scan sc = scanOf(cond, cc.var);
+  if (sc.calls || sc.writes) return cc.failed("loop test with a call or an assignment"), std::nullopt;
+  Scan sb = scanOf(body, cc.var);
+  if (sb.jumps) return cc.failed("break, continue or return in a loop (not in the fragment yet)"), std::nullopt;
+  std::optional<PExp> g = certTest(cc, cond);
+  if (!g) return cc.failed("loop test that is not a single linear comparison"), std::nullopt;
+  std::uint64_t w = costOf(cond) + w_.branch;
+
+  // The potential, scaled to integer coefficients: pot = D * V, decrease d = D.
+  const LoopPotential& lp = pit->second;
+  std::int64_t den = std::max<std::int64_t>(1, lp.rank.offset.den);
+  for (const Rational& q : lp.rank.weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
+  PExp pot;
+  for (std::size_t i = 0; i < lp.slots.size(); ++i) {
+    const Rational& q = lp.rank.weights[i];
+    if (q.num == 0) continue;
+    auto it = cc.var.find(lp.slots[i]);
+    if (it == cc.var.end()) return cc.failed("potential over a variable outside the fragment"), std::nullopt;
+    if (pot.sv.size() <= it->second) pot.sv.resize(it->second + 1, 0);
+    pot.sv[it->second] += q.num * (den / q.den);
+  }
+  pot.c = lp.rank.offset.num * (den / lp.rank.offset.den);
+  trimP(pot);
+  std::uint64_t d = static_cast<std::uint64_t>(den);
+  std::size_t j = cc.depth;
+
+  std::vector<const Stmt*> stmts;
+  if (const auto* cs = dyn_cast<CompoundStmt>(body))
+    for (const Stmt* s : cs->body()) stmts.push_back(s);
+  else
+    stmts.push_back(body);
+  auto runBody = [&](const Assn& p) -> std::optional<CertPiece> {
+    ++cc.depth;
+    std::optional<CertPiece> b = certList(cc, stmts, 0, p);
+    if (b && inc) {
+      std::optional<CertPiece> i = certExpr(cc, inc, b->post);
+      if (!i) b.reset();
+      else {
+        Node n;
+        n.kind = Node::Seq;
+        n.c1 = b->node;
+        n.mid = b->post;
+        n.b1 = b->bound;
+        n.b2 = i->bound;
+        n.c2 = i->node;
+        b = CertPiece{mk(n), i->post, b->bound + i->bound};
+      }
+    }
+    --cc.depth;
+    return b;
+  };
+
+  // Invariant: Houdini over the constraints known on entry and the guard relaxed by one.
+  Assn cands = cert::normalize(pre);
+  {
+    Lin relaxed = cert::toLin(*g);
+    relaxed.c -= 1;
+    Assn one = cert::normalize({relaxed});
+    if (!one.empty() && cert::farkas(pre, one[0])) cands.push_back(one[0]);
+  }
+  cands.erase(std::remove_if(cands.begin(), cands.end(),
+                             [&](const Lin& e) { return cert::coeff(e.lv, j) != 0; }),
+              cands.end());
+  for (std::size_t round = 0; round <= cands.size() + 1; ++round) {
+    Assn p = cands;
+    p.insert(p.begin(), cert::toLin(*g));
+    std::optional<CertPiece> b = runBody(p);
+    if (!b) return std::nullopt;
+    Assn kept;
+    for (const Lin& e : cands)
+      if (cert::farkas(b->post, e)) kept.push_back(e);
+    if (kept.size() == cands.size()) break;
+    cands = std::move(kept);
+  }
+  const Assn& inv = cands;
+
+  Assn guardInv = inv;
+  guardInv.insert(guardInv.begin(), cert::toLin(*g));
+  std::optional<Farkas> posCert = cert::farkas(guardInv, Lin{cert::vsmul(-1, pot.sv), {},
+                                                             static_cast<std::int64_t>(d) - pot.c});
+  if (!posCert) return cc.failed("the potential is not shown positive by the invariant"), std::nullopt;
+  std::optional<std::int64_t> k = cert::upperBound(pre, pot);
+  if (!k) return cc.failed("the potential is unbounded on entry"), std::nullopt;
+
+  Assn bodyPre = guardInv;
+  bodyPre.insert(bodyPre.begin(), cert::ghost(pot, j, 0));
+  std::optional<CertPiece> b = runBody(bodyPre);
+  if (!b) return std::nullopt;
+  Assn bodyPost = inv;
+  bodyPost.insert(bodyPost.begin(), cert::ghost(pot, j, static_cast<std::int64_t>(d)));
+  std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
+  if (!qc) return cc.failed("the decrease of the potential could not be certified"), std::nullopt;
+
+  Node wn;
+  wn.kind = Node::While;
+  wn.w = w;
+  wn.a = *g;
+  wn.inv = inv;
+  wn.pot = pot;
+  wn.d = d;
+  wn.k = *k;
+  wn.j = j;
+  wn.posCert = *posCert;
+  wn.b1 = b->bound;
+  wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
+  Assn pw = inv;
+  pw.insert(pw.begin(), Lin{pot.sv, {}, pot.c - *k});
+  Assn qw = inv;
+  qw.insert(qw.begin(), cert::negLin(*g));
+  std::uint64_t bw = cert::whileBound(*k, d, w, b->bound);
+  std::optional<std::vector<Farkas>> pc = cert::farkasAll(pre, pw);
+  if (!pc) return cc.failed("internal: loop entry"), std::nullopt;
+  return CertPiece{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+}
+
+namespace {
+/// The calls of an expression that are not inside another call's arguments.
+struct OuterCalls : RecursiveASTVisitor<OuterCalls> {
+  std::vector<const CallExpr*> calls;
+  bool TraverseCallExpr(CallExpr* c) { calls.push_back(c); return true; }
+  bool TraverseCXXMemberCallExpr(CXXMemberCallExpr* c) { calls.push_back(c); return true; }
+  bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr* c) { calls.push_back(c); return true; }
+  bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr*) { return true; }
+  bool TraverseLambdaExpr(LambdaExpr*) { return true; }
+};
+}  // namespace
+
+std::optional<Analyzer::CertPiece> Analyzer::certCallsIn(CertCtx& cc, const Expr* e,
+                                                        const cert::Assn& pre) {
+  OuterCalls oc;
+  oc.TraverseStmt(const_cast<Expr*>(e));
+  CertPiece acc{mk(Node{}), pre, 0};
+  for (const CallExpr* c : oc.calls) {
+    std::optional<CertPiece> p = certCall(cc, c, acc.post);
+    if (!p) return std::nullopt;
+    acc = seqPiece(acc, *p);
+  }
+  return acc;
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certCall(CertCtx& cc, const CallExpr* call,
+                                                     const cert::Assn& pre) {
+  const FunctionDecl* fd = call->getDirectCallee();
+  if (!fd) return cc.failed("indirect call"), std::nullopt;
+  auto kit = cc.callKeys->find(call);
+  if (kit == cc.callKeys->end())
+    return cc.failed("call to a function without an analysed body (trusted cost, not in the fragment yet)"),
+           std::nullopt;
+  auto sit = cache_.find(kit->second);
+  const FunctionDecl* def = nullptr;
+  if (sit == cache_.end() || !fd->hasBody(def) || !def || !sit->second.ok)
+    return cc.failed("call to a function that is not bounded"), std::nullopt;
+  const Summary& sm = sit->second;
+  const auto* body = dyn_cast_or_null<CompoundStmt>(def->getBody());
+  if (!body) return cc.failed("callee without a body"), std::nullopt;
+  if (cc.inlining.count(def->getCanonicalDecl()) || cc.inlining.size() > 8)
+    return cc.failed("recursive or deeply nested calls"), std::nullopt;
+  std::vector<const Expr*> args(call->arg_begin(), call->arg_end());
+  if (isa<CXXOperatorCallExpr>(call))
+    if (const auto* md = dyn_cast<CXXMethodDecl>(fd); md && md->isInstance() && !args.empty())
+      args.erase(args.begin());
+  // Calls in the arguments first. The cost of the arguments and of the call itself is
+  // charged by the enclosing expression (costOf); here only the callee's body.
+  CertPiece acc{mk(Node{}), pre, 0};
+  for (const Expr* a : args) {
+    Scan sc = scanOf(a, cc.var);
+    if (sc.writes) return cc.failed("assignment in an argument"), std::nullopt;
+    if (sc.calls) {
+      std::optional<CertPiece> inner = certCallsIn(cc, a, acc.post);
+      if (!inner) return std::nullopt;
+      acc = seqPiece(acc, *inner);
+    }
+  }
+  std::string savedPrefix = cc.prefix;
+  cc.prefix = def->getNameAsString() + "::";
+  // Parameters receive the arguments (evaluated in the caller's variables).
+  std::vector<std::pair<std::size_t, std::optional<PExp>>> binds;
+  for (unsigned i = 0; i < def->getNumParams() && i < args.size(); ++i) {
+    const ParmVarDecl* p = def->getParamDecl(i);
+    if (!sm.tracked.count(p) || !signedInt(p->getType())) continue;
+    std::optional<PExp> a = ctx_.hasSameUnqualifiedType(args[i]->getType(), p->getType()) ||
+                                    widens(args[i]->getType(), p->getType())
+                                ? certAffine(cc, args[i])
+                                : std::nullopt;
+    if (a) trimP(*a);
+    cc.addVar(p);
+    if (cc.var.count(p)) binds.push_back({cc.var.at(p), a});
+  }
+  for (const VarDecl* v : sm.tracked)
+    if (!isa<ParmVarDecl>(v) && signedInt(v->getType())) cc.addVar(v);
+  // Simultaneous binding: arguments only mention the caller's variables.
+  for (const auto& [x, a] : binds) {
+    std::optional<CertPiece> b = certAssign(cc, 0, x, a, acc.post);
+    if (!b) { cc.prefix = savedPrefix; return std::nullopt; }
+    acc = seqPiece(acc, *b);
+  }
+  const auto* savedPot = cc.potentials;
+  const auto* savedKeys = cc.callKeys;
+  cc.potentials = sm.potentials.get();
+  cc.callKeys = &sm.callKeys;
+  cc.inlining.insert(def->getCanonicalDecl());
+  std::vector<const Stmt*> list(body->body_begin(), body->body_end());
+  std::optional<CertPiece> b = certList(cc, list, 0, acc.post);
+  cc.inlining.erase(def->getCanonicalDecl());
+  cc.potentials = savedPot;
+  cc.callKeys = savedKeys;
+  cc.prefix = savedPrefix;
+  if (!b) return std::nullopt;
+  return seqPiece(acc, *b);
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* st, const cert::Assn& pre) {
+  if (cc.prefix.empty()) cc.line = lineOf(st->getBeginLoc());
+  if (const auto* cs = dyn_cast<CompoundStmt>(st)) {
+    std::vector<const Stmt*> list(cs->body_begin(), cs->body_end());
+    return certList(cc, list, 0, pre);
+  }
+  if (isa<NullStmt>(st)) return CertPiece{mk(Node{}), pre, 0};
+  if (const auto* ds = dyn_cast<DeclStmt>(st)) {
+    std::vector<const Stmt*> none;
+    CertPiece acc{mk(Node{}), pre, 0};
+    bool firstDone = false;
+    for (const Decl* d : ds->decls()) {
+      const auto* vd = dyn_cast<VarDecl>(d);
+      if (!vd) continue;
+      const Expr* init = vd->getInit();
+      Scan sc = scanOf(init, cc.var);
+      if (sc.writes) return cc.failed("assignment inside an expression"), std::nullopt;
+      std::optional<CertPiece> p;
+      auto it = cc.var.find(vd);
+      CertPiece before{mk(Node{}), acc.post, 0};
+      if (sc.calls) {
+        std::optional<CertPiece> c = certCallsIn(cc, init, acc.post);
+        if (!c) return std::nullopt;
+        before = *c;
+      }
+      std::uint64_t wd = (init ? costOf(init) : 0) + (init && isIntType(vd->getType()) ? w_.assign : 0);
+      if (it != cc.var.end()) {
+        std::optional<PExp> a = init ? certAffine(cc, init) : std::nullopt;
+        if (a) trimP(*a);
+        p = certAssign(cc, wd, it->second, a, before.post);
+      } else {
+        Node n;
+        n.kind = Node::Havoc;
+        n.w = wd;
+        n.x = cc.dummy;
+        p = CertPiece{mk(n), before.post, wd};
+      }
+      if (p && sc.calls) p = seqPiece(before, *p);
+      if (!p) return std::nullopt;
+      if (!firstDone) {
+        acc = *p;
+        firstDone = true;
+      } else {
+        Node s;
+        s.kind = Node::Seq;
+        s.c1 = acc.node;
+        s.mid = acc.post;
+        s.b1 = acc.bound;
+        s.b2 = p->bound;
+        s.c2 = p->node;
+        acc = CertPiece{mk(s), p->post, acc.bound + p->bound};
+      }
+    }
+    return acc;
+  }
+  if (const auto* is = dyn_cast<IfStmt>(st))
+    return certIf(cc, is, flatten(is->getThen()), flatten(is->getElse()), pre);
+  if (const auto* ws = dyn_cast<WhileStmt>(st)) {
+    if (ws->getConditionVariable()) return cc.failed("condition variable"), std::nullopt;
+    return certLoop(cc, ws, ws->getCond(), ws->getBody(), nullptr, pre);
+  }
+  if (const auto* fs = dyn_cast<ForStmt>(st)) {
+    if (fs->getConditionVariable()) return cc.failed("condition variable"), std::nullopt;
+    CertPiece init{mk(Node{}), pre, 0};
+    if (fs->getInit()) {
+      std::optional<CertPiece> i = certStmt(cc, fs->getInit(), pre);
+      if (!i) return std::nullopt;
+      init = *i;
+    }
+    std::optional<CertPiece> l = certLoop(cc, fs, fs->getCond(), fs->getBody(), fs->getInc(), init.post);
+    if (!l) return std::nullopt;
+    if (!fs->getInit()) return l;
+    Node s;
+    s.kind = Node::Seq;
+    s.c1 = init.node;
+    s.mid = init.post;
+    s.b1 = init.bound;
+    s.b2 = l->bound;
+    s.c2 = l->node;
+    return CertPiece{mk(s), l->post, init.bound + l->bound};
+  }
+  if (const auto* rs = dyn_cast<ReturnStmt>(st)) {
+    const Expr* v = rs->getRetValue();
+    Scan sc = scanOf(v, cc.var);
+    if (sc.writes) return cc.failed("assignment inside an expression"), std::nullopt;
+    Node n;
+    n.kind = Node::Havoc;
+    n.x = cc.dummy;
+    if (sc.calls) {
+      std::optional<CertPiece> c = certCallsIn(cc, v, pre);
+      if (!c) return std::nullopt;
+      n.w = costOf(v) + w_.ret;
+      return seqPiece(*c, CertPiece{mk(n), c->post, n.w});
+    }
+    n.w = costOf(v) + w_.ret;
+    return CertPiece{mk(n), pre, n.w};
+  }
+  if (const auto* e = dyn_cast<Expr>(st)) {
+    if (asMarker(e, "require")) return CertPiece{mk(Node{}), pre, 0};
+    if (asMarker(e, "assume") || asMarker(e, "loop_bound"))
+      return cc.failed("trusted annotation (CROSSCHECK_ASSUME / LOOP_BOUND) not in the fragment yet"),
+             std::nullopt;
+    return certExpr(cc, e, pre);
+  }
+  if (const auto* as = dyn_cast<AttributedStmt>(st)) return certStmt(cc, as->getSubStmt(), pre);
+  return cc.failed(std::string("statement not in the fragment (") + st->getStmtClassName() + ")"),
+         std::nullopt;
+}
+
+namespace {
+/// Variables that can influence control: those of tests and potentials, closed
+/// under the assignments and parameter passing that feed them. The others are not
+/// variables of the certificate (their assignments only cost their weight).
+struct FlowScan : RecursiveASTVisitor<FlowScan> {
+  std::set<const VarDecl*> control;
+  std::vector<std::pair<const VarDecl*, std::set<const VarDecl*>>> flows;
+  std::set<const FunctionDecl*> seen;
+  static std::set<const VarDecl*> varsOf(const Stmt* s) {
+    struct V : RecursiveASTVisitor<V> {
+      std::set<const VarDecl*> out;
+      bool VisitDeclRefExpr(DeclRefExpr* d) {
+        if (const auto* v = dyn_cast<VarDecl>(d->getDecl())) out.insert(v);
+        return true;
+      }
+    } v;
+    if (s) v.TraverseStmt(const_cast<Stmt*>(s));
+    return v.out;
+  }
+  static const VarDecl* lhsVar(const Expr* e) {
+    if (const auto* d = dyn_cast<DeclRefExpr>(e->IgnoreParenImpCasts())) return dyn_cast<VarDecl>(d->getDecl());
+    return nullptr;
+  }
+  void test(const Expr* e) {
+    auto vs = varsOf(e);
+    control.insert(vs.begin(), vs.end());
+  }
+  bool VisitIfStmt(IfStmt* s) { test(s->getCond()); return true; }
+  bool VisitWhileStmt(WhileStmt* s) { test(s->getCond()); return true; }
+  bool VisitForStmt(ForStmt* s) { test(s->getCond()); return true; }
+  bool VisitDoStmt(DoStmt* s) { test(s->getCond()); return true; }
+  bool VisitSwitchStmt(SwitchStmt* s) { test(s->getCond()); return true; }
+  bool VisitConditionalOperator(ConditionalOperator* c) { test(c->getCond()); return true; }
+  bool VisitBinaryOperator(BinaryOperator* e) {
+    if (e->isLogicalOp()) test(e);
+    if (e->isAssignmentOp())
+      if (const VarDecl* v = lhsVar(e->getLHS())) {
+        auto src = varsOf(e->getRHS());
+        if (e->isCompoundAssignmentOp()) src.insert(v);
+        flows.push_back({v, src});
+      }
+    return true;
+  }
+  bool VisitVarDecl(VarDecl* v) {
+    if (v->getInit()) flows.push_back({v, varsOf(v->getInit())});
+    return true;
+  }
+  bool VisitCallExpr(CallExpr* c) {
+    const FunctionDecl* fd = c->getDirectCallee();
+    const FunctionDecl* def = nullptr;
+    if (!fd || !fd->hasBody(def) || !def) return true;
+    unsigned first = 0;
+    if (isa<CXXOperatorCallExpr>(c))
+      if (const auto* md = dyn_cast<CXXMethodDecl>(fd); md && md->isInstance()) first = 1;
+    for (unsigned i = 0; i + first < c->getNumArgs() && i < def->getNumParams(); ++i)
+      flows.push_back({def->getParamDecl(i), varsOf(c->getArg(i + first))});
+    if (seen.insert(def->getCanonicalDecl()).second && def->getBody())
+      TraverseStmt(def->getBody());
+    return true;
+  }
+  bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr*) { return true; }
+  std::set<const VarDecl*> close() {
+    std::set<const VarDecl*> r = control;
+    for (bool changed = true; changed;) {
+      changed = false;
+      for (const auto& [t, src] : flows)
+        if (r.count(t))
+          for (const VarDecl* v : src) changed |= r.insert(v).second;
+    }
+    return r;
+  }
+};
+}  // namespace
+
+std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::string& reason,
+                                                 std::uint64_t& bound) {
+  FnCtx& fc = cur();
+  CertCtx cc;
+  if (callsItself(def)) { reason = "recursive function (not in the fragment yet)"; return std::nullopt; }
+  cc.names = {"?choice", "?cost"};
+  cc.potentials = &fc.potentials;
+  cc.callKeys = &fc.callKeys;
+  cc.inlining.insert(def->getCanonicalDecl());
+  {
+    FlowScan fs;
+    fs.seen.insert(def->getCanonicalDecl());
+    fs.TraverseStmt(def->getBody());
+    auto addSlots = [&](const std::map<const Stmt*, LoopPotential>& m) {
+      for (const auto& [l, lp] : m)
+        for (std::size_t i = 0; i < lp.slots.size() && i < lp.rank.weights.size(); ++i)
+          if (lp.rank.weights[i].num != 0) fs.control.insert(lp.slots[i]);
+    };
+    addSlots(fc.potentials);
+    for (const auto& [key, sm] : cache_)
+      if (sm.potentials && fs.seen.count(key.first)) addSlots(*sm.potentials);
+    cc.relevant = fs.close();
+  }
+  // Variables: integer parameters, then tracked locals, all of signed type.
+  for (unsigned i = 0; i < def->getNumParams(); ++i) {
+    const ParmVarDecl* p = def->getParamDecl(i);
+    if (fc.tracked.count(p) && signedInt(p->getType())) cc.addVar(p);
+  }
+  std::vector<const VarDecl*> locals;
+  for (const VarDecl* v : fc.tracked)
+    if (!isa<ParmVarDecl>(v) && signedInt(v->getType())) locals.push_back(v);
+  std::sort(locals.begin(), locals.end(),
+            [](const VarDecl* a, const VarDecl* b) { return a->getLocation() < b->getLocation(); });
+  for (const VarDecl* v : locals) cc.addVar(v);
+
+  // Precondition: the declared ranges and requirements on the parameters.
+  Assn pre;
+  std::map<SymId, std::size_t> paramIndex;
+  for (unsigned i = 0; i < def->getNumParams(); ++i)
+    if (i < fc.summary.paramSyms.size() && fc.summary.paramSyms[i])
+      if (auto it = cc.var.find(def->getParamDecl(i)); it != cc.var.end())
+        paramIndex[*fc.summary.paramSyms[i]] = it->second;
+  for (const Constraint& c : fc.summary.requires_) {
+    if (c.e.poisoned()) continue;
+    Lin l;
+    l.c = c.e.constantTerm();
+    bool ok = true;
+    for (const auto& [s, k] : c.e.terms()) {
+      auto it = paramIndex.find(s);
+      if (it == paramIndex.end()) { ok = false; break; }
+      if (l.sv.size() <= it->second) l.sv.resize(it->second + 1, 0);
+      l.sv[it->second] = k;
+    }
+    if (ok) pre.push_back(l);
+  }
+  pre = cert::normalize(pre);
+
+  const auto* body = dyn_cast_or_null<CompoundStmt>(def->getBody());
+  if (!body) { reason = "no body"; return std::nullopt; }
+  std::vector<const Stmt*> list(body->body_begin(), body->body_end());
+  std::optional<CertPiece> p = certList(cc, list, 0, pre);
+  if (!p) {
+    reason = cc.fail.empty() ? "unsupported construct" : cc.fail;
+    return std::nullopt;
+  }
+  NodeP top = weaken(pre, identityCerts(pre), p->bound, p->post, {}, p->node);
+  bound = p->bound;
+  return cert::toJson(def->getQualifiedNameAsString(), cc.names, pre, p->bound, {}, *top);
 }
 
 // ===========================================================================
@@ -2265,6 +3327,7 @@ Report Analyzer::run() {
     report.functions.push_back(std::move(rep));
   }
   fillInContext(report, order);
+  report.certificates = std::move(certificates_);
   return report;
 }
 

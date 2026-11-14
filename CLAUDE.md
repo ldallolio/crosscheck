@@ -17,7 +17,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 |---|---|
 | `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 185 theorems. |
 | `paper/crosscheck.tex`, `paper/crosscheck.bib` | amsart LaTeX preprint (37 pages). Target venue: **arXiv**. Compiles with no warnings. |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 120 CTest tests pass. See `clang-plugin/README.md`. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 126 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`). See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
@@ -27,7 +27,8 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `docs/guide/` | Companion guide for the author (background, paper walkthrough, bibliography summaries, plugin UML, Lean tutorial and module docs, expert Q&A). Quotes Lean names, plugin classes and paper labels: update it when they change. |
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
 | `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. |
-| `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`), on changes to `clang-plugin/` or `benchmarks/`. |
+| `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`) → certificates of TACLeBench and the examples; a second job builds `crosscheck-check` and checks every certificate. |
+| `docs/certificate-format.md` | The certificate format (= Lean `ACmd`) and how the plugin produces certificates. |
 
 Toolchain on this machine: `lake`, `lean`, `pdflatex`, `latexmk`, system `g++` 13. Clang 18, Z3,
 CMake, Ninja and GoogleTest live in the conda env `crosscheck`
@@ -41,6 +42,7 @@ parse its libstdc++ headers. Use the system `g++` and point Clang at the system 
 # Lean (from formalization/). Goal: 0 errors, 0 warnings.
 lake exe cache get        # first time only: download prebuilt mathlib
 lake build
+lake build crosscheck-check   # the certificate checker program (CheckerMain.lean, no mathlib)
 
 # Paper (from paper/)
 latexmk -pdf crosscheck.tex
@@ -175,6 +177,9 @@ expressions over immutable symbols + linear facts) → Z3 via Farkas (`src/core/
     the report's `assumptions`;
   - a new loop/recursion feature needs a "must be rejected" test in `tests/analyzer_test.cpp`
     (suites `Unsound`, `UnsoundContext`);
+  - certificates: never make the checker accept more without a Lean proof; the generator
+    (Analyzer.cpp "Certificates", core/Cert.*) may do anything, the checker decides; lists
+    that the checker compares syntactically must be built with the replicas in `Cert.cpp`;
   - calling contexts: expressions are evaluated on all states before they are costed; an
     argument counts only if it already has the parameter's type; functions that call
     themselves get no context; every interval end is re-checked by `entails`.

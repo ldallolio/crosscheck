@@ -13,6 +13,7 @@ import ImperativeOptimization.Recursion
 import ImperativeOptimization.Certificate
 import ImperativeOptimization.Arity
 import ImperativeOptimization.Language
+import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.Checker
 import ImperativeOptimization.FixedPoint
 import ImperativeOptimization.OperationalSemantics

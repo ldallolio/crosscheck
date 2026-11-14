@@ -8,3 +8,7 @@ require mathlib from git
 
 @[default_target]
 lean_lib «ImperativeOptimization» where
+
+/-- The certificate checker (`lake exe crosscheck-check FILE.json`). -/
+lean_exe «crosscheck-check» where
+  root := `CheckerMain

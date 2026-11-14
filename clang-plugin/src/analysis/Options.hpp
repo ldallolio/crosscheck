@@ -44,6 +44,11 @@ struct Options {
   /// Entry function for the "in context" results of the report (qualified
   /// name). Empty: every analysed function that no analysed function calls.
   std::string entry;
+  /// Emit a cost certificate for every analysed function that the certificate
+  /// fragment covers (see docs/certificate-format.md); written by the tool and
+  /// the plugin to `certificatesPath` when it is not empty.
+  bool certificates = false;
+  std::string certificatesPath;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -54,6 +59,11 @@ struct Options {
     std::string key = arg.substr(0, eq), value = arg.substr(eq + 1);
     if (key == "report") { reportPath = value; return !value.empty(); }
     if (key == "entry") { entry = value; return !value.empty(); }
+    if (key == "certificates") {
+      certificates = true;
+      certificatesPath = value;
+      return !value.empty();
+    }
     if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
         value.size() > 18)
       return false;
