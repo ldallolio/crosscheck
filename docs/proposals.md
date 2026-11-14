@@ -27,8 +27,8 @@ quadrantChart
   "Rust front-end": [0.7, 0.55]
 ```
 
-- **Strong**: soundness record (no bound below an observed count); certificates for 142 of
-  158 bounded TACLeBench functions, all accepted by a verified checker; in-context loop
+- **Strong**: soundness record (no bound below an observed count); certificates for 156 of
+  158 bounded TACLeBench functions (142 before step 1 of §5), all accepted by a verified checker; in-context loop
   bounds identical to oRange's wherever both exist.
 - **Weak**: the translation from C++ to the certificate is unverified; no symbolic bounds
   (TPDB: 165 vs 288 for KoAT2); small benchmarks; cost is not time.
@@ -74,10 +74,10 @@ flowchart LR
 
 | Construct | How | Kind |
 |---|---|---|
-| `break`, `continue`, `return` in loops | triples with separate postconditions for normal exit, `break` and `return` (a standard Hoare logic with jumps); checker case and proof | T |
-| `switch` (with fall-through) | desugar to nested conditionals in the generator, duplicating fall-through code | E |
-| unsigned / `size_t` | encode "no wrap" as a conditional whose wrapping branch is proved dead by the checker; 64-bit constants need wider integers in `Cert.cpp` | E |
-| `&&`, `||` in loop tests | a guard list in the checker's loop rule; nondeterministic parts as choice variables | T |
+| `break`, `continue`, `return` in loops | **done**: flag variables in the generator, and one checker node `whileAnd` (conjunctive test, proved in `check_sound`); a logic with jump postconditions was not needed | T (small) |
+| `switch` (with fall-through) | **done**: one nondeterministic conditional per group of cases; fall-through is the sequence | E |
+| unsigned / `size_t` | **done**: every unsigned store is a conditional whose wrapping branch the checker proves dead; 64-bit types use the test `a ≤ 2^62` | E |
+| `&&`, `||` in loop tests | **done**: the guard list of `whileAnd`; other conjuncts (`||`, `!=`, memory) as choice variables | T |
 | globals, `static` locals | tracked as variables under a single-writer assumption listed in the report; `volatile` and atomics never tracked | E |
 | struct fields, arrays with constant index | scalar replacement; `const` lookup tables with known contents give bounds from their values | E |
 | pointer iterators | an offset variable for `p` over a known array (`p < a + n`, `std::array` / `std::span` iterators) | E |
@@ -90,7 +90,9 @@ flowchart LR
 
 1. **Early exits, `switch`, unsigned** (§4, first three rows): closes most measured
    certificate gaps; small Lean work. Then re-measure, including the TACLeBench
-   *sequential* and *app* categories.
+   *sequential* and *app* categories. **Done 2026-11-14**: TACLeBench certificates 142 →
+   156 of 158; `run_tacle.py --category sequential --category app` (results in
+   `benchmarks/tacle/README.md`).
 2. **Flow-fact export and CI/SARIF** (I1, I2): immediate industrial value, no theory.
 3. **Modular symbolic certificates + library contracts** (S2, I4): the main scientific and
    industrial step; closes the TPDB gap and makes real code bases tractable.

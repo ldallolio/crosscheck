@@ -163,6 +163,7 @@ Composition rules:
 | `if (c) return x; rest` | `cost(c) + max(cost(return x), cost(rest))` |
 | `switch` | test + sum of all cases (sound with fall-through) |
 | loop with at most `K` iterations | `K · (test + body + step) + test` (+ one body if the loop can be left by `break`/`return`) |
+| `do body while (c)` | `body + K · (test + body) + test`, `K` bounding the iterations after the first; the report's loop bound is `K + 1`, the number of executions of the body |
 | function recursing with at most `N` activations | `N · (cost of one activation)` |
 
 These are upper bounds, not exact counts: infeasible paths are not excluded and
@@ -251,6 +252,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
 | depth `D`, branching `b` ⇒ at most `1 + b + … + b^D` activations | `callTree_size_le_geom`, `geom_closed` (`Arity`) |
 | size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
+| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`) ⇒ its bound holds for its program | `check_sound` (`Checker`) |
 
 **Not verified:** the C++ implementation (the translation from the Clang AST to
 constraints, the invariant generation, the cost counting) and Z3. The tests in
@@ -275,7 +277,15 @@ An accepted certificate bounds every execution of its program
 on the checker and on the lowering from C++ to the certificate's program, which is not
 verified. The report says, per function, `certificate: "emitted"` with the certified
 bound, or why there is none. The ctest `certificates_accepted_by_lean_checker` runs this
-on the example programs when CMake is given `-DCROSSCHECK_CHECKER=<path>`.
+on the example programs and on `tests/certificates/*.cpp` (early exits, `switch`, `&&`
+tests, unsigned counters) when CMake is given `-DCROSSCHECK_CHECKER=<path>`.
+
+The fragment covers assignments, conditionals, `for`/`while` loops (with `break`,
+`continue` and `return` inside, and `&&` tests), `switch` (with fall-through), calls
+to analysed functions (inlined in their calling context), and signed and unsigned
+integer variables. Unsigned stores carry an explicit wrap-around test whose wrapping
+branch the checker must prove dead. How each construct is lowered:
+[`docs/certificate-format.md`](../docs/certificate-format.md).
 
 ## Limitations
 

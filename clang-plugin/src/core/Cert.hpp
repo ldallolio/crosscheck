@@ -81,10 +81,11 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, Seq, Ite, While, Weaken, Dead } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, Seq, Ite, While, WhileAnd, Weaken, Dead } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
+  std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test
   Assn mid;                     // Seq
   std::uint64_t b1 = 0, b2 = 0; // Seq, Ite: bounds of the parts; While: Wb in b1
   Assn inv;                     // While

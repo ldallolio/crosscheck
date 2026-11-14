@@ -172,6 +172,8 @@ def ACmd.toCmd : ACmd → Cmd Empty Env
   | .seq c₁ _ _ _ c₂ => Cmd.seq c₁.toCmd c₂.toCmd
   | .ite w g _ _ c₁ c₂ => Cmd.ite w (fun s => decide (g.eval s ≤ 0)) c₁.toCmd c₂.toCmd
   | .while w g _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
+  | .whileAnd w gs _ _ _ _ _ _ _ body =>
+      Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
 
@@ -288,6 +290,70 @@ theorem check_sound (c : ACmd) : ∀ (P Q : List Lin) (B : ℕ), check P c B Q =
       have hg : g.eval s ≤ 0 := by simpa using hb
       have := entails1_sound hpos (ρ := ρ) (s := s) (by
         rw [holds_cons, PExp.toLin_eval]; exact ⟨hg, hI⟩)
+      simp only [Lin.eval, dot, dot_vsmul] at this
+      have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
+      have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+      rw [le_div_iff₀ hd']
+      linarith
+    · intro s hs
+      have h2 : (pot.eval s : ℚ) ≤ (k : ℚ) := by exact_mod_cast hs
+      exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+  | whileAnd w gs inv pot d k j posCert Wb body ih =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, hQ⟩, hinv⟩, hpos⟩, hbody⟩, rfl⟩ := h
+    have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
+    have hgs : ∀ s, (gs.all (fun e => decide (e.eval s ≤ 0))) = true →
+        holds (gs.map PExp.toLin) ρ s := by
+      intro s hs e he
+      simp only [List.all_eq_true, decide_eq_true_eq] at hs
+      obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+      rw [PExp.toLin_eval]
+      exact hs g hg
+    have happ : ∀ (A B : List Lin) s, holds A ρ s → holds B ρ s → holds (A ++ B) ρ s := by
+      intro A B s hA hB e he
+      rcases List.mem_append.mp he with h | h
+      · exact hA e h
+      · exact hB e h
+    have key := valid_while (Φ := Φ₀) (I := holds inv ρ) (C := fun s => pot.eval s ≤ k)
+      (w := w) (b := fun s => gs.all (fun e => decide (e.eval s ≤ 0))) (c := body.toCmd) (Wb := Wb)
+      (fun s => (pot.eval s : ℚ) / d) ((k : ℚ) / d) ?_ ?_ ?_
+    · refine valid_conseq ?_ key (le_of_eq ?_) ?_
+      · intro s hP
+        rw [holds_cons] at hP
+        refine ⟨hP.2, ?_⟩
+        have := hP.1
+        simp only [Lin.eval, dot] at this
+        simp only [PExp.eval]
+        linarith
+      · rw [floor_div]
+      · rintro t ⟨hI, _⟩
+        rw [hQ]
+        exact hI
+    · intro v s hs
+      obtain ⟨hI, hb, hv⟩ := hs
+      have H := ih _ _ _ hbody (Function.update ρ j (pot.eval s)) s (by
+        rw [holds_cons, ghost_eval]
+        refine ⟨by simp, ?_⟩
+        have hinv' : (gs.map PExp.toLin ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+          simp only [List.all_append, Bool.and_eq_true]
+          refine ⟨?_, hinv⟩
+          simp [List.all_map, PExp.toLin, coeff]
+        rw [holds_update_logical hinv']
+        exact happ _ _ s (hgs s hb) hI)
+      refine ⟨H.1, fun t n he => ?_⟩
+      have ht := H.2 t n he
+      rw [holds_cons, ghost_eval, holds_update_logical hinv] at ht
+      refine ⟨ht.2, ?_⟩
+      have h1 : pot.eval t + d ≤ pot.eval s := by
+        have := ht.1
+        simp at this
+        linarith
+      have h2 : ((pot.eval t : ℚ) + d) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+      rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
+      linarith
+    · intro s hI hb
+      have := entails1_sound hpos (ρ := ρ) (s := s) (happ _ _ s (hgs s hb) hI)
       simp only [Lin.eval, dot, dot_vsmul] at this
       have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
       have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1

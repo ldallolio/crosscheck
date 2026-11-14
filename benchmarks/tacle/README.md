@@ -79,15 +79,54 @@ the certificate fragment (see `docs/certificate-format.md`), and with
 `--checker=formalization/.lake/build/bin/crosscheck-check` it runs the verified Lean
 checker on them and fails if one is rejected.
 
-On 2026-11-14: **142 of the 158 bounded functions** get a certificate, **all accepted
-by the checker**; the entry functions `<kernel>_main` of 7 kernels (complex_updates,
-countnegative, iir, jfdctint, lms, matrix1, st) are certified, bsort and ludcmp are not.
-137 certified bounds equal the plugin's bound; 4 are smaller (`__kernel_cosf`, in four
-kernels that include it: the forward assertions show that an expensive branch cannot
-follow an earlier test) and 1 is larger (`pm_init_data`: entry bound of a loop rounded
-up). Not certified: `return` inside a `switch` or a loop (8), loop tests that are not one
-comparison of signed integers (4: `i < sizeof(a)` compares with an unsigned value, and
-one in `md5`), `break` (3), an assignment inside an expression (1).
+On 2026-11-14, after early exits, `switch`, `&&` tests and unsigned variables were added
+to the generator: **156 of the 158 bounded functions** get a certificate, **all accepted
+by the checker** (before: 142). The entry functions `<kernel>_main` of 9 kernels are
+certified. 141 certified bounds equal the plugin's bound; 12 are smaller (9:
+`__kernel_cosf` and its callers, in four kernels: the forward assertions show that an
+expensive branch cannot follow an earlier test; 3 in `bsort`: the iteration that leaves
+by `break` is counted without the increment and without the plugin's extra body); 3 are
+larger (`ludcmp_main` and `main` of ludcmp: the entry bound of a loop is rounded up;
+`pm_init_data`: a `?:` calls `pm_floor` in one arm and `pm_ceil` in the other, and the
+certificate inlines both). Not certified: an assignment inside an expression
+(`bitcount_bit_shifter`) and a loop whose potential has no upper bound in the
+certificate's entry assertion (`ludcmp_test`). The script prints the reason for each
+function that is not certified.
+
+## Sequential and application programs (2026-11-14)
+
+```bash
+python3 benchmarks/tacle/run_tacle.py --category sequential --category app \
+    --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
+    --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check
+```
+
+The 23 *sequential* and 2 *app* programs of TACLeBench (larger: up to 10,000 lines after
+concatenation), without annotations, 572 loops with a flow fact:
+
+| | Derived | = flow fact | > flow fact | < flow fact | No bound | Not reached |
+|---|---|---|---|---|---|---|
+| for every call | 263 | 252 | 7 | 4 | 299 | 10 |
+| in context | 317 | 297 | 15 | 5 | | |
+
+- **Below the flow fact (5 in context), none a counter-example.** `h264_dec`: two loops
+  `for (i = 0; i < sizeof(a); ++i)` over `signed char [65][65][2]` and
+  `short [2][45][45]` run 8,450 and 8,100 times, the bounds derived; the flow facts say
+  33,800 and 16,200. Two loops of `h264_dec_decode_one_macroblock` are in a branch that
+  cannot run (`pred_dir = -1` just before `if (pred_dir != 2)`): bound 0. In
+  `cjpeg_wrbmp`, the grayscale branch of `write_colormap` is not taken by the program's
+  two calls (`cMap = 1`): bound 0 in context. Observed counts were not measured for these
+  programs (`measure_loops.py` covers the kernels).
+- **No bound** (299 loops for every call): mostly loops over data read from memory,
+  global or `struct` counters, pointers and floating-point values, which the analysis
+  does not track (see `docs/proposals.md` §4).
+- **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
+  `statemate`.
+- **Certificates: 232 of 252 bounded functions, all 232 accepted by the checker**; 209
+  equal to the plugin's bound, 17 smaller. Not certified: assignments inside expressions
+  (15, `gsm_dec` and `gsm_enc`: the macros of the GSM code, e.g. `STEP`, use `*LARc++`
+  inside an expression), calls to library functions
+  with a trusted cost (5, `susan`: `sqrtf`, `atanf`, `cosf`, …).
 
 ## Reading the results
 

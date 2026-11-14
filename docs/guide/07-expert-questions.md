@@ -12,7 +12,7 @@ limitation, it says so.
 > for a small language with procedures and contracts is proved sound, including for
 > diverging runs. Its linear instance has certificates that a small verified checker
 > validates with integer arithmetic. A Clang plugin emits such certificates for real-time
-> C/C++: on TACLeBench, 142 of 158 bounded functions are certified. The ingredients are
+> C/C++: on TACLeBench, 156 of 158 bounded functions are certified. The ingredients are
 > classical; the contribution is the end-to-end, machine-checked chain."
 
 ## 2. Semantics and programming languages

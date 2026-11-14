@@ -76,7 +76,9 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
     report.unlink(missing_ok=True)
     certs = [f"--opt=certificates={certdir / (name + '.json')}"] if certdir else []
     cmd = [str(tool), "--all", "--opt=entry=main", *certs, f"--report={report}", str(unit), "--",
-           "-x", "c", "-std=gnu99", f"-I{kdir}", "-w", "-ferror-limit=0", *extra]
+           "-x", "c", "-std=gnu99", f"-I{kdir}", "-w", "-ferror-limit=0",
+           # some programs call printf etc. without a declaration (an error since Clang 16)
+           "-Wno-error=implicit-function-declaration", *extra]
     t0 = time.monotonic()
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     seconds = time.monotonic() - t0
@@ -87,13 +89,17 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
     error_lines = {int(m.group(1)) for m in map(DIAG_RE.search, proc.stderr.splitlines()) if m}
     derived, in_ctx, main, program = {}, {}, None, None
     assumptions = 0
-    bounded_fns = certified = cert_equal = 0
+    bounded_fns = certified = cert_equal = cert_lower = 0
+    uncertified = []
     for f in rep["functions"]:
         if f.get("ok"):
             bounded_fns += 1
             if f.get("certificate") == "emitted":
                 certified += 1
                 cert_equal += f.get("certificate_bound") == f.get("wcet")
+                cert_lower += (f.get("certificate_bound") or 0) < (f.get("wcet") or 0)
+            elif f.get("certificate"):
+                uncertified.append(f"{f['name']}: {f['certificate']}")
         assumptions += len(f.get("assumptions") or [])
         if f["name"] == f"{name}_main":
             main = f
@@ -112,6 +118,7 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
                ctx_derived=0, ctx_equal=0, ctx_looser=0, ctx_tighter=0,
                program_ok=bool(program and program["ok"]),
                bounded_functions=bounded_fns, certified=certified, certified_equal=cert_equal,
+               certified_lower=cert_lower, uncertified=uncertified,
                main_certified=bool(main and main.get("certificate") == "emitted"),
                assumptions=assumptions, seconds=round(seconds, 1), details=[], ctx_details=[])
     for line, mx in sorted(pragmas(unit.read_text(errors="replace").splitlines()).items()):
@@ -174,6 +181,8 @@ def main():
     ap.add_argument("--extra-arg", action="append", default=[],
                     help="extra Clang flag, e.g. --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13")
     ap.add_argument("--only", action="append", help="run only these kernels")
+    ap.add_argument("--category", action="append",
+                    help="TACLeBench categories to run (kernel, sequential, app; default: kernel)")
     ap.add_argument("--markdown"); ap.add_argument("--latex"); ap.add_argument("--json")
     ap.add_argument("--certificates", help="emit cost certificates into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check the certificates (needs --certificates)")
@@ -183,7 +192,8 @@ def main():
     src = fetch(cache, a.rev)
     work = cache / "work"
     work.mkdir(parents=True, exist_ok=True)
-    kernels = sorted(p for p in (src / "bench/kernel").iterdir() if p.is_dir())
+    kernels = sorted((p for c in (a.category or ["kernel"]) for p in (src / "bench" / c).iterdir()
+                      if p.is_dir()), key=lambda p: p.name)
     if a.only:
         kernels = [k for k in kernels if k.name in a.only]
 
@@ -197,11 +207,12 @@ def main():
         print(f"{r['kernel']:16s} " + " ".join(f"{c}={r[c]}" for c in COLS)
               + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s", file=sys.stderr)
     total = {c: sum(r[c] for r in rows) for c in COLS + CTX}
-    for c in ("bounded_functions", "certified", "certified_equal", "main_certified"):
+    for c in ("bounded_functions", "certified", "certified_equal", "certified_lower", "main_certified"):
         total[c] = sum(r.get(c, 0) for r in rows)
     if certdir:
         print(f"certificates: {total['certified']} of {total['bounded_functions']} bounded functions "
-              f"({total['certified_equal']} with the same bound), {total['main_certified']} entry functions",
+              f"({total['certified_equal']} with the same bound, {total['certified_lower']} lower), "
+              f"{total['main_certified']} entry functions",
               file=sys.stderr)
     if certdir and a.checker:
         files = sorted(str(p) for p in certdir.glob("*.json"))
@@ -209,6 +220,9 @@ def main():
         acc = proc.stdout.count("ACCEPTED")
         rej = proc.stdout.count("REJECTED")
         total["checker_accepted"], total["checker_rejected"] = acc, rej
+        for r in rows:
+            for u in r.get("uncertified", []):
+                print(f"  not certified: {r['kernel']}: {u}", file=sys.stderr)
         print(f"checker: {acc} accepted, {rej} rejected (exit {proc.returncode})", file=sys.stderr)
         if proc.returncode != 0:
             sys.stderr.write(proc.stdout + proc.stderr)

@@ -40,7 +40,9 @@ jobs:
           cd formalization
           lake build crosscheck-check
           .lake/build/bin/crosscheck-check --print test/certificates/count.json
-          # These three must be rejected (exit status 1).
-          if .lake/build/bin/crosscheck-check test/certificates/count_rejected.json; then
+          # Every certificate of this file must be rejected (and the exit status be 1).
+          if .lake/build/bin/crosscheck-check test/certificates/count_rejected.json > rejected.txt; then
             echo "a wrong certificate was accepted"; exit 1
           fi
+          cat rejected.txt
+          if grep -q '^ACCEPTED' rejected.txt; then echo "a wrong certificate was accepted"; exit 1; fi

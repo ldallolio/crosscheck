@@ -59,7 +59,7 @@ classDiagram
   class Summary { ok; wcet; paramSyms; requires_; potentials; tracked; callKeys; report }
   class FnCtx { fn; tracked; loops; potentials; calls; callKeys; speculative }
   class Analyzer { cache_: (function, Context) → Summary; stack_: FnCtx }
-  class CertNode { kind: skip|assign|havoc|seq|ite|while|weaken|dead }
+  class CertNode { kind: skip|assign|havoc|seq|ite|while|whileAnd|weaken|dead }
   Constraint *-- LinExpr
   State *-- LinExpr
   State *-- Constraint
@@ -152,12 +152,16 @@ plugin).
 flowchart TD
   F["function body"] --> REL["relevant variables (FlowScan)"]
   REL --> L["certList: statement by statement"]
-  L --> RT{"statement contains a return?"}
+  L --> RT{"statement may leave the list?<br/>(return, break, continue)"}
   RT -- "if / block" --> MV["append the rest of the list to the branches"]
+  RT -- "loop / switch with a return" --> FL["?return := 0; statement;<br/>rest under if (?return ≤ 0)"]
   RT -- no --> ST["certStmt"]
+  FL --> ST
   ST --> AS["assignment: SP (invertible: substitution;<br/>else rename, add x = a, eliminate)"]
   ST --> IF["if: branches from g::P and ¬g::P; join;<br/>dead branch → dead node"]
-  ST --> LP["loop: potential × D, Houdini invariant,<br/>k = max potential on entry (Z3), γ_depth"]
+  ST --> LP["loop: potential × D (+ c·(1 − flags)), Houdini invariant,<br/>k = max potential on entry (Z3), γ_depth;<br/>&& or flags → whileAnd"]
+  ST --> SW["switch: havoc ?choice;<br/>if (?choice ≤ 0) group, per group"]
+  ST --> US["unsigned store: if (0 ≤ a ≤ 2^w − 1) x := a<br/>else havoc x (checker proves it dead)"]
   ST --> CL["calls: inline the callee body,<br/>params := args (certCallsIn / certCall)"]
   AS --> W["weaken node with Farkas multipliers"]
   IF --> W
@@ -179,7 +183,20 @@ What is easy to get wrong, and why the code is as it is:
 - **Relevance.** Only the variables that can influence control enter the certificate; this
   avoids the blow-up on DSP code with large constants (`jfdctint`).
 - **Costs.** `costOf(e)` is the plugin's own `exprCost` in speculative mode, where a call
-  costs only its overhead; the callee's body is inlined separately.
+  costs only its overhead; the callee's body is inlined separately (both arms of a `?:`
+  that call functions are inlined in sequence: a sum, where the plugin takes the max).
+- **Jumps.** `break`, `continue` and `return` inside loops set flag variables; the loop
+  test becomes `C test ∧ ?break ≤ 0 ∧ ?return ≤ 0` (`whileAnd`), and the potential gains
+  `c·(1 − Σ flags)` because the leaving iteration does not decrease the C potential.
+  An inlined callee gets its own flags (`certCall` saves and restores `exits`, `ret`,
+  `hints`); before this, a callee's `return` inside a caller's loop crashed the
+  generator.
+- **Join hints.** When two branches are joined inside a loop body, the constraints the
+  loop needs at the end of its body (`hints`) are tried as join candidates; without them
+  a `return` in an inner loop lost the outer loop's ghost constraint.
+- **Unsigned.** `certAffine` is exact (signed arithmetic, value-preserving conversions
+  only); `certModular` gives a value modulo 2^w for unsigned stores; `certStore` adds
+  the range test. Nothing about wrap-around is decided by the generator alone.
 
 ## 8. Trusted base
 
@@ -194,17 +211,17 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (126)
+## 9. Tests (128)
 
 | Suite | Count | Checks |
 |---|---|---|
 | `core_test` (`LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds`, `Cert`) | 20 | arithmetic, entailment, intervals, potentials, the checker's vector operations, Farkas, elimination |
-| `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 55 | expected bounds and behaviours |
+| `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 57 | expected bounds and behaviours |
 | `Loops/Unsound`, `Calls/UnsoundContext` | 19 | must be rejected |
 | `RealTime/Profile` | 11 | forbidden constructs |
 | `Benchmarks` | 10 | Table `tab:plugin` figures |
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |
-| `certificates_accepted_by_lean_checker` | 1 | emit and check the examples' certificates (needs `-DCROSSCHECK_CHECKER=…`) |
+| `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
 
 ## 10. Extending it
 

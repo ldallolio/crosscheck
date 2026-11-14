@@ -528,6 +528,49 @@ What the AI did for 27:
 - Proposals (the last request of 27): `docs/proposals.md`, with the argued order of the
   next steps; written by the AI from the measurements of this session.
 
+28. "Proceed with the order you recommend"
+
+What the AI did for 28 (step 1 of `docs/proposals.md` §5; design choices are the AI's):
+- Lean: a checker node `whileAnd` (loop whose test is a list of linear constraints,
+  postcondition the invariant alone) in `CheckerCore.lean`, its case in the proof of
+  `check_sound` (`Checker.lean`), parsing and printing in `CheckerMain.lean`; one more
+  accepted and two more rejected test certificates; still 185 theorems, about 3,500
+  lines, no warnings. The CI step now fails if any certificate of
+  `count_rejected.json` is accepted (before: only if all were).
+- Paper I: Definition `def:certificate`, the description of the checker, the proof of
+  `thm:checker-soundness` and the remark after it mention the conjunctive loop and how
+  early exits can be expressed with it. **Author to check** that this text says what
+  `check` does for `whileAnd`.
+- Plugin (certificate generator only; the analysis is unchanged except for the
+  reported loop bounds below): `break`, `continue`, `return` inside loops by flag
+  variables and the potential `pot + c·(1 − Σ flags)`; `switch` as nondeterministic
+  conditionals per group of cases; `&&` loop tests; unsigned variables with an explicit
+  wrap-around test whose wrapping branch the checker must prove dead; join hints so
+  that inner loops keep the outer loops' ghost constraints. A crash of the generator
+  (a callee's `return` inlined inside a caller's loop) was found by the AI on the example
+  programs and fixed; the ctest that runs the checker now fails when the tool crashes.
+- Reported loop bounds now count executions of the body in two cases where they
+  counted one less: `do … while` loops, and loops left by `break`/`return` whose
+  potential is not proved ≥ 1 at the start of the leaving iteration (found on
+  TACLeBench `lift`: `while (1) { …; if (i++ >= 1000) break; }`, 1001 executions, reported
+  1000). Cost bounds were not affected (the cost rules already counted these bodies);
+  the TACLeBench kernel figures (`tab:tacle`, `tab:tools`, observed counts) were re-run
+  and are unchanged.
+- Results: TACLeBench certificates 156 of 158 bounded functions (before 142), all
+  accepted; examples 10 of 15 bounded functions. Tests: 128 pass.
+- TACLeBench sequential and app categories (25 programs, 572 loops) run for the first
+  time: 263 loops bounded for every call (252 = flow fact), 317 in context (297 =); the
+  AI inspected the 5 in-context bounds below a flow fact in the sources (two `sizeof`
+  flow facts that overstate, three loops in branches that cannot run); certificates
+  232 of 252 bounded functions, all accepted. New paragraph in Paper II and section in
+  `benchmarks/tacle/README.md`. **Author to check** that classification.
+- `run_tacle.py`: `--category` (kernel, sequential, app); counts of smaller certified
+  bounds and the reason for each uncertified function; `-Wno-error=implicit-function-declaration`
+  (some programs call `printf` without a declaration).
+- Documents updated: Paper II (certificate paragraph, figures, conclusions), plugin and
+  TACLeBench READMEs, `docs/certificate-format.md`, guide parts 3, 4, 5 and 7,
+  `docs/proposals.md`, `docs/implementation-plan.md`, `CLAUDE.md`.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -637,3 +680,13 @@ is whether each Lean statement says what the paper says, and everything outside 
     callee cannot modify the caller's tracked variables) and that moving the statements
     after a returning conditional into its branches preserves the cost semantics;
     inspect a few certificates with `crosscheck-check --print`.
+21. **Early exits, `switch`, unsigned in certificates.** Read the `whileAnd` case of
+    `check` and of `check_sound` and the text added to Definition `def:certificate`,
+    the checker description and the proof of `thm:checker-soundness` (Paper I). Check
+    that the lowerings described in `docs/certificate-format.md` (flags for
+    `break`/`continue`/`return`, `switch` as nondeterministic groups, the wrap-around
+    test of unsigned stores, `certModular`'s congruence argument) are faithful to C
+    semantics: the checker verifies the certificate's program, not this translation.
+22. **Reported loop bounds.** Loop bounds in reports now count executions of the body
+    for `do` loops and for loops whose leaving iteration is not covered by the
+    potential; confirm this is the convention wanted in the papers' tables.

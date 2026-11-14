@@ -118,6 +118,11 @@ inductive ACmd where
       the body. -/
   | while (w : Nat) (g : PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int) (j : Nat)
       (posCert : Nat × List Nat) (Wb : Nat) (body : ACmd) : ACmd
+  /-- `while (gs₁ ≤ 0 ∧ … ∧ gsₙ ≤ 0) body`: a loop whose test is a conjunction, with the
+      same annotations as `while`. After the loop only the invariant is known (the negation
+      of a conjunction is not a conjunction). -/
+  | whileAnd (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int) (j : Nat)
+      (posCert : Nat × List Nat) (Wb : Nat) (body : ACmd) : ACmd
   /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
       follows by the given Farkas certificates. -/
   | weaken (P' : List Lin) (preCerts : List (Nat × List Nat)) (B' : Nat) (Q' : List Lin)
@@ -147,6 +152,14 @@ def check (P : List Lin) : ACmd → Nat → List Lin → Bool
       inv.all (fun e => decide (coeff e.lv j = 0)) &&
       entails1 (g.toLin :: inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
       check (ghost pot j 0 :: g.toLin :: inv) body Wb (ghost pot j d :: inv) &&
+      decide (B = (k / d).toNat * (w + Wb) + w)
+  | .whileAnd w gs inv pot d k j posCert Wb body, B, Q =>
+      decide (0 < d) &&
+      decide (P = ⟨pot.sv, [], pot.c - k⟩ :: inv) &&
+      decide (Q = inv) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) &&
+      entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
+      check (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghost pot j d :: inv) &&
       decide (B = (k / d).toNat * (w + Wb) + w)
   | .weaken P' preCerts B' Q' postCerts c, B, Q =>
       entailsAll P P' preCerts && check P' c B' Q' && decide (B' ≤ B) &&

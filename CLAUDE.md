@@ -17,9 +17,9 @@ Single author: Luca Dall'Olio. MIT licensed.
 |---|---|
 | `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 185 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 30 pages). No measurements. |
-| `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, TPDB; 11 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
+| `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, TPDB; 12 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 126 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`). See `clang-plugin/README.md`. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 128 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`). See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
@@ -90,7 +90,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 | `Certificate` | Soundness of what the plugin computes: `ranking_bound_floor` (relational, ordered-field-valued potential, bound `⌊V⌋`), `partial_ranking_floor`, `farkas_sound(_affine)`, `while_cost_bound`; invariants and contexts (`run_invariant`, `ranking_bound_of_context`, `call_bound_of_context`); `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | `RTree`/`Forest` (mutual, arbitrary arity), `geom`, `geom_closed`, `RTree.size_le_geom`; call trees of a scheme `calls : α → List α`: `callTree_size_le_potential` (size potential), `callTree_size_le_geom` |
 | `Language` | Small imperative language `Cmd ι S` (atoms are weighted relations; calls of procedures with bodies `Φ`, recursion allowed), cost semantics `Exec` (terminating) and `Pre` (execution prefixes, so diverging runs are bounded too), `Valid` triples, rules `valid_seq`/`valid_ite`/`valid_while`/`valid_call`/`valid_conseq`/`valid_unreachable`, proof system `Derivable Φ Γ` (assumed triples `Γ` = contracts; rule `call` with a rank for recursion), **`soundness`**; symbolic bounds `ValidSym`, `validSym_call` (function summaries), `validSym_seq`; examples `countLoop_cost`, `down_cost` (recursion) |
-| `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, annotated programs `ACmd`, executable **`check`**, **`check_sound`**, `certified_cost_le`; example `countCert_checks` (by `decide`). This type is the certificate format the plugin must emit (`docs/implementation-plan.md`) |
+| `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, annotated programs `ACmd` (incl. `whileAnd`: loop with a conjunctive test), executable **`check`**, **`check_sound`**, `certified_cost_le`; example `countCert_checks` (by `decide`). This type is the certificate format the plugin must emit (`docs/implementation-plan.md`) |
 | `Examples` | Paper examples with minimality, big-step agreement and ranking/depth certificates |
 
 ### Paper ↔ Lean correspondence
@@ -109,9 +109,11 @@ Paper content that is **not** mechanized (the paper says so explicitly; keep tha
   on run length is proved there (`ranking_bound_floor`);
 - the equation-generating rules of Section "Application"; completeness of Farkas' Lemma;
 - the Clang plugin itself (C++) and Z3; the translation from C++ to the commands and triples
-  of `Language` (the plugin does not emit the certificates of `Checker` yet); parallel
+  of `Language` and to the certificates of `Checker` (the lowering is unverified); parallel
   composition; lexicographic/logarithmic potentials as rules of the logic or of the checker
-  (they are theorems on runs only); calls, conjunctive guards and `break` in the checker.
+  (they are theorems on runs only); calls in the checker (the plugin inlines them). Conjunctive
+  loop tests are in the checker (`whileAnd`); `break`/`continue`/`return` and `switch` are
+  lowered by the plugin with flags and choice variables, so they need no checker rule.
 `Dominance` still contains the `≼_O` preorder and `Trace` the subsequence order; the paper no
 longer uses them (removed in the Nov 2026 simplification) — do not reintroduce them in the paper.
 

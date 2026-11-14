@@ -56,10 +56,10 @@ flowchart TB
 
 | Measurement | Result | Where |
 |---|---|---|
-| Example programs (`tab:plugin`) | 13 functions bounded, 3 programs rejected as intended; 7 certified | `benchmarks/README.md` |
+| Example programs (`tab:plugin`) | 13 functions bounded, 3 programs rejected as intended; 10 of 15 bounded functions (helpers included) certified | `benchmarks/README.md` |
 | TACLeBench, 220 loops (`tab:tacle`) | for every call: 126 bounded, 100 = flow fact; in context: 137 bounded, 128 = flow fact | `benchmarks/tacle/README.md` |
 | Observed loop counts (208 loops run) | no bound of CrossCheck below an observed count; geometric mean bound/observed: 1.93 (every call), 1.06 (in context) | `compare_tools.py` |
-| Certificates on TACLeBench | 142 of 158 bounded functions, all accepted; 7 entry functions | `run_tacle.py --certificates` |
+| Certificates on TACLeBench | 156 of 158 bounded functions, all accepted; 9 entry functions (142 before early exits, `switch`, `&&` and unsigned) | `run_tacle.py --certificates` |
 | ScalarEvolution (LLVM) | 113 loops; identical to ours on 99 of 103 common loops | `tab:tools` |
 | oRange (OTAWA) | 131 loops; identical to our in-context bounds on all 113 common loops; one bound below the observed count (`filterbank`) | `tab:tools` |
 | KoAT2 / CoFloCo | 5 / 8 entry functions numerically bounded; CoFloCo never looser than KoAT2 on the same programs | `tab:tools` |
@@ -89,6 +89,6 @@ pie title Why TACLeBench functions are not certified (16 of 158)
 
 A compiler plugin bounds loops and recursion of real-time C/C++ at compile time; callees
 are analysed in their calling contexts; for a linear fragment it emits certificates that a
-Lean-verified checker accepts (142 of 158 bounded TACLeBench functions). Its in-context
+Lean-verified checker accepts (156 of 158 bounded TACLeBench functions). Its in-context
 loop bounds agree with oRange's wherever both exist, and never fall below observed loop
 counts. On complexity benchmarks it is weaker than KoAT2 and CoFloCo.

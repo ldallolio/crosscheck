@@ -293,7 +293,7 @@ TEST(Loops, DoWhile) {
     })");
   const FunctionReport& f = fn(r, "f");
   EXPECT_TRUE(f.ok);
-  EXPECT_EQ(f.loops.at(0).bound, 19u);  // iterations after the first one
+  EXPECT_EQ(f.loops.at(0).bound, 20u);  // executions of the body (the first one included)
 }
 
 TEST(Loops, UnsignedCountdownThatWrapsIsRejected) {
@@ -410,7 +410,7 @@ TEST(Loops, InfiniteLoopWithBreak) {
       return i;
     })");
   EXPECT_TRUE(fn(r, "f").ok);
-  EXPECT_EQ(fn(r, "f").loops.at(0).bound, 9u);
+  EXPECT_EQ(fn(r, "f").loops.at(0).bound, 10u);  // executions of the body: the 10th breaks
 }
 
 TEST(Loops, ManyPathsAreJoined) {
@@ -562,13 +562,85 @@ TEST(Certificates, OutsideTheFragmentSaysWhy) {
   ASSERT_TRUE(o.parse("certificates=unused.json"));
   o.certificatesPath.clear();
   Report r = check(R"(
-    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 10) int n, const int* c) {
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 10) int n) {
       int i = 0;
-      while (i < n) { if (c[i]) break; i++; }
+      do { i++; } while (i < n);
       return i;
     })", o);
   EXPECT_TRUE(fn(r, "f").ok);
-  EXPECT_NE(fn(r, "f").certificate.find("break"), std::string::npos);
+  EXPECT_NE(fn(r, "f").certificate.find("DoStmt"), std::string::npos);
+}
+
+// Early exits, switch and && tests are in the fragment; that the Lean checker accepts
+// these certificates is tested by certificates_accepted_by_lean_checker
+// (tests/certificates/jumps.cpp).
+TEST(Certificates, EarlyExitsSwitchAndConjunctiveTests) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int brk(CROSSCHECK_RANGE(0, 50) int n, const int* c) {
+      int x = 0;
+      while (x < n) { if (c[x]) break; x++; }
+      return x;
+    }
+    CROSSCHECK_REALTIME int find(CROSSCHECK_RANGE(0, 30) int n, const int* a, int key) {
+      for (int i = 0; i < n; i++)
+        if (a[i] == key) return i;
+      return -1;
+    }
+    CROSSCHECK_REALTIME int both(CROSSCHECK_RANGE(0, 30) int n, const int* a) {
+      int i = 0;
+      while (i < n && a[i] != 0) i++;
+      return i;
+    }
+    CROSSCHECK_REALTIME int sw(int op, CROSSCHECK_RANGE(0, 10) int n) {
+      int s = 0;
+      switch (op) {
+        case 0: s = 1; break;
+        case 1: for (int i = 0; i < n; i++) { if (i == op) continue; s += 2; } break;
+        default: return 7;
+      }
+      return s;
+    })", o);
+  for (const char* name : {"brk", "find", "both", "sw"}) {
+    const FunctionReport& f = fn(r, name);
+    ASSERT_TRUE(f.ok) << name;
+    EXPECT_EQ(f.certificate, "emitted") << name;
+    ASSERT_TRUE(f.certificateBound.has_value()) << name;
+    EXPECT_GT(*f.certificateBound, 0u) << name;
+  }
+  bool whileAnd = false;
+  for (const std::string& c : r.certificates) whileAnd |= c.find("\"whileAnd\"") != std::string::npos;
+  EXPECT_TRUE(whileAnd);
+}
+
+// Unsigned stores are lowered as `if (0 <= a <= 2^w - 1) x := a else havoc x`; the
+// checker proves the wrapping branch dead (tests/certificates/unsigned.cpp).
+TEST(Certificates, UnsignedStoresCarryTheirWrapCheck) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME unsigned f(const unsigned* a, CROSSCHECK_RANGE(0, 40) unsigned n) {
+      unsigned s = 0;
+      for (unsigned i = 0; i < n; i++) s += a[i];
+      return s;
+    }
+    CROSSCHECK_REALTIME int g(CROSSCHECK_RANGE(0, 10) unsigned n) {
+      int c = 0;
+      unsigned m = n - 1;   // wraps when n == 0
+      for (unsigned i = 0; i < m; i++) c++;
+      return c;
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.ok);
+  EXPECT_EQ(f.certificate, "emitted");
+  ASSERT_TRUE(f.certificateBound.has_value());
+  EXPECT_EQ(*f.certificateBound, f.wcet);
+  ASSERT_FALSE(r.certificates.empty());
+  EXPECT_NE(r.certificates.front().find("\"dead\""), std::string::npos);
+  EXPECT_FALSE(fn(r, "g").ok);  // up to 2^32 - 1 iterations
 }
 
 // --- facts kept when a loop is left through `break` -------------------------------

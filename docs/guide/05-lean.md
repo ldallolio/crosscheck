@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 15 modules, about 3,300 lines, 185 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 15 modules, about 3,500 lines, 185 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -114,8 +114,8 @@ flowchart LR
 | `Certificate` | 280 | relational rational potentials `ranking_bound_floor`; invariants/contexts `ranking_bound_of_context`, `call_bound_of_context`; `farkas_sound`; `while_cost_bound`; `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | 230 | trees of any arity, `callTree_size_le_geom`, `callTree_size_le_potential` |
 | `Language` | 563 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; examples `countLoop_cost`, `down_cost` |
-| `CheckerCore` | 156 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, `ACmd`, **`check`** |
-| `Checker` | 345 | **`check_sound`**, `certified_cost_le`, vector lemmas (`dot_update`), `countCert_checks` by `decide` |
+| `CheckerCore` | 169 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, `ACmd` (with `whileAnd`, a loop with a list of tests), **`check`** |
+| `Checker` | 411 | **`check_sound`**, `certified_cost_le`, vector lemmas (`dot_update`), `countCert_checks` by `decide` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

@@ -15,6 +15,7 @@
 #include "Analyzer.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <numeric>
 #include <optional>
@@ -617,12 +618,22 @@ class Analyzer {
   std::optional<CertPiece> certIf(CertCtx& cc, const IfStmt* is, const std::vector<const Stmt*>& thenList,
                                   const std::vector<const Stmt*>& elseList, const cert::Assn& pre);
   std::optional<CertPiece> certCall(CertCtx& cc, const CallExpr* call, const cert::Assn& pre);
+  std::optional<CertPiece> certSwitch(CertCtx& cc, const SwitchStmt* ss, const cert::Assn& pre);
+  std::optional<CertPiece> certIfThen(CertCtx& cc, const cert::PExp& g, std::uint64_t w,
+                                      const std::function<std::optional<CertPiece>(const cert::Assn&)>& thenF,
+                                      const std::function<std::optional<CertPiece>(const cert::Assn&)>& elseF,
+                                      const cert::Assn& pre);
+  bool certTestList(CertCtx& cc, const Expr* e, std::vector<cert::PExp>& out, bool& nondet);
   std::optional<CertPiece> certCallsIn(CertCtx& cc, const Expr* e, const cert::Assn& pre);
   std::optional<CertPiece> certLoop(CertCtx& cc, const Stmt* loop, const Expr* cond,
                                     const Stmt* body, const Expr* inc, const cert::Assn& pre);
   std::optional<CertPiece> certAssign(CertCtx& cc, std::uint64_t w, std::size_t x,
                                       const std::optional<cert::PExp>& a, const cert::Assn& pre);
   std::optional<cert::PExp> certAffine(CertCtx& cc, const Expr* e);
+  std::optional<cert::PExp> certModular(CertCtx& cc, const Expr* e, unsigned width);
+  std::optional<cert::PExp> certValueFor(CertCtx& cc, std::size_t x, const Expr* e);
+  std::optional<CertPiece> certStore(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                     const std::optional<cert::PExp>& a, const cert::Assn& pre);
   std::optional<cert::PExp> certTest(CertCtx& cc, const Expr* e);
   std::uint64_t costOf(const Expr* e);
   std::vector<std::string> certificates_;
@@ -1664,6 +1675,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
 
   struct Iteration {
     std::vector<State> complete, returned, broken;
+    std::vector<Constraint> startFacts;  ///< at the start of the body: head, invariants, guard
     bool early = false;
     Cost test{}, body{}, inc{};
   };
@@ -1678,6 +1690,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
       for (const Candidate& c : invs)
         if (c.strict) s.facts.push_back(*c.strict);
     }
+    it.startFacts = s.facts;
     std::vector<State> st{std::move(s)};
     it.body = flat(exec(body, st));
     for (State& x : st)
@@ -1765,7 +1778,29 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
                "(CROSSCHECK_RANGE / CROSSCHECK_REQUIRE / CROSSCHECK_ASSUME on its inputs) or "
                "state it with CROSSCHECK_LOOP_BOUND(n)");
   }
-  lr.bound = k;
+  // The report counts executions of the body (the convention of flow facts and of the
+  // observed counts): for a do-while, the first body plus the k iterations bounded
+  // by the potential. The cost below uses k for the iterations after the first.
+  // The potential is required to be >= 1 only on the paths that return to the head.
+  // An iteration left by `break` or `return` may start where it is not (e.g.
+  // `while (1) { ... if (i++ >= 1000) break; }`, 1001 executions with K = 1000): then
+  // the body runs up to K + 1 times. The cost already counts that body (`early`);
+  // the reported loop bound counts it too unless V >= 1 is proved at the start of
+  // every iteration.
+  bool leavingExtra = false;
+  if (lr.verified && rank && it.early) {
+    std::int64_t den = std::max<std::int64_t>(1, rank->offset.den);
+    for (const Rational& q : rank->weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
+    LinExpr v = LinExpr::constant(rank->offset.num * (den / std::max<std::int64_t>(1, rank->offset.den)));
+    for (std::size_t i = 0; i < slots.size() && i < rank->weights.size(); ++i) {
+      const Rational& q = rank->weights[i];
+      if (q.num == 0) continue;
+      v = v + head.val.at(slots[i]).scaled(q.num * (den / std::max<std::int64_t>(1, q.den)));
+    }
+    leavingExtra = v.poisoned() ||
+                   !entails(syms_, it.startFacts, Constraint{LinExpr::constant(den) - v});
+  }
+  lr.bound = (isDo && lr.verified ? k + 1 : k) + (leavingExtra ? 1 : 0);
   if (!fc.speculative) fc.loops[loop] = lr;
 
   // Exit states. The loop is left either through its guard, at a loop head
@@ -2236,11 +2271,31 @@ struct Analyzer::CertCtx {
   std::string prefix;      ///< for the names of inlined variables
   std::set<const VarDecl*> relevant;  ///< variables that can influence control
   unsigned line = 0;       ///< line of the statement being lowered (for messages)
+  /// Enclosing loops and switches of the code being lowered (innermost last). A loop
+  /// has flags for `break` and `continue` (index, or npos if it has none).
+  struct Exit {
+    bool loop = false;
+    std::size_t brk = static_cast<std::size_t>(-1), cnt = static_cast<std::size_t>(-1);
+  };
+  std::vector<Exit> exits;
+  /// Constraints the enclosing loops need at the end of their bodies: tried as extra
+  /// candidates when two branches are joined.
+  std::vector<cert::Assn> hints;
+  std::size_t ret = static_cast<std::size_t>(-1);  ///< flag of `return` inside loops/switches
+  static constexpr std::size_t none = static_cast<std::size_t>(-1);
+  std::size_t freshVar(const std::string& name) {
+    names.push_back(name);
+    return names.size() - 1;
+  }
   std::string fail;
   std::size_t temp() const { return names.size(); }  ///< scratch variable for eliminations
+  /// Variables of unsigned type, with their width in bits.
+  std::map<std::size_t, unsigned> uwidth;
   void addVar(const VarDecl* v) {
     if (var.count(v) || !relevant.count(v)) return;
     var[v] = names.size();
+    QualType t = v->getType();
+    if (t->isUnsignedIntegerType()) uwidth[names.size()] = v->getASTContext().getIntWidth(t);
     names.push_back(prefix + v->getNameAsString());
   }
   bool failed(const std::string& why) {
@@ -2320,6 +2375,11 @@ bool signedInt(QualType t) {
   return !t.isNull() && t->isIntegerType() && t->isSignedIntegerType() && !t->isBooleanType();
 }
 
+/// Integer variables of the certificates: signed or unsigned, not bool or enum.
+bool certInt(QualType t) {
+  return !t.isNull() && t->isIntegerType() && !t->isBooleanType() && !t->isEnumeralType();
+}
+
 struct Scan : RecursiveASTVisitor<Scan> {
   const std::map<const VarDecl*, std::size_t>* vars = nullptr;
   bool writes = false, calls = false, jumps = false, markers = false;
@@ -2377,6 +2437,37 @@ bool hasReturn(const Stmt* s) {
   ReturnScan r;
   r.TraverseStmt(const_cast<Stmt*>(s));
   return r.found;
+}
+
+/// `break` / `continue` of the construct being lowered: not inside a nested loop (nor,
+/// for `break`, inside a nested switch).
+struct JumpScan {
+  bool brk = false, cnt = false;
+  void run(const Stmt* s, bool inLoop, bool inSwitch) {
+    if (!s) return;
+    if (isa<BreakStmt>(s)) { if (!inLoop && !inSwitch) brk = true; return; }
+    if (isa<ContinueStmt>(s)) { if (!inLoop) cnt = true; return; }
+    if (isa<LambdaExpr>(s)) return;
+    bool loop = isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<CXXForRangeStmt>(s);
+    bool sw = isa<SwitchStmt>(s);
+    for (const Stmt* c : s->children()) run(c, inLoop || loop, inSwitch || sw);
+  }
+};
+JumpScan jumpsOf(const Stmt* s) {
+  JumpScan j;
+  if (s) for (const Stmt* c : s->children()) j.run(c, false, false);
+  if (s && (isa<BreakStmt>(s) || isa<ContinueStmt>(s))) j.run(s, false, false);
+  return j;
+}
+/// Does `s` leave the list it is in (return, or break / continue of the current construct)?
+bool endsList(const Stmt* s) {
+  // Loops and switches handle their own jumps (flags); they never end the list.
+  if (isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<SwitchStmt>(s) ||
+      isa<CXXForRangeStmt>(s))
+    return false;
+  if (hasReturn(s)) return true;
+  JumpScan j = jumpsOf(s);
+  return j.brk || j.cnt;
 }
 
 
@@ -2466,7 +2557,7 @@ std::optional<cert::PExp> Analyzer::certAffine(CertCtx& cc, const Expr* e) {
   if (const auto* ce = dyn_cast<ImplicitCastExpr>(e)) {
     CastKind k = ce->getCastKind();
     if (k == CK_LValueToRValue || k == CK_NoOp ||
-        (k == CK_IntegralCast && signedInt(ce->getType()) && signedInt(ce->getSubExpr()->getType()) &&
+        (k == CK_IntegralCast && certInt(ce->getType()) && certInt(ce->getSubExpr()->getType()) &&
          widens(ce->getSubExpr()->getType(), ce->getType())))
       return certAffine(cc, ce->getSubExpr());
     return std::nullopt;
@@ -2501,6 +2592,84 @@ std::optional<cert::PExp> Analyzer::certAffine(CertCtx& cc, const Expr* e) {
     }
   }
   return std::nullopt;
+}
+
+/// An affine `m` whose value is congruent modulo 2^width to the C value of `e`
+/// (the value `e` gets when it is stored into an unsigned variable of that width).
+/// Addition, subtraction and multiplication preserve congruences; a conversion keeps
+/// one if it preserves values or reduces modulo 2^W with W >= width (an unsigned
+/// type at least that wide). Signed arithmetic is exact (overflow is undefined
+/// behaviour, assumed absent); unsigned arithmetic narrower than `width` is refused.
+std::optional<cert::PExp> Analyzer::certModular(CertCtx& cc, const Expr* e, unsigned width) {
+  if (!e) return std::nullopt;
+  if (std::optional<PExp> a = certAffine(cc, e)) return a;
+  e = e->IgnoreParens();
+  if (const auto* ce = dyn_cast<CastExpr>(e)) {
+    CastKind k = ce->getCastKind();
+    QualType to = ce->getType(), from = ce->getSubExpr()->getType();
+    if (k == CK_LValueToRValue || k == CK_NoOp) return certModular(cc, ce->getSubExpr(), width);
+    if (k == CK_IntegralCast && certInt(to) && certInt(from) &&
+        (widens(from, to) || (to->isUnsignedIntegerType() && ctx_.getIntWidth(to) >= width)))
+      return certModular(cc, ce->getSubExpr(), width);
+    return std::nullopt;
+  }
+  QualType t = e->getType();
+  if (!certInt(t)) return std::nullopt;
+  if (t->isUnsignedIntegerType() && ctx_.getIntWidth(t) < width) return std::nullopt;
+  if (const auto* uo = dyn_cast<UnaryOperator>(e)) {
+    if (uo->getOpcode() == UO_Minus)
+      if (auto a = certModular(cc, uo->getSubExpr(), width)) return scaleP(*a, -1);
+    if (uo->getOpcode() == UO_Plus) return certModular(cc, uo->getSubExpr(), width);
+    return std::nullopt;
+  }
+  if (const auto* bo = dyn_cast<BinaryOperator>(e)) {
+    BinaryOperatorKind op = bo->getOpcode();
+    if (op == BO_Add || op == BO_Sub) {
+      auto a = certModular(cc, bo->getLHS(), width), b = certModular(cc, bo->getRHS(), width);
+      if (a && b) return addP(*a, *b, op == BO_Add ? 1 : -1);
+      return std::nullopt;
+    }
+    if (op == BO_Mul) {
+      auto a = certModular(cc, bo->getLHS(), width), b = certModular(cc, bo->getRHS(), width);
+      if (!a || !b) return std::nullopt;
+      trimP(*a), trimP(*b);
+      if (a->sv.empty()) return scaleP(*b, a->c);
+      if (b->sv.empty()) return scaleP(*a, b->c);
+    }
+  }
+  return std::nullopt;
+}
+
+/// The value of `e` stored into the certificate variable `x`: exact for a signed
+/// variable, modulo 2^width for an unsigned one (certStore adds the range check).
+std::optional<cert::PExp> Analyzer::certValueFor(CertCtx& cc, std::size_t x, const Expr* e) {
+  auto uw = cc.uwidth.find(x);
+  std::optional<PExp> a = uw == cc.uwidth.end() ? certAffine(cc, e) : certModular(cc, e, uw->second);
+  if (a) trimP(*a);
+  return a;
+}
+
+/// The C store `x = e`, where `a` is the value from certValueFor. For an unsigned
+/// `x` the stored value is `a` reduced modulo 2^width, which is `a` itself only when
+/// `0 <= a <= 2^width - 1`: the certificate's program tests this and havocs `x`
+/// otherwise (tests of weight 0). The checker proves the wrapping branches dead when
+/// they are: nothing about the absence of wrap-around is taken on trust. For 64-bit
+/// variables the upper test is `a <= 2^62`, which also excludes wrap-around.
+std::optional<Analyzer::CertPiece> Analyzer::certStore(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                                      const std::optional<cert::PExp>& a,
+                                                      const cert::Assn& pre) {
+  auto uw = cc.uwidth.find(x);
+  if (uw == cc.uwidth.end() || !a) return certAssign(cc, w, x, a, pre);
+  std::int64_t hi = uw->second >= 63 ? (std::int64_t(1) << 62) : ((std::int64_t(1) << uw->second) - 1);
+  PExp up = *a;
+  up.c -= hi;                                // a - hi <= 0
+  std::optional<PExp> lo = scaleP(*a, -1);   // -a <= 0
+  if (!lo) return certAssign(cc, w, x, std::nullopt, pre);
+  trimP(up), trimP(*lo);
+  auto havocF = [&](const Assn& p) { return certAssign(cc, w, x, std::nullopt, p); };
+  auto storeF = [&](const Assn& p) { return certAssign(cc, w, x, a, p); };
+  auto inner = [&](const Assn& p) { return certIfThen(cc, *lo, 0, storeF, havocF, p); };
+  return certIfThen(cc, up, 0, inner, havocF, pre);
 }
 
 std::optional<cert::PExp> Analyzer::certTest(CertCtx& cc, const Expr* e) {
@@ -2591,23 +2760,27 @@ std::optional<Analyzer::CertPiece> Analyzer::certExprAfterCalls(CertCtx& cc, con
     std::optional<std::size_t> t = targetOf(bo->getLHS());
     if (!t || scanOf(bo->getRHS(), cc.var).writes)
       return cc.failed("assignment inside an expression"), std::nullopt;
-    std::optional<PExp> rhs = certAffine(cc, bo->getRHS());
+    bool isUnsigned = cc.uwidth.count(*t) > 0;
+    // For a signed target, a compound assignment computed in an unsigned type may wrap.
+    bool exact = isUnsigned || !isa<CompoundAssignOperator>(bo) ||
+                 signedInt(cast<CompoundAssignOperator>(bo)->getComputationResultType());
+    std::optional<PExp> rhs = certValueFor(cc, *t, bo->getRHS());
     std::optional<PExp> a;
     PExp self{cert::unitVec(*t), 0};
     switch (bo->getOpcode()) {
       case BO_Assign: a = rhs; break;
-      case BO_AddAssign: if (rhs) a = addP(self, *rhs, 1); break;
-      case BO_SubAssign: if (rhs) a = addP(self, *rhs, -1); break;
+      case BO_AddAssign: if (rhs && exact) a = addP(self, *rhs, 1); break;
+      case BO_SubAssign: if (rhs && exact) a = addP(self, *rhs, -1); break;
       default: break;  // other compound assignments: unknown value
     }
     if (a) trimP(*a);
-    return certAssign(cc, w, *t, a, pre);
+    return certStore(cc, w, *t, a, pre);
   }
   if (const auto* uo = dyn_cast<UnaryOperator>(x); uo && uo->isIncrementDecrementOp()) {
     std::optional<std::size_t> t = targetOf(uo->getSubExpr());
     if (!t) return cc.failed("assignment inside an expression"), std::nullopt;
     PExp a{cert::unitVec(*t), uo->isIncrementOp() ? 1 : -1};
-    return certAssign(cc, w, *t, a, pre);
+    return certStore(cc, w, *t, a, pre);
   }
   if (const auto* co = dyn_cast<BinaryOperator>(x); co && co->getOpcode() == BO_Comma) {
     // `a, b` in a for-increment: a then b. The cost of the comma itself is zero.
@@ -2631,11 +2804,40 @@ std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::ve
                                                      std::size_t from, const cert::Assn& pre) {
   if (from >= list.size()) return CertPiece{mk(Node{}), pre, 0};
   const Stmt* st = list[from];
-  // Control that leaves the function: the rest of the list follows only the paths
-  // that do not return (guard clauses become conditionals over the rest).
-  if (hasReturn(st)) {
-    std::vector<const Stmt*> rest(list.begin() + static_cast<std::ptrdiff_t>(from) + 1, list.end());
-    if (const auto* rs = dyn_cast<ReturnStmt>(st)) return certStmt(cc, rs, pre);
+  if (cc.prefix.empty()) cc.line = lineOf(st->getBeginLoc());
+  auto setFlag = [&](std::size_t flag, std::uint64_t w, const Assn& p) -> std::optional<CertPiece> {
+    if (flag == CertCtx::none) return cc.failed("internal: jump without a flag"), std::nullopt;
+    return certAssign(cc, w, flag, PExp{{}, 1}, p);
+  };
+  // Jumps end the list: the rest is not reached.
+  if (isa<BreakStmt>(st)) {
+    if (cc.exits.empty()) return cc.failed("break outside a loop or switch"), std::nullopt;
+    const CertCtx::Exit& x = cc.exits.back();
+    if (!x.loop) {
+      Node n;
+      n.kind = Node::Havoc;
+      n.w = w_.branch;
+      n.x = cc.dummy;
+      return CertPiece{mk(n), pre, n.w};
+    }
+    return setFlag(x.brk, w_.branch, pre);
+  }
+  if (isa<ContinueStmt>(st)) {
+    for (auto it = cc.exits.rbegin(); it != cc.exits.rend(); ++it)
+      if (it->loop) return setFlag(it->cnt, w_.branch, pre);
+    return cc.failed("continue outside a loop"), std::nullopt;
+  }
+  if (const auto* rs = dyn_cast<ReturnStmt>(st)) {
+    std::optional<CertPiece> c = certStmt(cc, rs, pre);  // its cost
+    if (!c || cc.exits.empty()) return c;
+    std::optional<CertPiece> f = setFlag(cc.ret, 0, c->post);
+    if (!f) return std::nullopt;
+    return seqPiece(*c, *f);
+  }
+  std::vector<const Stmt*> rest(list.begin() + static_cast<std::ptrdiff_t>(from) + 1, list.end());
+  // A conditional or block that may leave the list: the rest of the list goes into its
+  // branches, so that it follows only the paths that do not leave.
+  if (endsList(st)) {
     if (const auto* cs = dyn_cast<CompoundStmt>(st)) {
       std::vector<const Stmt*> l(cs->body_begin(), cs->body_end());
       l.insert(l.end(), rest.begin(), rest.end());
@@ -2652,14 +2854,173 @@ std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::ve
       l.insert(l.end(), rest.begin(), rest.end());
       return certList(cc, l, 0, pre);
     }
-    return cc.failed("return inside a loop or a switch (not in the fragment yet)"), std::nullopt;
+    return cc.failed("jump in a statement that is not a conditional or a block"), std::nullopt;
   }
-  std::optional<CertPiece> first = certStmt(cc, st, pre);
+  // Loops and switches that contain a `return` (or a `continue` of an enclosing loop,
+  // for a switch) set a flag; the rest of the list runs only if it is not set.
+  bool escRet = hasReturn(st);
+  if (escRet && cc.ret == CertCtx::none) cc.ret = cc.freshVar(cc.prefix + "?return");
+  std::size_t escCnt = CertCtx::none;
+  if (isa<SwitchStmt>(st) && jumpsOf(st).cnt)
+    for (auto it = cc.exits.rbegin(); it != cc.exits.rend(); ++it)
+      if (it->loop) { escCnt = it->cnt; break; }
+  CertPiece head{mk(Node{}), pre, 0};
+  if (escRet) {
+    std::optional<CertPiece> z = certAssign(cc, 0, cc.ret, PExp{{}, 0}, pre);
+    if (!z) return std::nullopt;
+    head = *z;
+  }
+  std::optional<CertPiece> first = certStmt(cc, st, head.post);
   if (!first) return std::nullopt;
-  if (from + 1 == list.size()) return first;
-  std::optional<CertPiece> rest = certList(cc, list, from + 1, first->post);
-  if (!rest) return std::nullopt;
-  return seqPiece(*first, *rest);
+  if (escRet) first = seqPiece(head, *first);
+  if (rest.empty() && !escRet) return first;
+  std::function<std::optional<CertPiece>(const Assn&)> restF = [&](const Assn& p) {
+    return certList(cc, list, from + 1, p);
+  };
+  auto skipF = [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; };
+  std::function<std::optional<CertPiece>(const Assn&)> guarded = restF;
+  for (std::size_t flag : {escCnt, escRet ? cc.ret : CertCtx::none}) {
+    if (flag == CertCtx::none) continue;
+    auto inner = guarded;
+    guarded = [&, flag, inner](const Assn& p) {
+      return certIfThen(cc, PExp{cert::unitVec(flag), 0}, 0, inner, skipF, p);
+    };
+  }
+  if (rest.empty() && escRet) return first;
+  std::optional<CertPiece> r = guarded(first->post);
+  if (!r) return std::nullopt;
+  return seqPiece(*first, *r);
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certIfThen(
+    CertCtx& cc, const cert::PExp& g, std::uint64_t w,
+    const std::function<std::optional<CertPiece>(const cert::Assn&)>& thenF,
+    const std::function<std::optional<CertPiece>(const cert::Assn&)>& elseF, const cert::Assn& pre) {
+  Assn pre1 = pre, pre2 = pre;
+  pre1.insert(pre1.begin(), cert::toLin(g));
+  pre2.insert(pre2.begin(), cert::negLin(g));
+  auto branch = [&](const std::function<std::optional<CertPiece>(const Assn&)>& f,
+                    const Assn& p) -> std::optional<CertPiece> {
+    if (!cert::feasible(p))
+      if (auto d = deadNode(p)) return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
+    return f(p);
+  };
+  std::optional<CertPiece> b1 = branch(thenF, pre1);
+  if (!b1) return std::nullopt;
+  std::optional<CertPiece> b2 = branch(elseF, pre2);
+  if (!b2) return std::nullopt;
+  bool dead1 = b1->node->kind == Node::Dead, dead2 = b2->node->kind == Node::Dead;
+  Assn join;
+  if (dead1) join = b2->post;
+  else if (dead2) join = b1->post;
+  else {
+    Assn cands = b1->post;
+    cands.insert(cands.end(), b2->post.begin(), b2->post.end());
+    for (const Assn& h : cc.hints) cands.insert(cands.end(), h.begin(), h.end());
+    for (const Lin& e : cert::normalize(cands))
+      if (cert::farkas(b1->post, e) && cert::farkas(b2->post, e)) join.push_back(e);
+  }
+  auto wrap = [&](CertPiece& b, const Assn& p) -> std::optional<NodeP> {
+    if (b.node->kind == Node::Dead) return b.node;
+    std::optional<std::vector<Farkas>> qc = cert::farkasAll(b.post, join);
+    if (!qc) return std::nullopt;
+    return weaken(p, identityCerts(p), b.bound, b.post, *qc, b.node);
+  };
+  std::optional<NodeP> n1 = wrap(*b1, pre1), n2 = wrap(*b2, pre2);
+  if (!n1 || !n2) return cc.failed("internal: join"), std::nullopt;
+  Node n;
+  n.kind = Node::Ite;
+  n.w = w;
+  n.a = g;
+  n.b1 = b1->bound;
+  n.b2 = b2->bound;
+  n.c1 = *n1;
+  n.c2 = *n2;
+  return CertPiece{mk(n), join, w + std::max(b1->bound, b2->bound)};
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certSwitch(CertCtx& cc, const SwitchStmt* ss,
+                                                       const cert::Assn& pre) {
+  if (ss->getInit() || ss->getConditionVariable())
+    return cc.failed("switch with an initialiser or a condition variable"), std::nullopt;
+  Scan sc = scanOf(ss->getCond(), cc.var);
+  if (sc.writes) return cc.failed("switch test with an assignment"), std::nullopt;
+  CertPiece acc{mk(Node{}), pre, 0};
+  if (sc.calls) {
+    std::optional<CertPiece> c = certCallsIn(cc, ss->getCond(), pre);
+    if (!c) return std::nullopt;
+    acc = *c;
+  }
+  {
+    Node t;
+    t.kind = Node::Havoc;
+    t.w = costOf(ss->getCond()) + w_.branch;
+    t.x = cc.dummy;
+    acc = seqPiece(acc, CertPiece{mk(t), acc.post, t.w});
+  }
+  // Case groups: the statements from one label to the next. Each group runs or not,
+  // nondeterministically: this covers every entry label and every fall-through, and
+  // costs the sum of the cases, like the analysis.
+  const auto* body = dyn_cast<CompoundStmt>(ss->getBody());
+  if (!body) return cc.failed("switch without a block"), std::nullopt;
+  std::vector<std::vector<const Stmt*>> groups;
+  for (const Stmt* st : body->body()) {
+    if (const auto* sw = dyn_cast<SwitchCase>(st)) {
+      const Stmt* sub = sw->getSubStmt();
+      while (const auto* inner = dyn_cast_or_null<SwitchCase>(sub)) sub = inner->getSubStmt();
+      groups.push_back({});
+      if (sub) groups.back().push_back(sub);
+    } else if (!groups.empty()) {
+      groups.back().push_back(st);
+    }
+  }
+  struct CaseScan : RecursiveASTVisitor<CaseScan> {
+    bool nested = false;
+    bool TraverseSwitchStmt(SwitchStmt*) { return true; }
+    bool VisitCaseStmt(CaseStmt*) { nested = true; return false; }
+    bool VisitDefaultStmt(DefaultStmt*) { nested = true; return false; }
+  };
+  for (const auto& g : groups)
+    for (const Stmt* st : g) {
+      CaseScan cs;
+      cs.TraverseStmt(const_cast<Stmt*>(st));
+      if (cs.nested) return cc.failed("case label inside a nested statement"), std::nullopt;
+    }
+  cc.exits.push_back(CertCtx::Exit{});
+  for (const auto& g : groups) {
+    Assn chosen = cert::eliminate(acc.post, cc.choice);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(acc.post, chosen);
+    if (!pc) { cc.exits.pop_back(); return cc.failed("internal: choice"), std::nullopt; }
+    Node h;
+    h.kind = Node::Havoc;
+    h.x = cc.choice;
+    acc = seqPiece(acc, CertPiece{weaken(chosen, *pc, 0, chosen, identityCerts(chosen), mk(h)), chosen, 0});
+    std::optional<CertPiece> c = certIfThen(
+        cc, PExp{cert::unitVec(cc.choice), 0}, 0,
+        [&](const Assn& p) { return certList(cc, g, 0, p); },
+        [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; }, acc.post);
+    if (!c) { cc.exits.pop_back(); return std::nullopt; }
+    acc = seqPiece(acc, *c);
+  }
+  cc.exits.pop_back();
+  return acc;
+}
+
+bool Analyzer::certTestList(CertCtx& cc, const Expr* e, std::vector<cert::PExp>& out, bool& nondet) {
+  if (!e) return true;  // no test: true
+  if (std::optional<std::int64_t> v = constantValue(e)) {
+    if (*v == 0) out.push_back(PExp{{}, 1});  // false: 1 <= 0
+    return true;
+  }
+  const Expr* x = e->IgnoreParenImpCasts();
+  if (const auto* bo = dyn_cast<BinaryOperator>(x); bo && bo->getOpcode() == BO_LAnd)
+    return certTestList(cc, bo->getLHS(), out, nondet) && certTestList(cc, bo->getRHS(), out, nondet);
+  if (std::optional<PExp> g = certTest(cc, e)) {
+    out.push_back(*g);
+    return true;
+  }
+  nondet = true;  // a conjunct the fragment cannot express: an unknown boolean
+  return true;
 }
 
 std::optional<Analyzer::CertPiece> Analyzer::certIf(CertCtx& cc, const IfStmt* is,
@@ -2710,6 +3071,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certIf(CertCtx& cc, const IfStmt* i
   else {
     Assn cands = b1->post;
     cands.insert(cands.end(), b2->post.begin(), b2->post.end());
+    for (const Assn& h : cc.hints) cands.insert(cands.end(), h.begin(), h.end());
     for (const Lin& e : cert::normalize(cands))
       if (cert::farkas(b1->post, e) && cert::farkas(b2->post, e)) join.push_back(e);
   }
@@ -2742,14 +3104,12 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   auto pit = cc.potentials->find(loop);
   if (pit == cc.potentials->end())
     return cc.failed("loop without a derived potential (annotated or not bounded)"), std::nullopt;
-  if (!cond) return cc.failed("loop without a test"), std::nullopt;
   Scan sc = scanOf(cond, cc.var);
   if (sc.calls || sc.writes) return cc.failed("loop test with a call or an assignment"), std::nullopt;
-  Scan sb = scanOf(body, cc.var);
-  if (sb.jumps) return cc.failed("break, continue or return in a loop (not in the fragment yet)"), std::nullopt;
-  std::optional<PExp> g = certTest(cc, cond);
-  if (!g) return cc.failed("loop test that is not a single linear comparison"), std::nullopt;
-  std::uint64_t w = costOf(cond) + w_.branch;
+  std::vector<PExp> gs;
+  bool nondet = false;
+  if (!certTestList(cc, cond, gs, nondet)) return cc.failed("loop test not in the fragment"), std::nullopt;
+  std::uint64_t w = cond ? costOf(cond) + w_.branch : 0;
 
   // The potential, scaled to integer coefficients: pot = D * V, decrease d = D.
   const LoopPotential& lp = pit->second;
@@ -2769,47 +3129,98 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   std::uint64_t d = static_cast<std::uint64_t>(den);
   std::size_t j = cc.depth;
 
-  std::vector<const Stmt*> stmts;
-  if (const auto* cs = dyn_cast<CompoundStmt>(body))
-    for (const Stmt* s : cs->body()) stmts.push_back(s);
-  else
-    stmts.push_back(body);
-  auto runBody = [&](const Assn& p) -> std::optional<CertPiece> {
+  // Jumps out of the body become flags tested by the loop: break, continue, return.
+  JumpScan js = jumpsOf(body);
+  bool rets = hasReturn(body);
+  CertCtx::Exit ex;
+  ex.loop = true;
+  if (js.brk) ex.brk = cc.freshVar(cc.prefix + "?break" + std::to_string(j));
+  if (js.cnt) ex.cnt = cc.freshVar(cc.prefix + "?continue" + std::to_string(j));
+  if (rets && cc.ret == CertCtx::none) cc.ret = cc.freshVar(cc.prefix + "?return");
+  std::size_t choiceVar = nondet ? cc.freshVar(cc.prefix + "?test" + std::to_string(j)) : CertCtx::none;
+  std::vector<std::size_t> exitFlags;
+  if (ex.brk != CertCtx::none) exitFlags.push_back(ex.brk);
+  if (rets) exitFlags.push_back(cc.ret);
+  for (std::size_t f : exitFlags) gs.push_back(PExp{cert::unitVec(f), 0});
+  if (nondet) gs.push_back(PExp{cert::unitVec(choiceVar), 0});
+  if (gs.empty()) return cc.failed("loop without a test or a break"), std::nullopt;
+  bool single = gs.size() == 1 && exitFlags.empty() && !nondet;
+
+  // Prologue: flags cleared, the unknown part of the test chosen.
+  CertPiece prolog{mk(Node{}), pre, 0};
+  auto then = [&](std::optional<CertPiece> p) {
+    if (!p) return false;
+    prolog = seqPiece(prolog, *p);
+    return true;
+  };
+  for (std::size_t f : exitFlags)
+    if (!then(certAssign(cc, 0, f, PExp{{}, 0}, prolog.post))) return std::nullopt;
+  if (nondet && !then(certAssign(cc, 0, choiceVar, std::nullopt, prolog.post))) return std::nullopt;
+  const Assn& entry = prolog.post;
+
+  std::vector<const Stmt*> stmts = flatten(body);
+  auto skipF = [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; };
+  auto runBody = [&](const Assn& p, const Assn& hint) -> std::optional<CertPiece> {
     ++cc.depth;
-    std::optional<CertPiece> b = certList(cc, stmts, 0, p);
-    if (b && inc) {
-      std::optional<CertPiece> i = certExpr(cc, inc, b->post);
-      if (!i) b.reset();
-      else {
-        Node n;
-        n.kind = Node::Seq;
-        n.c1 = b->node;
-        n.mid = b->post;
-        n.b1 = b->bound;
-        n.b2 = i->bound;
-        n.c2 = i->node;
-        b = CertPiece{mk(n), i->post, b->bound + i->bound};
+    cc.exits.push_back(ex);
+    cc.hints.push_back(hint);
+    CertPiece acc{mk(Node{}), p, 0};
+    bool ok = true;
+    auto add = [&](std::optional<CertPiece> q) {
+      if (!q) { ok = false; return; }
+      acc = seqPiece(acc, *q);
+    };
+    if (ex.cnt != CertCtx::none) add(certAssign(cc, 0, ex.cnt, PExp{{}, 0}, acc.post));
+    if (ok) add(certList(cc, stmts, 0, acc.post));
+    if (ok && inc) {
+      // The increment runs unless the body left the loop (continue does run it).
+      std::function<std::optional<CertPiece>(const Assn&)> incF = [&](const Assn& q) {
+        return certExpr(cc, inc, q);
+      };
+      for (std::size_t f : exitFlags) {
+        auto inner = incF;
+        incF = [&, f, inner](const Assn& q) {
+          return certIfThen(cc, PExp{cert::unitVec(f), 0}, 0, inner, skipF, q);
+        };
       }
+      add(incF(acc.post));
     }
+    if (ok && nondet) add(certAssign(cc, 0, choiceVar, std::nullopt, acc.post));
+    cc.hints.pop_back();
+    cc.exits.pop_back();
     --cc.depth;
-    return b;
+    if (!ok) return std::nullopt;
+    return acc;
+  };
+  auto testLins = [&]() {
+    Assn t;
+    for (const PExp& g : gs) t.push_back(cert::toLin(g));
+    return t;
   };
 
-  // Invariant: Houdini over the constraints known on entry and the guard relaxed by one.
-  Assn cands = cert::normalize(pre);
-  {
-    Lin relaxed = cert::toLin(*g);
+  // Invariant: Houdini over the constraints known on entry, the guard relaxed by one,
+  // and the ranges of the flags.
+  Assn cands = cert::normalize(entry);
+  if (gs.size() >= 1 && !gs.empty()) {
+    Lin relaxed = cert::toLin(gs[0]);
     relaxed.c -= 1;
     Assn one = cert::normalize({relaxed});
-    if (!one.empty() && cert::farkas(pre, one[0])) cands.push_back(one[0]);
+    if (!one.empty() && cert::farkas(entry, one[0])) cands.push_back(one[0]);
   }
+  for (std::size_t f : exitFlags) {
+    cands.push_back(Lin{cert::vsmul(-1, cert::unitVec(f)), {}, 0});  // f >= 0
+    cands.push_back(Lin{cert::unitVec(f), {}, -1});                  // f <= 1
+  }
+  cands = cert::normalize(cands);
   cands.erase(std::remove_if(cands.begin(), cands.end(),
-                             [&](const Lin& e) { return cert::coeff(e.lv, j) != 0; }),
+                             [&](const Lin& e) {
+                               return cert::coeff(e.lv, j) != 0 || !cert::farkas(entry, e);
+                             }),
               cands.end());
   for (std::size_t round = 0; round <= cands.size() + 1; ++round) {
-    Assn p = cands;
-    p.insert(p.begin(), cert::toLin(*g));
-    std::optional<CertPiece> b = runBody(p);
+    Assn p = testLins();
+    p.insert(p.end(), cands.begin(), cands.end());
+    std::optional<CertPiece> b = runBody(p, cands);
     if (!b) return std::nullopt;
     Assn kept;
     for (const Lin& e : cands)
@@ -2819,43 +3230,61 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   }
   const Assn& inv = cands;
 
-  Assn guardInv = inv;
-  guardInv.insert(guardInv.begin(), cert::toLin(*g));
-  std::optional<Farkas> posCert = cert::farkas(guardInv, Lin{cert::vsmul(-1, pot.sv), {},
-                                                             static_cast<std::int64_t>(d) - pot.c});
-  if (!posCert) return cc.failed("the potential is not shown positive by the invariant"), std::nullopt;
-  std::optional<std::int64_t> k = cert::upperBound(pre, pot);
-  if (!k) return cc.failed("the potential is unbounded on entry"), std::nullopt;
+  // The iteration that leaves by a jump need not decrease the potential: it is paid by
+  // a term c * (1 - flags), which is c while the loop runs and 0 once a flag is set.
+  std::vector<std::int64_t> extras{0};
+  if (!exitFlags.empty()) {
+    extras.clear();
+    for (std::int64_t m = 1; m <= 64; m *= 2) extras.push_back(m * static_cast<std::int64_t>(d));
+  }
+  std::string lastWhy;
+  for (std::int64_t c : extras) {
+    PExp potc = pot;
+    potc.c += c;
+    for (std::size_t f : exitFlags) {
+      if (potc.sv.size() <= f) potc.sv.resize(f + 1, 0);
+      potc.sv[f] -= c;
+    }
+    Assn guardInv = testLins();
+    guardInv.insert(guardInv.end(), inv.begin(), inv.end());
+    std::optional<Farkas> posCert = cert::farkas(guardInv, Lin{cert::vsmul(-1, potc.sv), {},
+                                                               static_cast<std::int64_t>(d) - potc.c});
+    if (!posCert) { lastWhy = "the potential is not shown positive by the invariant"; continue; }
+    std::optional<std::int64_t> k = cert::upperBound(entry, potc);
+    if (!k) { lastWhy = "the potential is unbounded on entry"; continue; }
+    Assn bodyPre = guardInv;
+    bodyPre.insert(bodyPre.begin(), cert::ghost(potc, j, 0));
+    Assn bodyPost = inv;
+    bodyPost.insert(bodyPost.begin(), cert::ghost(potc, j, static_cast<std::int64_t>(d)));
+    std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
+    if (!b) return std::nullopt;
+    std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
+    if (!qc) { lastWhy = "the decrease of the potential could not be certified"; continue; }
 
-  Assn bodyPre = guardInv;
-  bodyPre.insert(bodyPre.begin(), cert::ghost(pot, j, 0));
-  std::optional<CertPiece> b = runBody(bodyPre);
-  if (!b) return std::nullopt;
-  Assn bodyPost = inv;
-  bodyPost.insert(bodyPost.begin(), cert::ghost(pot, j, static_cast<std::int64_t>(d)));
-  std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
-  if (!qc) return cc.failed("the decrease of the potential could not be certified"), std::nullopt;
-
-  Node wn;
-  wn.kind = Node::While;
-  wn.w = w;
-  wn.a = *g;
-  wn.inv = inv;
-  wn.pot = pot;
-  wn.d = d;
-  wn.k = *k;
-  wn.j = j;
-  wn.posCert = *posCert;
-  wn.b1 = b->bound;
-  wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
-  Assn pw = inv;
-  pw.insert(pw.begin(), Lin{pot.sv, {}, pot.c - *k});
-  Assn qw = inv;
-  qw.insert(qw.begin(), cert::negLin(*g));
-  std::uint64_t bw = cert::whileBound(*k, d, w, b->bound);
-  std::optional<std::vector<Farkas>> pc = cert::farkasAll(pre, pw);
-  if (!pc) return cc.failed("internal: loop entry"), std::nullopt;
-  return CertPiece{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+    Node wn;
+    wn.kind = single ? Node::While : Node::WhileAnd;
+    wn.w = w;
+    if (single) wn.a = gs[0];
+    else wn.gs = gs;
+    wn.inv = inv;
+    wn.pot = potc;
+    wn.d = d;
+    wn.k = *k;
+    wn.j = j;
+    wn.posCert = *posCert;
+    wn.b1 = b->bound;
+    wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
+    Assn pw = inv;
+    pw.insert(pw.begin(), Lin{potc.sv, {}, potc.c - *k});
+    Assn qw = inv;
+    if (single) qw.insert(qw.begin(), cert::negLin(gs[0]));
+    std::uint64_t bw = cert::whileBound(*k, d, w, b->bound);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
+    if (!pc) return cc.failed("internal: loop entry"), std::nullopt;
+    CertPiece lp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+    return seqPiece(prolog, lp);
+  }
+  return cc.failed(lastWhy), std::nullopt;
 }
 
 namespace {
@@ -2922,20 +3351,23 @@ std::optional<Analyzer::CertPiece> Analyzer::certCall(CertCtx& cc, const CallExp
   std::vector<std::pair<std::size_t, std::optional<PExp>>> binds;
   for (unsigned i = 0; i < def->getNumParams() && i < args.size(); ++i) {
     const ParmVarDecl* p = def->getParamDecl(i);
-    if (!sm.tracked.count(p) || !signedInt(p->getType())) continue;
-    std::optional<PExp> a = ctx_.hasSameUnqualifiedType(args[i]->getType(), p->getType()) ||
-                                    widens(args[i]->getType(), p->getType())
-                                ? certAffine(cc, args[i])
-                                : std::nullopt;
-    if (a) trimP(*a);
+    if (!sm.tracked.count(p) || !certInt(p->getType())) continue;
     cc.addVar(p);
-    if (cc.var.count(p)) binds.push_back({cc.var.at(p), a});
+    if (!cc.var.count(p)) continue;
+    std::size_t x = cc.var.at(p);
+    // The argument as converted to the parameter's type (an implicit conversion of
+    // args[i] itself is part of the expression).
+    std::optional<PExp> a = ctx_.hasSameUnqualifiedType(args[i]->getType(), p->getType()) ||
+                                    widens(args[i]->getType(), p->getType()) || cc.uwidth.count(x)
+                                ? certValueFor(cc, x, args[i])
+                                : std::nullopt;
+    binds.push_back({x, a});
   }
   for (const VarDecl* v : sm.tracked)
-    if (!isa<ParmVarDecl>(v) && signedInt(v->getType())) cc.addVar(v);
+    if (!isa<ParmVarDecl>(v) && certInt(v->getType())) cc.addVar(v);
   // Simultaneous binding: arguments only mention the caller's variables.
   for (const auto& [x, a] : binds) {
-    std::optional<CertPiece> b = certAssign(cc, 0, x, a, acc.post);
+    std::optional<CertPiece> b = certStore(cc, 0, x, a, acc.post);
     if (!b) { cc.prefix = savedPrefix; return std::nullopt; }
     acc = seqPiece(acc, *b);
   }
@@ -2944,8 +3376,19 @@ std::optional<Analyzer::CertPiece> Analyzer::certCall(CertCtx& cc, const CallExp
   cc.potentials = sm.potentials.get();
   cc.callKeys = &sm.callKeys;
   cc.inlining.insert(def->getCanonicalDecl());
+  // A `return` of the callee ends the callee only: its body gets its own exits,
+  // return flag and join hints, not those of the caller's enclosing loops.
+  std::vector<CertCtx::Exit> savedExits;
+  std::vector<cert::Assn> savedHints;
+  std::swap(savedExits, cc.exits);
+  std::swap(savedHints, cc.hints);
+  std::size_t savedRet = cc.ret;
+  cc.ret = CertCtx::none;
   std::vector<const Stmt*> list(body->body_begin(), body->body_end());
   std::optional<CertPiece> b = certList(cc, list, 0, acc.post);
+  std::swap(savedExits, cc.exits);
+  std::swap(savedHints, cc.hints);
+  cc.ret = savedRet;
   cc.inlining.erase(def->getCanonicalDecl());
   cc.potentials = savedPot;
   cc.callKeys = savedKeys;
@@ -2981,9 +3424,8 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
       }
       std::uint64_t wd = (init ? costOf(init) : 0) + (init && isIntType(vd->getType()) ? w_.assign : 0);
       if (it != cc.var.end()) {
-        std::optional<PExp> a = init ? certAffine(cc, init) : std::nullopt;
-        if (a) trimP(*a);
-        p = certAssign(cc, wd, it->second, a, before.post);
+        std::optional<PExp> a = init ? certValueFor(cc, it->second, init) : std::nullopt;
+        p = certStore(cc, wd, it->second, a, before.post);
       } else {
         Node n;
         n.kind = Node::Havoc;
@@ -3011,6 +3453,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
   }
   if (const auto* is = dyn_cast<IfStmt>(st))
     return certIf(cc, is, flatten(is->getThen()), flatten(is->getElse()), pre);
+  if (const auto* sw = dyn_cast<SwitchStmt>(st)) return certSwitch(cc, sw, pre);
   if (const auto* ws = dyn_cast<WhileStmt>(st)) {
     if (ws->getConditionVariable()) return cc.failed("condition variable"), std::nullopt;
     return certLoop(cc, ws, ws->getCond(), ws->getBody(), nullptr, pre);
@@ -3160,14 +3603,14 @@ std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::s
       if (sm.potentials && fs.seen.count(key.first)) addSlots(*sm.potentials);
     cc.relevant = fs.close();
   }
-  // Variables: integer parameters, then tracked locals, all of signed type.
+  // Variables: integer parameters, then tracked locals (signed or unsigned).
   for (unsigned i = 0; i < def->getNumParams(); ++i) {
     const ParmVarDecl* p = def->getParamDecl(i);
-    if (fc.tracked.count(p) && signedInt(p->getType())) cc.addVar(p);
+    if (fc.tracked.count(p) && certInt(p->getType())) cc.addVar(p);
   }
   std::vector<const VarDecl*> locals;
   for (const VarDecl* v : fc.tracked)
-    if (!isa<ParmVarDecl>(v) && signedInt(v->getType())) locals.push_back(v);
+    if (!isa<ParmVarDecl>(v) && certInt(v->getType())) locals.push_back(v);
   std::sort(locals.begin(), locals.end(),
             [](const VarDecl* a, const VarDecl* b) { return a->getLocation() < b->getLocation(); });
   for (const VarDecl* v : locals) cc.addVar(v);
@@ -3191,6 +3634,23 @@ std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::s
       l.sv[it->second] = k;
     }
     if (ok) pre.push_back(l);
+  }
+  // Unsigned parameters lie in [0, 2^w - 1] (upper limit only for w <= 32, so that
+  // the constant fits; leaving it out only weakens the precondition).
+  for (unsigned i = 0; i < def->getNumParams(); ++i) {
+    auto it = cc.var.find(def->getParamDecl(i));
+    if (it == cc.var.end()) continue;
+    auto uw = cc.uwidth.find(it->second);
+    if (uw == cc.uwidth.end()) continue;
+    Lin lo;
+    lo.sv = cert::vsmul(-1, cert::unitVec(it->second));
+    pre.push_back(lo);
+    if (uw->second <= 32) {
+      Lin up;
+      up.sv = cert::unitVec(it->second);
+      up.c = -((std::int64_t(1) << uw->second) - 1);
+      pre.push_back(up);
+    }
   }
   pre = cert::normalize(pre);
 

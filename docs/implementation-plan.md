@@ -38,7 +38,10 @@ Each task ends with: tests (including must-reject cases), figures re-run
 2. **Certificate emission** (plugin). **Done (Nov 2026)**: `--opt=certificates=FILE`;
    TACLeBench 142 of 158 bounded functions, all accepted by the checker; the example
    programs 7 of 13; calls (by inlining) and early returns are handled on the generator
-   side, without changing the checker. Original description: For a function whose analysis used only what the
+   side, without changing the checker. Then (2026-11-14) early exits from loops, `switch`,
+   `&&` tests (checker node `whileAnd`, proved in `check_sound`) and unsigned variables
+   (wrap-around branches proved dead by the checker): TACLeBench 156 of 158, examples 10
+   of 15 bounded functions. Original description: For a function whose analysis used only what the
    fragment covers (tracked integer locals, single linear guards, assignments, unknown
    values, affine potentials, invariants found by the Houdini step), emit the `ACmd`.
    Count how many TACLeBench / TPDB / example functions get a certificate that the

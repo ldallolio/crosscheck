@@ -352,6 +352,15 @@ std::string node(const Node& n) {
              ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
              ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + u(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
+    case Node::WhileAnd: {
+      std::string g = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) g += (i ? "," : "") + pexp(n.gs[i]);
+      g += "]";
+      return "{\"node\":\"whileAnd\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
+             ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
+             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + u(n.b1) +
+             ",\"body\":" + node(*n.c1) + "}";
+    }
     case Node::Weaken:
       return "{\"node\":\"weaken\",\"P\":" + assn(n.pre) + ",\"preCerts\":" + fks(n.preCerts) +
              ",\"B\":" + u(n.bound) + ",\"Q\":" + assn(n.post) + ",\"postCerts\":" + fks(n.postCerts) +

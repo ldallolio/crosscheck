@@ -118,7 +118,7 @@ if(BUILD_TESTING)
   if(CROSSCHECK_CHECKER)
     add_test(NAME certificates_accepted_by_lean_checker
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_certificates.sh $<TARGET_FILE:crosscheck-tool>
-        ${CROSSCHECK_CHECKER} ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+        ${CROSSCHECK_CHECKER} "${BENCH}:${CMAKE_CURRENT_SOURCE_DIR}/tests/certificates" ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
   endif()
   foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)
     add_test(NAME plugin_rejects_${name}
