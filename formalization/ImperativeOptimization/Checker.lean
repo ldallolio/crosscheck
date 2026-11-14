@@ -162,23 +162,317 @@ theorem entailsAll_sound {ps gs : List Lin} {certs : List (ℕ × List ℕ)}
       rw [holds_cons]
       exact ⟨entails1_sound h.1 hps, ih h.2⟩
 
+/-! ### Symbolic bounds -/
+
+theorem dotN_nadd (l m : List ℕ) (f : Env) : dotN (nadd l m) f = dotN l f + dotN m f := by
+  induction l generalizing m f with
+  | nil => simp [nadd, dotN]
+  | cons a l ih =>
+    cases m with
+    | nil => simp [nadd, dotN]
+    | cons b m => simp only [nadd, dotN, ih]; ring
+
+theorem dotN_nsmul (k : ℕ) (l : List ℕ) (f : Env) : dotN (nsmul k l) f = k * dotN l f := by
+  induction l generalizing f with
+  | nil => simp [nsmul, dotN]
+  | cons a l ih =>
+    have := ih (fun i => f (i + 1))
+    simp only [nsmul, List.map_cons, dotN] at this ⊢
+    rw [this]; ring
+
+theorem dotN_nil_le (l : List ℕ) (h : nle l [] = true) (f : Env) : dotN l f = 0 := by
+  induction l generalizing f with
+  | nil => rfl
+  | cons a l ih =>
+    simp only [nle, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp [dotN, h.1, ih h.2]
+
+theorem nle_dotN {l m : List ℕ} (h : nle l m = true) (f : Env) : dotN l f ≤ dotN m f := by
+  induction l generalizing m f with
+  | nil => exact Nat.zero_le _
+  | cons a l ih =>
+    cases m with
+    | nil =>
+      have := dotN_nil_le (a :: l) h f
+      simp [this]
+    | cons b m =>
+      simp only [nle, Bool.and_eq_true, decide_eq_true_eq] at h
+      simp only [dotN]
+      have := ih h.2 (fun i => f (i + 1))
+      have : a * (f 0).toNat ≤ b * (f 0).toNat := Nat.mul_le_mul_right _ h.1
+      omega
+
+theorem dotN_zero {l : List ℕ} (h : l.all (· = 0) = true) (f : Env) : dotN l f = 0 := by
+  induction l generalizing f with
+  | nil => rfl
+  | cons a l ih =>
+    simp only [List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp [dotN, h.1, ih (by simpa using h.2)]
+
+theorem dot_ofNat_zero {l : List ℕ} (h : l.all (· = 0) = true) (f : Env) :
+    dot (l.map Int.ofNat) f = 0 := by
+  induction l generalizing f with
+  | nil => rfl
+  | cons a l ih =>
+    simp only [List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp [dot, h.1, ih (by simpa using h.2)]
+
+/-- A natural-coefficient combination of values is at most the same combination of their
+    positive parts. -/
+theorem dot_ofNat_le (l : List ℕ) (f : Env) : dot (l.map Int.ofNat) f ≤ (dotN l f : ℤ) := by
+  induction l generalizing f with
+  | nil => simp [dot, dotN]
+  | cons a l ih =>
+    have := ih (fun i => f (i + 1))
+    simp only [List.map_cons, dot, dotN]
+    push_cast
+    have h1 : (a : ℤ) * f 0 ≤ (a : ℤ) * ((f 0).toNat : ℤ) :=
+      mul_le_mul_of_nonneg_left (Int.self_le_toNat (f 0)) (Int.natCast_nonneg a)
+    have h2 : ((a : ℕ) : ℤ) = Int.ofNat a := rfl
+    rw [← h2]
+    linarith
+
+theorem dotN_update {l : List ℕ} {j : ℕ} (h : ncoeff l j = 0) (f : Env) (v : ℤ) :
+    dotN l (Function.update f j v) = dotN l f := by
+  induction l generalizing f j with
+  | nil => rfl
+  | cons a l ih =>
+    cases j with
+    | zero =>
+      have e : (fun i => Function.update f 0 v (i + 1)) = fun i => f (i + 1) := by
+        funext i; simp [Function.update]
+      simp only [ncoeff, List.getD_cons_zero] at h
+      simp [dotN, e, h]
+    | succ j =>
+      have e : (fun i => Function.update f (j + 1) v (i + 1)) =
+          Function.update (fun i => f (i + 1)) j v := by
+        funext i
+        by_cases hi : i = j
+        · subst hi; simp
+        · simp [Function.update, hi]
+      have h0 : Function.update f (j + 1) v 0 = f 0 := by simp [Function.update]
+      simp only [ncoeff, List.getD_cons_succ] at h
+      simp only [dotN, e, h0, ih h]
+
+@[simp] theorem SB.eval_const (w : ℕ) (ρ : Env) : (SB.const w).eval ρ = w := by
+  simp [SB.eval, SB.const, dotN]
+
+@[simp] theorem SB.eval_add (a b : SB) (ρ : Env) : (a.add b).eval ρ = a.eval ρ + b.eval ρ := by
+  simp only [SB.eval, SB.add, dotN_nadd]; ring
+
+@[simp] theorem SB.eval_smul (k : ℕ) (a : SB) (ρ : Env) : (a.smul k).eval ρ = k * a.eval ρ := by
+  simp only [SB.eval, SB.smul, dotN_nsmul]; ring
+
+theorem SB.le_eval {a b : SB} (h : SB.le a b = true) (ρ : Env) : a.eval ρ ≤ b.eval ρ := by
+  simp only [SB.le, Bool.and_eq_true, decide_eq_true_eq] at h
+  simp only [SB.eval]
+  have := nle_dotN h.2 ρ
+  omega
+
+/-- A combination of bounds bounds the same combination of values bounded by them. -/
+theorem SB.comb_ge (ks : List ℕ) (bs : List SB) (ρ ρ' : Env) (hlen : ks.length ≤ bs.length)
+    (hb : ∀ i, i < ks.length → (ρ' i).toNat ≤ (bs.getD i (SB.const 0)).eval ρ) :
+    dotN ks ρ' ≤ (SB.comb ks bs).eval ρ := by
+  induction ks generalizing bs ρ' with
+  | nil => simp [dotN, SB.comb]
+  | cons k ks ih =>
+    cases bs with
+    | nil => simp at hlen
+    | cons b bs =>
+      simp only [List.length_cons] at hlen
+      have h0 := hb 0 (by simp)
+      have hr := ih bs (fun i => ρ' (i + 1)) (by omega) (fun i hi => by
+        have := hb (i + 1) (by simp; omega)
+        simpa using this)
+      simp only [dotN, SB.comb, SB.eval_add, SB.eval_smul]
+      simp only [List.getD_cons_zero] at h0
+      have : k * (ρ' 0).toNat ≤ k * b.eval ρ := Nat.mul_le_mul_left _ h0
+      omega
+
+/-- The loop bound required by `loopBoundOk` dominates the bound of the loop rule. -/
+theorem loopBoundOk_sound {w d : ℕ} {k : ℤ} {kl : List ℕ} {Wb B : SB}
+    (h : loopBoundOk w d k kl Wb B = true) (hd : 0 < d) (ρ : Env) :
+    ((k + dot (kl.map Int.ofNat) ρ) / (d : ℤ)).toNat * (w + Wb.eval ρ) + w ≤ B.eval ρ := by
+  simp only [loopBoundOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h
+  rcases h with ⟨hkl, hle⟩ | ⟨⟨⟨hW, hw⟩, hk⟩, hco⟩
+  · have := SB.le_eval hle ρ
+    simp only [SB.eval_add, SB.eval_smul, SB.eval_const] at this
+    rw [dot_ofNat_zero hkl, add_zero]
+    exact this
+  · have hWb : Wb.eval ρ = Wb.c := by simp [SB.eval, dotN_zero hW]
+    rw [hWb]
+    have hco' := nle_dotN hco ρ
+    rw [dotN_nsmul, dotN_nsmul] at hco'
+    have hD := dot_ofNat_le kl ρ
+    set D := dot (kl.map Int.ofNat) ρ
+    set N := ((k + D) / (d : ℤ)).toNat
+    set W := w + Wb.c
+    simp only [SB.eval]
+    have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
+    by_cases hK : k + D < 0
+    · have : N = 0 := by
+        simp only [N]
+        have : (k + D) / (d : ℤ) < 0 := Int.ediv_neg' hK hdZ
+        omega
+      rw [this]; omega
+    · push_neg at hK
+      have hq : 0 ≤ (k + D) / (d : ℤ) := Int.ediv_nonneg hK (le_of_lt hdZ)
+      have hN : (N : ℤ) = (k + D) / (d : ℤ) := Int.toNat_of_nonneg hq
+      have hmul : (k + D) / (d : ℤ) * d ≤ k + D := Int.ediv_mul_le _ (ne_of_gt hdZ)
+      have hcoZ : ((W * dotN kl ρ : ℕ) : ℤ) ≤ ((d * dotN B.co ρ : ℕ) : ℤ) := by exact_mod_cast hco'
+      push_cast at hcoZ hk
+      have hWnn : (0 : ℤ) ≤ (W : ℤ) := Int.natCast_nonneg _
+      -- d * (N * W) ≤ d * (B.c - w + dotN B.co ρ)
+      have key : (d : ℤ) * ((N : ℤ) * W) ≤ (d : ℤ) * ((B.c : ℤ) - w + dotN B.co ρ) := by
+        have e1 : (d : ℤ) * ((N : ℤ) * W) = ((N : ℤ) * d) * W := by ring
+        rw [e1, hN]
+        have e2 : (k + D) / (d : ℤ) * d * W ≤ (k + D) * W := mul_le_mul_of_nonneg_right hmul hWnn
+        have e3 : (k + D) * (W : ℤ) ≤ (W : ℤ) * k + (W : ℤ) * dotN kl ρ := by nlinarith
+        nlinarith
+      have key' : (N : ℤ) * W ≤ (B.c : ℤ) - w + dotN B.co ρ := le_of_mul_le_mul_left key hdZ
+      have : ((N * W : ℕ) : ℤ) + w ≤ ((B.c + dotN B.co ρ : ℕ) : ℤ) := by push_cast; linarith
+      exact_mod_cast this
+
+/-! ### Instantiation of a callee's logical variables -/
+
+/-- The valuation of a callee's logical variables given by the expressions `inst`. -/
+def instEnv (inst : List PExp) (s : Env) : Env := fun j => (inst.getD j ⟨[], 0⟩).eval s
+
+theorem dot_zero_env (l : List ℤ) : dot l (fun _ => 0) = 0 := by
+  induction l with
+  | nil => rfl
+  | cons b l ih => simp [dot, ih]
+
+theorem instEnv_nil (s : Env) : instEnv [] s = fun _ => 0 := by
+  funext j; simp [instEnv, PExp.eval, dot]
+
+theorem instEnv_cons (p : PExp) (ps : List PExp) (s : Env) :
+    instEnv (p :: ps) s 0 = p.eval s ∧ (fun i => instEnv (p :: ps) s (i + 1)) = instEnv ps s := by
+  refine ⟨by simp [instEnv], ?_⟩
+  funext i; simp [instEnv]
+
+theorem instLv_eval (lv : List ℤ) (inst : List PExp) (s : Env) :
+    (instLv lv inst).eval s = dot lv (instEnv inst s) := by
+  induction lv generalizing inst with
+  | nil => simp [instLv, PExp.eval, dot]
+  | cons a l ih =>
+    cases inst with
+    | nil =>
+      rw [instEnv_nil]
+      simp only [instLv, PExp.eval, dot, dot_zero_env]
+      simp
+    | cons p ps =>
+      obtain ⟨h0, e⟩ := instEnv_cons p ps s
+      have ih' := ih ps
+      simp only [instLv, PExp.eval] at ih' ⊢
+      simp only [dot, h0, e, dot_vadd, dot_vsmul, PExp.eval]
+      rw [← ih']
+      ring
+
+theorem Lin.inst_eval (e : Lin) (inst : List PExp) (ρ s : Env) :
+    (e.inst inst).eval ρ s = e.eval (instEnv inst s) s := by
+  have := instLv_eval e.lv inst s
+  simp only [Lin.inst, Lin.eval, dot_vadd, PExp.eval] at this ⊢
+  simp [dot]
+  linarith
+
+theorem ubGoals_sound {inst : List PExp} {ubs : List SB} {ρ s : Env}
+    (h : holds (ubGoals inst ubs) ρ s) (j : ℕ) (hj : j < ubs.length) (hji : j < inst.length) :
+    (instEnv inst s j).toNat ≤ (ubs.getD j (SB.const 0)).eval ρ := by
+  induction inst generalizing ubs j with
+  | nil => simp at hji
+  | cons a as ih =>
+    cases ubs with
+    | nil => simp at hj
+    | cons u us =>
+      simp only [ubGoals, holds_cons] at h
+      cases j with
+      | zero =>
+        have h1 := h.1
+        simp only [ubLin, Lin.eval, dot_vsmul] at h1
+        have h2 := dot_ofNat_le u.co ρ
+        have : instEnv (a :: as) s 0 = a.eval s := by simp [instEnv]
+        rw [this]
+        simp only [List.getD_cons_zero, SB.eval]
+        simp only [PExp.eval]
+        omega
+      | succ j =>
+        have := ih h.2 j (by simpa using hj) (by simpa using hji)
+        simpa [instEnv] using this
+
+/-! ### Frames -/
+
+theorem dot_congr (l : List ℤ) (f g : Env) (h : ∀ i, coeff l i = 0 ∨ f i = g i) :
+    dot l f = dot l g := by
+  induction l generalizing f g with
+  | nil => rfl
+  | cons a l ih =>
+    have h0 := h 0
+    have hr := ih (fun i => f (i + 1)) (fun i => g (i + 1)) (fun i => by
+      have := h (i + 1); simpa [coeff] using this)
+    simp only [coeff, List.getD_cons_zero] at h0
+    simp only [dot, hr]
+    rcases h0 with h0 | h0 <;> simp [h0]
+
+theorem holds_frameOf {M : List ℕ} {P : List Lin} {ρ s t : Env} (hP : holds P ρ s)
+    (ht : ∀ x, x ∉ M → t x = s x) : holds (frameOf M P) ρ t := by
+  intro e he
+  simp only [frameOf, List.mem_filter, List.all_eq_true, decide_eq_true_eq] at he
+  have := hP e he.1
+  have hd : dot e.sv t = dot e.sv s := dot_congr _ _ _ (fun i => by
+    by_cases hi : i ∈ M
+    · exact Or.inl (he.2 i hi)
+    · exact Or.inr (ht i hi))
+  simp only [Lin.eval, hd] at this ⊢
+  exact this
+
+/-- Executions of a loop whose body preserves `I` and modifies only `M` modify only `M`. -/
+theorem while_frame {Φ : ℕ → Cmd ℕ Env} {I : Env → Prop} {w : ℕ} {b : Env → Bool}
+    {c : Cmd ℕ Env} {M : List ℕ}
+    (hbody : ∀ s, I s → b s = true → ∀ t n, Exec Φ c s t n → I t ∧ ∀ x, x ∉ M → t x = s x) :
+    ∀ {s t : Env} {n : ℕ}, I s → Exec Φ (Cmd.while w b c) s t n → ∀ x, x ∉ M → t x = s x := by
+  intro s t n hI he
+  revert hI
+  generalize hW : Cmd.while w b c = W at he
+  induction he with
+  | skip => cases hW
+  | atom => cases hW
+  | seq => cases hW
+  | iteTrue => cases hW
+  | iteFalse => cases hW
+  | call => cases hW
+  | whileFalse => intro _ x _; rfl
+  | whileTrue hb e₁ _ _ ih =>
+    cases hW
+    intro hI
+    obtain ⟨hIu, hfr⟩ := hbody _ hI hb _ _ e₁
+    intro x hx
+    rw [ih rfl hIu x hx, hfr x hx]
+
 /-! ### Certificates -/
 
-/-- The program of a certificate, as a command of `Language` over valuations. -/
-def ACmd.toCmd : ACmd → Cmd Empty Env
+/-- The program of a certificate, as a command of `Language` over valuations, the
+    procedures being the functions of the program certificate (by index). -/
+def ACmd.toCmd : ACmd → Cmd ℕ Env
   | .skip => Cmd.skip
   | .assign w x a => Cmd.atom w (fun s t => t = Function.update s x (a.eval s))
   | .havoc w x => Cmd.atom w (fun s t => ∃ v, t = Function.update s x v)
   | .seq c₁ _ _ _ c₂ => Cmd.seq c₁.toCmd c₂.toCmd
   | .ite w g _ _ c₁ c₂ => Cmd.ite w (fun s => decide (g.eval s ≤ 0)) c₁.toCmd c₂.toCmd
-  | .while w g _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
-  | .whileAnd w gs _ _ _ _ _ _ _ body =>
+  | .while w g _ _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
+  | .whileAnd w gs _ _ _ _ _ _ _ _ body =>
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
+  | .call w f _ _ _ _ => Cmd.call w f
 
-/-- The environment of a program without procedures. -/
-abbrev Φ₀ : Empty → Cmd Empty Env := noProcs
+/-- What is required of the function `f` with the certificate `F` in the environment `Φ`
+    (proved for checked bodies, assumed for contracts): its triple for every valuation of
+    its logical variables, and that its executions from the precondition modify only its
+    declared variables. -/
+def FunSpec (Φ : ℕ → Cmd ℕ Env) (f : ℕ) (F : FunCert) : Prop :=
+  (∀ ρ, Valid Φ (holds F.pre ρ) (Φ f) (F.bound.eval ρ) (holds F.post ρ)) ∧
+  (∀ ρ s t n, holds F.pre ρ s → Exec Φ (Φ f) s t n → ∀ x, x ∉ F.mods → t x = s x)
 
 theorem ghost_eval (pot : PExp) (j : ℕ) (extra : ℤ) (ρ s : Env) :
     (ghost pot j extra).eval ρ s = pot.eval s - ρ j + extra := by
@@ -199,189 +493,307 @@ theorem holds_update_logical {A : List Lin} {j : ℕ}
 theorem floor_div (k : ℤ) (d : ℕ) : ⌊(k : ℚ) / (d : ℚ)⌋₊ = (k / (d : ℤ)).toNat := by
   rw [← Int.floor_toNat, Rat.floor_intCast_div_natCast]
 
-/-- **Soundness of the checker.** A certificate accepted by `check` proves its triple:
-    for every valuation `ρ` of the logical variables, from every state satisfying `P`,
-    every execution prefix of the program costs at most `B` and every terminating
-    execution ends in `Q`. -/
-theorem check_sound (c : ACmd) : ∀ (P Q : List Lin) (B : ℕ), check P c B Q = true →
-    ∀ ρ, Valid Φ₀ (holds P ρ) c.toCmd B (holds Q ρ) := by
+theorem entryLin_eval (pot : PExp) (k : ℤ) (kl : List ℕ) (ρ s : Env) :
+    (entryLin pot k kl).eval ρ s = pot.eval s - (k + dot (kl.map Int.ofNat) ρ) := by
+  simp only [entryLin, Lin.eval, PExp.eval, dot_vsmul]; ring
+
+/-- The loop case, shared by `while` and `whileAnd`: `test` is the loop test, `G` the
+    constraints it yields, `Qe` the postcondition. -/
+theorem loop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {d : ℕ} {k : ℤ} {kl : List ℕ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb B : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hd : 0 < d) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hWj : ncoeff Wb.co j = 0)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) ρ') body (Wb.eval ρ')
+        (holds (ghost pot j d :: inv) ρ') ∧
+      ∀ s t n, holds (ghost pot j 0 :: (G ++ inv)) ρ' s → Exec Φ body s t n →
+        ∀ x, x ∉ M → t x = s x)
+    (hB : loopBoundOk w d k kl Wb B = true)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (entryLin pot k kl :: inv) ρ) (Cmd.while w test body) (B.eval ρ)
+        (holds Qe ρ) ∧
+      ∀ s t n, holds (entryLin pot k kl :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
+        ∀ x, x ∉ M → t x = s x := by
+  have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
+  have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
+    intro s hA hB e he
+    rcases List.mem_append.mp he with h | h
+    · exact hA e h
+    · exact hB e h
+  have hGinv : (G ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_append, Bool.and_eq_true]; exact ⟨hGj, hinv⟩
+  -- the body, read at the outer valuation with `γⱼ` set to the potential
+  have body_at : ∀ s, holds inv ρ s → test s = true →
+      Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s))) body
+        (Wb.eval ρ) (holds (ghost pot j d :: inv) (Function.update ρ j (pot.eval s))) ∧
+      holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s)) s := by
+    intro s hI hb
+    refine ⟨?_, ?_⟩
+    · have := (hbody (Function.update ρ j (pot.eval s))).1
+      rwa [SB.eval, dotN_update hWj, ← SB.eval] at this
+    · rw [holds_cons, ghost_eval, holds_update_logical hGinv]
+      exact ⟨by simp, happ s (hG s hb) hI⟩
+  have key := valid_while (Φ := Φ) (I := holds inv ρ)
+    (C := fun s => pot.eval s ≤ k + dot (kl.map Int.ofNat) ρ)
+    (w := w) (b := test) (c := body) (Wb := Wb.eval ρ)
+    (fun s => (pot.eval s : ℚ) / d) (((k + dot (kl.map Int.ofNat) ρ : ℤ) : ℚ) / d) ?_ ?_ ?_
+  · refine ⟨?_, ?_⟩
+    · refine valid_conseq ?_ key ?_ ?_
+      · intro s hP
+        rw [holds_cons, entryLin_eval] at hP
+        exact ⟨hP.2, by linarith [hP.1]⟩
+      · rw [floor_div]; exact loopBoundOk_sound hB hd ρ
+      · rintro t ⟨hI, hb⟩; exact hQ t hI hb
+    · intro s t n hP he
+      rw [holds_cons] at hP
+      refine while_frame (I := holds inv ρ) (fun s' hI hb t' n' e => ?_) hP.2 he
+      obtain ⟨hv, hpre⟩ := body_at s' hI hb
+      have ht := (hv s' hpre).2 t' n' e
+      rw [holds_cons, holds_update_logical hinv] at ht
+      exact ⟨ht.2, (hbody _).2 s' t' n' hpre e⟩
+  · intro v s hs
+    obtain ⟨hI, hb, hv⟩ := hs
+    obtain ⟨H, hpre⟩ := body_at s hI hb
+    refine ⟨(H s hpre).1, fun t n he => ?_⟩
+    have ht := (H s hpre).2 t n he
+    rw [holds_cons, ghost_eval, holds_update_logical hinv] at ht
+    refine ⟨ht.2, ?_⟩
+    have h1 : pot.eval t + d ≤ pot.eval s := by
+      have := ht.1
+      simp at this
+      linarith
+    have h2 : ((pot.eval t : ℚ) + d) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+    rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
+    linarith
+  · intro s hI hb
+    have := entails1_sound hpos (ρ := ρ) (s := s) (happ s (hG s hb) hI)
+    simp only [Lin.eval, dot, dot_vsmul] at this
+    have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
+    have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+    rw [le_div_iff₀ hd']
+    linarith
+  · intro s hs
+    have h2 : (pot.eval s : ℚ) ≤ ((k + dot (kl.map Int.ofNat) ρ : ℤ) : ℚ) := by exact_mod_cast hs
+    exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+
+/-- **Soundness of the checker.** If every function that calls may refer to meets its
+    specification (`hfs`), a certificate accepted by `check` proves its triple: for
+    every valuation `ρ` of the logical variables, from every state satisfying `P`, every
+    execution prefix of the program costs at most `B` (evaluated at `ρ`), every
+    terminating execution ends in `Q`, and modifies only the variables `writes`. -/
+theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
+    (hfs : ∀ f F, fs[f]? = some F → FunSpec Φ f F) (c : ACmd) :
+    ∀ (P Q : List Lin) (B : SB), check fs P c B Q = true → ∀ ρ,
+      Valid Φ (holds P ρ) c.toCmd (B.eval ρ) (holds Q ρ) ∧
+      ∀ s t n, holds P ρ s → Exec Φ c.toCmd s t n → ∀ x, x ∉ writes fs c → t x = s x := by
   induction c with
   | skip =>
     intro P Q B h ρ
-    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    exact valid_skip _
+    simp only [check, decide_eq_true_eq] at h
+    subst h
+    refine ⟨valid_conseq (fun _ h => h) (valid_skip _) (Nat.zero_le _) (fun _ h => h), ?_⟩
+    intro s t n _ he x _
+    cases he; rfl
   | assign w x a =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    refine valid_atom _ _ _ _ ?_
-    rintro s t hP rfl e he
-    have := hP (e.subst x a) (List.mem_map_of_mem _ he)
-    rwa [Lin.subst_eval] at this
+    obtain ⟨rfl, hB⟩ := h
+    refine ⟨valid_conseq (fun _ h => h) (valid_atom _ _ _ _ ?_)
+      (by simpa using SB.le_eval hB ρ) (fun _ h => h), ?_⟩
+    · rintro s t hP rfl e he
+      have := hP (e.subst x a) (List.mem_map_of_mem _ he)
+      rwa [Lin.subst_eval] at this
+    · intro s t n _ he y hy
+      cases he with
+      | atom h =>
+        rw [h]
+        simp only [writes, List.mem_singleton] at hy
+        simp [Function.update, hy]
   | havoc w x =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
-    obtain ⟨⟨rfl, hx⟩, rfl⟩ := h
-    refine valid_atom _ _ _ _ ?_
-    rintro s t hP ⟨v, rfl⟩ e he
-    rw [Lin.eval_update, hx e he, zero_mul, add_zero]
-    exact hP e he
+    obtain ⟨⟨rfl, hx⟩, hB⟩ := h
+    refine ⟨valid_conseq (fun _ h => h) (valid_atom _ _ _ _ ?_)
+      (by simpa using SB.le_eval hB ρ) (fun _ h => h), ?_⟩
+    · rintro s t hP ⟨v, rfl⟩ e he
+      rw [Lin.eval_update, hx e he, zero_mul, add_zero]
+      exact hP e he
+    · intro s t n _ he y hy
+      cases he with
+      | atom h =>
+        obtain ⟨v, rfl⟩ := h
+        simp only [writes, List.mem_singleton] at hy
+        simp [Function.update, hy]
   | seq c₁ mid B₁ B₂ c₂ ih₁ ih₂ =>
     intro P Q B h ρ
-    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨h₁, h₂⟩, rfl⟩ := h
-    exact valid_seq (ih₁ _ _ _ h₁ ρ) (ih₂ _ _ _ h₂ ρ)
+    simp only [check, Bool.and_eq_true] at h
+    obtain ⟨⟨h₁, h₂⟩, hB⟩ := h
+    have H₁ := ih₁ _ _ _ h₁ ρ
+    have H₂ := ih₂ _ _ _ h₂ ρ
+    refine ⟨valid_conseq (fun _ h => h) (valid_seq H₁.1 H₂.1)
+      (by simpa using SB.le_eval hB ρ) (fun _ h => h), ?_⟩
+    intro s t n hP he x hx
+    simp only [writes, List.mem_append, not_or] at hx
+    cases he with
+    | seq e₁ e₂ =>
+      have hm := (H₁.1 s hP).2 _ _ e₁
+      rw [H₂.2 _ _ _ hm e₂ x hx.2, H₁.2 _ _ _ hP e₁ x hx.1]
   | ite w g B₁ B₂ c₁ c₂ ih₁ ih₂ =>
     intro P Q B h ρ
-    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨h₁, h₂⟩, rfl⟩ := h
-    refine valid_ite ?_ ?_
-    · refine valid_conseq ?_ (ih₁ _ _ _ h₁ ρ) (le_refl _) (fun _ hq => hq)
-      rintro s ⟨hP, hb⟩
+    simp only [check, Bool.and_eq_true] at h
+    obtain ⟨⟨⟨h₁, h₂⟩, hB₁⟩, hB₂⟩ := h
+    have H₁ := ih₁ _ _ _ h₁ ρ
+    have H₂ := ih₂ _ _ _ h₂ ρ
+    have pre₁ : ∀ s, holds P ρ s → decide (g.eval s ≤ 0) = true → holds (g.toLin :: P) ρ s := by
+      intro s hP hb
       rw [holds_cons, PExp.toLin_eval]
       exact ⟨by simpa using hb, hP⟩
-    · refine valid_conseq ?_ (ih₂ _ _ _ h₂ ρ) (le_refl _) (fun _ hq => hq)
-      rintro s ⟨hP, hb⟩
+    have pre₂ : ∀ s, holds P ρ s → decide (g.eval s ≤ 0) = false → holds (g.negLin :: P) ρ s := by
+      intro s hP hb
       rw [holds_cons, PExp.negLin_eval]
       have : 0 < g.eval s := by simpa using hb
       exact ⟨by omega, hP⟩
-  | «while» w g inv pot d k j posCert Wb body ih =>
+    refine ⟨?_, ?_⟩
+    · have e₁ := SB.le_eval hB₁ ρ
+      have e₂ := SB.le_eval hB₂ ρ
+      simp only [SB.eval_add, SB.eval_const] at e₁ e₂
+      have hm : w + max (B₁.eval ρ) (B₂.eval ρ) ≤ B.eval ρ := by
+        rcases le_total (B₁.eval ρ) (B₂.eval ρ) with h | h
+        · rw [max_eq_right h]; exact e₂
+        · rw [max_eq_left h]; exact e₁
+      refine valid_conseq (fun _ h => h) (valid_ite ?_ ?_) hm (fun _ h => h)
+      · exact valid_conseq (fun s hs => pre₁ s hs.1 hs.2) H₁.1 (le_refl _) (fun _ h => h)
+      · exact valid_conseq (fun s hs => pre₂ s hs.1 hs.2) H₂.1 (le_refl _) (fun _ h => h)
+    · intro s t n hP he x hx
+      simp only [writes, List.mem_append, not_or] at hx
+      cases he with
+      | iteTrue hb e => exact H₁.2 _ _ _ (pre₁ s hP hb) e x hx.1
+      | iteFalse hb e => exact H₂.2 _ _ _ (pre₂ s hP hb) e x hx.2
+  | «while» w g inv pot d k kl j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hpos⟩, hbody⟩, rfl⟩ := h
-    have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
-    have key := valid_while (Φ := Φ₀) (I := holds inv ρ) (C := fun s => pot.eval s ≤ k)
-      (w := w) (b := fun s => decide (g.eval s ≤ 0)) (c := body.toCmd) (Wb := Wb)
-      (fun s => (pot.eval s : ℚ) / d) ((k : ℚ) / d) ?_ ?_ ?_
-    · refine valid_conseq ?_ key (le_of_eq ?_) ?_
-      · intro s hP
-        rw [holds_cons] at hP
-        refine ⟨hP.2, ?_⟩
-        have := hP.1
-        simp only [Lin.eval, dot] at this
-        simp only [PExp.eval]
-        linarith
-      · rw [floor_div]
-      · rintro t ⟨hI, hb⟩
+    obtain ⟨⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hWj⟩, hpos⟩, hbody⟩, hB⟩ := h
+    have hGj : [g.toLin].all (fun e => decide (coeff e.lv j = 0)) = true := by
+      simp [PExp.toLin, coeff]
+    exact loop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hWj
+      (fun s hb => by rw [holds_cons, PExp.toLin_eval]; exact ⟨by simpa using hb, fun e he => by cases he⟩)
+      hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB
+      (fun t hI hb => by
         rw [holds_cons, PExp.negLin_eval]
         have : 0 < g.eval t := by simpa using hb
-        exact ⟨by omega, hI⟩
-    · -- the body decreases the potential by `d` and preserves the invariant
-      intro v s hs
-      obtain ⟨hI, hb, hv⟩ := hs
-      have hg : g.eval s ≤ 0 := by simpa using hb
-      have H := ih _ _ _ hbody (Function.update ρ j (pot.eval s)) s (by
-        rw [holds_cons, holds_cons, ghost_eval, PExp.toLin_eval, holds_update_logical hinv]
-        exact ⟨by simp, hg, hI⟩)
-      refine ⟨H.1, fun t n he => ?_⟩
-      have ht := H.2 t n he
-      rw [holds_cons, ghost_eval, holds_update_logical hinv] at ht
-      refine ⟨ht.2, ?_⟩
-      have h1 : pot.eval t + d ≤ pot.eval s := by
-        have := ht.1
-        simp at this
-        linarith
-      have h2 : ((pot.eval t : ℚ) + d) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
-      rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
-      linarith
-    · -- the potential is at least `d` when the guard holds
-      intro s hI hb
-      have hg : g.eval s ≤ 0 := by simpa using hb
-      have := entails1_sound hpos (ρ := ρ) (s := s) (by
-        rw [holds_cons, PExp.toLin_eval]; exact ⟨hg, hI⟩)
-      simp only [Lin.eval, dot, dot_vsmul] at this
-      have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
-      have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
-      rw [le_div_iff₀ hd']
-      linarith
-    · intro s hs
-      have h2 : (pot.eval s : ℚ) ≤ (k : ℚ) := by exact_mod_cast hs
-      exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
-  | whileAnd w gs inv pot d k j posCert Wb body ih =>
+        exact ⟨by omega, hI⟩)
+  | whileAnd w gs inv pot d k kl j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, hQ⟩, hinv⟩, hpos⟩, hbody⟩, rfl⟩ := h
-    have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
-    have hgs : ∀ s, (gs.all (fun e => decide (e.eval s ≤ 0))) = true →
-        holds (gs.map PExp.toLin) ρ s := by
-      intro s hs e he
-      simp only [List.all_eq_true, decide_eq_true_eq] at hs
-      obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
-      rw [PExp.toLin_eval]
-      exact hs g hg
-    have happ : ∀ (A B : List Lin) s, holds A ρ s → holds B ρ s → holds (A ++ B) ρ s := by
-      intro A B s hA hB e he
-      rcases List.mem_append.mp he with h | h
-      · exact hA e h
-      · exact hB e h
-    have key := valid_while (Φ := Φ₀) (I := holds inv ρ) (C := fun s => pot.eval s ≤ k)
-      (w := w) (b := fun s => gs.all (fun e => decide (e.eval s ≤ 0))) (c := body.toCmd) (Wb := Wb)
-      (fun s => (pot.eval s : ℚ) / d) ((k : ℚ) / d) ?_ ?_ ?_
-    · refine valid_conseq ?_ key (le_of_eq ?_) ?_
-      · intro s hP
-        rw [holds_cons] at hP
-        refine ⟨hP.2, ?_⟩
-        have := hP.1
-        simp only [Lin.eval, dot] at this
-        simp only [PExp.eval]
-        linarith
-      · rw [floor_div]
-      · rintro t ⟨hI, _⟩
-        rw [hQ]
-        exact hI
-    · intro v s hs
-      obtain ⟨hI, hb, hv⟩ := hs
-      have H := ih _ _ _ hbody (Function.update ρ j (pot.eval s)) s (by
-        rw [holds_cons, ghost_eval]
-        refine ⟨by simp, ?_⟩
-        have hinv' : (gs.map PExp.toLin ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
-          simp only [List.all_append, Bool.and_eq_true]
-          refine ⟨?_, hinv⟩
-          simp [List.all_map, PExp.toLin, coeff]
-        rw [holds_update_logical hinv']
-        exact happ _ _ s (hgs s hb) hI)
-      refine ⟨H.1, fun t n he => ?_⟩
-      have ht := H.2 t n he
-      rw [holds_cons, ghost_eval, holds_update_logical hinv] at ht
-      refine ⟨ht.2, ?_⟩
-      have h1 : pot.eval t + d ≤ pot.eval s := by
-        have := ht.1
-        simp at this
-        linarith
-      have h2 : ((pot.eval t : ℚ) + d) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
-      rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
-      linarith
-    · intro s hI hb
-      have := entails1_sound hpos (ρ := ρ) (s := s) (happ _ _ s (hgs s hb) hI)
-      simp only [Lin.eval, dot, dot_vsmul] at this
-      have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
-      have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
-      rw [le_div_iff₀ hd']
-      linarith
-    · intro s hs
-      have h2 : (pot.eval s : ℚ) ≤ (k : ℚ) := by exact_mod_cast hs
-      exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+    obtain ⟨⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hWj⟩, hpos⟩, hbody⟩, hB⟩ := h
+    have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
+      simp [List.all_map, PExp.toLin, coeff]
+    exact loop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hWj
+      (fun s hs e he => by
+        simp only [List.all_eq_true, decide_eq_true_eq] at hs
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        rw [PExp.toLin_eval]
+        exact hs g hg)
+      hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
   | weaken P' preCerts B' Q' postCerts c ih =>
     intro P Q B h ρ
-    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp only [check, Bool.and_eq_true] at h
     obtain ⟨⟨⟨hpre, hc⟩, hB⟩, hpost⟩ := h
-    exact valid_conseq (fun s hs => entailsAll_sound hpre hs) (ih _ _ _ hc ρ) hB
-      (fun t ht => entailsAll_sound hpost ht)
+    have H := ih _ _ _ hc ρ
+    exact ⟨valid_conseq (fun s hs => entailsAll_sound hpre hs) H.1 (SB.le_eval hB ρ)
+      (fun t ht => entailsAll_sound hpost ht),
+      fun s t n hP he x hx => H.2 s t n (entailsAll_sound hpre hP) he x hx⟩
   | dead cert c _ =>
     intro P Q B h ρ
     simp only [check] at h
-    refine valid_conseq (P := fun _ => False) ?_ (valid_unreachable _ B _) (le_refl _)
-      (fun _ hq => hq)
-    intro s hs
-    have := entails1_sound h hs
-    simp [Lin.eval, dot] at this
+    have hF : ∀ s, holds P ρ s → False := by
+      intro s hs
+      have := entails1_sound h hs
+      simp [Lin.eval, dot] at this
+    exact ⟨valid_conseq (P := fun _ => False) hF (valid_unreachable _ _ _) (le_refl _)
+      (fun _ hq => hq), fun s _ _ hs => (hF s hs).elim⟩
+  | call w f inst preCerts ubs ubCerts =>
+    intro P Q B h ρ
+    simp only [check] at h
+    cases hF : fs[f]? with
+    | none => simp [hF] at h
+    | some F =>
+      simp only [hF, Bool.and_eq_true, decide_eq_true_eq] at h
+      obtain ⟨⟨⟨⟨⟨hpre, hlen⟩, hlen'⟩, hub⟩, hB⟩, rfl⟩ := h
+      obtain ⟨hV, hfr⟩ := hfs f F hF
+      have pre_at : ∀ s, holds P ρ s → holds F.pre (instEnv inst s) s := by
+        intro s hs e he
+        have := entailsAll_sound hpre hs (e.inst inst) (List.mem_map_of_mem _ he)
+        rwa [Lin.inst_eval] at this
+      have bound_at : ∀ s, holds P ρ s → w + F.bound.eval (instEnv inst s) ≤ B.eval ρ := by
+        intro s hs
+        have hu := entailsAll_sound hub hs
+        have hc := SB.comb_ge F.bound.co ubs ρ (instEnv inst s) hlen (fun i hi =>
+          ubGoals_sound hu i (by omega) (by omega))
+        have := SB.le_eval hB ρ
+        simp only [callBound, SB.eval_add, SB.eval_const] at this
+        have e : F.bound.eval (instEnv inst s) = F.bound.c + dotN F.bound.co (instEnv inst s) := rfl
+        omega
+      refine ⟨?_, ?_⟩
+      · intro s hs
+        have Hc := valid_call (w := w) (hV (instEnv inst s))
+        refine ⟨fun n hn => le_trans ((Hc s (pre_at s hs)).1 n hn) (bound_at s hs),
+          fun t n he => ?_⟩
+        cases he with
+        | call e => exact holds_frameOf hs (hfr _ s t _ (pre_at s hs) e)
+      · intro s t n hs he x hx
+        simp only [writes, hF] at hx
+        cases he with
+        | call e => exact hfr _ s t _ (pre_at s hs) e x hx
 
 /-- **What an accepted certificate guarantees.** Every execution of the program from a
     state satisfying the precondition, terminated or not, costs at most `B`. -/
-theorem certified_cost_le {P Q : List Lin} {c : ACmd} {B : ℕ} (h : check P c B Q = true)
-    {ρ s : Env} (hP : holds P ρ s) {n : ℕ} (hp : Pre Φ₀ c.toCmd s n) : n ≤ B :=
-  ((check_sound c P Q B h ρ) s hP).1 n hp
+theorem certified_cost_le {P Q : List Lin} {c : ACmd} {B : SB}
+    (h : check [] P c B Q = true) (Φ : ℕ → Cmd ℕ Env)
+    {ρ s : Env} (hP : holds P ρ s) {n : ℕ} (hp : Pre Φ c.toCmd s n) : n ≤ B.eval ρ :=
+  ((check_sound [] Φ (fun f F h => by simp at h) c P Q B h ρ).1 s hP).1 n hp
+
+/-- **Soundness of a program certificate.** Let `Φ` run each function with a body as that
+    body, and let every contract (function without a body) meet its specification. If
+    `checkProgram fs` holds, every function meets its specification: its cost is bounded
+    by its symbolic bound, for every call that satisfies its precondition. -/
+theorem program_sound (fs : List FunCert) (h : checkProgram fs = true) (Φ : ℕ → Cmd ℕ Env)
+    (hbody : ∀ i F b, fs[i]? = some F → F.body = some b → Φ i = b.toCmd)
+    (hcontract : ∀ i F, fs[i]? = some F → F.body = none → FunSpec Φ i F) :
+    ∀ i F, fs[i]? = some F → FunSpec Φ i F := by
+  intro i
+  induction i using Nat.strong_induction_on with
+  | _ i ih =>
+    intro F hF
+    cases hb : F.body with
+    | none => exact hcontract i F hF hb
+    | some b =>
+      have hi : i < fs.length := by
+        rcases Nat.lt_or_ge i fs.length with h' | h'
+        · exact h'
+        · rw [List.getElem?_eq_none h'] at hF; cases hF
+      have hc : checkFun (fs.take i) F = true := by
+        simp only [checkProgram, List.all_eq_true, List.mem_range] at h
+        have := h i hi
+        rwa [hF] at this
+      simp only [checkFun, hb, Bool.and_eq_true, List.all_eq_true, List.contains_iff_mem] at hc
+      obtain ⟨hchk, hmods⟩ := hc
+      have hfs : ∀ f G, (fs.take i)[f]? = some G → FunSpec Φ f G := by
+        intro f G hG
+        have hf : f < i := by
+          rcases Nat.lt_or_ge f i with h' | h'
+          · exact h'
+          · rw [List.getElem?_take, if_neg (Nat.not_lt.mpr h')] at hG; cases hG
+        rw [List.getElem?_take, if_pos hf] at hG
+        exact ih f hf G hG
+      have H := check_sound (fs.take i) Φ hfs b F.pre F.post F.bound hchk
+      unfold FunSpec
+      rw [hbody i F b hF hb]
+      exact ⟨fun ρ => (H ρ).1, fun ρ s t n hs he x hx =>
+        (H ρ).2 s t n hs he x (fun hw => hx (by simpa using hmods x hw))⟩
 
 /-! ### An example certificate -/
 
@@ -389,23 +801,95 @@ theorem certified_cost_le {P Q : List Lin} {c : ACmd} {B : ℕ} (h : check P c B
     weights; the guard `i < n` is `i - n + 1 ≤ 0`. Certificate: no invariant, potential
     `n - i` decreasing by `1`, at most `10` on entry. -/
 def countCert : ACmd :=
-  .weaken [⟨[-1, 1], [], -10⟩] [(1, [0, 1, 1])] 21 [⟨[-1, 1], [], 0⟩] [(1, [1])]
-    (.while 1 ⟨[1, -1], 1⟩ [] ⟨[-1, 1], 0⟩ 1 10 0 (1, [1]) 1
-      (.weaken [⟨[-1, 1], [-1], 0⟩] [(1, [1, 0])] 1 [⟨[-1, 1], [-1], 1⟩] [(1, [1])]
+  .weaken [⟨[-1, 1], [], -10⟩] [(1, [0, 1, 1])] (SB.const 21) [⟨[-1, 1], [], 0⟩] [(1, [1])]
+    (.while 1 ⟨[1, -1], 1⟩ [] ⟨[-1, 1], 0⟩ 1 10 [] 0 (1, [1]) (SB.const 1)
+      (.weaken [⟨[-1, 1], [-1], 0⟩] [(1, [1, 0])] (SB.const 1) [⟨[-1, 1], [-1], 1⟩] [(1, [1])]
         (.assign 1 0 ⟨[1], 1⟩)))
 
 /-- Precondition `i ≤ 0`, `-i ≤ 0`, `n - 10 ≤ 0`; postcondition `n - i ≤ 0`. -/
 theorem countCert_checks :
-    check [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -10⟩] countCert 21 [⟨[-1, 1], [], 0⟩]
-      = true := by
+    check [] [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -10⟩] countCert (SB.const 21)
+      [⟨[-1, 1], [], 0⟩] = true := by
   decide
 
 /-- Hence the loop costs at most `21` from `i = 0`, `n ≤ 10`, by the checker alone. -/
 theorem countCert_cost (s : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 10) (n : ℕ)
-    (hp : Pre Φ₀ countCert.toCmd s n) : n ≤ 21 := by
-  refine certified_cost_le countCert_checks (ρ := fun _ => 0) ?_ hp
+    (hp : Pre (fun _ => Cmd.skip) countCert.toCmd s n) : n ≤ 21 := by
+  have := certified_cost_le countCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) ?_ hp
+  · simpa using this
   intro e he
   simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
+
+/-! ### A symbolic bound and a call -/
+
+/-- The loop `while (i < n) i := i + 1` again, with a **symbolic** bound: the precondition
+    `i = 0`, `n ≤ γ₀` (γ₀ is the value of the parameter `n`), the entry bound of the
+    potential `n - i` is `0 + 1·γ₀`, and the bound is `1 + 2·max 0 γ₀`. -/
+def countSym : ACmd :=
+  .weaken [⟨[-1, 1], [-1], 0⟩] [(1, [0, 1, 1])] ⟨1, [2]⟩ [⟨[-1, 1], [], 0⟩] []
+    (.while 1 ⟨[1, -1], 1⟩ [] ⟨[-1, 1], 0⟩ 1 0 [1] 1 (1, [1]) (SB.const 1)
+      (.weaken [⟨[-1, 1], [0, -1], 0⟩] [(1, [1, 0])] (SB.const 1) [⟨[-1, 1], [0, -1], 1⟩] [(1, [1])]
+        (.assign 1 0 ⟨[1], 1⟩)))
+
+def countPre : List Lin := [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [-1], 0⟩]
+
+theorem countSym_checks : check [] countPre countSym ⟨1, [2]⟩ [] = true := by decide
+
+/-- From `i = 0`, the loop costs at most `1 + 2·max 0 n`, for every `n`. -/
+theorem countSym_cost (s : Env) (h0 : s 0 = 0) (n : ℕ)
+    (hp : Pre (fun _ => Cmd.skip) countSym.toCmd s n) : n ≤ 1 + 2 * (s 1).toNat := by
+  have := certified_cost_le countSym_checks (fun _ => Cmd.skip) (ρ := fun _ => s 1) ?_ hp
+  · simpa [SB.eval, dotN] using this
+  intro e he
+  simp only [countPre, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at he
+  rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
+
+/-- The function `count` (variables `x₀ = i`, `x₁ = n`): it may modify `i`. -/
+def countF : FunCert := ⟨countPre, ⟨1, [2]⟩, [], [0], some countSym⟩
+
+/-- `main`: `n := 7; i := 0; count()`. The call instantiates `γ₀` by `n` and bounds it by
+    `7`; the call costs `1 + (1 + 2·7) = 16` and `main` `18`, without inlining `count`. -/
+def mainBody : ACmd :=
+  .seq (.weaken [⟨[0, 0], [], 0⟩, ⟨[0, 0], [], 0⟩] [(1, []), (1, [])] (SB.const 1)
+          [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] [(1, [1, 0]), (1, [0, 1])]
+          (.assign 1 1 ⟨[], 7⟩))
+    [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨17, []⟩
+    (.seq (.weaken [⟨[0], [], 0⟩, ⟨[0], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
+            [(1, []), (1, []), (1, [1, 0]), (1, [0, 1])] (SB.const 1)
+            [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
+            [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])]
+            (.assign 1 0 ⟨[], 0⟩))
+      [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨16, []⟩
+      (.weaken [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
+          [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])]
+          ⟨16, []⟩ [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] []
+        (.call 1 0 [⟨[0, 1], 0⟩] [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [])] [⟨7, []⟩]
+          [(1, [0, 0, 1, 0])])))
+
+def mainF : FunCert := ⟨[], ⟨18, []⟩, [], [0, 1], some mainBody⟩
+
+theorem exProgram_checks : checkProgram [countF, mainF] = true := by decide
+
+/-- The same program with the bound `17` for `main` is rejected. -/
+theorem exProgram_17_rejected :
+    checkProgram [countF, ⟨[], ⟨17, []⟩, [], [0, 1], some mainBody⟩] = false := by decide
+
+/-- The procedures of the example: function `0` is `count`, function `1` is `main`. -/
+def exΦ : ℕ → Cmd ℕ Env := fun i => if i = 0 then countSym.toCmd else mainBody.toCmd
+
+/-- Hence, by `program_sound`, every execution of `main` costs at most `18`. -/
+theorem exMain_cost (s : Env) (n : ℕ) (hp : Pre exΦ (exΦ 1) s n) : n ≤ 18 := by
+  have H := program_sound [countF, mainF] exProgram_checks exΦ ?_ ?_ 1 mainF rfl
+  · have := ((H.1 (fun _ => 0)) s (fun e he => by simp [mainF] at he)).1 n hp
+    simpa [mainF, SB.eval, dotN] using this
+  · intro i F b hF hb
+    match i, hF with
+    | 0, hF => simp at hF; subst hF; simp [countF] at hb; subst hb; rfl
+    | 1, hF => simp at hF; subst hF; simp [mainF] at hb; subst hb; rfl
+  · intro i F hF hb
+    match i, hF with
+    | 0, hF => simp at hF; subst hF; simp [countF] at hb
+    | 1, hF => simp at hF; subst hF; simp [mainF] at hb
 
 end ImperativeOptimization.Checker

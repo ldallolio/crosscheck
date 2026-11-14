@@ -46,3 +46,11 @@ jobs:
           fi
           cat rejected.txt
           if grep -q '^ACCEPTED' rejected.txt; then echo "a wrong certificate was accepted"; exit 1; fi
+          # Program certificates (calls, symbolic bounds, contracts): every program of
+          # program_rejected.json must be rejected.
+          .lake/build/bin/crosscheck-check --print test/certificates/program.json
+          if .lake/build/bin/crosscheck-check test/certificates/program_rejected.json > prejected.txt; then
+            echo "a wrong program certificate was accepted"; exit 1
+          fi
+          cat prejected.txt
+          if grep -q '^PROGRAM.*ACCEPTED' prejected.txt; then echo "a wrong program certificate was accepted"; exit 1; fi

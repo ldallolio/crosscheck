@@ -78,6 +78,24 @@ def parseArr {α : Type} (j : Json) (k : String) (f : Json → Except String α)
 def parseFarkas (j : Json) : Except String (Nat × List Nat) := do
   pure (← getNat j "mu", ← natList (← field j "lam") "lam")
 
+/-- A bound: a natural number (constant) or `{c, co}` (symbolic). -/
+def parseSBv (v : Json) (what : String) : Except String SB := do
+  match v.getInt? with
+  | .ok n => if n < 0 then throw s!"{what} must be non-negative" else pure (SB.const n.toNat)
+  | .error _ =>
+    let c ← getNat v "c"
+    let co ← match v.getObjVal? "co" with
+      | .ok a => natList a "co"
+      | .error _ => pure []
+    pure ⟨c, co⟩
+
+def getSB (j : Json) (k : String) : Except String SB := do parseSBv (← field j k) k
+
+def optNatList (j : Json) (k : String) : Except String (List Nat) :=
+  match j.getObjVal? k with
+  | .ok v => natList v k
+  | .error _ => .ok []
+
 partial def parseCmd (j : Json) : Except String ACmd := do
   let node ← match (← field j "node").getStr? with
     | .ok s => pure s
@@ -88,58 +106,89 @@ partial def parseCmd (j : Json) : Except String ACmd := do
   | "havoc" => pure (.havoc (← getNat j "w") (← getNat j "x"))
   | "seq" =>
       pure (.seq (← parseCmd (← field j "c1")) (← parseArr j "mid" parseLin)
-        (← getNat j "B1") (← getNat j "B2") (← parseCmd (← field j "c2")))
+        (← getSB j "B1") (← getSB j "B2") (← parseCmd (← field j "c2")))
   | "ite" =>
-      pure (.ite (← getNat j "w") (← parsePExp (← field j "g")) (← getNat j "B1")
-        (← getNat j "B2") (← parseCmd (← field j "c1")) (← parseCmd (← field j "c2")))
+      pure (.ite (← getNat j "w") (← parsePExp (← field j "g")) (← getSB j "B1")
+        (← getSB j "B2") (← parseCmd (← field j "c1")) (← parseCmd (← field j "c2")))
   | "while" =>
       pure (.while (← getNat j "w") (← parsePExp (← field j "g")) (← parseArr j "inv" parseLin)
-        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k") (← getNat j "j")
-        (← parseFarkas (← field j "posCert")) (← getNat j "Wb") (← parseCmd (← field j "body")))
+        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k") (← optNatList j "kl")
+        (← getNat j "j") (← parseFarkas (← field j "posCert")) (← getSB j "Wb")
+        (← parseCmd (← field j "body")))
   | "whileAnd" =>
       pure (.whileAnd (← getNat j "w") (← parseArr j "gs" parsePExp) (← parseArr j "inv" parseLin)
-        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k") (← getNat j "j")
-        (← parseFarkas (← field j "posCert")) (← getNat j "Wb") (← parseCmd (← field j "body")))
+        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k") (← optNatList j "kl")
+        (← getNat j "j") (← parseFarkas (← field j "posCert")) (← getSB j "Wb")
+        (← parseCmd (← field j "body")))
   | "weaken" =>
       pure (.weaken (← parseArr j "P" parseLin) (← parseArr j "preCerts" parseFarkas)
-        (← getNat j "B") (← parseArr j "Q" parseLin) (← parseArr j "postCerts" parseFarkas)
+        (← getSB j "B") (← parseArr j "Q" parseLin) (← parseArr j "postCerts" parseFarkas)
         (← parseCmd (← field j "c")))
   | "dead" => pure (.dead (← parseFarkas (← field j "cert")) (← parseCmd (← field j "c")))
+  | "call" =>
+      pure (.call (← getNat j "w") (← getNat j "f") (← parseArr j "inst" parsePExp)
+        (← parseArr j "preCerts" parseFarkas) (← parseArr j "ubs" (fun v => parseSBv v "ubs"))
+        (← parseArr j "ubCerts" parseFarkas))
   | other => throw s!"unknown node '{other}'"
 
-structure Cert where
+/-- A program certificate as read from a file: the functions (with their names, for
+    the messages) and the names of the variables (for `--print`). -/
+structure Program where
   name : String
   vars : List String
-  pre : List Lin
-  bound : Nat
-  post : List Lin
-  prog : ACmd
+  funs : List (String × FunCert)
 
-def parseCert (j : Json) : Except String Cert := do
-  let name := match j.getObjValAs? String "function" with
-    | .ok s => s
-    | .error _ => "(unnamed)"
-  let vars := match j.getObjVal? "variables" with
-    | .ok v => match v.getArr? with
-      | .ok a => a.toList.filterMap fun x => match x.getStr? with
-        | .ok s => some s
-        | .error _ => none
-      | .error _ => []
+def strList (j : Json) (k : String) : List String :=
+  match j.getObjVal? k with
+  | .ok v => match v.getArr? with
+    | .ok a => a.toList.filterMap fun x => match x.getStr? with
+      | .ok s => some s
+      | .error _ => none
     | .error _ => []
-  pure ⟨name, vars, ← parseArr j "pre" parseLin, ← getNat j "bound", ← parseArr j "post" parseLin,
-    ← parseCmd (← field j "program")⟩
+  | .error _ => []
 
-def parseFile (j : Json) : Except String (List Cert) := do
+def nameOf (j : Json) (k : String) : String :=
+  match j.getObjValAs? String k with
+  | .ok s => s
+  | .error _ => "(unnamed)"
+
+/-- Version 1: a single function, without calls. -/
+def parseCert (j : Json) : Except String Program := do
+  let body ← parseCmd (← field j "program")
+  -- A standalone certificate is not called: its own writes serve as its frame.
+  let F : FunCert := ⟨← parseArr j "pre" parseLin, ← getSB j "bound", ← parseArr j "post" parseLin,
+    writes [] body, some body⟩
+  pure ⟨nameOf j "function", strList j "variables", [(nameOf j "function", F)]⟩
+
+/-- Version 2: a function of a program certificate; `"contract": true` and no body for an
+    assumed contract. -/
+def parseFun (j : Json) : Except String (String × FunCert) := do
+  let contract := match j.getObjValAs? Bool "contract" with
+    | .ok b => b
+    | .error _ => false
+  let body ← if contract then pure none else some <$> parseCmd (← field j "body")
+  pure (nameOf j "name", ⟨← parseArr j "pre" parseLin, ← getSB j "bound",
+    ← parseArr j "post" parseLin, ← natList (← field j "mods") "mods", body⟩)
+
+def parseFile (j : Json) : Except String (List Program) := do
   let fmt := match j.getObjValAs? String "format" with
     | .ok s => s
     | .error _ => ""
   if fmt != "crosscheck-certificates" then
     throw "not a certificate file (field 'format' must be \"crosscheck-certificates\")"
   let ver ← getNat j "version"
-  if ver != 1 then throw s!"unsupported version {ver} (this checker reads version 1)"
-  parseArr j "certificates" parseCert
+  if ver == 1 then parseArr j "certificates" parseCert
+  else if ver == 2 then
+    parseArr j "programs" fun p => do
+      pure ⟨nameOf p "name", strList p "variables", ← parseArr p "functions" parseFun⟩
+  else throw s!"unsupported version {ver} (this checker reads versions 1 and 2)"
 
 /-! ### Printing what was checked -/
+
+def showSB (b : SB) : String :=
+  let terms := (b.co.enum.filter (·.2 != 0)).map (fun (i, k) =>
+    (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})")
+  " + ".intercalate (if b.c != 0 || terms.isEmpty then toString b.c :: terms else terms)
 
 def varName (vars : List String) (i : Nat) : String := vars.getD i s!"x{i}"
 
@@ -166,17 +215,19 @@ partial def showCmd (vars : List String) (ind : String) : ACmd → String
       s!"{ind}if ({showAffine vars g.sv [] g.c} <= 0) \{    [test cost {w}]\n" ++
       showCmd vars (ind ++ "  ") c₁ ++ s!"{ind}} else \{\n" ++ showCmd vars (ind ++ "  ") c₂ ++
       s!"{ind}}\n"
-  | .while w g inv pot d k j _ Wb body =>
+  | .while w g inv pot d k kl j _ Wb body =>
       s!"{ind}while ({showAffine vars g.sv [] g.c} <= 0) \{    [test cost {w}; invariant " ++
-      s!"{showAssn vars inv}; potential ({showAffine vars pot.sv [] pot.c})/{d} <= {k}/{d}; " ++
-      s!"γ{j}; body bound {Wb}]\n" ++ showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
-  | .whileAnd w gs inv pot d k j _ Wb body =>
+      s!"{showAssn vars inv}; potential ({showAffine vars pot.sv [] pot.c})/{d} <= ({showAffine [] [] (kl.map Int.ofNat) k})/{d}; " ++
+      s!"γ{j}; body bound {showSB Wb}]\n" ++ showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
+  | .whileAnd w gs inv pot d k kl j _ Wb body =>
       s!"{ind}while ({" && ".intercalate (gs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}) \{" ++
       s!"    [test cost {w}; invariant {showAssn vars inv}; potential " ++
-      s!"({showAffine vars pot.sv [] pot.c})/{d} <= {k}/{d}; γ{j}; body bound {Wb}]\n" ++
+      s!"({showAffine vars pot.sv [] pot.c})/{d} <= ({showAffine [] [] (kl.map Int.ofNat) k})/{d}; γ{j}; body bound {showSB Wb}]\n" ++
       showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
   | .weaken _ _ _ _ _ c => showCmd vars ind c
   | .dead _ c => s!"{ind}// unreachable\n" ++ showCmd vars ind c
+  | .call w f inst _ _ _ =>
+      s!"{ind}call #{f}({", ".intercalate (inst.map fun a => showAffine vars a.sv [] a.c)})    [cost {w}]\n"
 
 end CheckerMain
 
@@ -199,13 +250,25 @@ def main (args : List String) : IO UInt32 := do
     | .error e =>
       IO.eprintln s!"{path}: malformed certificate file: {e}"
       return 2
-    | .ok certs =>
-      for c in certs do
-        let ok := check c.pre c.prog c.bound c.post
-        IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {c.name}: bound {c.bound}"
-        if printIt then
-          IO.println s!"  pre:  {showAssn c.vars c.pre}"
-          IO.print (showCmd c.vars "    " c.prog)
-          IO.println s!"  post: {showAssn c.vars c.post}"
-        if !ok then status := max status 1
+    | .ok progs =>
+      for p in progs do
+        let fs := p.funs.map (·.2)
+        for ((name, F), i) in p.funs.zip (List.range p.funs.length) do
+          match F.body with
+          | none =>
+            IO.println s!"ASSUMED  {name} (contract): bound {showSB F.bound}"
+          | some b =>
+            let ok := checkFun (fs.take i) F
+            IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: bound {showSB F.bound}"
+            if printIt then
+              IO.println s!"  pre:  {showAssn p.vars F.pre}"
+              IO.print (showCmd p.vars "    " b)
+              IO.println s!"  post: {showAssn p.vars F.post}"
+            if !ok then status := max status 1
+        -- the decision of the verified `checkProgram` (theorem `program_sound`)
+        let okP := checkProgram fs
+        if p.funs.length > 1 || p.funs.any (·.2.body.isNone) then
+          let rel := if p.funs.any (·.2.body.isNone) then " (relative to the assumed contracts)" else ""
+          IO.println (s!"PROGRAM  {p.name}: {if okP then "ACCEPTED" else "REJECTED"}" ++ rel)
+        if !okP then status := max status 1
   return status
