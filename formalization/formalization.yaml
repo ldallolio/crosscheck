@@ -1,9 +1,9 @@
-# Machine-readable link between the paper (paper/crosscheck.tex) and the Lean 4
+# Machine-readable link between Paper I (paper/theory/crosscheck-theory.tex) and the Lean 4
 # development. Generated from Table 1 of the paper; keep the two in sync.
 # NOTE: the schema below is project-defined. It has NOT been validated against
 # any community specification for formalization metadata.
 project: CrossCheck
-paper: paper/crosscheck.tex
+paper: paper/theory/crosscheck-theory.tex
 lean_toolchain: leanprover/lean4:v4.16.0
 mathlib: v4.16.0
 root_module: ImperativeOptimization
@@ -95,8 +95,8 @@ statements:
     note: "soundness direction of Farkas' Lemma"
     module: ImperativeOptimization.Certificate
     lean: [farkas_sound, farkas_sound_affine]
-  - paper_labels: [sec:implementation]
-    note: "loop cost formula used by the Clang plugin"
+  - paper_labels: [subsubsec:tropical-semiring]
+    note: "loop cost formula (row 'Loop cost formula' of Table 1; used by the Clang plugin of Paper II)"
     module: ImperativeOptimization.Certificate
     lean: [while_cost_bound]
   - paper_labels: [prop:size-potential]
@@ -112,5 +112,5 @@ not_formalized:
     reason: "termination is formalized for total deterministic updates; for relations only the bound on run length is formalized"
   - labels: [sec:application]
     reason: "equation-generating rules are described, not formalized; completeness of Farkas' Lemma is cited"
-  - labels: [sec:implementation]
-    reason: "the Clang plugin (C++) and the SMT solver are not verified"
+  - labels: [paper-II]
+    reason: "the Clang plugin of Paper II (C++), its translation to certificates and the SMT solver are not verified"

@@ -507,6 +507,25 @@ What the AI did for 26 (tasks 1 and 2 of `docs/implementation-plan.md`):
   rewritten, scope list updated; `docs/certificate-format.md`; plugin and TACLeBench
   READMEs; `CLAUDE.md`; `docs/implementation-plan.md` (tasks 1 and 2 done).
 
+What the AI did for 27:
+- Tasks 3 to 8 of the implementation plan were **not** done in this session (each is
+  weeks of work); the AI moved to the requested deliverables and covered the rest in its
+  proposals (`docs/proposals.md`).
+- Paper split (2026-11-14): `paper/theory/crosscheck-theory.tex` (Paper I: theory and
+  Lean, 30 pages) and `paper/tool/crosscheck-tool.tex` (Paper II: the plugin,
+  certificates and the evaluation, 11 pages), sharing `paper/crosscheck.bib`. The text of
+  the sections was moved, not rewritten, except: both abstracts, Paper II's
+  introduction and its "Background" section (a summary of Paper I's results with
+  references to their numbers through `xr`), the conclusions of both papers, Paper I's
+  contribution list and evaluation paragraph, Paper II's limitations and AI statement.
+  `\authortodo` marks were kept with the text they belong to; Paper II's AI statement has
+  a new one. Both compile with no warnings. The combined `paper/crosscheck.tex` was removed
+  (it is in git history).
+- Guide rewritten and shortened (4,660 → 1,138 lines; 12 → 19 diagrams; 7 parts, the
+  Lean tutorial and module parts merged, a new part for Paper II, the bibliography as a
+  map with what was read). Content updated for the cost logic, the checker, the
+  certificates and the split.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

@@ -27,7 +27,8 @@ CrossCheck operates across two distinct semantic layers:
 ```text
 crosscheck/
 ├── paper/                       # Research paper source files (LaTeX)
-│   ├── crosscheck.tex
+│   ├── theory/crosscheck-theory.tex   # Paper I: theory and Lean
+│   ├── tool/crosscheck-tool.tex       # Paper II: the plugin and its evaluation
 │   └── crosscheck.bib
 ├── formalization/               # Lean 4 machine-checked proofs
 │   ├── lakefile.lean

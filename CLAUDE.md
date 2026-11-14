@@ -16,7 +16,9 @@ Single author: Luca Dall'Olio. MIT licensed.
 | Path | Status |
 |---|---|
 | `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 185 theorems. |
-| `paper/crosscheck.tex`, `paper/crosscheck.bib` | amsart LaTeX preprint (37 pages). Target venue: **arXiv**. Compiles with no warnings. |
+| `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 30 pages). No measurements. |
+| `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, TPDB; 11 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
+| `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
 | `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 126 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`). See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
@@ -24,7 +26,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `references/` | `fetch_papers.py` downloads open-access copies of cited papers into `references/pdf/` (gitignored: do not commit PDFs, most are copyrighted); `README.md` records, per entry, the source and what was actually read and checked. Update it when a paper is read. |
 | `docs/implementation-plan.md` | Hand-off from the theory phase: what is proved, the certificate format (= Lean type `ACmd`), and the ordered implementation tasks. Keep it current. |
 | `AI_USAGE.md` | AI usage record required by the AGMAI guidelines (see below). |
-| `docs/guide/` | Companion guide for the author (background, paper walkthrough, bibliography summaries, plugin UML, Lean tutorial and module docs, expert Q&A). Quotes Lean names, plugin classes and paper labels: update it when they change. |
+| `docs/guide/` | Companion guide for the author, 7 parts, about 1,100 lines and 19 diagrams: background, Paper I, Paper II, plugin internals, Lean (tutorial + modules), bibliography map, expert Q&A. Quotes Lean names, plugin classes and paper labels: update it when they change; prefer a diagram or a table to prose. |
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
 | `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. |
 | `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`) → certificates of TACLeBench and the examples; a second job builds `crosscheck-check` and checks every certificate. |
@@ -45,7 +47,8 @@ lake build
 lake build crosscheck-check   # the certificate checker program (CheckerMain.lean, no mathlib)
 
 # Paper (from paper/)
-latexmk -pdf crosscheck.tex
+(cd theory && latexmk -pdf crosscheck-theory.tex)   # first: Paper II reads its .aux
+(cd tool && latexmk -pdf crosscheck-tool.tex)
 # or: pdflatex crosscheck && bibtex crosscheck && pdflatex crosscheck && pdflatex crosscheck
 
 # Clang plugin (from clang-plugin/), on this machine:
@@ -93,7 +96,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 Table 1 of the paper (Section "Mechanization in Lean 4") and `formalization/formalization.yaml`
 list which Lean theorem backs which paper statement. **They are a contract:**
 - If you rename, restate or delete a Lean theorem, update the `\lean{...}` mentions in
-  `paper/crosscheck.tex`, Table 1, and `formalization.yaml` in the same change.
+  `paper/theory/crosscheck-theory.tex`, Table 1, and `formalization.yaml` in the same change.
 - If you change a paper statement, check the Lean statement still says the same thing
   (hypotheses included) — or move it to the "not mechanized" list.
 - Refer to paper statements by `\label` (e.g. `thm:lyapunov-bound`), never by number.
@@ -127,7 +130,13 @@ Axioms: only Lean's standard `propext`, `Quot.sound`, `Classical.choice` may app
   `obtain ⟨…⟩ := h`, `exact h`, or `simp [IsExecTree]`.
 - Pin to mathlib APIs available at v4.16.0 (e.g. `List.length_pos`, `Function.iterate_succ_apply'`).
 
-## Paper (`paper/crosscheck.tex`)
+## Papers (`paper/theory/`, `paper/tool/`)
+- Paper I holds every theorem; Paper II holds every measurement (`tab:plugin`, `tab:tacle`,
+  `tab:tools`, TPDB, certificate counts) and refers to Paper I as `\cite[Theorem~\ref{I-label}]{crosscheckTheory}`.
+  A new result goes into Paper I; a new figure into Paper II. Paper I cites Paper II only as
+  `\cite{crosscheckTool}`.
+- For arXiv, Paper II must be uploaded with `crosscheck-theory.aux` (or the `I-` references
+  replaced by numbers).
 - Theorem environments share one counter: `thm`, `defn`, `prop`, `lem`; plus `defn*`, `rem*`.
   Use `\label{def:…}`, `prop:…`, `thm:…`, `sec:…`/`subsec:…` and reference via `\ref`.
 - Math in standard LaTeX only (`$…$`, `\[…\]`); never unicode operators in `.tex`.

@@ -1,6 +1,6 @@
 # CrossCheck — Companion Guide
 
-This guide explains everything that the paper (`paper/crosscheck.tex`), the Lean
+This guide explains everything that the paper (Papers I and II, `paper/theory/` and `paper/tool/`), the Lean
 development (`formalization/`) and the Clang plugin (`clang-plugin/`) use or introduce.
 It assumes the reader is a software engineer who:
 
@@ -13,27 +13,35 @@ The goal is that after reading it you can explain every sentence of the paper,
 read every line of the Lean code, change the plugin, and answer questions from
 experts in semantics, static analysis, WCET analysis and formal proof.
 
-> **Status of this document.** It was written by an AI assistant (Claude, model
-> Fable 5.2, November 2026) from the repository sources. The explanations of the
-> repository's own code and of the paper are checked against those sources. The
-> summaries of the *cited papers* (Part 3) come from the model's general knowledge,
-> not from reading the papers in this session: treat them as a map, and read the
-> originals before relying on a detail in front of an expert. See `AI_USAGE.md`.
+> **Status of this document.** Written by an AI assistant (Claude, models Fable 5.2 and
+> Opus 5.5, November 2026) from the repository sources, and shortened on 2026-11-14 (from
+> about 4,700 to about 1,100 lines, with 19 diagrams instead of 12). The explanations of the code and
+> of the papers are checked against the sources. Part 6 says, per reference, what was
+> actually read; read the originals before relying on a detail. See `AI_USAGE.md`.
 
 ## Reading order
 
+```mermaid
+flowchart LR
+  P1["1 Background"] --> P2["2 Paper I (theory)"]
+  P2 --> P3["3 Paper II (plugin, evaluation)"]
+  P3 --> P4["4 Plugin internals"]
+  P2 --> P5["5 Lean"]
+  P2 --> P6["6 Bibliography"]
+  P3 --> P7["7 Expert questions"]
+```
+
 | Part | File | What you get | Time |
 |---|---|---|---|
-| 1 | [01-background.md](01-background.md) | The background concepts the paper *refers to*, from zero: semantics, orders, fixed points, monoids, decidability, WCET, ranking functions, LP/Farkas, SMT, proof assistants. | 3–4 h |
-| 2 | [02-paper.md](02-paper.md) | A section-by-section reading of the paper: every definition, proposition and theorem in plain words, why it is true, where it is in Lean, and the worked examples recomputed by hand. | 3 h |
-| 3 | [03-bibliography.md](03-bibliography.md) | One summary per reference: what the work is, why it is cited, how CrossCheck relates to it. Grouped by theme, with a timeline. | 1–2 h |
-| 4 | [04-plugin.md](04-plugin.md) | The Clang plugin: architecture, UML class/sequence/activity diagrams, the algorithms (symbolic state, invariants, Farkas encoding, cost algebra) traced on real examples. | 2–3 h |
-| 5 | [05-lean-tutorial.md](05-lean-tutorial.md) | Lean 4 from scratch, using only examples from this repository: syntax, types vs propositions, every tactic used here, how to run and explore. | 3–4 h |
-| 6 | [06-lean-modules.md](06-lean-modules.md) | Module-by-module documentation of the 12 Lean files: every definition and theorem, with line-by-line commentary of the key proofs. | 3–4 h |
-| 7 | [07-expert-questions.md](07-expert-questions.md) | Questions experts are likely to ask, with answers; the honest weak points; how to phrase claims; a glossary. | 1 h |
+| 1 | [01-background.md](01-background.md) | the concepts the papers take for granted, one section each | 2 h |
+| 2 | [02-paper.md](02-paper.md) | Paper I: every result in plain words with its Lean name; the worked examples | 2 h |
+| 3 | [03-paper-tool.md](03-paper-tool.md) | Paper II: what the plugin does, how certificates are produced, the results to remember | 1 h |
+| 4 | [04-plugin.md](04-plugin.md) | the plugin's code: architecture, data, loops, recursion, calls, certificates, tests | 2 h |
+| 5 | [05-lean.md](05-lean.md) | Lean 4 from scratch with this repository's code; the 15 modules; three proofs to read | 3 h |
+| 6 | [06-bibliography.md](06-bibliography.md) | the references as a map and tables, with what was actually read | 30 min |
+| 7 | [07-expert-questions.md](07-expert-questions.md) | questions, answers, weak points, phrases, glossary | 1 h |
 
-If you are short on time: read Part 2, then Part 7, then come back to Parts 1 and 5
-when a term is unclear.
+Short on time: Parts 2, 3 and 7.
 
 ## Conventions
 

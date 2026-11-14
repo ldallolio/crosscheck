@@ -1,0 +1,270 @@
+\documentclass[oneside,english]{amsart}
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage{babel}
+\usepackage{mathtools}
+\usepackage{amstext}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{xr-hyper}
+\usepackage[pdfusetitle,
+ bookmarks=true,bookmarksnumbered=false,bookmarksopen=false,
+ breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+ {hyperref}
+\usepackage{stmaryrd}
+% Cross-references to Paper I: build ../theory/crosscheck-theory.tex first.
+\externaldocument[I-]{../theory/crosscheck-theory}
+
+\makeatletter
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Textclass specific LaTeX commands.
+\numberwithin{equation}{section}
+\numberwithin{figure}{section}
+\theoremstyle{plain}
+\newtheorem{thm}{\protect\theoremname}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{prop}[thm]{\protect\propositionname}
+\theoremstyle{remark}
+\newtheorem*{rem*}{\protect\remarkname}
+\theoremstyle{plain}
+\newtheorem{lem}[thm]{\protect\lemmaname}
+\theoremstyle{definition}
+\newtheorem*{defn*}{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{cor}[thm]{\protect\corollaryname}
+\theoremstyle{remark}
+\newtheorem{rem}[thm]{\protect\remarkname}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% User specified LaTeX commands.
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\cost}{cost}
+\DeclareMathOperator{\depth}{depth}
+\DeclareMathOperator{\leaves}{leaves}
+\newcommand{\sem}[1]{\llbracket #1 \rrbracket}
+\newcommand{\lean}[1]{{\ttfamily\small #1}}
+\newcommand{\authortodo}[1]{\textbf{[AUTHOR TO CONFIRM: #1]}}
+\emergencystretch=3em
+\newcommand{\bigstep}{\Downarrow}
+\makeatother
+
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{array}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true}
+\providecommand{\definitionname}{Definition}
+\providecommand{\corollaryname}{Corollary}
+\providecommand{\lemmaname}{Lemma}
+\providecommand{\propositionname}{Proposition}
+\providecommand{\remarkname}{Remark}
+\providecommand{\theoremname}{Theorem}
+\renewcommand{\lstlistingname}{Listing}
+
+\begin{document}
+\title[CrossCheck II: Certified Cost Bounds for Real-Time C and C++]{CrossCheck II: A Compiler Plugin for Certified Cost Bounds of Real-Time C and C++ Code, and its Evaluation}
+\author{Luca Dall'Olio}
+\begin{abstract}
+We describe a plugin for the Clang compiler that bounds the cost of C and C++ functions intended for real-time use, and rejects at compile time the functions that allocate, throw, call through pointers, or contain a loop or a recursion for which no bound is found. Loops are bounded by affine ranking potentials synthesized with an SMT solver through Farkas' Lemma, recursion by depth and size potentials, and callees are analyzed in the calling context in which they are used. For functions in a linear fragment, the plugin emits a cost certificate that a checker, compiled from a Lean~4 definition proved sound in a companion paper, validates with integer arithmetic only; the bound then depends neither on the analyzer nor on the solver. On the 29 kernels of the TACLeBench collection, without annotations, the plugin bounds 137 of 220 loops in the calling contexts of the programs, 128 of them exactly as the benchmarks' flow facts, and 142 of the 158 bounded functions receive a certificate that the checker accepts. We compare the loop bounds with loop counts observed by running the kernels and with five existing analyzers (LLVM's ScalarEvolution, KoAT2, CoFloCo, Infer and oRange), and the plugin with KoAT2 and CoFloCo on the C programs of the Termination and Complexity Competition, where it is clearly weaker.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+
+Hard real-time software must finish within a time budget, and the loop bounds that a timing analysis needs are, in practice, often written by hand \cite{wilhelm2008worst}. Compilers already check properties of real-time code, such as the absence of blocking calls \cite{clangeffects}, but not bounds on loops and recursion. This paper describes a plugin for the Clang compiler that does: a function marked as real-time is rejected if it allocates memory, throws, calls through a pointer, or contains a loop or a recursion for which no bound is derived, and otherwise receives a bound on its cost, in abstract units with configurable weights, which can be compared with a deadline at compile time.
+
+The analysis follows the theory of the companion paper \cite{crosscheckTheory}: loops are bounded by ranking potentials under invariants and calling contexts, recursion by depth and size potentials, and costs are composed by the timing schema \cite{shaw1989reasoning,puschner1989calculating}. Its results are of two kinds. A bound may rest on the analyzer, which is not verified; or, for functions in a linear fragment, the plugin emits a \emph{certificate}, a program annotated with invariants, potentials and Farkas multipliers, which a checker proved sound in Lean~4 \cite{crosscheckTheory} validates without search. Only the checker and the translation from C++ to the certificate's program are then trusted, in the manner of proof-carrying code \cite{necula1997proof}.
+
+The contributions of this paper are the design of the analysis and of the certificate generator (Section~\ref{sec:implementation}), and an evaluation on established benchmarks (Section~\ref{subsec:tacle}): loop bounds compared with flow facts and with loop counts observed by running the programs, certificates checked by the verified checker, and comparisons with five existing analyzers. The evaluation shows where the approach is weak as well as where it is useful: on programs written for complexity analyzers it bounds far fewer programs than those tools.
+
+\section{Background}
+\label{sec:background}
+
+We recall the results of the companion paper \cite{crosscheckTheory} that the implementation relies on; proofs and Lean statements are given there.
+
+\paragraph{Cost.} A cost norm counts the instructions of an execution trace with weights \cite[Definition~\ref{I-def:subadditive-norm}]{crosscheckTheory}. The cost of a conditional is bounded by the cost of its test plus the maximum of its branches, and the cost of a loop with at most $K$ iterations by $K$ times the cost of its test and body plus one test \cite[Section~\ref{I-subsubsec:tropical-semiring}]{crosscheckTheory}.
+
+\paragraph{Ranking potentials.} Let $\to$ be a transition relation, possibly nondeterministic or partial, and $V$ a rational potential. If every step from a state of an inductive invariant $I$ decreases $V$ by at least $1$, and $V \ge 1$ whenever a step is taken, then every run from $I \cap C$ has at most $\lfloor K \rfloor$ steps, where $K$ bounds $V$ on the set $C$ of initial states (a \emph{context}); the invariant holds wherever the run stops \cite[Proposition~\ref{I-prop:context-bound}]{crosscheckTheory}. The conditions on $V$ are linear in its coefficients through Farkas' Lemma, which reduces the synthesis of $V$ to a linear arithmetic problem \cite[Section~\ref{I-subsubsec:smt-synthesis}]{crosscheckTheory}. For recursion, a depth potential bounds the depth of the call tree and a size potential $U$ with $U(x) \ge 1 + \sum_i U(x_i)$ bounds the number of activations \cite[Proposition~\ref{I-prop:size-potential}]{crosscheckTheory}.
+
+\paragraph{Cost logic and certificates.} These rules are those of a cost logic for a small language with nondeterministic atomic actions, procedures and assumed contracts, sound for terminating and non-terminating executions \cite[Theorem~\ref{I-thm:cost-logic-soundness}]{crosscheckTheory}. In its linear instance, a certificate is a program over integer variables annotated with intermediate assertions, loop invariants, potentials $e/d$, entry bounds and Farkas multipliers \cite[Definition~\ref{I-def:certificate}]{crosscheckTheory}; a checker that compares integer coefficients accepts a certificate only if every execution of its program, from its precondition, costs at most the stated bound \cite[Theorem~\ref{I-thm:checker-soundness}]{crosscheckTheory}.
+
+\section{Prototype Implementation}
+\label{sec:implementation}
+
+The relaxed analysis of \cite[Section~\ref{I-subsec:asymptotic-relaxation}]{crosscheckTheory} is implemented as a plugin for the Clang compiler (about 3{,}400 lines of C++ and 1{,}100 lines of tests; directory \lean{clang-plugin} of the repository). It checks functions marked with a source annotation, and a violation is a compilation error. This section describes what the prototype does and reports a first measurement on an established benchmark collection, with a comparison to existing analyzers (Subsection~\ref{subsec:tacle}).
+
+\paragraph{Input.}
+A function is annotated as real-time, optionally with a deadline in cost units. Integer parameters may carry range preconditions, and a function may state a linear precondition relating its parameters; preconditions are assumed in the function and proved at each analysed call site. Three further annotations introduce \emph{trusted} information: a bound for a loop, a fact that holds at a program point, and the cost of a function whose body is not available. Everything trusted is listed in the report produced by the tool.
+
+\paragraph{Profile.}
+In an annotated function and in everything it calls, the plugin rejects dynamic allocation, exceptions, virtual and indirect calls, unstructured jumps, and any loop or recursion for which no bound is derived or stated. Calls are followed into their definitions, including library code.
+
+\paragraph{Cost.}
+The cost norm is a weighted count of source-level operations (arithmetic, assignments, memory accesses, calls, branches) with configurable weights; it is the weighted cost of \cite[Definition~\ref{I-def:subadditive-norm}]{crosscheckTheory}. Costs are composed with the rules of \cite[Section~\ref{I-subsubsec:tropical-semiring}]{crosscheckTheory}, refined so that a path ending in \texttt{return} is not charged for the code that follows it. A loop with at most $K$ iterations costs at most $K$ times the cost of guard and body, plus one failing guard (\lean{while\_\allowbreak cost\_\allowbreak bound}).
+
+\paragraph{Bounds.}
+Local integer variables whose address is not taken are mapped to affine expressions over symbols, and path conditions to linear constraints. At a loop, the modified variables are replaced by fresh symbols; simple candidate invariants (a variable that is only incremented stays above its initial value; a disequality guard $a \ne b$ with $a \le b$ initially) are kept if the solver proves them inductive. The paths through guard and body, up to a fixed number, give one transition each, and Z3 \cite{demoura2008z3} is asked for an affine potential satisfying the conditions of the relational variant of \cite[Theorem~\ref{I-thm:lyapunov-bound}]{crosscheckTheory} on every path, encoded through Farkas' Lemma, together with the least constant $K$ dominating the potential on entry; the loop bound is $\lfloor K \rfloor$. Unsigned arithmetic is used only when it is proved not to wrap, and the limits of machine integers are never used as bounds. For recursion, both certificates of \cite[Proposition~\ref{I-prop:size-potential}]{crosscheckTheory} are attempted, with the self-calls of each path as the summands, and the smaller bound is kept. After a loop, the analysis keeps one state for the exit through the guard, with the proved invariants and the negated guard, and one state for each path that leaves by \texttt{break}, with the facts of that path; this is justified by the first consequence of \cite[Proposition~\ref{I-prop:context-bound}]{crosscheckTheory}.
+
+\paragraph{Calls.}
+A callee is analyzed under a calling context, following \cite[Proposition~\ref{I-prop:context-bound}]{crosscheckTheory}. When a call is evaluated, the solver is asked for the interval of each integer argument in the current symbolic state; the intervals are joined over all the states in which the call is evaluated, which include every path and the generic iteration of each enclosing loop. The callee is then analyzed with these intervals as additional facts on its parameters, and the result is the cost of that call. A context is thus proved at the call site it is used for, and nothing is added to the trusted information. Functions that call themselves are analyzed without context, because the context holds for the first activation only, and the number of contexts per function is limited. The report gives, for each function, the bound that holds for every call satisfying its preconditions, and the bound that holds in the contexts through which a designated entry function reaches it. Contexts are intervals: relations between arguments, the values of global variables and the effects of a callee on memory are not propagated.
+
+\paragraph{Examples.}
+Table~\ref{tab:plugin} reports the output of the prototype on small programs written in the style of embedded firmware (directory \lean{benchmarks}). In addition, three programs are rejected as intended: one that reaches the allocator through a library container, one with a busy-wait loop, and one whose bound exceeds its deadline. The figures illustrate the behaviour of the analysis, including its pessimism: the bound for the merge sort is quadratic because every activation is charged the worst-case cost of a merge, and the recursive table lookup is given a linear depth where the true depth is logarithmic.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.21\textwidth}>{\raggedright\arraybackslash}p{0.19\textwidth}r>{\raggedright\arraybackslash}p{0.40\textwidth}@{}}
+\toprule
+Program & Function & Bound & Origin of the iteration or call bound \\
+\midrule
+FIR filter, 16 taps & one sample & 331 & 16 iterations, derived \\
+ & block of $\le 64$ samples & 21\,699 & 64 iterations, from the parameter range \\
+PID controller & one step & 19 & no loop; maximum over clamping branches \\
+ & four axes & 167 & 4 iterations, derived \\
+Range maximum (recursive) & window of 256 & 7\,154 & 511 calls, size potential $2(hi - lo) - 1$ \\
+Table lookup (recursive) & window of 256 & 6\,144 & linear recursion, linear depth bound \\
+Merge sort (recursive) & window of 256 & 3\,148\,271 & 511 calls, each charged a full merge \\
+CAN frame decoder & checksum & 67 & 7 iterations, derived from a clamp \\
+UART receive handler & drain FIFO & 309 & 16 iterations, \emph{assumed} (hardware) \\
+ & read ring buffer & 838 & 64 iterations, derived \\
+CRC-32, bitwise & packet of $\le 128$ bytes & 10\,502 & $128 \times 8$ iterations, derived \\
+Stepper ramp planning & speed $\le 4000$ & 883 & 79 iterations, derived from the lower bound on the acceleration \\
+\bottomrule
+\end{tabular}
+\caption{Cost bounds reported by the prototype, in abstract cost units with unit weights.}
+\label{tab:plugin}
+\end{table}
+
+\paragraph{Certificates.}
+For a function in the fragment of \cite[Section~\ref{I-subsec:checker}]{crosscheckTheory}, the plugin also emits a linear cost certificate (\cite[Definition~\ref{I-def:certificate}]{crosscheckTheory}), which the checker, compiled from its Lean definition, validates. The certificate's variables are the tracked signed integer variables that can influence control: those of tests and loop potentials, closed under the assignments and parameter passing that feed them. Every other statement is an unknown value given to a variable that no assertion mentions, at the cost of the statement. Assertions are computed forwards, with Fourier--Motzkin elimination after assignments and, after a conditional, the constraints implied by both branches; every step carries Farkas multipliers, found by Z3 over the rationals and scaled to integers. A loop uses the potential the analysis found, an invariant obtained by keeping the inductive constraints among those known on entry, and an entry bound computed by Z3. Two constructs are handled by transforming the program before the certificate is built, so that the checker needs no new rule: a call is replaced by the body of the callee, analyzed in the calling context, with its parameters assigned from the arguments, which is sound because a callee cannot modify the tracked variables of its caller; and the statements that follow a conditional containing a \texttt{return} are moved into its branches. The weights are those of the cost model, so the certified bound is the plugin's bound, except where the forward assertions prove a path infeasible (a smaller bound) or the entry bound of a loop is rounded up (a larger one). Outside the fragment, the report states the reason: \texttt{break} and \texttt{continue}, \texttt{switch}, \texttt{return} inside a loop, loop tests other than one comparison of signed integers, recursion, calls of functions with a trusted cost, and trusted annotations.
+
+\paragraph{Trust.}
+The implementation is not verified. What is machine-checked is the mathematics behind each kind of certificate it produces (\cite[Section~\ref{I-sec:mechanization}]{crosscheckTheory}). For a function with an accepted certificate, the bound itself no longer depends on the analysis, its invariants or the SMT solver: it depends on the checker, which is proved sound, and on the translation from the C++ function to the certificate's program, which is not verified. For the other functions the translation from the Clang syntax tree to constraints, the invariant generation and the SMT solver are trusted. The cost unit is not a duration (Section~\ref{sec:limitations}).
+
+\subsection{TACLeBench kernels}
+\label{subsec:tacle}
+
+TACLeBench \cite{falk2016taclebench} is a collection of self-contained C programs for WCET research, gathered from several earlier suites, among them the M\"alardalen WCET benchmarks \cite{gustafsson2010malardalen}. Every loop of its programs carries a flow fact \texttt{\#pragma loopbound min $X$ max $Y$}. We ran the tool on the 29 programs of its \emph{kernel} category (revision \texttt{4e4fbf7} of the public repository), analysing every function, \emph{without adding any annotation}; the files of each program are concatenated into one translation unit. For each loop with a flow fact, Table~\ref{tab:tacle} compares the bound derived by the tool, if any, with the maximum $Y$ of the flow fact. Two bounds are reported for a loop: the one that holds for every call of its function, and the one that holds in the calling contexts through which the program's \texttt{main} function reaches it (paragraph ``Calls'' above); the second is the one comparable with the flow facts, which describe the program on its fixed input. The script that fetches the benchmarks and produces the table is \lean{benchmarks/tacle/run\_tacle.py}; the whole run takes about one minute.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrrr@{}}
+\toprule
+ & & \multicolumn{6}{c}{For every call} & \multicolumn{2}{c}{In context} \\
+\cmidrule(lr){3-8}\cmidrule(l){9-10}
+Kernel & Loops & Derived & $= Y$ & $> Y$ & $< Y$ & None & \texttt{\_main} & Derived & $= Y$ \\
+\midrule
+binarysearch & 2 & 1 & 1 & 0 & 0 & 1 & -- & 1 & 1 \\
+bitcount & 4 & 2 & 1 & 1 & 0 & 2 & -- & 2 & 1 \\
+bitonic & 3 & 2 & 2 & 0 & 0 & 1 & -- & 2 & 2 \\
+bsort & 4 & 4 & 4 & 0 & 0 & 0 & 240\,702 & 4 & 4 \\
+complex\_updates & 4 & 4 & 4 & 0 & 0 & 0 & 871 & 4 & 4 \\
+cosf & 3 & 0 & 0 & 0 & 0 & 3 & -- & 0 & 0 \\
+countnegative & 4 & 4 & 4 & 0 & 0 & 0 & 5\,752 & 4 & 4 \\
+cubic & 6 & 0 & 0 & 0 & 0 & 6 & -- & 0 & 0 \\
+deg2rad & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+fac & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+fft & 12 & 10 & 8 & 2 & 0 & 2 & -- & 10 & 8 \\
+filterbank & 14 & 11 & 11 & 0 & 0 & 3 & -- & 11 & 11 \\
+fir2dim & 17 & 9 & 9 & 0 & 0 & 8 & -- & 9 & 9 \\
+iir & 6 & 6 & 6 & 0 & 0 & 0 & 210 & 6 & 6 \\
+insertsort & 4 & 2 & 2 & 0 & 0 & 2 & -- & 2 & 2 \\
+isqrt & 5 & 1 & 1 & 0 & 0 & 4 & -- & 2 & 2 \\
+jfdctint & 4 & 4 & 4 & 0 & 0 & 0 & 2\,699 & 4 & 4 \\
+lms & 7 & 4 & 4 & 0 & 0 & 3 & 115\,950 & 7 & 7 \\
+ludcmp & 12 & 12 & 3 & 9 & 0 & 0 & 4\,903 & 12 & 12 \\
+matrix1 & 7 & 7 & 7 & 0 & 0 & 0 & 15\,496 & 7 & 7 \\
+md5 & 9 & 2 & 2 & 0 & 0 & 7 & -- & 5 & 5 \\
+minver & 21 & 17 & 8 & 9 & 0 & 4 & -- & 20 & 20 \\
+pm & 30 & 5 & 5 & 0 & 0 & 25 & -- & 5 & 5 \\
+prime & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+quicksort & 16 & 4 & 3 & 0 & 1 & 12 & -- & 4 & 3 \\
+rad2deg & 1 & 0 & 0 & 0 & 0 & 1 & -- & 0 & 0 \\
+recursion & 0 & 0 & 0 & 0 & 0 & 0 & -- & 0 & 0 \\
+sha & 17 & 10 & 6 & 4 & 0 & 7 & -- & 11 & 6 \\
+st & 5 & 5 & 5 & 0 & 0 & 0 & 65\,074 & 5 & 5 \\
+\midrule
+Total & 220 & 126 & 100 & 25 & 1 & 94 & 9 of 29 & 137 & 128 \\
+\bottomrule
+\end{tabular}
+\caption{The prototype on the TACLeBench kernels, without annotations. Loops: loops with a flow fact. For every call: loops for which a bound is proved that holds for every call of their function, split by comparison with the maximum $Y$ of the flow fact, and cost bound of the entry function \texttt{<kernel>\_main}, in abstract units with unit weights (-- when a loop or a call it reaches is not bounded). In context: loops bounded in the calling contexts through which the program's \texttt{main} reaches them.}
+\label{tab:tacle}
+\end{table}
+
+A bound that holds for every call is derived for 126 of the 220 loops, and 100 of these bounds equal the maximum of the flow fact. The 25 larger bounds are mostly bounds of loops controlled by a parameter, which hold for every admissible value of the parameter (in \texttt{ludcmp} and \texttt{minver}, 99 and 500 for sizes that the program sets to 5 and 3); the others include the logarithmic loops of \texttt{fft}, for which only linear potentials are available. In context, 137 loops are bounded and 128 bounds equal the flow fact: the loops of \texttt{ludcmp}, \texttt{minver} and \texttt{lms} receive the sizes passed by their callers, and the cost bound of \texttt{ludcmp\_main} drops from 22\,961\,019 units to 4\,903. The one smaller bound is a loose flow fact: the inner loop of \texttt{quicksort\_init} is \texttt{for (j = 0; j < 20 - 1; j++)}, which has at most 19 iterations, while the flow fact states 20. Flow facts describe each program on its fixed input; they are a reference, not a proof of the worst case. By inspection of the sources, the loops without a bound (94 for every call, 83 in context) are, in decreasing order of frequency: loops bounded by a structure field or a global variable, or by a parameter whose range is not known at the call either; loops with a floating-point or \texttt{volatile} counter, which the analyser does not model; and loops whose bound is not affine in the program variables (halving and doubling loops, the guard $i \cdot i \le n$, loops driven by the data, such as insertion sort, partitioning and string comparison, and \texttt{while (1)} loops left by \texttt{break}). The two recursive kernels are rejected because the recursion argument has no range. For 9 of the 29 kernels the entry function receives a cost bound with no annotation and no assumption. Of the 158 functions that receive a bound, 142 also receive a certificate that the checker accepts, including the entry functions of 7 kernels; 137 certified bounds equal the plugin's, 4 are smaller (an infeasible path is excluded) and one is larger. The others fall outside the fragment: \texttt{return} inside a \texttt{switch} or a loop (8), loop tests that are not one comparison of signed integers (4), \texttt{break} (3), and an assignment inside an expression (1). \authortodo{check the classification of the unbounded loops against the sources, and decide whether to add a run with minimal annotations (ranges for the parameters).}
+
+\paragraph{Comparison with other tools.}
+We ran five existing analyzers on the same files, without annotations: the loop trip-count analysis of LLVM \cite{lattner2004llvm} (\emph{ScalarEvolution}, version~18), which gives a constant maximum number of iterations per loop, intraprocedurally; KoAT2 (release~2.1.0) \cite{brockschmidt2016analyzing,lommen2022automatic}, which bounds the runtime complexity of an integer program translated from C by llvm2kittel \cite{falke2011termination}; CoFloCo \cite{floresmontoya2014cofloco}, which bounds the cost of the same integer programs, converted into cost equations by its own front-end; the cost analysis of Infer \cite{infercost} (version~1.3.0), which computes a symbolic cost per function, interprocedurally; and oRange \cite{demichiel2008orange}, the loop-bound analyzer of the OTAWA WCET tool chain, which analyzes the whole program from its entry point by abstract interpretation (built from its source repository, last changed in 2022). oRange reads \texttt{loopbound} pragmas, so we removed them from the files given to it. The cost units of CrossCheck, KoAT2 and Infer differ, so at the level of functions we compare only whether a finite bound is found; KoAT2 and CoFloCo count the same unit (transitions of the same integer program), so their bounds can also be compared with each other. Table~\ref{tab:tools} summarizes the results; the per-kernel figures, the answers of every tool and the scripts are in the directory \lean{benchmarks/tacle} of the repository.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{CrossCheck} & & & \\
+\cmidrule(lr){2-3}
+All 220 loops & every call & in context & SCEV & oRange & fact \\
+\midrule
+bounded & 126 & 137 & 113 & 131 & \\
+\quad $= Y$ / $> Y$ / $< Y$ & 100 / 25 / 1 & 128 / 7 / 2 & 108 / 5 / 0 & 127 / 3 / 1 & \\
+by the integer type only & -- & -- & 46 & -- & \\
+\midrule
+The 208 loops reached & & & & & \\
+\midrule
+bounded & 126 & 137 & 113 & 131 & 208 \\
+\quad $<$ / $=$ / $>$ observed & 0 / 100 / 26 & 0 / 129 / 8 & 0 / 107 / 6 & 1 / 127 / 3 & 2 / 198 / 8 \\
+\quad mean bound / observed & 1.93 & 1.06 & 1.02 & 1.00 & 1.01 \\
+\midrule
+Functions & CrossCheck & KoAT2 & CoFloCo & Infer & \\
+\midrule
+29 entry functions, numeric & 9 & 5 & 8 & 14 & \\
+entry functions, symbolic & 0 & 5 & 0 & 2 & \\
+all 267: numeric / symbolic & 158 / 0 & 119 / 23 & 128 / 11 & 190 / 14 & \\
+\bottomrule
+\end{tabular}
+\caption{The TACLeBench kernels, without annotations: loop bounds of CrossCheck, LLVM's ScalarEvolution and oRange compared with the flow facts (maximum $Y$) and with the largest number of body executions per entry of the loop observed on the kernel's input (the mean is geometric, over the loops with a nonzero count), and functions for which CrossCheck, KoAT2, CoFloCo and Infer find a finite bound. For CrossCheck, ``every call'' is the bound that holds for every call of the loop's function and ``in context'' the bound in the calling contexts reached from \texttt{main}; SCEV is ScalarEvolution and ``fact'' the flow fact. A symbolic bound depends on values the tool does not know.}
+\label{tab:tools}
+\end{table}
+
+On loops, CrossCheck's bounds for every call and ScalarEvolution's, both obtained from one function at a time, are close. 103 loops are bounded by both; the bounds agree on 99, and on the other 4 CrossCheck's is smaller by one (loops left by \texttt{break}, where the iteration count is one more than LLVM's backedge-taken count). 23 loops are bounded only by CrossCheck, 18 of them in \texttt{ludcmp} and \texttt{minver}, where ScalarEvolution obtains no bound or only the range of the integer type, which CrossCheck never uses. 10 are bounded only by ScalarEvolution: loops with floating-point counters and constant start, step and limit, which it evaluates exhaustively, and one doubling loop. To check the loop bounds against executions, and not only against the flow facts, we instrumented the unoptimized code of each kernel to record, for every loop, the largest number of executions of its body in one entry of the loop, and ran it on its built-in input; 208 of the 220 loops are reached. No bound of CrossCheck, for every call or in context, and no bound of ScalarEvolution is below the observed count. The flow facts are equal to it on 198 loops, and below it by one on two loops of the form \texttt{while (1)} left by \texttt{break}, which is consistent with counting only the iterations that return to the loop head. oRange propagates the values of the whole program from its entry point, so its bounds are bounds for the program with its built-in input, like the flow facts and like CrossCheck's bounds in context: in \texttt{ludcmp} and \texttt{minver} both obtain the sizes 5 and 3 with which the kernel calls the function, where the bounds for every call are 99 and 500. The two agree on every one of the 113 loops that both bound. 24 loops are bounded by CrossCheck in context and not by oRange: 8 in the five kernels on which oRange gave no result (it rejects three because of their recursion, raised an internal error on one, and did not finish within 600 seconds on one), and 16 in \texttt{fft}, \texttt{fir2dim}, \texttt{iir}, \texttt{isqrt}, \texttt{md5} and \texttt{sha}, six of which have a guard of the form \texttt{i < sizeof(a)}. 18 loops are bounded by oRange and not by CrossCheck: loops with floating-point counters (12, eight of them in \texttt{fir2dim}), and loops controlled by a global or \texttt{volatile} variable or by the data. One oRange bound is below the observed count: in \texttt{filterbank}, the loop \texttt{while (n-- > 0)} with $n = 2$ runs twice, and oRange reports at most one iteration. The observed counts hold for one input only, so a bound above them is not necessarily loose; for the bounds that hold for every call, the ratios mainly measure the distance between all admissible calls and the calls the program makes (the largest, $500/3$ in \texttt{minver}, comes from the test $\mathit{side} \le 500$ at the start of a function that the kernel calls with $\mathit{side} = 3$), and in context the geometric mean drops from 1.93 to 1.06. At the level of functions, Infer finds the most bounds, mainly because it is interprocedural: a loop bounded by a parameter is bounded at the call site. Its cost analysis, however, is not designed as a sound upper bound: by its documentation it does not handle recursion, and it reports a constant cost for the recursive Fibonacci kernel. KoAT2 is sound for the integer program it analyzes, but the translation keeps only integer variables, so values in memory become unknown inputs (hence its symbolic bounds), and for 88 functions the translation or the analysis failed or timed out; it is the only tool to bound the kernel \texttt{prime}, whose guard $i \cdot i \le n$ is not affine. On the same 202 integer programs, CoFloCo finds more numeric bounds than KoAT2 (128 against 119) and fewer symbolic ones; of the 117 functions that both bound by a number, the bounds are equal for 97 and CoFloCo's is smaller for 20 (e.g.\ 40{,}798 against 59{,}900 transitions for \texttt{bsort\_main}), never larger. Its entry-function bounds cover the same kernels as CrossCheck's, except \texttt{st}, on which it timed out. No function bounded by CrossCheck is reported unbounded by KoAT2 or CoFloCo (where they fail, the translation failed or they timed out); Infer finds no bound for one of them, whose loop CrossCheck bounds by the guard $i < 64$. The tools answer different questions (constant bounds for real-time code, asymptotic complexity, cost regressions), and none was given annotations or tuned; the comparison shows where each fails, not which is better in general. \authortodo{check the comparison against the files in benchmarks/tacle/results, the description of the five tools against their documentation and papers, the oRange counterexample in filterbank, and the loop instrumentation in benchmarks/tacle/measure\_loops.py.}
+
+\paragraph{Complexity benchmarks.}
+TACLeBench favours CrossCheck, since its loops have constant bounds. Complexity analyzers are evaluated instead on the C programs of the complexity category of the Termination and Complexity Competition \cite{giesl2019termcomp} (directory \lean{Complexity\_C\_Integer} of the Termination Problem Database, 553 programs at the revision we used): functions of integer parameters, often with nondeterministic values, whose costs are symbolic. CrossCheck derives numeric bounds only, so on the unchanged programs it bounds 10, those whose loops have constant bounds. We therefore also ran it with every integer parameter, and every value assigned from an undefined function, restricted to $[-1000, 1000]$ by annotations added by a script. A bound found in this mode holds for those inputs only, so it is compared with the other tools only on which programs receive a bound. In this mode CrossCheck bounds 165 programs; KoAT2 and CoFloCo, run as on TACLeBench, bound 288 and 264 programs for all inputs (305 by at least one of them). Of the 165 programs bounded by CrossCheck, 158 are also bounded by KoAT2 or CoFloCo. Six of the other seven are bounded only because of the ranges: they assign a nondeterministic value to a variable inside the loop, so they have no bound in terms of their inputs, and the other tools are right to report none; on the seventh, a nest of four loops, both tools timed out. 147 programs are bounded by KoAT2 or CoFloCo and not by CrossCheck. In a sample of ten programs of this kind, drawn before the analysis kept facts across \texttt{break} exits, two are now bounded; in the other eight the missing ingredients are bounds that are not given by one linear potential (guards $x \ne y$, counters that are reset, loops whose direction changes) and relations carried from one loop to the next (the bound of a loop depends on a value computed by an earlier loop, or nested loops share a counter). They correspond to the linear template and the dependence on invariants discussed in Section~\ref{sec:limitations}; the comparison measures their effect on programs written to exercise complexity analyzers. \authortodo{check the TPDB comparison (benchmarks/tpdb), in particular that the harness of the bounded mode is a fair way to run CrossCheck on these programs and that the sample analysis is representative.}
+
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Cost is not time.}
+The bounds of this paper are bounds on a cost norm. With unit weights they count instructions; with weights $\omega$ they bound execution time only insofar as $\omega(a)$ is a valid worst-case duration of instruction $a$ in every context. On processors with caches, pipelines and branch prediction, instruction durations are context-dependent, and obtaining valid weights is the task of micro-architectural analysis \cite{wilhelm2008worst}. CrossCheck provides the loop-bound and path-cost components of a WCET analysis, not a complete WCET analyzer.
+
+\paragraph{Precision and coverage of the plugin.}
+Potentials are affine, so logarithmic loops receive linear bounds and loops that need several phases, a lexicographic argument or a disjunction are rejected; nested loops are bounded by products without amortization; calling contexts are intervals of integer arguments, without relations between arguments, values of global variables or effects of callees on memory. Pointers, iterators and floating-point values are not tracked as loop counters. The certificate fragment excludes \texttt{break}, \texttt{continue}, \texttt{switch}, \texttt{return} inside loops, recursion and trusted costs.
+
+\paragraph{Evaluation.}
+The prototype has been run on the small programs of Table~\ref{tab:plugin}, written for the purpose, and on the 29 kernels of TACLeBench (Table~\ref{tab:tacle}), which are small programs. The comparison there is with the flow facts shipped with the benchmarks, which hold for the fixed inputs of the programs, with loop counts observed on those inputs, and with five existing analyzers run without annotations or tuning (Table~\ref{tab:tools}); among WCET flow-analysis tools only oRange was compared. On the C programs of the Termination and Complexity Competition, CrossCheck bounds far fewer programs than KoAT2 and CoFloCo, and only with input ranges supplied by a script. Larger programs and the effect of annotations are future work.
+
+
+\section*{Conclusions}
+
+A compiler plugin can bound loops and recursion of real-time C and C++ functions at compile time, and, for a linear fragment, emit certificates that a checker proved sound in Lean validates: on the TACLeBench kernels, 142 of the 158 bounded functions are certified, and no bound of the plugin is below a loop count observed by running the programs. Its loop bounds in the calling contexts of the programs agree with those of oRange, a dedicated loop-bound analyzer for WCET analysis, on every loop that both bound. On programs written for complexity analyzers it is clearly weaker than KoAT2 and CoFloCo, for want of symbolic bounds and of potentials beyond a single affine one.
+
+Future work includes extending the certificate fragment (early exits, \texttt{switch}, recursion, assumed contracts for library functions), symbolic bounds as function summaries, the export of loop bounds to timing analyzers, a front-end for Rust, and an evaluation on larger programs.
+
+\section*{Statement on the Use of AI}
+
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) wrote the Clang plugin, its tests, its example programs, the certificate generator and the checker program, ran the measurements and the comparisons with other tools of this paper, and drafted its text; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. \authortodo{state that you have read and verified the text, the measurements and every citation, and take full responsibility for the content.}
+
+\section*{Acknowledgements}
+
+Thanks are also due to Prof. E. Denti, Dr. B. Franceschiello and Prof.
+A. Omicini for their valuable suggestions and discussions.
+
+\bibliographystyle{unsrt}
+\bibliography{../crosscheck}
+
+\end{document}

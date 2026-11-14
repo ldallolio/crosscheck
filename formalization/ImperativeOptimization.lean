@@ -23,7 +23,7 @@ import ImperativeOptimization.Examples
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification
 
 Machine-checked formalization in Lean 4 accompanying the CrossCheck paper
-(`paper/crosscheck.tex`). Table "Correspondence between the paper and the Lean 4
+(Paper I, `paper/theory/crosscheck-theory.tex`). Table "Correspondence between the paper and the Lean 4
 development" of the paper, mirrored by `formalization.yaml`, maps paper statements
 (by LaTeX label) to the theorems below.
 
