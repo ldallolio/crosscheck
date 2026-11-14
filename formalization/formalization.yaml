@@ -76,10 +76,14 @@ statements:
   - paper_labels: [def:certificate]
     note: "linear certificates and the executable checker"
     module: ImperativeOptimization.Checker
-    lean: [PExp, Lin, ACmd, ACmd.toCmd, check, entails1, entailsAll]
+    lean: [PExp, Lin, SB, ACmd, ACmd.toCmd, check, entails1, entailsAll, loopBoundOk]
   - paper_labels: [thm:checker-soundness]
     module: ImperativeOptimization.Checker
-    lean: [check_sound, certified_cost_le, entails1_sound, entailsAll_sound, Lin.subst_eval, Lin.eval_update, holds_update_logical, countCert_checks, countCert_cost]
+    lean: [check_sound, loop_sound, loopBoundOk_sound, certified_cost_le, entails1_sound, entailsAll_sound, Lin.subst_eval, Lin.inst_eval, Lin.eval_update, holds_update_logical, while_frame, countCert_checks, countCert_cost, countSym_checks, countSym_cost]
+  - paper_labels: [def:program-certificate, thm:program-soundness]
+    note: "program certificates: calls checked against summaries, assumed contracts"
+    module: ImperativeOptimization.Checker
+    lean: [FunCert, FunSpec, checkFun, checkProgram, program_sound, exProgram_checks, exProgram_17_rejected, exMain_cost]
   - paper_labels: [prop:lex-log]
     module: ImperativeOptimization.Certificate
     lean: [lex_ranking_bound, log_ranking_bound]

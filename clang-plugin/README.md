@@ -91,6 +91,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
 | `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
 | `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
+| `contracts=FILE` | library contracts: trusted costs linear in the arguments (see [`docs/contracts.md`](../docs/contracts.md)) |
 | `flowfacts=FILE` | write the derived loop bounds as flow facts for WCET tools (see [Flow facts, SARIF and CI](#flow-facts-sarif-and-ci)) |
 | `flowfacts-format=ffx\|ais\|ais2` | FFX (OTAWA), AIS or AIS2 (aiT); default from the extension (`.ais`: AIS2, otherwise FFX) |
 | `flowfacts-context=every-call\|program` | export the bounds valid for every call (default) or in the program's calling contexts |
@@ -257,7 +258,8 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
 | depth `D`, branching `b` ⇒ at most `1 + b + … + b^D` activations | `callTree_size_le_geom`, `geom_closed` (`Arity`) |
 | size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
-| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`) ⇒ its bound holds for its program | `check_sound` (`Checker`) |
+| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
+| an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 
 **Not verified:** the C++ implementation (the translation from the Clang AST to
 constraints, the invariant generation, the cost counting) and Z3. The tests in
@@ -285,9 +287,15 @@ bound, or why there is none. The ctest `certificates_accepted_by_lean_checker` r
 on the example programs and on `tests/certificates/*.cpp` (early exits, `switch`, `&&`
 tests, unsigned counters) when CMake is given `-DCROSSCHECK_CHECKER=<path>`.
 
+The certificate file holds one *program certificate* per translation unit: every
+certified function has a bound in its parameters (`certificate_summary` in the report,
+e.g. `5 + 7*max(0,n)`), and a call of a function certified before it is checked against
+that summary instead of inlining the callee; functions with a trusted cost
+(`CROSSCHECK_COST`, contract files) are assumed contracts, printed `ASSUMED` by the checker.
+
 The fragment covers assignments, conditionals, `for`/`while` loops (with `break`,
 `continue` and `return` inside, and `&&` tests), `switch` (with fall-through), calls
-to analysed functions (inlined in their calling context), and signed and unsigned
+(as summaries, or inlined in their calling context), contracts, and signed and unsigned
 integer variables. Unsigned stores carry an explicit wrap-around test whose wrapping
 branch the checker must prove dead. How each construct is lowered:
 [`docs/certificate-format.md`](../docs/certificate-format.md).

@@ -15,7 +15,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 185 theorems. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 208 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 29 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 13 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
@@ -31,7 +31,8 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
 | `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. |
 | `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`) → certificates of TACLeBench and the examples; a second job builds `crosscheck-check` and checks every certificate. |
-| `docs/certificate-format.md` | The certificate format (= Lean `ACmd`) and how the plugin produces certificates. |
+| `docs/certificate-format.md` | The certificate format (= Lean `ACmd`, `FunCert`; version 2 = program certificates) and how the plugin produces certificates. |
+| `docs/contracts.md` | Library contracts (`contracts=FILE`): trusted costs linear in the arguments; assumed contracts in certificates. |
 
 Toolchain on this machine: `lake`, `lean`, `pdflatex`, `latexmk`, system `g++` 13. Clang 18, Z3,
 CMake, Ninja and GoogleTest live in the conda env `crosscheck`
@@ -90,7 +91,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 | `Certificate` | Soundness of what the plugin computes: `ranking_bound_floor` (relational, ordered-field-valued potential, bound `⌊V⌋`), `partial_ranking_floor`, `farkas_sound(_affine)`, `while_cost_bound`; invariants and contexts (`run_invariant`, `ranking_bound_of_context`, `call_bound_of_context`); `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | `RTree`/`Forest` (mutual, arbitrary arity), `geom`, `geom_closed`, `RTree.size_le_geom`; call trees of a scheme `calls : α → List α`: `callTree_size_le_potential` (size potential), `callTree_size_le_geom` |
 | `Language` | Small imperative language `Cmd ι S` (atoms are weighted relations; calls of procedures with bodies `Φ`, recursion allowed), cost semantics `Exec` (terminating) and `Pre` (execution prefixes, so diverging runs are bounded too), `Valid` triples, rules `valid_seq`/`valid_ite`/`valid_while`/`valid_call`/`valid_conseq`/`valid_unreachable`, proof system `Derivable Φ Γ` (assumed triples `Γ` = contracts; rule `call` with a rank for recursion), **`soundness`**; symbolic bounds `ValidSym`, `validSym_call` (function summaries), `validSym_seq`; examples `countLoop_cost`, `down_cost` (recursion) |
-| `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, annotated programs `ACmd` (incl. `whileAnd`: loop with a conjunctive test), executable **`check`**, **`check_sound`**, `certified_cost_le`; example `countCert_checks` (by `decide`). This type is the certificate format the plugin must emit (`docs/implementation-plan.md`) |
+| `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, symbolic bounds `SB` (`c + Σ co_j max(0,γ_j)`), annotated programs `ACmd` (incl. `whileAnd` and `call`), program certificates `FunCert` (a body, or none = assumed contract), executable **`check`** / **`checkProgram`**, **`check_sound`** (triple + frame, given the callees' `FunSpec`), **`program_sound`**, `loopBoundOk_sound`; examples `countCert_checks`, `countSym_checks` (symbolic), `exProgram_checks` / `exMain_cost` (a call), all by `decide`. This is the certificate format the plugin emits (`docs/certificate-format.md`, version 2) |
 | `Examples` | Paper examples with minimality, big-step agreement and ranking/depth certificates |
 
 ### Paper ↔ Lean correspondence
@@ -111,9 +112,11 @@ Paper content that is **not** mechanized (the paper says so explicitly; keep tha
 - the Clang plugin itself (C++) and Z3; the translation from C++ to the commands and triples
   of `Language` and to the certificates of `Checker` (the lowering is unverified); parallel
   composition; lexicographic/logarithmic potentials as rules of the logic or of the checker
-  (they are theorems on runs only); calls in the checker (the plugin inlines them). Conjunctive
-  loop tests are in the checker (`whileAnd`); `break`/`continue`/`return` and `switch` are
-  lowered by the plugin with flags and choice variables, so they need no checker rule.
+  (they are theorems on runs only); recursion in the checker (calls go to earlier functions
+  only; rule 9 of the logic is not a checker case); quadratic or polynomial symbolic bounds
+  (bounds are affine in the parameters). Conjunctive loop tests (`whileAnd`), calls with
+  summaries and assumed contracts are in the checker; `break`/`continue`/`return` and
+  `switch` are lowered by the plugin with flags and choice variables.
 `Dominance` still contains the `≼_O` preorder and `Trace` the subsequence order; the paper no
 longer uses them (removed in the Nov 2026 simplification) — do not reintroduce them in the paper.
 
@@ -230,8 +233,8 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
 ## Current focus
 1. Pre-submission: resolve every open item of `AI_USAGE.md` (author verification, references,
    archived artifact, remaining `\authortodo`).
-2. Plugin evaluation: TACLeBench kernels done (unannotated); next a run with minimal annotations,
-   the sequential/app categories (done: observed loop counts, LLVM ScalarEvolution,
+2. Plugin evaluation: TACLeBench kernels and sequential/app categories done (unannotated);
+   next a run with minimal annotations (done: observed loop counts, LLVM ScalarEvolution,
    KoAT2, CoFloCo, Infer, oRange, TPDB C complexity programs).
 3. Roadmap agreed with the author (aims: industrial value and scientific result). The theory
    phase is done (Nov 2026): cost logic with procedures, recursion and assumed contracts
@@ -239,12 +242,15 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
    potentials (`Certificate`). **The implementation phase follows
    `docs/implementation-plan.md`**: checker executable, certificate emission by the plugin,
    checker extensions, symbolic bounds, library contracts, industrial C coverage, flow-fact
-   export, Rust front-end. Split the paper in two before venue submission (theory + Lean;
-   tool + evaluation).
+   export, Rust front-end. The paper is split (theory + Lean; tool + evaluation). The order
+   of the next steps is `docs/proposals.md` §5; steps 1-3 are done (Nov 2026: early exits,
+   switch, unsigned; flow-fact export and SARIF; symbolic summaries, calls and contracts).
    Plugin precision done so far (Nov 2026): calling contexts as argument intervals
    (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
    remains, agreed with the author — **with theory and Lean** (new certificates): symbolic
-   bounds in the parameters used as function summaries; lexicographic, multi-phase and
+   bounds in the parameters used as function summaries (**done in certificates**, Nov 2026:
+   `SB`, `call`, `program_sound`; the analyser itself still needs numeric ranges, so
+   unannotated code with symbolic-only bounds is not yet covered); lexicographic, multi-phase and
    max-of-affine potentials; logarithmic potentials; amortised recursion cost. **Engineering
    under existing certificates** (must-reject tests, assumptions listed): global variables;
    exact evaluation of constant float loops; pointer/iterator counters; relations between

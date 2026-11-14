@@ -164,7 +164,7 @@ flowchart TD
   ST --> LP["loop: potential × D (+ c·(1 − flags)), Houdini invariant,<br/>k = max potential on entry (Z3), γ_depth;<br/>&& or flags → whileAnd"]
   ST --> SW["switch: havoc ?choice;<br/>if (?choice ≤ 0) group, per group"]
   ST --> US["unsigned store: if (0 ≤ a ≤ 2^w − 1) x := a<br/>else havoc x (checker proves it dead)"]
-  ST --> CL["calls: inline the callee body,<br/>params := args (certCallsIn / certCall)"]
+  ST --> CL["calls: call node against the callee's summary (certCallNode),<br/>contract for trusted costs (contractFun),<br/>else inline the callee body"]
   AS --> W["weaken node with Farkas multipliers"]
   IF --> W
   LP --> W
@@ -196,6 +196,13 @@ What is easy to get wrong, and why the code is as it is:
 - **Join hints.** When two branches are joined inside a loop body, the constraints the
   loop needs at the end of its body (`hints`) are tried as join candidates; without them
   a `return` in an inner loop lost the outer loop's ghost constraint.
+- **Program certificates.** One per translation unit (`certNames_`, `certFuns_`): each
+  certified function gets ghosts `x_p = γ_p` for its parameters and a symbolic bound `SB`.
+  Loops try the test-derived potential (`n − i`) before the analyser's (`64 − i`) and keep
+  the one with the smaller bound at the largest admissible parameters; the entry bound is
+  symbolic (`symbolicUpper`) only if no looser there. Calls of certified functions are
+  `call` nodes (`certCallNode`): parameters := arguments, precondition proved, argument
+  bounds, frame. Trusted costs are contract entries (`contractFun`).
 - **Unsigned.** `certAffine` is exact (signed arithmetic, value-preserving conversions
   only); `certModular` gives a value modulo 2^w for unsigned stores; `certStore` adds
   the range test. Nothing about wrap-around is decided by the generator alone.
@@ -213,13 +220,13 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (135)
+## 9. Tests (138)
 
 | Suite | Count | Checks |
 |---|---|---|
 | `core_test` (`LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds`, `Cert`) | 20 | arithmetic, entailment, intervals, potentials, the checker's vector operations, Farkas, elimination |
-| `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 57 | expected bounds and behaviours |
-| `Loops/Unsound`, `Calls/UnsoundContext` | 19 | must be rejected |
+| `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 59 | expected bounds and behaviours (incl. summaries, call nodes, library contract files) |
+| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 20 | must be rejected (incl. a contract argument without a bound) |
 | `RealTime/Profile` | 11 | forbidden constructs |
 | `Benchmarks` | 10 | Table `tab:plugin` figures |
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |

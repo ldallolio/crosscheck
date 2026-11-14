@@ -223,8 +223,9 @@ def main():
     if certdir and a.checker:
         files = sorted(str(p) for p in certdir.glob("*.json"))
         proc = subprocess.run([a.checker, *files], capture_output=True, text=True)
-        acc = proc.stdout.count("ACCEPTED")
-        rej = proc.stdout.count("REJECTED")
+        lines = proc.stdout.splitlines()
+        acc = sum(l.startswith("ACCEPTED") for l in lines)  # functions (PROGRAM lines are verdicts per file)
+        rej = sum(l.startswith("REJECTED") or (l.startswith("PROGRAM") and "REJECTED" in l) for l in lines)
         total["checker_accepted"], total["checker_rejected"] = acc, rej
         for r in rows:
             for u in r.get("uncertified", []):

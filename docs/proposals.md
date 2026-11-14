@@ -97,7 +97,11 @@ flowchart LR
    **Done 2026-11-14**: FFX, AIS, AIS2, SARIF, cost diff; FFX values equal oRange's on 114
    TACLeBench loops. Open: loading the files into OTAWA and aiT on compiled code.
 3. **Modular symbolic certificates + library contracts** (S2, I4): the main scientific and
-   industrial step; closes the TPDB gap and makes real code bases tractable.
+   industrial step; closes the TPDB gap and makes real code bases tractable. **Done in the
+   checker and the generator (2026-11-14)**: symbolic bounds `SB`, `call` nodes against
+   summaries, assumed contracts, `program_sound`; contract files. Open: the *analyser* still
+   needs numeric ranges, so the TPDB gap "as is" remains; polynomial bounds; recursion in
+   the checker (rule 9).
 4. **Globals, structs, iterators** (§4): legacy coverage, measured on an open-source
    embedded code base (choose one with a permissive licence and MISRA-like style).
 5. **Verified lowering** (S1): the flagship result for a venue paper on certified cost

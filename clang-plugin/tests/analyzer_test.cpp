@@ -3,6 +3,8 @@
 // End-to-end tests of the analyser on small C++ programs. The cost figures in
 // the comments are derived by hand from the cost model documented in
 // clang-plugin/README.md (all weights 1).
+#include <cstdio>
+
 #include <gtest/gtest.h>
 
 #include "test_support.hpp"
@@ -641,6 +643,74 @@ TEST(Certificates, UnsignedStoresCarryTheirWrapCheck) {
   ASSERT_FALSE(r.certificates.empty());
   EXPECT_NE(r.certificates.front().find("\"dead\""), std::string::npos);
   EXPECT_FALSE(fn(r, "g").ok);  // up to 2^32 - 1 iterations
+}
+
+// Modular certificates: a function certified once with a summary in its parameters,
+// its callers using it through call nodes (docs/certificate-format.md, version 2).
+TEST(Certificates, SummariesAndCallNodes) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int sum(const int* a, CROSSCHECK_RANGE(0, 64) int n) {
+      int s = 0;
+      for (int i = 0; i < n; ++i) s += a[i];
+      return s;
+    }
+    CROSSCHECK_REALTIME int twice(const int* a) { return sum(a, 10) + sum(a, 20); })", o);
+  EXPECT_EQ(fn(r, "sum").certificateSummary, "5 + 7*max(0,n)");
+  ASSERT_TRUE(fn(r, "twice").certificateBound.has_value());
+  EXPECT_EQ(*fn(r, "twice").certificateBound, fn(r, "twice").wcet);  // = its in-context bound
+  ASSERT_EQ(r.certificates.size(), 1u);  // one program certificate for the translation unit
+  EXPECT_NE(r.certificates[0].find("\"node\":\"call\""), std::string::npos);
+}
+
+// --- library contracts (docs/contracts.md) ----------------------------------------
+
+namespace {
+std::string contractFile(const std::string& text) {
+  std::string path = ::testing::TempDir() + "crosscheck_contracts_test.json";
+  std::FILE* f = std::fopen(path.c_str(), "w");
+  std::fputs(text.c_str(), f);
+  std::fclose(f);
+  return path;
+}
+const char* kCopy = R"({"format": "crosscheck-contracts", "version": 1, "implementation": "test",
+  "contracts": [{"function": "copy_bytes", "cost": {"c": 8, "per_arg": {"2": 2}}}]})";
+}  // namespace
+
+TEST(Contracts, LibraryContractFile) {
+  Options o;
+  ASSERT_TRUE(o.parse("contracts=" + contractFile(kCopy)));
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    extern "C" void copy_bytes(unsigned char* d, const unsigned char* s, unsigned n);
+    CROSSCHECK_REALTIME void frame(unsigned char* d, const unsigned char* s,
+                                   CROSSCHECK_RANGE(0, 64) unsigned len) {
+      copy_bytes(d, s, len);
+      copy_bytes(d, s, 4);
+    })", o);
+  const FunctionReport& f = fn(r, "frame");
+  ASSERT_TRUE(f.ok);
+  // (call 1 + 8 + 2*64) + (call 1 + 8 + 2*4)
+  EXPECT_EQ(f.wcet, 137u + 17u);
+  EXPECT_TRUE(anyAssumptionContains(f, "contract file"));
+  EXPECT_EQ(f.certificate, "emitted");
+  EXPECT_EQ(f.certificateSummary, "26 + 2*max(0,len)");
+  EXPECT_NE(r.certificates[0].find("\"contract\":true"), std::string::npos);
+}
+
+TEST(Unsound, ContractArgumentWithoutBoundIsRejected) {
+  Options o;
+  ASSERT_TRUE(o.parse("contracts=" + contractFile(kCopy)));
+  Report r = check(R"(
+    extern "C" void copy_bytes(unsigned char* d, const unsigned char* s, unsigned n);
+    CROSSCHECK_REALTIME void f(unsigned char* d, const unsigned char* s, unsigned len) {
+      copy_bytes(d, s, len);
+    })", o);
+  EXPECT_FALSE(fn(r, "f").ok);
+  EXPECT_TRUE(anyErrorContains(fn(r, "f"), "has no upper bound, which its contract needs"));
 }
 
 // --- facts kept when a loop is left through `break` -------------------------------

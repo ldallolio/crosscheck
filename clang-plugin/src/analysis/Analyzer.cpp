@@ -38,6 +38,8 @@
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 #include "../core/Cert.hpp"
 #include "../core/Cost.hpp"
@@ -430,11 +432,61 @@ class Analyzer {
     DiagnosticsEngine& d = ctx_.getDiagnostics();
     errorId_ = d.getCustomDiagID(DiagnosticsEngine::Error, "crosscheck: %0");
     remarkId_ = d.getCustomDiagID(DiagnosticsEngine::Remark, "crosscheck: %0");
+    if (!opts.contractsPath.empty()) loadContracts(opts.contractsPath);
   }
 
   Report run();
 
  private:
+  // -- library contracts (docs/contracts.md) ------------------------------------
+  /// A trusted cost bound `c + sum perArg[i] * max(0, arg_i)` of a function.
+  struct LibContract {
+    std::uint64_t c = 0;
+    std::map<unsigned, std::uint64_t> perArg;
+    std::string text;  ///< the bound as written in the report
+  };
+  std::map<std::string, LibContract> libContracts_;
+  std::string libContractsFor_;  ///< the "implementation" field of the contract file
+  void loadContracts(const std::string& path) {
+    DiagnosticsEngine& d = ctx_.getDiagnostics();
+    auto fail = [&](const std::string& why) { d.Report(errorId_) << ("contract file '" + path + "': " + why); };
+    auto buf = llvm::MemoryBuffer::getFile(path);
+    if (!buf) return fail("cannot be read");
+    llvm::Expected<llvm::json::Value> v = llvm::json::parse((*buf)->getBuffer());
+    if (!v) { fail(llvm::toString(v.takeError())); return; }
+    const llvm::json::Object* o = v->getAsObject();
+    if (!o || o->getString("format") != std::optional<llvm::StringRef>("crosscheck-contracts"))
+      return fail("not a contract file (format must be \"crosscheck-contracts\")");
+    if (auto impl = o->getString("implementation")) libContractsFor_ = impl->str();
+    const llvm::json::Array* cs = o->getArray("contracts");
+    if (!cs) return fail("no \"contracts\" array");
+    for (const llvm::json::Value& e : *cs) {
+      const llvm::json::Object* c = e.getAsObject();
+      std::optional<llvm::StringRef> name = c ? c->getString("function") : std::nullopt;
+      const llvm::json::Object* cost = c ? c->getObject("cost") : nullptr;
+      std::optional<std::int64_t> k = cost ? cost->getInteger("c") : std::nullopt;
+      if (!name || !k || *k < 0) return fail("each contract needs \"function\" and \"cost\": {\"c\": n, ...}");
+      LibContract lc;
+      lc.c = static_cast<std::uint64_t>(*k);
+      lc.text = std::to_string(lc.c);
+      if (const llvm::json::Object* per = cost->getObject("per_arg"))
+        for (const auto& [key, val] : *per) {
+          unsigned i = 0;
+          std::optional<std::int64_t> a = val.getAsInteger();
+          if (llvm::StringRef(key).getAsInteger(10, i) || !a || *a < 0)
+            return fail("\"per_arg\" maps argument positions (from 0) to non-negative integers");
+          lc.perArg[i] = static_cast<std::uint64_t>(*a);
+          lc.text += " + " + std::to_string(*a) + "*max(0, argument " + std::to_string(i + 1) + ")";
+        }
+      libContracts_[name->str()] = std::move(lc);
+    }
+  }
+  const LibContract* libContract(const FunctionDecl* fd) const {
+    if (libContracts_.empty()) return nullptr;
+    auto it = libContracts_.find(fd->getQualifiedNameAsString());
+    return it == libContracts_.end() ? nullptr : &it->second;
+  }
+
   // -- diagnostics ----------------------------------------------------------
   FnCtx& cur() { return *stack_.back(); }
 
@@ -634,8 +686,18 @@ class Analyzer {
   struct CertPiece;
 
  private:
-  std::optional<std::string> certificate(const FunctionDecl* def, std::string& reason,
-                                         std::uint64_t& bound);
+  /// A function of the program certificate: its index and the variables (and logical
+  /// variables, in order) of its parameters.
+  struct CertFunInfo {
+    std::size_t index = 0;
+    std::vector<std::size_t> ghostVars;
+    std::vector<const ParmVarDecl*> ghostParams;
+  };
+  std::optional<CertPiece> certCallNode(CertCtx& cc, const CertFunInfo& ci,
+                                        const std::vector<const Expr*>& args, const cert::Assn& pre);
+  std::optional<CertFunInfo> contractFun(CertCtx& cc, const FunctionDecl* fd);
+  bool certificate(const FunctionDecl* def, std::string& reason, cert::SB& bound,
+                   std::optional<std::uint64_t>& numeric, std::string& summary);
   std::optional<CertPiece> certStmt(CertCtx& cc, const Stmt* s, const cert::Assn& pre);
   std::optional<CertPiece> certList(CertCtx& cc, const std::vector<const Stmt*>& list,
                                     std::size_t from, const cert::Assn& pre);
@@ -663,6 +725,13 @@ class Analyzer {
   std::optional<cert::PExp> certTest(CertCtx& cc, const Expr* e);
   std::uint64_t costOf(const Expr* e);
   std::vector<std::string> certificates_;
+  // The program certificate of the translation unit: variables, functions, and the
+  // functions (checked or contracts) that calls can refer to.
+  std::vector<std::string> certNames_{"?choice", "?cost"};
+  std::map<std::size_t, unsigned> certUWidth_;
+  std::vector<cert::FunJson> certFuns_;
+  std::map<const FunctionDecl*, CertFunInfo> certFunOf_;
+  std::map<const FunctionDecl*, CertFunInfo> certContractOf_;
   bool onStack(const FunctionDecl* fd) {
     for (const auto& c : stack_)
       if (c->fn->getCanonicalDecl() == fd->getCanonicalDecl()) return true;
@@ -1224,8 +1293,31 @@ Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc, const Ca
     error(loc, "dynamic allocation ('" + name + "') is not allowed in a real-time function");
     return unit(w_.call);
   }
+  if (const LibContract* lc = libContract(fd)) {
+    // Speculative evaluations (invariant search, certificates) charge only the call:
+    // a certificate pays the contract's bound in its call node.
+    if (cur().speculative) return unit(w_.call);
+    std::uint64_t cost = lc->c;
+    for (const auto& [i, a] : lc->perArg) {
+      std::optional<std::int64_t> hi;
+      if (call)
+        if (auto it = cur().calls.find(call); it != cur().calls.end() && it->second.any &&
+                                               i < it->second.hull.size())
+          hi = it->second.hull[i].hi;
+      if (!hi) {
+        error(loc, "argument " + std::to_string(i + 1) + " of '" + fd->getQualifiedNameAsString() +
+                       "' has no upper bound, which its contract needs");
+        return unit(w_.call);
+      }
+      cost += a * static_cast<std::uint64_t>(std::max<std::int64_t>(0, *hi));
+    }
+    assume("cost of '" + fd->getQualifiedNameAsString() + "' is at most " + lc->text +
+           " (contract file" + (libContractsFor_.empty() ? std::string() : ", " + libContractsFor_) + ")");
+    return seq(unit(w_.call), unit(cost));
+  }
   if (const AnnotateAttr* a = findAnnotation(fd, "crosscheck::cost")) {
     if (auto n = annotationArg(a, 0, ctx_); n && *n >= 0) {
+      if (cur().speculative) return unit(w_.call);  // see above
       assume("cost of '" + fd->getQualifiedNameAsString() + "' is at most " + std::to_string(*n) +
              " (CROSSCHECK_COST)");
       return seq(unit(w_.call), unit(static_cast<std::uint64_t>(*n)));
@@ -2089,18 +2181,31 @@ void Analyzer::recordCall(const CallExpr* call, const FunctionDecl* fd,
   FnCtx& fc = cur();
   if (fc.speculative) return;
   const FunctionDecl* def = nullptr;
-  if (!fd->hasBody(def) || !def->getBody() || def->isDependentContext()) return;
-  if (def->getCanonicalDecl() == fc.fn->getCanonicalDecl() || callsItself(def)) return;
+  bool contract = libContract(fd) != nullptr;
+  if (contract) {
+    def = fd;  // a library function: its contract needs the arguments' bounds
+  } else {
+    if (!fd->hasBody(def) || !def->getBody() || def->isDependentContext()) return;
+    if (def->getCanonicalDecl() == fc.fn->getCanonicalDecl() || callsItself(def)) return;
+  }
 
   Context here(def->getNumParams());
   for (unsigned i = 0; i < def->getNumParams() && i < args.size(); ++i) {
     QualType pt = def->getParamDecl(i)->getType();
     if (!isIntType(pt) || pt.isVolatileQualified() || args[i].poisoned()) continue;
     // The argument must already have the parameter's type, so that its value
-    // is the parameter's value (no conversion in between).
-    if (!ctx_.hasSameUnqualifiedType(argExprs[i]->getType(), pt)) continue;
+    // is the parameter's value (no conversion in between). For a contract, a
+    // conversion is allowed when the interval fits the parameter's type.
+    bool same = ctx_.hasSameUnqualifiedType(argExprs[i]->getType(), pt);
+    if (!same && !contract) continue;
     std::optional<Interval> b = boundsOf(syms_, s.facts, args[i]);
     if (!b) return;  // contradictory facts: this state stands for no execution
+    if (!same) {
+      auto [plo, phi] = typeRange(pt, ctx_);
+      bool fits = b->lo && b->hi && (!plo || *b->lo >= *plo) && (!phi || *b->hi <= *phi) &&
+                  isIntType(argExprs[i]->getType());
+      if (!fits) continue;
+    }
     here[i] = *b;
   }
   CallRecord& rec = fc.calls[call];
@@ -2262,12 +2367,13 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
     if (!rep.ok || !rep.bounded) {
       rep.certificate = "no certificate: the function is not bounded";
     } else {
-      std::string reason;
-      std::uint64_t cb = 0;
-      if (std::optional<std::string> js = certificate(def, reason, cb)) {
-        certificates_.push_back(std::move(*js));
+      std::string reason, summary;
+      cert::SB cb;
+      std::optional<std::uint64_t> numeric;
+      if (certificate(def, reason, cb, numeric, summary)) {
         rep.certificate = "emitted";
-        rep.certificateBound = cb;
+        rep.certificateBound = numeric;
+        rep.certificateSummary = summary;
       } else {
         rep.certificate = "no certificate: " + reason;
       }
@@ -2303,6 +2409,20 @@ struct Analyzer::CertCtx {
   std::size_t choice = 0;  ///< the variable of nondeterministic tests
   std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
   std::size_t depth = 0;   ///< loop nesting: index of the logical variable
+  std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
+  /// The largest value of each of them that the precondition allows (if any): a symbolic
+  /// bound is used only if it is no looser than a constant one there.
+  std::vector<std::optional<std::uint64_t>> gammaHi;
+  /// The value of `k + kl.gamma` at gammaHi, if every gamma it uses is bounded.
+  std::optional<std::int64_t> atHi(std::int64_t k, const std::vector<std::uint64_t>& kl) const {
+    std::int64_t v = k;
+    for (std::size_t g = 0; g < kl.size(); ++g) {
+      if (!kl[g]) continue;
+      if (g >= gammaHi.size() || !gammaHi[g]) return std::nullopt;
+      v += static_cast<std::int64_t>(kl[g] * *gammaHi[g]);
+    }
+    return v;
+  }
   /// The function whose code is being lowered (the analysed one, or an inlined callee).
   const std::map<const Stmt*, LoopPotential>* potentials = nullptr;
   const std::map<const CallExpr*, SummaryKey>* callKeys = nullptr;
@@ -2346,7 +2466,7 @@ struct Analyzer::CertCtx {
 struct Analyzer::CertPiece {
   cert::NodeP node;
   cert::Assn post;
-  std::uint64_t bound = 0;
+  cert::SB bound;
 };
 
 namespace {
@@ -2386,7 +2506,7 @@ std::vector<Farkas> identityCerts(const Assn& a) {
 }
 
 /// `weaken`: c is checked from P' to Q'; the surrounding triple is (outer, B, Q).
-NodeP weaken(Assn pPrime, std::vector<Farkas> preCerts, std::uint64_t bound, Assn qPrime,
+NodeP weaken(Assn pPrime, std::vector<Farkas> preCerts, cert::SB bound, Assn qPrime,
              std::vector<Farkas> postCerts, NodeP c) {
   Node n;
   n.kind = Node::Weaken;
@@ -2975,7 +3095,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certIfThen(
   n.b2 = b2->bound;
   n.c1 = *n1;
   n.c2 = *n2;
-  return CertPiece{mk(n), join, w + std::max(b1->bound, b2->bound)};
+  return CertPiece{mk(n), join, cert::SB(w) + cert::smax(b1->bound, b2->bound)};
 }
 
 std::optional<Analyzer::CertPiece> Analyzer::certSwitch(CertCtx& cc, const SwitchStmt* ss,
@@ -3130,7 +3250,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certIf(CertCtx& cc, const IfStmt* i
   n.b2 = b2->bound;
   n.c1 = *n1;
   n.c2 = *n2;
-  std::uint64_t bound = w + std::max(b1->bound, b2->bound);
+  cert::SB bound = cert::SB(w) + cert::smax(b1->bound, b2->bound);
   CertPiece out{mk(n), join, bound};
   if (choose) out = seqPiece(CertPiece{choose, start, 0}, out);
   if (calls) out = seqPiece(*calls, out);
@@ -3165,7 +3285,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   }
   pot.c = lp.rank.offset.num * (den / lp.rank.offset.den);
   trimP(pot);
-  std::uint64_t d = static_cast<std::uint64_t>(den);
+  std::uint64_t dA = static_cast<std::uint64_t>(den);
   std::size_t j = cc.depth;
 
   // Jumps out of the body become flags tested by the loop: break, continue, return.
@@ -3180,6 +3300,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   std::vector<std::size_t> exitFlags;
   if (ex.brk != CertCtx::none) exitFlags.push_back(ex.brk);
   if (rets) exitFlags.push_back(cc.ret);
+  std::size_t nC = gs.size();  // conjuncts of the C test
   for (std::size_t f : exitFlags) gs.push_back(PExp{cert::unitVec(f), 0});
   if (nondet) gs.push_back(PExp{cert::unitVec(choiceVar), 0});
   if (gs.empty()) return cc.failed("loop without a test or a break"), std::nullopt;
@@ -3269,6 +3390,25 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   }
   const Assn& inv = cands;
 
+  // Potentials to try. In a function with parameters, first the one the loop test
+  // suggests (`1 - g` for the test `g <= 0`, e.g. `n - i` for `i < n`), whose entry bound
+  // is often a function of the parameters (a summary); then the analysis' potential. The
+  // checker verifies either.
+  std::vector<std::pair<PExp, std::uint64_t>> potentials;
+  if (cc.gammas && nC > 0) {
+    PExp gp{cert::vsmul(-1, gs[0].sv), 1 - gs[0].c};
+    trimP(gp);
+    if (!(gp.sv == pot.sv && gp.c == pot.c)) potentials.push_back({gp, 1});
+  }
+  potentials.push_back({pot, dA});
+  std::string lastWhy;
+  // The candidates are compared by their bound at the largest admissible parameters;
+  // the first one wins a tie.
+  std::optional<CertPiece> best;
+  std::uint64_t bestValue = 0;
+  std::vector<std::uint64_t> hiVec;
+  for (const auto& h : cc.gammaHi) hiVec.push_back(h ? *h : 0);
+  for (const auto& [pot0, d] : potentials) {
   // The iteration that leaves by a jump need not decrease the potential: it is paid by
   // a term c * (1 - flags), which is c while the loop runs and 0 once a flag is set.
   std::vector<std::int64_t> extras{0};
@@ -3276,9 +3416,8 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     extras.clear();
     for (std::int64_t m = 1; m <= 64; m *= 2) extras.push_back(m * static_cast<std::int64_t>(d));
   }
-  std::string lastWhy;
   for (std::int64_t c : extras) {
-    PExp potc = pot;
+    PExp potc = pot0;
     potc.c += c;
     for (std::size_t f : exitFlags) {
       if (potc.sv.size() <= f) potc.sv.resize(f + 1, 0);
@@ -3289,8 +3428,14 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     std::optional<Farkas> posCert = cert::farkas(guardInv, Lin{cert::vsmul(-1, potc.sv), {},
                                                                static_cast<std::int64_t>(d) - potc.c});
     if (!posCert) { lastWhy = "the potential is not shown positive by the invariant"; continue; }
+    // Entry bound: symbolic in the parameters if possible, else a constant.
+    std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>> sym;
+    if (cc.gammas) {
+      sym = cert::symbolicUpper(entry, potc, cc.temp(), cc.gammas);
+      if (sym && sym->second.empty()) sym.reset();
+    }
     std::optional<std::int64_t> k = cert::upperBound(entry, potc);
-    if (!k) { lastWhy = "the potential is unbounded on entry"; continue; }
+    if (!k && !sym) { lastWhy = "the potential is unbounded on entry"; continue; }
     Assn bodyPre = guardInv;
     bodyPre.insert(bodyPre.begin(), cert::ghost(potc, j, 0));
     Assn bodyPost = inv;
@@ -3299,6 +3444,20 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     if (!b) return std::nullopt;
     std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
     if (!qc) { lastWhy = "the decrease of the potential could not be certified"; continue; }
+    // A symbolic entry bound needs a constant body bound (the bound stays affine), and is
+    // used only if it is no looser than the constant one at the largest parameter values.
+    bool useSym = sym && b->bound.constant();
+    if (useSym && k) {
+      std::vector<std::uint64_t> hi;
+      for (const auto& h : cc.gammaHi) hi.push_back(h ? *h : 0);
+      bool allBounded = cc.atHi(sym->first, sym->second).has_value();
+      std::uint64_t vs = cert::sbAt(cert::whileBoundSym(sym->first, sym->second, d, w, b->bound.c), hi);
+      std::uint64_t vn = cert::whileBound(*k, d, w, b->bound).c;
+      if (!allBounded || vs > vn) useSym = false;
+    }
+    if (!useSym && !k) { lastWhy = "symbolic entry bound with a symbolic body bound"; continue; }
+    std::int64_t kk = useSym ? sym->first : *k;
+    std::vector<std::uint64_t> kl = useSym ? sym->second : std::vector<std::uint64_t>{};
 
     Node wn;
     wn.kind = single ? Node::While : Node::WhileAnd;
@@ -3308,21 +3467,34 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     wn.inv = inv;
     wn.pot = potc;
     wn.d = d;
-    wn.k = *k;
+    wn.k = kk;
+    wn.kl = kl;
     wn.j = j;
     wn.posCert = *posCert;
     wn.b1 = b->bound;
     wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
     Assn pw = inv;
-    pw.insert(pw.begin(), Lin{potc.sv, {}, potc.c - *k});
+    {
+      Vec lv;
+      for (std::uint64_t x : kl) lv.push_back(-static_cast<std::int64_t>(x));
+      pw.insert(pw.begin(), Lin{potc.sv, lv, potc.c - kk});
+    }
     Assn qw = inv;
     if (single) qw.insert(qw.begin(), cert::negLin(gs[0]));
-    std::uint64_t bw = cert::whileBound(*k, d, w, b->bound);
+    cert::SB bw = useSym ? cert::whileBoundSym(kk, kl, d, w, b->bound.c)
+                         : cert::whileBound(kk, d, w, b->bound);
     std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
-    if (!pc) return cc.failed("internal: loop entry"), std::nullopt;
+    if (!pc) { lastWhy = "internal: loop entry"; continue; }
     CertPiece lp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
-    return seqPiece(prolog, lp);
+    std::uint64_t value = cert::sbAt(bw, hiVec);
+    if (!best || value < bestValue) {
+      best = seqPiece(prolog, lp);
+      bestValue = value;
+    }
+    break;  // the first accepted extra term is the smallest for this potential
   }
+  }
+  if (best) return best;
   return cc.failed(lastWhy), std::nullopt;
 }
 
@@ -3351,14 +3523,172 @@ std::optional<Analyzer::CertPiece> Analyzer::certCallsIn(CertCtx& cc, const Expr
   return acc;
 }
 
+namespace {
+/// The constraint `e` of a callee read at the call site (Lean `Lin.inst`; only its
+/// meaning matters, the checker computes the list itself).
+Lin instLin(const Lin& e, const std::vector<PExp>& inst) {
+  Lin r{e.sv, {}, e.c};
+  for (std::size_t j = 0; j < e.lv.size() && j < inst.size(); ++j) {
+    r.sv = cert::vadd(r.sv, cert::vsmul(e.lv[j], inst[j].sv));
+    r.c += e.lv[j] * inst[j].c;
+  }
+  return r;
+}
+/// `a - ub <= 0` (Lean `ubLin`).
+Lin ubLin(const PExp& a, const cert::SB& ub) {
+  Vec lv;
+  for (std::uint64_t x : ub.co) lv.push_back(-static_cast<std::int64_t>(x));
+  return Lin{a.sv, lv, a.c - static_cast<std::int64_t>(ub.c)};
+}
+/// The constraints of `p` that do not mention `mods` (Lean `frameOf`).
+Assn frameOf(const std::vector<std::size_t>& mods, const Assn& p) {
+  Assn out;
+  for (const Lin& e : p) {
+    bool keep = true;
+    for (std::size_t x : mods)
+      if (cert::coeff(e.sv, x) != 0) keep = false;
+    if (keep) out.push_back(e);
+  }
+  return out;
+}
+}  // namespace
+
+/// A call of the function `ci` of the program certificate: its parameters (variables
+/// of the callee) are set to the arguments, its precondition and the bounds of its
+/// arguments are proved, and only the facts that do not mention its variables survive.
+std::optional<Analyzer::CertPiece> Analyzer::certCallNode(CertCtx& cc, const CertFunInfo& ci,
+                                                         const std::vector<const Expr*>& args,
+                                                         const cert::Assn& pre) {
+  const cert::FunJson& F = certFuns_.at(ci.index);
+  CertPiece acc{mk(Node{}), pre, 0};
+  for (std::size_t g = 0; g < ci.ghostVars.size(); ++g) {
+    const ParmVarDecl* p = ci.ghostParams[g];
+    unsigned i = p->getFunctionScopeIndex();
+    if (i >= args.size()) return std::nullopt;
+    std::size_t x = ci.ghostVars[g];
+    std::optional<PExp> a = ctx_.hasSameUnqualifiedType(args[i]->getType(), p->getType()) ||
+                                    widens(args[i]->getType(), p->getType()) || cc.uwidth.count(x)
+                                ? certValueFor(cc, x, args[i])
+                                : std::nullopt;
+    std::optional<CertPiece> b = certStore(cc, 0, x, a, acc.post);
+    if (!b) return std::nullopt;
+    acc = seqPiece(acc, *b);
+  }
+  std::vector<PExp> inst;
+  for (std::size_t x : ci.ghostVars) inst.push_back(PExp{cert::unitVec(x), 0});
+  Assn goals;
+  for (const Lin& e : F.pre) goals.push_back(instLin(e, inst));
+  std::optional<std::vector<Farkas>> pcs = cert::farkasAll(acc.post, goals);
+  if (!pcs) return std::nullopt;
+  std::vector<cert::SB> ubs;
+  std::vector<Farkas> ucs;
+  std::vector<std::uint64_t> co = F.bound.co;
+  while (!co.empty() && co.back() == 0) co.pop_back();
+  for (std::size_t g = 0; g < co.size(); ++g) {
+    // A bound in the caller's parameters if there is one (summaries compose), else a
+    // constant.
+    std::optional<cert::SB> ub;
+    std::optional<std::int64_t> k = cert::upperBound(acc.post, inst[g]);
+    if (auto sy = cert::symbolicUpper(acc.post, inst[g], cc.temp(), cc.gammas)) {
+      std::optional<std::int64_t> v = cc.atHi(std::max<std::int64_t>(0, sy->first), sy->second);
+      if (!k || (v && *v <= std::max<std::int64_t>(0, *k))) {
+        cert::SB u(static_cast<std::uint64_t>(std::max<std::int64_t>(0, sy->first)));
+        u.co = sy->second;
+        ub = u;
+      }
+    }
+    if (!ub && k) ub = cert::SB(static_cast<std::uint64_t>(std::max<std::int64_t>(0, *k)));
+    if (!ub) return std::nullopt;
+    std::optional<Farkas> fk = cert::farkas(acc.post, ubLin(inst[g], *ub));
+    if (!fk) return std::nullopt;
+    ubs.push_back(*ub);
+    ucs.push_back(*fk);
+  }
+  Node n;
+  n.kind = Node::Call;
+  n.w = 0;  // the call's own cost is charged by the enclosing expression (costOf)
+  n.f = ci.index;
+  n.inst = inst;
+  n.preCerts = *pcs;
+  n.ubs = ubs;
+  n.postCerts = ucs;
+  cert::SB bound(F.bound.c);
+  for (std::size_t g = 0; g < co.size(); ++g) bound = bound + cert::scale(co[g], ubs[g]);
+  return seqPiece(acc, CertPiece{mk(n), frameOf(F.mods, acc.post), bound});
+}
+
+/// The assumed contract of a function with a trusted cost, created at its first use:
+/// `CROSSCHECK_COST(n)` gives the constant bound `n`; a contract file a bound
+/// `c + sum a_i * max(0, arg_i)`, its arguments being variables of the contract.
+std::optional<Analyzer::CertFunInfo> Analyzer::contractFun(CertCtx& cc, const FunctionDecl* fd) {
+  const FunctionDecl* key = fd->getCanonicalDecl();
+  if (auto it = certContractOf_.find(key); it != certContractOf_.end()) return it->second;
+  cert::FunJson F;
+  CertFunInfo info;
+  F.name = "contract " + fd->getQualifiedNameAsString();
+  if (const AnnotateAttr* a = findAnnotation(fd, "crosscheck::cost")) {
+    auto n = annotationArg(a, 0, ctx_);
+    if (!n || *n < 0) return std::nullopt;
+    F.bound = cert::SB(static_cast<std::uint64_t>(*n));
+  } else if (const LibContract* lc = libContract(fd)) {
+    F.bound = cert::SB(lc->c);
+    for (unsigned i = 0; i < fd->getNumParams(); ++i) {
+      auto pa = lc->perArg.find(i);
+      if (pa == lc->perArg.end()) continue;
+      const ParmVarDecl* p = fd->getParamDecl(i);
+      if (!certInt(p->getType())) return std::nullopt;
+      std::size_t x = cc.freshVar(F.name + "::" + (p->getName().empty() ? "arg" + std::to_string(i) : p->getNameAsString()));
+      if (p->getType()->isUnsignedIntegerType()) cc.uwidth[x] = ctx_.getIntWidth(p->getType());
+      std::size_t g = info.ghostVars.size();
+      info.ghostVars.push_back(x);
+      info.ghostParams.push_back(p);
+      F.pre.push_back(Lin{cert::unitVec(x), cert::vsmul(-1, cert::unitVec(g)), 0});
+      F.pre.push_back(Lin{cert::vsmul(-1, cert::unitVec(x)), cert::unitVec(g), 0});
+      if (F.bound.co.size() <= g) F.bound.co.resize(g + 1, 0);
+      F.bound.co[g] = pa->second;
+      F.mods.push_back(x);
+    }
+  } else {
+    return std::nullopt;
+  }
+  info.index = certFuns_.size();
+  certFuns_.push_back(std::move(F));
+  certContractOf_[key] = info;
+  return info;
+}
+
 std::optional<Analyzer::CertPiece> Analyzer::certCall(CertCtx& cc, const CallExpr* call,
                                                      const cert::Assn& pre) {
   const FunctionDecl* fd = call->getDirectCallee();
   if (!fd) return cc.failed("indirect call"), std::nullopt;
+  std::vector<const Expr*> cargs(call->arg_begin(), call->arg_end());
+  if (isa<CXXOperatorCallExpr>(call))
+    if (const auto* md = dyn_cast<CXXMethodDecl>(fd); md && md->isInstance() && !cargs.empty())
+      cargs.erase(cargs.begin());
+  auto argCalls = [&](const Assn& p0) -> std::optional<CertPiece> {
+    CertPiece acc{mk(Node{}), p0, 0};
+    for (const Expr* a : cargs) {
+      Scan sc = scanOf(a, cc.var);
+      if (sc.writes) return cc.failed("assignment in an argument"), std::nullopt;
+      if (sc.calls) {
+        std::optional<CertPiece> inner = certCallsIn(cc, a, acc.post);
+        if (!inner) return std::nullopt;
+        acc = seqPiece(acc, *inner);
+      }
+    }
+    return acc;
+  };
+  // A function with a trusted cost (CROSSCHECK_COST, contract file): an assumed contract.
+  if (std::optional<CertFunInfo> ci = contractFun(cc, fd)) {
+    std::optional<CertPiece> acc = argCalls(pre);
+    if (!acc) return std::nullopt;
+    std::optional<CertPiece> c = certCallNode(cc, *ci, cargs, acc->post);
+    if (!c) return cc.failed("call of '" + fd->getQualifiedNameAsString() + "': its contract's precondition or argument bounds could not be shown"), std::nullopt;
+    return seqPiece(*acc, *c);
+  }
   auto kit = cc.callKeys->find(call);
   if (kit == cc.callKeys->end())
-    return cc.failed("call to a function without an analysed body (trusted cost, not in the fragment yet)"),
-           std::nullopt;
+    return cc.failed("call to a function without an analysed body"), std::nullopt;
   auto sit = cache_.find(kit->second);
   const FunctionDecl* def = nullptr;
   if (sit == cache_.end() || !fd->hasBody(def) || !def || !sit->second.ok)
@@ -3383,6 +3713,13 @@ std::optional<Analyzer::CertPiece> Analyzer::certCall(CertCtx& cc, const CallExp
       if (!inner) return std::nullopt;
       acc = seqPiece(acc, *inner);
     }
+  }
+  // A callee with its own certificate: a call of its summary instead of its body.
+  if (auto ci = certFunOf_.find(def->getCanonicalDecl()); ci != certFunOf_.end()) {
+    std::string savedFail = cc.fail;
+    if (std::optional<CertPiece> c = certCallNode(cc, ci->second, args, acc.post))
+      return seqPiece(acc, *c);
+    cc.fail = savedFail;  // otherwise inline it
   }
   std::string savedPrefix = cc.prefix;
   cc.prefix = def->getNameAsString() + "::";
@@ -3551,6 +3888,8 @@ namespace {
 /// variables of the certificate (their assignments only cost their weight).
 struct FlowScan : RecursiveASTVisitor<FlowScan> {
   std::set<const VarDecl*> control;
+  /// The arguments whose values a function's contract cost depends on.
+  std::function<std::vector<unsigned>(const FunctionDecl*)> costArgs;
   std::vector<std::pair<const VarDecl*, std::set<const VarDecl*>>> flows;
   std::set<const FunctionDecl*> seen;
   static std::set<const VarDecl*> varsOf(const Stmt* s) {
@@ -3595,6 +3934,9 @@ struct FlowScan : RecursiveASTVisitor<FlowScan> {
   bool VisitCallExpr(CallExpr* c) {
     const FunctionDecl* fd = c->getDirectCallee();
     const FunctionDecl* def = nullptr;
+    if (fd && costArgs)
+      for (unsigned i : costArgs(fd))
+        if (i < c->getNumArgs()) test(c->getArg(i));
     if (!fd || !fd->hasBody(def) || !def) return true;
     unsigned first = 0;
     if (isa<CXXOperatorCallExpr>(c))
@@ -3619,17 +3961,27 @@ struct FlowScan : RecursiveASTVisitor<FlowScan> {
 };
 }  // namespace
 
-std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::string& reason,
-                                                 std::uint64_t& bound) {
+bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::SB& bound,
+                           std::optional<std::uint64_t>& numeric, std::string& summary) {
   FnCtx& fc = cur();
   CertCtx cc;
-  if (callsItself(def)) { reason = "recursive function (not in the fragment yet)"; return std::nullopt; }
-  cc.names = {"?choice", "?cost"};
+  if (callsItself(def)) { reason = "recursive function (not in the fragment yet)"; return false; }
+  // The variables of the program certificate of the translation unit; this function's
+  // own variables are added to them (kept only if its certificate is emitted).
+  cc.names = certNames_;
+  cc.uwidth = certUWidth_;
+  cc.prefix = def->getQualifiedNameAsString() + "::";
   cc.potentials = &fc.potentials;
   cc.callKeys = &fc.callKeys;
   cc.inlining.insert(def->getCanonicalDecl());
   {
     FlowScan fs;
+    fs.costArgs = [this](const FunctionDecl* f) {
+      std::vector<unsigned> out;
+      if (const LibContract* lc = libContract(f))
+        for (const auto& [i, a] : lc->perArg) out.push_back(i);
+      return out;
+    };
     fs.seen.insert(def->getCanonicalDecl());
     fs.TraverseStmt(def->getBody());
     auto addSlots = [&](const std::map<const Stmt*, LoopPotential>& m) {
@@ -3653,9 +4005,24 @@ std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::s
   std::sort(locals.begin(), locals.end(),
             [](const VarDecl* a, const VarDecl* b) { return a->getLocation() < b->getLocation(); });
   for (const VarDecl* v : locals) cc.addVar(v);
+  cc.prefix.clear();
 
-  // Precondition: the declared ranges and requirements on the parameters.
+  // Precondition: the declared ranges and requirements on the parameters, and
+  // `x_p = gamma_p` for each integer parameter: its value at entry is a logical
+  // variable, in which the bound is expressed (a summary).
   Assn pre;
+  CertFunInfo info;
+  for (unsigned i = 0; i < def->getNumParams(); ++i) {
+    auto it = cc.var.find(def->getParamDecl(i));
+    if (it == cc.var.end()) continue;
+    std::size_t g = info.ghostVars.size();
+    info.ghostVars.push_back(it->second);
+    info.ghostParams.push_back(def->getParamDecl(i));
+    pre.push_back(Lin{cert::unitVec(it->second), cert::vsmul(-1, cert::unitVec(g)), 0});
+    pre.push_back(Lin{cert::vsmul(-1, cert::unitVec(it->second)), cert::unitVec(g), 0});
+  }
+  cc.gammas = info.ghostVars.size();
+  cc.depth = cc.gammas;
   std::map<SymId, std::size_t> paramIndex;
   for (unsigned i = 0; i < def->getNumParams(); ++i)
     if (i < fc.summary.paramSyms.size() && fc.summary.paramSyms[i])
@@ -3692,18 +4059,53 @@ std::optional<std::string> Analyzer::certificate(const FunctionDecl* def, std::s
     }
   }
   pre = cert::normalize(pre);
+  for (std::size_t x : info.ghostVars) {
+    std::optional<std::int64_t> hi = cert::upperBound(pre, PExp{cert::unitVec(x), 0});
+    cc.gammaHi.push_back(hi ? std::optional<std::uint64_t>(static_cast<std::uint64_t>(std::max<std::int64_t>(0, *hi)))
+                            : std::nullopt);
+  }
 
   const auto* body = dyn_cast_or_null<CompoundStmt>(def->getBody());
-  if (!body) { reason = "no body"; return std::nullopt; }
+  if (!body) { reason = "no body"; return false; }
   std::vector<const Stmt*> list(body->body_begin(), body->body_end());
   std::optional<CertPiece> p = certList(cc, list, 0, pre);
+  // The variables created (also those of contracts) stay in the program's table.
+  certNames_ = cc.names;
+  certUWidth_ = cc.uwidth;
   if (!p) {
     reason = cc.fail.empty() ? "unsupported construct" : cc.fail;
-    return std::nullopt;
+    return false;
   }
   NodeP top = weaken(pre, identityCerts(pre), p->bound, p->post, {}, p->node);
   bound = p->bound;
-  return cert::toJson(def->getQualifiedNameAsString(), cc.names, pre, p->bound, {}, *top);
+  std::vector<std::vector<std::size_t>> mods;
+  for (const cert::FunJson& f : certFuns_) mods.push_back(f.mods);
+  cert::FunJson fj;
+  fj.name = def->getQualifiedNameAsString();
+  fj.pre = pre;
+  fj.bound = bound;
+  fj.mods = cert::writes(*top, mods);
+  fj.body = top;
+  info.index = certFuns_.size();
+  certFuns_.push_back(std::move(fj));
+  certFunOf_[def->getCanonicalDecl()] = info;
+  // The bound at the largest parameter values the precondition allows (for the report).
+  std::vector<std::string> gnames;
+  std::vector<std::uint64_t> at;
+  numeric = bound.c;
+  for (std::size_t g = 0; g < info.ghostParams.size(); ++g) {
+    gnames.push_back(info.ghostParams[g]->getNameAsString());
+    std::uint64_t v = 0;
+    if (g < bound.co.size() && bound.co[g]) {
+      std::optional<std::int64_t> hi = cert::upperBound(pre, PExp{cert::unitVec(info.ghostVars[g]), 0});
+      if (!hi) numeric.reset();
+      else v = static_cast<std::uint64_t>(std::max<std::int64_t>(0, *hi));
+    }
+    at.push_back(v);
+  }
+  if (numeric) numeric = cert::sbAt(bound, at);
+  summary = cert::sbString(bound, gnames);
+  return true;
 }
 
 // ===========================================================================
@@ -3828,7 +4230,14 @@ Report Analyzer::run() {
     report.functions.push_back(std::move(rep));
   }
   fillInContext(report, order);
-  report.certificates = std::move(certificates_);
+  if (!certFuns_.empty())
+    report.certificates.push_back(cert::programJson(
+        ctx_.getSourceManager().getFileEntryRefForID(ctx_.getSourceManager().getMainFileID())
+            ? std::string(ctx_.getSourceManager()
+                              .getFileEntryRefForID(ctx_.getSourceManager().getMainFileID())
+                              ->getName())
+            : std::string("translation unit"),
+        certNames_, certFuns_));
   return report;
 }
 

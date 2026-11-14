@@ -4,6 +4,7 @@
 #include <z3++.h>
 
 #include <algorithm>
+#include <functional>
 #include <numeric>
 #include <set>
 #include <sstream>
@@ -92,12 +93,140 @@ Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra) {
   return Lin{pot.sv, vsmul(-1, unitVec(j)), pot.c + extra};
 }
 
-std::uint64_t whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, std::uint64_t wb) {
+bool SB::constant() const {
+  return std::all_of(co.begin(), co.end(), [](std::uint64_t x) { return x == 0; });
+}
+bool SB::operator==(const SB& o) const {
+  if (c != o.c) return false;
+  for (std::size_t i = 0; i < std::max(co.size(), o.co.size()); ++i)
+    if ((i < co.size() ? co[i] : 0) != (i < o.co.size() ? o.co[i] : 0)) return false;
+  return true;
+}
+SB operator+(const SB& a, const SB& b) {
+  SB r(a.c + b.c);
+  r.co.resize(std::max(a.co.size(), b.co.size()), 0);
+  for (std::size_t i = 0; i < a.co.size(); ++i) r.co[i] += a.co[i];
+  for (std::size_t i = 0; i < b.co.size(); ++i) r.co[i] += b.co[i];
+  return r;
+}
+SB smax(const SB& a, const SB& b) {
+  SB r(std::max(a.c, b.c));
+  r.co.resize(std::max(a.co.size(), b.co.size()), 0);
+  for (std::size_t i = 0; i < r.co.size(); ++i)
+    r.co[i] = std::max(i < a.co.size() ? a.co[i] : 0, i < b.co.size() ? b.co[i] : 0);
+  return r;
+}
+SB scale(std::uint64_t k, const SB& a) {
+  SB r(k * a.c);
+  for (std::uint64_t x : a.co) r.co.push_back(k * x);
+  return r;
+}
+bool sbLe(const SB& a, const SB& b) {
+  if (a.c > b.c) return false;
+  for (std::size_t i = 0; i < a.co.size(); ++i)
+    if (a.co[i] > (i < b.co.size() ? b.co[i] : 0)) return false;
+  return true;
+}
+std::uint64_t sbAt(const SB& a, const std::vector<std::uint64_t>& v) {
+  std::uint64_t r = a.c;
+  for (std::size_t i = 0; i < a.co.size(); ++i) r += a.co[i] * (i < v.size() ? v[i] : 0);
+  return r;
+}
+std::string sbString(const SB& a, const std::vector<std::string>& names) {
+  std::string s;
+  for (std::size_t i = 0; i < a.co.size(); ++i) {
+    if (!a.co[i]) continue;
+    std::string g = i < names.size() ? names[i] : "g" + std::to_string(i);
+    s += (s.empty() ? "" : " + ") + (a.co[i] == 1 ? "" : std::to_string(a.co[i]) + "*") + "max(0," + g + ")";
+  }
+  if (a.c || s.empty()) s = std::to_string(a.c) + (s.empty() ? "" : " + " + s);
+  return s;
+}
+
+SB whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, const SB& wb) {
   // Lean: `(k / d).toNat` with Euclidean division; for d > 0 this is floor(k/d), then max 0.
   std::int64_t q = k >= 0 ? k / static_cast<std::int64_t>(d)
                           : -((-k + static_cast<std::int64_t>(d) - 1) / static_cast<std::int64_t>(d));
   std::uint64_t n = q > 0 ? static_cast<std::uint64_t>(q) : 0;
-  return n * (w + wb) + w;
+  return scale(n, SB(w) + wb) + SB(w);
+}
+
+SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint64_t d,
+                 std::uint64_t w, std::uint64_t wb) {
+  auto ceilDiv = [](std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); };
+  std::int64_t W = static_cast<std::int64_t>(w + wb), D = static_cast<std::int64_t>(d);
+  SB r(w + static_cast<std::uint64_t>(std::max<std::int64_t>(0, ceilDiv(W * k, D))));
+  for (std::uint64_t x : kl) r.co.push_back(static_cast<std::uint64_t>(ceilDiv(W * static_cast<std::int64_t>(x), D)));
+  return r;
+}
+
+std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>>
+symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas) {
+  Assn q = p;
+  Lin up{vadd(e.sv, vsmul(-1, unitVec(t))), {}, e.c};    // e - t <= 0
+  Lin down{vadd(vsmul(-1, e.sv), unitVec(t)), {}, -e.c};  // t - e <= 0
+  q.push_back(up);
+  q.push_back(down);
+  std::size_t nv = 0;
+  for (const Lin& l : q) nv = std::max(nv, l.sv.size());
+  for (std::size_t x = 0; x < nv; ++x)
+    if (x != t && mentions(q, x)) q = eliminate(q, x);
+  std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>> best;
+  for (const Lin& l : q) {
+    std::int64_t a = coeff(l.sv, t);
+    if (a <= 0) continue;
+    bool other = false;
+    for (std::size_t x = 0; x < l.sv.size(); ++x)
+      if (x != t && l.sv[x] != 0) other = true;
+    if (other) continue;
+    // a*t + sum b_j g_j + c <= 0, i.e. t <= (-c - sum b_j g_j) / a, with every b_j <= 0.
+    if (-l.c % a != 0) continue;
+    std::vector<std::uint64_t> kl;
+    bool ok = true;
+    for (std::size_t g = 0; g < l.lv.size(); ++g) {
+      std::int64_t b = l.lv[g];
+      if (b != 0 && g >= gammas) { ok = false; break; }
+      if (b > 0 || (-b) % a != 0) { ok = false; break; }
+      kl.push_back(static_cast<std::uint64_t>(-b / a));
+    }
+    if (!ok) continue;
+    while (!kl.empty() && kl.back() == 0) kl.pop_back();
+    if (kl.empty()) continue;  // a constant bound: upperBound finds the best one
+    std::int64_t k = -l.c / a;
+    // Prefer bounds with fewer symbolic terms, then smaller constants.
+    auto key = [](const std::pair<std::int64_t, std::vector<std::uint64_t>>& b) {
+      std::uint64_t s = 0;
+      for (std::uint64_t x : b.second) s += x;
+      return std::make_pair(s, b.first);
+    };
+    std::pair<std::int64_t, std::vector<std::uint64_t>> cand{k, kl};
+    if (!best || key(cand) < key(*best)) best = cand;
+  }
+  return best;
+}
+
+std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std::size_t>>& mods) {
+  std::vector<std::size_t> out;
+  std::function<void(const Node&)> go = [&](const Node& m) {
+    switch (m.kind) {
+      case Node::Assign:
+      case Node::Havoc: out.push_back(m.x); break;
+      case Node::Seq:
+      case Node::Ite: go(*m.c1); go(*m.c2); break;
+      case Node::While:
+      case Node::WhileAnd:
+      case Node::Weaken:
+      case Node::Dead: go(*m.c1); break;
+      case Node::Call:
+        if (m.f < mods.size()) out.insert(out.end(), mods[m.f].begin(), mods[m.f].end());
+        break;
+      case Node::Skip: break;
+    }
+  };
+  go(n);
+  std::sort(out.begin(), out.end());
+  out.erase(std::unique(out.begin(), out.end()), out.end());
+  return out;
 }
 
 // --- reasoning -------------------------------------------------------------------
@@ -334,6 +463,16 @@ std::string str(const std::string& t) {
   return s + "\"";
 }
 std::string u(std::uint64_t n) { return std::to_string(n); }
+std::string sb(const SB& b) {
+  if (b.constant()) return u(b.c);
+  std::vector<std::uint64_t> co = b.co;
+  while (!co.empty() && co.back() == 0) co.pop_back();
+  return "{\"c\":" + u(b.c) + ",\"co\":" + uvec(co) + "}";
+}
+std::string klField(const std::vector<std::uint64_t>& kl) {
+  bool any = std::any_of(kl.begin(), kl.end(), [](std::uint64_t x) { return x != 0; });
+  return any ? ",\"kl\":" + uvec(kl) : "";
+}
 
 std::string node(const Node& n) {
   switch (n.kind) {
@@ -343,14 +482,14 @@ std::string node(const Node& n) {
     case Node::Havoc: return "{\"node\":\"havoc\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + "}";
     case Node::Seq:
       return "{\"node\":\"seq\",\"c1\":" + node(*n.c1) + ",\"mid\":" + assn(n.mid) + ",\"B1\":" +
-             u(n.b1) + ",\"B2\":" + u(n.b2) + ",\"c2\":" + node(*n.c2) + "}";
+             sb(n.b1) + ",\"B2\":" + sb(n.b2) + ",\"c2\":" + node(*n.c2) + "}";
     case Node::Ite:
-      return "{\"node\":\"ite\",\"w\":" + u(n.w) + ",\"g\":" + pexp(n.a) + ",\"B1\":" + u(n.b1) +
-             ",\"B2\":" + u(n.b2) + ",\"c1\":" + node(*n.c1) + ",\"c2\":" + node(*n.c2) + "}";
+      return "{\"node\":\"ite\",\"w\":" + u(n.w) + ",\"g\":" + pexp(n.a) + ",\"B1\":" + sb(n.b1) +
+             ",\"B2\":" + sb(n.b2) + ",\"c1\":" + node(*n.c1) + ",\"c2\":" + node(*n.c2) + "}";
     case Node::While:
       return "{\"node\":\"while\",\"w\":" + u(n.w) + ",\"g\":" + pexp(n.a) + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
-             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + u(n.b1) +
+             klField(n.kl) + ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     case Node::WhileAnd: {
       std::string g = "[";
@@ -358,32 +497,47 @@ std::string node(const Node& n) {
       g += "]";
       return "{\"node\":\"whileAnd\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
-             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + u(n.b1) +
+             klField(n.kl) + ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     }
     case Node::Weaken:
       return "{\"node\":\"weaken\",\"P\":" + assn(n.pre) + ",\"preCerts\":" + fks(n.preCerts) +
-             ",\"B\":" + u(n.bound) + ",\"Q\":" + assn(n.post) + ",\"postCerts\":" + fks(n.postCerts) +
+             ",\"B\":" + sb(n.bound) + ",\"Q\":" + assn(n.post) + ",\"postCerts\":" + fks(n.postCerts) +
              ",\"c\":" + node(*n.c1) + "}";
     case Node::Dead: return "{\"node\":\"dead\",\"cert\":" + fk(n.deadCert) + ",\"c\":" + node(*n.c1) + "}";
+    case Node::Call: {
+      std::string in = "[", ub = "[";
+      for (std::size_t i = 0; i < n.inst.size(); ++i) in += (i ? "," : "") + pexp(n.inst[i]);
+      for (std::size_t i = 0; i < n.ubs.size(); ++i) ub += (i ? "," : "") + sb(n.ubs[i]);
+      return "{\"node\":\"call\",\"w\":" + u(n.w) + ",\"f\":" + u(n.f) + ",\"inst\":" + in +
+             "],\"preCerts\":" + fks(n.preCerts) + ",\"ubs\":" + ub + "],\"ubCerts\":" +
+             fks(n.postCerts) + "}";
+    }
   }
   return "{}";
 }
 
 }  // namespace
 
-std::string toJson(const std::string& function, const std::vector<std::string>& variables,
-                   const Assn& pre, std::uint64_t bound, const Assn& post, const Node& program) {
+std::string programJson(const std::string& name, const std::vector<std::string>& variables,
+                        const std::vector<FunJson>& functions) {
   std::string vs = "[";
   for (std::size_t i = 0; i < variables.size(); ++i) vs += (i ? "," : "") + str(variables[i]);
   vs += "]";
-  return "{\"function\":" + str(function) + ",\"variables\":" + vs + ",\"pre\":" + assn(pre) +
-         ",\"bound\":" + u(bound) + ",\"post\":" + assn(post) + ",\"program\":" + node(program) + "}";
+  std::string fs = "[";
+  for (std::size_t i = 0; i < functions.size(); ++i) {
+    const FunJson& f = functions[i];
+    std::vector<std::uint64_t> mods(f.mods.begin(), f.mods.end());
+    fs += std::string(i ? ",\n" : "\n") + "{\"name\":" + str(f.name) + ",\"pre\":" + assn(f.pre) +
+          ",\"bound\":" + sb(f.bound) + ",\"post\":" + assn(f.post) + ",\"mods\":" + uvec(mods) +
+          (f.body ? ",\"body\":" + node(*f.body) : std::string(",\"contract\":true")) + "}";
+  }
+  return "{\"name\":" + str(name) + ",\"variables\":" + vs + ",\"functions\":" + fs + "]}";
 }
 
-std::string fileJson(const std::vector<std::string>& certificates) {
-  std::string s = "{\"format\":\"crosscheck-certificates\",\"version\":1,\"certificates\":[\n";
-  for (std::size_t i = 0; i < certificates.size(); ++i) s += (i ? ",\n" : "") + certificates[i];
+std::string fileJson(const std::vector<std::string>& programs) {
+  std::string s = "{\"format\":\"crosscheck-certificates\",\"version\":2,\"programs\":[\n";
+  for (std::size_t i = 0; i < programs.size(); ++i) s += (i ? ",\n" : "") + programs[i];
   return s + "\n]}\n";
 }
 

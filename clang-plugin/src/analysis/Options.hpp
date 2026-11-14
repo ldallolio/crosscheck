@@ -60,6 +60,9 @@ struct Options {
   /// with `sarifBase` are written relative to it (uriBaseId %SRCROOT%).
   std::string sarifPath;
   std::string sarifBase;
+  /// Library contracts (JSON, docs/contracts.md): trusted cost bounds of functions,
+  /// linear in their integer arguments; listed in the report's assumptions.
+  std::string contractsPath;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -80,6 +83,7 @@ struct Options {
       return value == "every-call" || value == "program";
     }
     if (key == "sarif") { sarifPath = value; return !value.empty(); }
+    if (key == "contracts") { contractsPath = value; return !value.empty(); }
     if (key == "sarif-base") { sarifBase = value; return !value.empty(); }
     if (key == "certificates") {
       certificates = true;

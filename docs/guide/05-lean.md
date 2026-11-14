@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 15 modules, about 3,500 lines, 185 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 15 modules, about 4,100 lines, 208 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -114,8 +114,8 @@ flowchart LR
 | `Certificate` | 280 | relational rational potentials `ranking_bound_floor`; invariants/contexts `ranking_bound_of_context`, `call_bound_of_context`; `farkas_sound`; `while_cost_bound`; `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | 230 | trees of any arity, `callTree_size_le_geom`, `callTree_size_le_potential` |
 | `Language` | 563 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; examples `countLoop_cost`, `down_cost` |
-| `CheckerCore` | 169 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, `ACmd` (with `whileAnd`, a loop with a list of tests), **`check`** |
-| `Checker` | 411 | **`check_sound`**, `certified_cost_le`, vector lemmas (`dot_update`), `countCert_checks` by `decide` |
+| `CheckerCore` | 315 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB`, `ACmd` (with `whileAnd` and `call`), `FunCert`, **`check`**, **`checkProgram`** |
+| `Checker` | 895 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading
@@ -148,5 +148,7 @@ variable `γⱼ` to the current potential with `Function.update ρ j (pot.eval s
 1. Prove `countLoop_cost` for `n ≤ 20` (bound `41`).
 2. State and prove `valid_skip` for a two-element `skip; skip`.
 3. Build a certificate JSON for `while (i < n) i += 2` and run `crosscheck-check` on it.
-4. Find which `Derivable` rule the plugin's call inlining corresponds to (answer: none — the
-   inlined program has no call; rule 9 would be needed for recursion).
+4. Which rule of the logic does the checker's `call` node implement? (Answer: rule 6, the
+   call rule, with the callee's triple instantiated at the arguments — a summary,
+   `validSym_call`; contracts are the assumed triples of rule 8. Rule 9, recursion, is not a
+   checker case: calls go to earlier functions only.)

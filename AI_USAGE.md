@@ -611,6 +611,47 @@ What the AI did for 30 (design choices are the AI's; no Lean or theory change):
   results, related work and future work updated (14 pages). READMEs, guide, proposals,
   implementation plan, `references/README.md`, `CLAUDE.md` updated.
 
+31. "proceed with step 3: modular symbolic certificates and library contracts"
+
+What the AI did for 31 (design choices are the AI's):
+- Lean (`CheckerCore`, `Checker`): symbolic bounds `SB` (`c + Σ co_j·max(0, γ_j)`, natural
+  coefficients, compared coefficient by coefficient); loop nodes with a symbolic entry
+  bound and the condition `loopBoundOk` (symbolic entry with constant body, or constant
+  entry with symbolic body: bounds stay affine); a `call` node (instantiation of the
+  callee's logical variables by argument expressions, its precondition and the argument
+  bounds by Farkas certificates, frame = facts not mentioning the callee's variables);
+  program certificates `FunCert` with assumed contracts (no body), `checkProgram`.
+  `check_sound` now proves the frame too and holds relative to the callees' `FunSpec`;
+  `program_sound` (strong induction over the functions, contracts as hypotheses). Examples
+  by `decide`: a symbolic loop, a two-function program with a call (18 accepted, 17
+  rejected), and `exMain_cost` through `program_sound`, so that the hypotheses are met in
+  one example. 208 theorems, standard axioms only, no warnings.
+- Checker program: certificate format version 2 (programs, contracts printed `ASSUMED`, a
+  `PROGRAM` verdict); version 1 still read (all earlier TACLeBench certificates accepted);
+  test files `program.json` and `program_rejected.json` (bound too small, wrong argument
+  facts, argument bound too small, undeclared writes), checked in CI.
+- Plugin: one program certificate per translation unit; parameter ghosts; summaries by a
+  test-derived potential tried before the analyser's, symbolic entry bounds by
+  Fourier–Motzkin projection (`symbolicUpper`), kept only when no looser than the constant
+  bound at the largest admissible parameters; call nodes for functions certified earlier;
+  contracts for `CROSSCHECK_COST` and for a new contract file (`contracts=FILE`,
+  `docs/contracts.md`, costs linear in the arguments, listed as assumptions); report field
+  `certificate_summary`. Two regressions found by the AI on the examples and fixed before
+  measuring (a looser test-derived potential in `plan_ramp`; ranges not yet in the
+  precondition when the largest parameter values were computed).
+- Paper I: Definition `def:program-certificate`, Theorem `thm:program-soundness` with
+  proof, `def:certificate` and `thm:checker-soundness` extended, Table `tab:lean`, scope
+  list; `formalization.yaml`. **Author to check** these against the Lean code. Paper II:
+  certificate paragraph (summaries, call nodes, contracts) and trust paragraph.
+- Not done: the analyser itself still needs numeric ranges (no symbolic bounds for
+  unannotated code, so the TPDB gap "as is" remains); recursion in the checker; polynomial
+  bounds.
+- Results (re-run with a frozen copy of the tool): TACLeBench kernels unchanged (156 of 158
+  certified, all accepted), 120 calls checked against summaries; sequential/app 232 of 252,
+  169 calls; TPDB with input ranges: 125 of the 165 bounded entry functions certified, all
+  accepted, 92 with a summary in their parameters (KoAT2 linear for 67 of them), 39 contract
+  entries; examples 11 of 15 bounded functions, 3 with a summary. 138 tests pass.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -730,3 +771,7 @@ is whether each Lean statement says what the paper says, and everything outside 
 22. **Reported loop bounds.** Loop bounds in reports now count executions of the body
     for `do` loops and for loops whose leaving iteration is not covered by the
     potential; confirm this is the convention wanted in the papers' tables.
+23. **Program certificates.** Read `Definition def:program-certificate`, the proof of
+    `thm:program-soundness`, and the `call` case of `check`/`check_sound`; confirm that
+    contracts (functions without a body) are stated as assumptions in both papers and in
+    the checker's output, and that `docs/contracts.md` says what a contract may not claim.

@@ -70,7 +70,7 @@ limitation, it says so.
 
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
-  (`check_sound`), the examples. 185 theorems, no `sorry`, three standard axioms.
+  (`check_sound`), the examples. 208 theorems, no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
   translation from C/C++; the plugin.
@@ -101,8 +101,8 @@ verify, and must not be submitted while one remains.
 ## 8. Known weak points, ranked
 
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
-2. **Coverage**: 165 of 553 TPDB programs vs 288 for KoAT2; no symbolic bounds in the
-   plugin.
+2. **Coverage**: 165 of 553 TPDB programs vs 288 for KoAT2. Certificates give summaries
+   affine in the parameters, but the analyser still needs numeric ranges to bound a loop.
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
 4. **Precision**: affine potentials, no amortisation.

@@ -41,6 +41,27 @@ struct Lin {
 
 using Assn = std::vector<Lin>;
 
+/// Symbolic bound `c + sum co[j] * max(0, gamma_j)` over the logical variables (Lean
+/// `SB`). A constant converts implicitly.
+struct SB {
+  std::uint64_t c = 0;
+  std::vector<std::uint64_t> co;
+  SB() = default;
+  SB(std::uint64_t v) : c(v) {}  // NOLINT: constants are bounds
+  bool constant() const;
+  bool operator==(const SB& o) const;
+};
+SB operator+(const SB& a, const SB& b);
+/// Componentwise maximum (an upper bound of both, for every valuation).
+SB smax(const SB& a, const SB& b);
+SB scale(std::uint64_t k, const SB& a);
+/// Componentwise `<=` (Lean `SB.le`).
+bool sbLe(const SB& a, const SB& b);
+/// `a.c + sum a.co[j] * v[j]` for natural values `v`.
+std::uint64_t sbAt(const SB& a, const std::vector<std::uint64_t>& v);
+/// Readable form, e.g. `5 + 7*max(0,g1)`.
+std::string sbString(const SB& a, const std::vector<std::string>& gammaNames = {});
+
 /// Farkas certificate `(mu, lam)` for `premises |- goal` (Lean `entails1`).
 struct Farkas {
   std::uint64_t mu = 1;
@@ -81,35 +102,66 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, Seq, Ite, While, WhileAnd, Weaken, Dead } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, Seq, Ite, While, WhileAnd, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
   std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test
   Assn mid;                     // Seq
-  std::uint64_t b1 = 0, b2 = 0; // Seq, Ite: bounds of the parts; While: Wb in b1
+  SB b1, b2;                    // Seq, Ite: bounds of the parts; While: Wb in b1
   Assn inv;                     // While
   PExp pot;                     // While
   std::uint64_t d = 1;          // While
-  std::int64_t k = 0;           // While
+  std::int64_t k = 0;           // While: constant part of the entry bound
+  std::vector<std::uint64_t> kl; // While: symbolic part of the entry bound (may be empty)
   std::size_t j = 0;            // While
   Farkas posCert;               // While
   Assn pre, post;               // Weaken: P', Q'
-  std::vector<Farkas> preCerts, postCerts;  // Weaken
-  std::uint64_t bound = 0;      // Weaken: B'
+  std::vector<Farkas> preCerts, postCerts;  // Weaken; Call: callee precondition, argument bounds
+  SB bound;                     // Weaken: B'
+  std::size_t f = 0;            // Call: index of the callee in the program
+  std::vector<PExp> inst;       // Call: the callee's logical variables, as expressions
+  std::vector<SB> ubs;          // Call: bounds of `inst`
   Farkas deadCert;              // Dead
   NodeP c1, c2;                 // children (Seq, Ite: both; While, Weaken, Dead: c1)
 };
 
-/// The bound the checker requires of a `while` node: `floor(k/d) * (w + Wb) + w`.
-std::uint64_t whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, std::uint64_t wb);
+/// The bound of a `while` node with a constant entry bound `k`: `floor(k/d) * (w + Wb) + w`
+/// (Lean `loopBoundOk`, first case).
+SB whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, const SB& wb);
+/// The bound of a `while` node with a symbolic entry bound `k + kl.gamma` and a constant
+/// body bound `wb`: the least `B` with `w <= B.c`, `(w+wb)*k <= d*(B.c - w)` and
+/// `(w+wb)*kl <= d*B.co` (Lean `loopBoundOk`, second case).
+SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint64_t d,
+                 std::uint64_t w, std::uint64_t wb);
 
-/// JSON of one certificate, in the format read by `crosscheck-check`.
-std::string toJson(const std::string& function, const std::vector<std::string>& variables,
-                   const Assn& pre, std::uint64_t bound, const Assn& post, const Node& program);
+/// A symbolic upper bound `k + sum kl[j] * gamma_j` (kl >= 0) of `e` under `p`, by
+/// Fourier-Motzkin projection on `e` (kept in the scratch variable `t`) and the logical
+/// variables. Only bounds that mention a logical variable and have integer coefficients
+/// are returned (constant bounds are found by `upperBound`).
+/// Only the logical variables below `gammas` may occur (the parameters' values).
+std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>>
+symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas);
 
-/// The whole file around a list of certificates produced by `toJson`.
-std::string fileJson(const std::vector<std::string>& certificates);
+/// The variables a certificate's program may modify (Lean `writes`); `mods[f]` are the
+/// declared variables of function `f`.
+std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std::size_t>>& mods);
+
+/// A function of a program certificate (Lean `FunCert`); no body: an assumed contract.
+struct FunJson {
+  std::string name;
+  Assn pre, post;
+  SB bound;
+  std::vector<std::size_t> mods;
+  NodeP body;
+};
+
+/// JSON of one program certificate (format version 2).
+std::string programJson(const std::string& name, const std::vector<std::string>& variables,
+                        const std::vector<FunJson>& functions);
+
+/// The whole file around program certificates produced by `programJson`.
+std::string fileJson(const std::vector<std::string>& programs);
 
 }  // namespace crosscheck::cert
 

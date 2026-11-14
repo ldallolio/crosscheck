@@ -37,7 +37,7 @@ flowchart TB
   F["Function body"] --> REL["Relevance: variables of tests and potentials,<br/>closed under assignments / argument passing"]
   REL --> LOW["Lowering: x := affine | x := ? | cost-only atom"]
   LOW --> RET["Early returns: rest of the list moved into the branches"]
-  LOW --> INL["Calls: callee body inlined, parameters := arguments<br/>(analysis of the callee in that calling context)"]
+  LOW --> INL["Calls: call node against the callee's summary<br/>(arguments bounded symbolically or by constants);<br/>contracts for trusted costs; else inlined"]
   RET --> FWD["Forward assertions: SP, Fourier–Motzkin;<br/>joins keep constraints implied by both branches"]
   INL --> FWD
   FWD --> LP["Each step wrapped in weaken + Farkas multipliers (Z3 → integers)"]
@@ -95,8 +95,8 @@ translation unverified.
 - Observed counts are for one input; a bound above them is not necessarily loose.
 - The other tools answer other questions (asymptotic complexity, cost regressions,
   whole-program flow facts) and were not tuned.
-- On TPDB, CrossCheck is clearly weaker: no symbolic bounds, no multi-phase or disjunctive
-  potentials.
+- On TPDB, CrossCheck is clearly weaker: the analyser needs numeric ranges (summaries exist
+  only in certificates), no multi-phase or disjunctive potentials.
 
 ## 5. Paper II on one page
 

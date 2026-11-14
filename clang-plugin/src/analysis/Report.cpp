@@ -76,6 +76,7 @@ std::string Report::toJson() const {
     out += ",\n      \"certificate\": " + quote(f.certificate);
     out += ",\n      \"certificate_bound\": " +
            (f.certificateBound ? std::to_string(*f.certificateBound) : std::string("null"));
+    out += ",\n      \"certificate_summary\": " + quote(f.certificateSummary);
     out += ",\n      \"assumptions\": " + strings(f.assumptions);
     out += ",\n      \"errors\": " + strings(f.errors);
     out += "\n    }";

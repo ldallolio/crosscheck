@@ -58,7 +58,8 @@ struct FunctionReport {
   std::optional<std::uint64_t> wcetInContext;
   /// Certificate: "emitted", or why none was produced (empty: not requested).
   std::string certificate;
-  std::optional<std::uint64_t> certificateBound;  ///< the bound the certificate proves
+  std::optional<std::uint64_t> certificateBound;  ///< the certified bound at the largest admissible arguments
+  std::string certificateSummary;  ///< the certified bound as a function of the parameters
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
   std::vector<Site> errorSites;  ///< the errors with their locations

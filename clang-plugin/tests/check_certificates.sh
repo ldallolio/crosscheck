@@ -21,5 +21,5 @@ done
 IFS=$IFS_OLD
 "$checker" "$out"/*.json | tee "$out/result.txt"
 accepted=$(grep -c '^ACCEPTED' "$out/result.txt" || true)
-if grep -q '^REJECTED' "$out/result.txt"; then echo "a certificate was rejected"; exit 1; fi
+if grep -q '^REJECTED\|^PROGRAM.*REJECTED' "$out/result.txt"; then echo "a certificate was rejected"; exit 1; fi
 if [ "$accepted" -lt "${MIN_CERTIFICATES:-15}" ]; then echo "only $accepted certificates"; exit 1; fi

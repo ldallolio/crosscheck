@@ -99,3 +99,17 @@ What this does not show: the bounded mode answers a different question (a bound 
 inputs in a range), and the ranges also make the nondeterministic values bounded, which
 the other tools do not assume. Stored: `results/koat2/`, `results/cofloco/` (one
 `.tsv` per program, named after its path), `results/tpdb.json` (the script's output).
+
+## Certificates (2026-11-14, program certificates)
+
+```bash
+python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
+    --checker=formalization/.lake/build/bin/crosscheck-check
+```
+
+In the second mode (inputs in [-K, K]), **125 of the 165 bounded entry functions are
+certified, all accepted by the checker**: 92 with a *summary* affine in their parameters
+(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 33 with a constant bound,
+40 not certified. For 67 of the 92, KoAT2 also reports a linear bound. The harness's
+`CROSSCHECK_COST(1)` declarations become assumed contracts (39 entries). The analysis still
+needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.

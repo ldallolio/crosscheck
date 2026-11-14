@@ -51,6 +51,9 @@ Each task ends with: tests (including must-reject cases), figures re-run
    this expected order: conjunctive guards (rule of disjunction of preconditions for the
    false branch); procedure calls with contexts (`Derivable.call`, non-recursive first);
    assumed contracts (`Derivable.assume`) for `CROSSCHECK_COST` and library contracts;
+   **Done (2026-11-14)**: conjunctive guards (`whileAnd`), calls with summaries (`call`,
+   `program_sound`, non-recursive), assumed contracts (functions without a body), symbolic
+   bounds affine in the parameters (`SB`). Recursion (rule 9) is not a checker case yet.
    `break`/`continue`/`return` (flag variables or an exit-postcondition logic); recursion
    with a rank; lexicographic and logarithmic loop rules (`prop:lex-log`).
 4. **Symbolic bounds in the plugin.** Costs become expressions over the entry values of

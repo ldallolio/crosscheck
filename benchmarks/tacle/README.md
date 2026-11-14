@@ -93,6 +93,11 @@ certificate inlines both). Not certified: an assignment inside an expression
 certificate's entry assertion (`ludcmp_test`). The script prints the reason for each
 function that is not certified.
 
+Since program certificates (2026-11-14) the figures are unchanged (156 of 158, 141 equal,
+12 lower, all accepted); 120 calls are now checked against the callee's own certificate
+(a summary) instead of being inlined. No kernel function has a summary that depends on its
+parameters: the kernels' loops have constant bounds.
+
 ## Sequential and application programs (2026-11-14)
 
 ```bash
@@ -123,7 +128,8 @@ concatenation), without annotations, 572 loops with a flow fact:
 - **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
   `statemate`.
 - **Certificates: 232 of 252 bounded functions, all 232 accepted by the checker**; 209
-  equal to the plugin's bound, 17 smaller. Not certified: assignments inside expressions
+  equal to the plugin's bound, 16 smaller; 169 calls are checked against the callee's
+  certificate (program certificates, 2026-11-14). Not certified: assignments inside expressions
   (15, `gsm_dec` and `gsm_enc`: the macros of the GSM code, e.g. `STEP`, use `*LARc++`
   inside an expression), calls to library functions
   with a trusted cost (5, `susan`: `sqrtf`, `atanf`, `cosf`, …).

@@ -111,7 +111,7 @@ def harness(text):
     return "#include <crosscheck/attributes.hpp>\n" + out
 
 
-def run_crosscheck(tool, path, mode, work, extra, stem):
+def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None):
     work.mkdir(parents=True, exist_ok=True)
     report = work / f"{stem}.{mode}.json"
     if mode == "as-is":
@@ -120,14 +120,19 @@ def run_crosscheck(tool, path, mode, work, extra, stem):
         src = work / f"{stem}.bounded.cpp"
         src.write_text(harness(path.read_text(errors="replace")))
         args = ["-x", "c++", "-std=c++20", "-w", f"-I{ROOT / 'clang-plugin/include'}"]
+    certs = [f"--opt=certificates={certdir / (stem + '.json')}"] if certdir and mode == "bounded" else []
     try:
-        subprocess.run([str(tool), "--all", f"--report={report}", str(src), "--", *args, *extra],
+        subprocess.run([str(tool), "--all", f"--report={report}", *certs, str(src), "--", *args, *extra],
                        capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return {"__timeout__": True}
     if not report.exists():
         return {}
-    return {f["name"]: bool(f["ok"]) for f in json.loads(report.read_text())["functions"]}
+    out = {f["name"]: bool(f["ok"]) for f in json.loads(report.read_text())["functions"]}
+    # certificates: per function, "symbolic" (a summary in the parameters), "constant" or absent
+    out["__certs__"] = {f["name"]: ("symbolic" if "max(" in (f.get("certificate_summary") or "") else "constant")
+                        for f in json.loads(report.read_text())["functions"] if f.get("certificate") == "emitted"}
+    return out
 
 
 def koat_answer(tsv, fn):
@@ -164,6 +169,8 @@ def main():
     ap.add_argument("--results", default=str(HERE / "results"))
     ap.add_argument("--json")
     ap.add_argument("--list", action="store_true", help="only print the files and their entry functions")
+    ap.add_argument("--certificates", help="emit certificates (inputs-in-range mode) into this directory")
+    ap.add_argument("--checker", help="crosscheck-check executable: check them (needs --certificates)")
     a = ap.parse_args()
     base = fetch(pathlib.Path(a.cache))
     files = sorted(base.rglob("*.c"))
@@ -179,10 +186,15 @@ def main():
         entry = entry_function(text)
         key = str(rel).replace("/", "__")[:-2]
         row = dict(file=str(rel), family=rel.parts[0], entry=entry)
+        certdir = pathlib.Path(a.certificates) if a.certificates else None
+        if certdir:
+            certdir.mkdir(parents=True, exist_ok=True)
         for mode in ("as-is", "bounded"):
-            r = run_crosscheck(a.tool, f, mode, pathlib.Path(a.cache) / "work", a.extra_arg, key)
+            r = run_crosscheck(a.tool, f, mode, pathlib.Path(a.cache) / "work", a.extra_arg, key, certdir)
             row[f"crosscheck_{mode}"] = "timeout" if "__timeout__" in r else (
                 "bound" if r.get(entry) else "none")
+            if mode == "bounded" and certdir:
+                row["certificate"] = r.get("__certs__", {}).get(entry)
         row["koat"] = koat_answer(res / "koat2" / f"{key}.tsv", entry)
         row["cofloco"] = cofloco_answer(res / "cofloco" / f"{key}.tsv", entry)
         rows.append(row)
@@ -199,6 +211,20 @@ def main():
     both = collections.Counter((r["crosscheck_bounded"] == "bound",
                                 r["koat"] not in (None, "none") or r["cofloco"] not in (None, "none")) for r in rows)
     print("\nbounded-mode CrossCheck vs (KoAT2 or CoFloCo):", dict(both))
+    if a.certificates:
+        c = collections.Counter(r.get("certificate") for r in rows if r["crosscheck_bounded"] == "bound")
+        print(f"certificates of bounded entry functions: {c.get('symbolic', 0)} with a summary in the "
+              f"parameters, {c.get('constant', 0)} constant, {c.get(None, 0)} none")
+        lin = sum(1 for r in rows if r.get("certificate") == "symbolic" and (r["koat"] or "").startswith("O(n")
+                  and (r["koat"] or "") in ("O(n)", "O(n^1)"))
+        print(f"  of the symbolic ones, KoAT2 also gives a linear bound for {lin}")
+        if a.checker:
+            files = sorted(str(p) for p in pathlib.Path(a.certificates).glob("*.json"))
+            proc = subprocess.run([a.checker, *files], capture_output=True, text=True)
+            lines = proc.stdout.splitlines()
+            acc = sum(l.startswith("ACCEPTED") for l in lines)
+            rej = sum(l.startswith("REJECTED") or (l.startswith("PROGRAM") and "REJECTED" in l) for l in lines)
+            print(f"checker: {acc} functions accepted, {rej} rejected (exit {proc.returncode})")
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(rows, indent=2) + "\n")
 
