@@ -10,7 +10,9 @@
 namespace crosscheck {
 
 struct LoopReport {
+  std::string file;         ///< source file of the loop keyword (as the compiler names it)
   unsigned line = 0;
+  unsigned column = 0;
   std::uint64_t bound = 0;  ///< maximal number of iterations
   /// True when the bound was derived from a synthesised ranking potential;
   /// false when it comes from a user annotation (an assumption).
@@ -28,8 +30,17 @@ struct RecursionReport {
   std::string potential;          ///< the potential the bound comes from
 };
 
+/// A diagnostic with its location, for machine-readable outputs (SARIF).
+struct Site {
+  std::string rule;  ///< "rejected" (profile or bound) or "deadline"
+  std::string file;
+  unsigned line = 0, column = 0;
+  std::string message;
+};
+
 struct FunctionReport {
   std::string name;
+  std::string symbol;       ///< linker (mangled) name
   std::string file;
   unsigned line = 0;
   bool ok = false;          ///< profile respected, bound derived, deadline met
@@ -50,6 +61,7 @@ struct FunctionReport {
   std::optional<std::uint64_t> certificateBound;  ///< the bound the certificate proves
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
+  std::vector<Site> errorSites;  ///< the errors with their locations
 };
 
 struct Report {
@@ -69,6 +81,9 @@ struct Report {
   }
   std::string toJson() const;
 };
+
+/// `s` as a JSON string literal (with quotes).
+std::string jsonQuote(const std::string& s);
 
 }  // namespace crosscheck
 

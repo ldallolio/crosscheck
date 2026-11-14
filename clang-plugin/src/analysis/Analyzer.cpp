@@ -30,6 +30,8 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/GlobalDecl.h"
+#include "clang/AST/Mangle.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtCXX.h"
@@ -448,6 +450,7 @@ class Analyzer {
     const SourceManager& sm = ctx_.getSourceManager();
     if (loc.isValid() && sm.isInSystemHeader(sm.getExpansionLoc(loc))) return;
     c.summary.report.errors.push_back(describe(loc) + msg);
+    c.summary.report.errorSites.push_back(siteOf("rejected", loc, msg));
     // The same function may be analysed in several calling contexts.
     if (!printed_.insert({loc.getRawEncoding(), msg}).second) return;
     ctx_.getDiagnostics().Report(loc, errorId_) << msg;
@@ -465,6 +468,29 @@ class Analyzer {
     PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(loc));
     if (p.isInvalid()) return "";
     return "line " + std::to_string(p.getLine()) + ": ";
+  }
+
+  Site siteOf(const std::string& rule, SourceLocation loc, const std::string& msg) {
+    Site s;
+    s.rule = rule;
+    s.message = msg;
+    const SourceManager& sm = ctx_.getSourceManager();
+    PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(loc));
+    if (p.isValid()) {
+      s.file = p.getFilename();
+      s.line = p.getLine();
+      s.column = p.getColumn();
+    }
+    return s;
+  }
+
+  void locate(LoopReport& lr, SourceLocation loc) {
+    const SourceManager& sm = ctx_.getSourceManager();
+    PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(loc));
+    if (p.isInvalid()) return;
+    lr.file = p.getFilename();
+    lr.line = p.getLine();
+    lr.column = p.getColumn();
   }
 
   unsigned lineOf(SourceLocation loc) {
@@ -1562,7 +1588,7 @@ Cost Analyzer::execRangeFor(const CXXForRangeStmt* fs, std::vector<State>& state
 
   if (!fc.speculative) {
     LoopReport lr;
-    lr.line = lineOf(fs->getForLoc());
+    locate(lr, fs->getForLoc());
     lr.bound = k;
     lr.verified = verified;
     lr.potential = verified ? "array extent" : "";
@@ -1762,7 +1788,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   std::optional<RankingResult> rank = synthesizeRanking(syms_, problem);
 
   LoopReport lr;
-  lr.line = lineOf(loc);
+  locate(lr, loc);
   std::uint64_t k = 0;
   if (rank && (!user || rank->bound <= *user)) {
     k = rank->bound;
@@ -2122,6 +2148,19 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   fc.fn = def;
   FunctionReport& rep = fc.summary.report;
   rep.name = def->getQualifiedNameAsString();
+  {
+    // Linker name, by which binary-level tools (aiT) designate the routine.
+    std::unique_ptr<MangleContext> mc(ctx_.createMangleContext());
+    GlobalDecl gd = isa<CXXConstructorDecl>(def)  ? GlobalDecl(cast<CXXConstructorDecl>(def), Ctor_Complete)
+                    : isa<CXXDestructorDecl>(def) ? GlobalDecl(cast<CXXDestructorDecl>(def), Dtor_Complete)
+                                                  : GlobalDecl(def);
+    if (mc->shouldMangleDeclName(def)) {
+      llvm::raw_string_ostream os(rep.symbol);
+      mc->mangleName(gd, os);
+    } else {
+      rep.symbol = def->getName().str();
+    }
+  }
   {
     const SourceManager& sm = ctx_.getSourceManager();
     PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(def->getLocation()));
@@ -3764,6 +3803,7 @@ Report Analyzer::run() {
         std::string msg = "CROSSCHECK_DEADLINE needs a non-negative constant";
         diags.Report(fd->getLocation(), errorId_) << msg;
         rep.errors.push_back(msg);
+        rep.errorSites.push_back(siteOf("rejected", fd->getLocation(), msg));
         rep.ok = false;
       } else {
         rep.deadline = static_cast<std::uint64_t>(*n);
@@ -3772,6 +3812,7 @@ Report Analyzer::run() {
                             rep.name + "' exceeds its deadline " + std::to_string(*rep.deadline);
           diags.Report(fd->getLocation(), errorId_) << msg;
           rep.errors.push_back(msg);
+          rep.errorSites.push_back(siteOf("deadline", fd->getLocation(), msg));
           rep.ok = false;
         }
       }

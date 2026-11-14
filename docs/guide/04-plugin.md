@@ -36,6 +36,8 @@ flowchart TB
   TOOL --> CONS
   CONS --> AN["Analyzer.cpp<br/>profile · symbolic walk · cost · contexts · certificates"]
   AN --> REP["Report (JSON)"]
+  REP --> EXP["Export: FFX (OTAWA), AIS/AIS2 (aiT), SARIF"]
+  REP --> DIFF["scripts/cost_diff.py (CI)"]
   AN --> CORE["core: LinExpr, Sat, Cost"]
   AN --> SOL["core: Solver<br/>entails, boundsOf, potentials"]
   AN --> CERT["core: Cert<br/>dense constraints, FM, Farkas, JSON"]
@@ -211,7 +213,7 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (128)
+## 9. Tests (135)
 
 | Suite | Count | Checks |
 |---|---|---|
@@ -221,6 +223,8 @@ What is easy to get wrong, and why the code is as it is:
 | `RealTime/Profile` | 11 | forbidden constructs |
 | `Benchmarks` | 10 | Table `tab:plugin` figures |
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |
+| `Export` (in `analyzer_test`) | 5 | FFX, AIS, AIS2, SARIF contents |
+| `exports_read_back`, `bounds_equal_baseline` | 2 | outputs parsed back (SARIF against its schema if given); example bounds = `benchmarks/bounds-baseline.json` |
 | `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
 
 ## 10. Extending it

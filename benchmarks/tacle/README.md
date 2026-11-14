@@ -128,6 +128,19 @@ concatenation), without annotations, 572 loops with a flow fact:
   inside an expression), calls to library functions
   with a trusted cost (5, `susan`: `sqrtf`, `atanf`, `cosf`, …).
 
+## Flow facts compared with oRange's (2026-11-14)
+
+```bash
+python3 benchmarks/tacle/run_tacle.py --extra-arg=... --flow-facts=DIR   # FFX, in context
+python3 benchmarks/tacle/compare_ffx.py DIR                             # vs results/orange/
+```
+
+Both FFX files are read the same way (every `<loop>` with `source`, `line` and a numeric
+`maxcount`; for oRange the maximum over its calling contexts). On the 29 kernels:
+**114 loops bounded in both files, all 114 equal**; 24 only in CrossCheck's, 18 only in
+oRange's. (These are all loops of the files; `tab:tools` counts the 220 loops that have a
+flow fact, 113 of them bounded by both.)
+
 ## Reading the results
 
 - **Flow facts are a reference, not ground truth.** They describe each program on its

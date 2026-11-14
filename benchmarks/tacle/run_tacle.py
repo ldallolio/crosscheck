@@ -68,13 +68,15 @@ def pragmas(lines):
     return out
 
 
-def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None):
+def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None, ffxdir=None):
     name = kdir.name
     unit = work / f"{name}.c"
     unit.write_text("".join(f.read_text(errors="replace") for f in sorted(kdir.glob("*.c"))))
     report = work / f"{name}.json"
     report.unlink(missing_ok=True)
     certs = [f"--opt=certificates={certdir / (name + '.json')}"] if certdir else []
+    if ffxdir:  # in-context loop bounds, FFX (OTAWA), for compare_ffx.py
+        certs += [f"--opt=flowfacts={ffxdir / (name + '.ffx')}", "--opt=flowfacts-context=program"]
     cmd = [str(tool), "--all", "--opt=entry=main", *certs, f"--report={report}", str(unit), "--",
            "-x", "c", "-std=gnu99", f"-I{kdir}", "-w", "-ferror-limit=0",
            # some programs call printf etc. without a declaration (an error since Clang 16)
@@ -185,6 +187,7 @@ def main():
                     help="TACLeBench categories to run (kernel, sequential, app; default: kernel)")
     ap.add_argument("--markdown"); ap.add_argument("--latex"); ap.add_argument("--json")
     ap.add_argument("--certificates", help="emit cost certificates into this directory")
+    ap.add_argument("--flow-facts", help="write each program's in-context loop bounds as FFX into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check the certificates (needs --certificates)")
     a = ap.parse_args()
 
@@ -198,11 +201,14 @@ def main():
         kernels = [k for k in kernels if k.name in a.only]
 
     certdir = pathlib.Path(a.certificates) if a.certificates else None
+    ffxdir = pathlib.Path(a.flow_facts) if a.flow_facts else None
+    if ffxdir:
+        ffxdir.mkdir(parents=True, exist_ok=True)
     if certdir:
         certdir.mkdir(parents=True, exist_ok=True)
     rows = []
     for k in kernels:
-        r = run_kernel(a.tool, k, work, a.extra_arg, certdir)
+        r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir)
         rows.append(r)
         print(f"{r['kernel']:16s} " + " ".join(f"{c}={r[c]}" for c in COLS)
               + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s", file=sys.stderr)

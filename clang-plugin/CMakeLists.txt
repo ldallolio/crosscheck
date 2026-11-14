@@ -44,6 +44,7 @@ target_link_libraries(crosscheck_core PUBLIC z3::libz3)
 add_library(crosscheck_analysis STATIC
   src/analysis/Analyzer.cpp
   src/analysis/Consumer.cpp
+  src/analysis/Export.cpp
   src/analysis/Report.cpp)
 target_include_directories(crosscheck_analysis PUBLIC src)
 target_include_directories(crosscheck_analysis SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
@@ -52,6 +53,7 @@ if(NOT LLVM_ENABLE_RTTI)
   target_compile_options(crosscheck_analysis PUBLIC -fno-rtti)
 endif()
 target_link_libraries(crosscheck_analysis PUBLIC crosscheck_core)
+target_compile_definitions(crosscheck_analysis PRIVATE CROSSCHECK_VERSION="${PROJECT_VERSION}")
 
 # --- the compiler plugin: clang++ -fplugin=libCrossCheckPlugin.so ------------
 # Clang symbols are resolved against the host compiler, so no Clang library is
@@ -93,7 +95,7 @@ if(BUILD_TESTING)
   target_link_libraries(core_test PRIVATE crosscheck_core GTest::gtest_main)
   gtest_discover_tests(core_test)
 
-  add_executable(analyzer_test tests/analyzer_test.cpp tests/benchmarks_test.cpp)
+  add_executable(analyzer_test tests/analyzer_test.cpp tests/benchmarks_test.cpp tests/export_test.cpp)
   target_compile_definitions(analyzer_test PRIVATE
     CROSSCHECK_RESOURCE_DIR="${CROSSCHECK_RESOURCE_DIR}"
     CROSSCHECK_CLANG_EXTRA_FLAGS="${CROSSCHECK_CLANG_EXTRA_FLAGS}"
@@ -113,6 +115,23 @@ if(BUILD_TESTING)
     add_test(NAME plugin_accepts_${name}
       COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)
   endforeach()
+  # Flow facts (FFX, AIS, AIS2) and SARIF read back; SARIF validated against its schema
+  # when -DCROSSCHECK_SARIF_SCHEMA=<sarif-schema-2.1.0.json> is given.
+  find_package(Python3 COMPONENTS Interpreter)
+  set(CROSSCHECK_SARIF_SCHEMA "" CACHE FILEPATH "SARIF 2.1.0 JSON schema (optional)")
+  if(Python3_FOUND)
+    set(SCHEMA_ARG)
+    if(CROSSCHECK_SARIF_SCHEMA)
+      set(SCHEMA_ARG --sarif-schema ${CROSSCHECK_SARIF_SCHEMA})
+    endif()
+    add_test(NAME exports_read_back
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_exports.py
+        $<TARGET_FILE:crosscheck-tool> ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${SCHEMA_ARG}
+        -- ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+    add_test(NAME bounds_equal_baseline
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_baseline.sh $<TARGET_FILE:crosscheck-tool>
+        ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${Python3_EXECUTABLE} ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+  endif()
   # Certificates checked by the verified Lean checker (formalization/: lake build crosscheck-check).
   set(CROSSCHECK_CHECKER "" CACHE FILEPATH "Path to the crosscheck-check executable (optional)")
   if(CROSSCHECK_CHECKER)

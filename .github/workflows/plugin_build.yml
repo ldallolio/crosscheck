@@ -26,11 +26,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build g++ \
             llvm-18-dev libclang-18-dev clang-18 \
-            libz3-dev libgtest-dev \
+            libz3-dev libgtest-dev python3-jsonschema \
             libzstd-dev zlib1g-dev libedit-dev libcurl4-openssl-dev libxml2-dev libffi-dev
 
+      # The SARIF 2.1.0 schema (OASIS), for the ctest that validates the plugin's SARIF output.
+      - name: SARIF schema
+        run: curl -sSfL -o sarif-schema-2.1.0.json https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json
+
       - name: Configure
-        run: cmake -S clang-plugin -B clang-plugin/build -G Ninja -DCMAKE_PREFIX_PATH=/usr/lib/llvm-18
+        run: cmake -S clang-plugin -B clang-plugin/build -G Ninja -DCMAKE_PREFIX_PATH=/usr/lib/llvm-18 -DCROSSCHECK_SARIF_SCHEMA=$PWD/sarif-schema-2.1.0.json
 
       - name: Build
         run: ninja -C clang-plugin/build
@@ -57,6 +61,29 @@ jobs:
             clang-plugin/build/crosscheck-tool --opt=certificates=certificates/examples/$(basename $f .cpp).json \
               "$f" -- -std=c++20 -Iclang-plugin/include >/dev/null 2>&1 || true
           done
+
+      # Loop bounds for WCET tools (OTAWA: FFX; aiT: AIS2), SARIF for code scanning, and
+      # the cost diff against the committed baseline (also enforced by ctest).
+      - name: Flow facts, SARIF and cost diff of the example programs
+        run: |
+          mkdir -p exports/reports
+          for f in benchmarks/*.cpp; do
+            b=$(basename $f .cpp)
+            clang-plugin/build/crosscheck-tool --report=exports/reports/$b.json \
+              --opt=flowfacts=exports/$b.ffx --opt=sarif=exports/$b.sarif --opt=sarif-base=$PWD \
+              "$f" -- -std=c++20 -Iclang-plugin/include >/dev/null 2>&1 || true
+            clang-plugin/build/crosscheck-tool --opt=flowfacts=exports/$b.ais \
+              "$f" -- -std=c++20 -Iclang-plugin/include >/dev/null 2>&1 || true
+          done
+          python3 clang-plugin/scripts/cost_diff.py benchmarks/bounds-baseline.json exports/reports \
+            --exact --markdown cost-diff.md
+          cat cost-diff.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload flow facts and SARIF
+        uses: actions/upload-artifact@v4
+        with:
+          name: exports
+          path: exports/
 
       - name: Upload certificates
         uses: actions/upload-artifact@v4

@@ -75,6 +75,11 @@ pie title Why TACLeBench functions are not certified (16 of 158)
   "assignment inside an expression" : 1
 ```
 
+**Exports (paragraph "Exports")**: loop bounds as FFX (OTAWA; `source` + `line`,
+`maxcount`) or AIS/AIS2 (aiT; routine linker name + loop number, in source order: a
+caveat), SARIF for code scanning, a cost diff for CI. On TACLeBench our FFX equals oRange's
+on 114 loops. Not yet loaded into OTAWA or aiT.
+
 **Related work (Paper II, `sec:related`)**: bound analysers (SPEED, Loopus, KoAT, CoFloCo,
 COSTA, C4B), WCET flow analysis (IPET, oRange), verified and certified bounds (Blazy,
 Maroneze et al. in CompCert; C4B; proof-carrying code), Clang's function effects. The

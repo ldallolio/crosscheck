@@ -15,6 +15,7 @@
 #include "llvm/Support/CommandLine.h"
 
 #include "../analysis/Consumer.hpp"
+#include "../analysis/Export.hpp"
 
 namespace {
 
@@ -86,6 +87,20 @@ int main(int argc, const char** argv) {
     }
     out << crosscheck::cert::fileJson(combined.certificates);
   }
+  auto write = [](const std::string& path, const std::string& text) {
+    if (path.empty()) return true;
+    std::error_code ec;
+    llvm::raw_fd_ostream out(path, ec);
+    if (ec) {
+      llvm::errs() << "crosscheck-tool: cannot write '" << path << "'\n";
+      return false;
+    }
+    out << text;
+    return true;
+  };
+  if (!options.flowFactsPath.empty() && !write(options.flowFactsPath, crosscheck::toFlowFacts(combined, options)))
+    return 2;
+  if (!options.sarifPath.empty() && !write(options.sarifPath, crosscheck::toSarif(combined, options))) return 2;
   if (summary)
     for (const auto& f : combined.functions)
       llvm::outs() << (f.ok ? "OK   " : "FAIL ") << f.name << ": "

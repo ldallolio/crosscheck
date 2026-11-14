@@ -1,0 +1,112 @@
+{
+ "functions": [
+  {
+   "file": "can_frame_decoder.cpp",
+   "name": "can::on_frame",
+   "ok": true,
+   "wcet": 119
+  },
+  {
+   "file": "can_frame_decoder.cpp",
+   "name": "can::payload_checksum",
+   "ok": true,
+   "wcet": 67
+  },
+  {
+   "file": "crc_table.cpp",
+   "name": "telemetry::crc32",
+   "ok": true,
+   "wcet": 10502
+  },
+  {
+   "file": "divide_and_conquer.cpp",
+   "name": "reduce::merge_sort",
+   "ok": true,
+   "wcet": 3148271
+  },
+  {
+   "file": "divide_and_conquer.cpp",
+   "name": "reduce::range_max",
+   "ok": true,
+   "wcet": 7154
+  },
+  {
+   "file": "divide_and_conquer.cpp",
+   "name": "reduce::table_lookup",
+   "ok": true,
+   "wcet": 6144
+  },
+  {
+   "file": "fir_filter.cpp",
+   "name": "dsp::fir_block",
+   "ok": true,
+   "wcet": 21699
+  },
+  {
+   "file": "fir_filter.cpp",
+   "name": "dsp::fir_step",
+   "ok": true,
+   "wcet": 331
+  },
+  {
+   "file": "motor_ramp.cpp",
+   "name": "motion::next_phase",
+   "ok": true,
+   "wcet": 15
+  },
+  {
+   "file": "motor_ramp.cpp",
+   "name": "motion::plan_ramp",
+   "ok": true,
+   "wcet": 883
+  },
+  {
+   "file": "pid_controller.cpp",
+   "name": "control::attitude_update",
+   "ok": true,
+   "wcet": 167
+  },
+  {
+   "file": "pid_controller.cpp",
+   "name": "control::pid_step",
+   "ok": true,
+   "wcet": 19
+  },
+  {
+   "file": "rejected_allocation.cpp",
+   "name": "logging::record_sample",
+   "ok": false,
+   "wcet": null
+  },
+  {
+   "file": "rejected_deadline.cpp",
+   "name": "filter::moving_average",
+   "ok": false,
+   "wcet": 47875
+  },
+  {
+   "file": "rejected_unbounded_loop.cpp",
+   "name": "adc::wait_ready",
+   "ok": false,
+   "wcet": null
+  },
+  {
+   "file": "rejected_unbounded_loop.cpp",
+   "name": "adc::wait_ready_ok",
+   "ok": true,
+   "wcet": 1010
+  },
+  {
+   "file": "ring_buffer_isr.cpp",
+   "name": "serial::ring_read",
+   "ok": true,
+   "wcet": 838
+  },
+  {
+   "file": "ring_buffer_isr.cpp",
+   "name": "serial::uart_rx_isr",
+   "ok": true,
+   "wcet": 309
+  }
+ ]
+}

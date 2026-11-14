@@ -33,6 +33,7 @@ reading (`AI_USAGE.md`, section 3).
 | `baccelli1992synchronization` | book or web page |  |  |
 | `bardin2008fast` | no open-access copy found |  |  |
 | `benamram2014ranking` | downloaded | arXiv | Abstract read. Confirms: existence of a linear ranking function is PTIME over the rationals and coNP-complete over the integers. |
+| `bonenfant2012ffx` | downloaded (2026-11-14) | TU Wien (author copy) | Sections 3 and 4 read. FFX grammar: root and context elements, location attributes (source file + line, address, label), `<loop>` with `maxcount` = maximal number of iterations per loop entry and `totalcount`; tools ignore unknown tags. Data checked on Crossref (DOI 10.1145/2392987.2392999). Used for the FFX exporter. |
 | `blazy2013formal` | downloaded | HAL (Inria) | Abstract read. Confirms: loop bound estimation verified in Coq, integrated into CompCert. |
 | `brockschmidt2016analyzing` | downloaded | open access (Semantic Scholar) | Abstract read. Alternating runtime and size bounds for integer programs; tool KoAT. |
 | `carbonneaux2015compositional` | no open-access copy found |  |  |
@@ -54,6 +55,7 @@ reading (`AI_USAGE.md`, section 3).
 | `gulwani2009speed` | no open-access copy found |  |  |
 | `gustafsson2010malardalen` | downloaded | DROPS (Dagstuhl, open access) | Skimmed. Describes the Mälardalen WCET benchmark suite. |
 | `haslbeck2018hoare` | downloaded | publisher (Springer, open access) | Sections 1-3.1 and 5 read. Three logics (Nielson style, potentials after Carbonneaux et al., separation logic with time credits) for the deterministic language IMP, in Isabelle/HOL; sound and complete; verified VCGs; a valid triple asserts termination within the bound. The comparison in subsec:cost-logic was rewritten from this reading. |
+| `heckmann2013ait` | downloaded (2026-11-14) | AbsInt web site | Section 4 read (user annotations): `loop "R" + n loops [begin\|end] max j;` (n-th loop of routine R, counted from 1, in the executable), source annotations `/* ai: loop here max j; */`. Undated; PDF metadata 2013. Used for the AIS exporter. |
 | `hoffmann2012multivariate` | no open-access copy found |  |  |
 | `hoffmann2022two` | downloaded | open access (Semantic Scholar) | Abstract read. Survey of automatic amortized resource analysis. |
 | `infercost` | book or web page |  |  |
@@ -71,6 +73,7 @@ reading (`AI_USAGE.md`, section 3).
 | `podelski2004complete` | no open-access copy found |  |  |
 | `podelski2004transition` | no open-access copy found |  |  |
 | `puschner1989calculating` | no open-access copy found |  |  |
+| `sarif2023` | web page (2026-11-14) | OASIS | Title and editors read; the JSON schema (`sarif-2.1/schema/sarif-schema-2.1.0.json` of the OASIS repository) is used by the tests. |
 | `schrijver1986theory` | book or web page |  |  |
 | `shaw1989reasoning` | no open-access copy found |  |  |
 | `sinn2014complexity` | downloaded | arXiv | Abstract read. Bound analysis with amortisation via lexicographic ranking functions on vector addition systems. |

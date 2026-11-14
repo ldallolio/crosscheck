@@ -48,8 +48,8 @@ quadrantChart
 
 | # | Proposal | Value | Kind |
 |---|---|---|---|
-| I1 | **Export flow facts** (loop bounds, in-context) to aiT (AIS annotations), OTAWA (FFX) and SWEET formats, each with a reference to its certificate. | Plugs into qualified WCET workflows today; replaces hand-written loop bounds, a known source of error. | E |
-| I2 | **CI integration**: SARIF output for code-scanning UIs; a "cost diff" on pull requests (bound of each function before/after); failure on regression beyond a budget. | Turns bounds into a review signal for embedded teams. | E |
+| I1 | **Export flow facts** (loop bounds, in-context) to aiT (AIS annotations) and OTAWA (FFX). **Done** (not yet run inside OTAWA/aiT); SWEET dropped: it computes flow facts and has no documented input format for loop bounds. | Plugs into qualified WCET workflows today; replaces hand-written loop bounds, a known source of error. | E |
+| I2 | **CI integration**: SARIF output for code-scanning UIs; a "cost diff" on pull requests (bound of each function before/after); failure on regression beyond a budget. | Turns bounds into a review signal for embedded teams. **Done**: `sarif=FILE` (schema-validated), `scripts/cost_diff.py`, baseline ctest. | E |
 | I3 | **Tool qualification kit for the checker** (DO-178C / ISO 26262): requirements, tests, the Lean proof as evidence, the trusted base listed. | Qualifying a small checker is far cheaper than qualifying an analyser; this is the industrial case for certificates. | E |
 | I4 | **Library contracts**: versioned contract files (cost as a function of sizes) for C library functions (`memcpy`, `memset` with a size), CMSIS-DSP, the Embedded Template Library, `std::array` / `std::span` algorithms; amortised or average-case functions rejected. Contracts enter as assumed triples (rule 8) and are listed in the report. | Makes real code bases analysable without rewriting library calls; the C++ standard gives no constants, so contracts must be per implementation. | T (checker) + E |
 | I5 | **Whole-project driver**: run on `compile_commands.json`, cache summaries across translation units, an HTML/JSON dashboard of bounds, certificates and reasons. | Needed for any code base larger than a file. | E |
@@ -94,6 +94,8 @@ flowchart LR
    156 of 158; `run_tacle.py --category sequential --category app` (results in
    `benchmarks/tacle/README.md`).
 2. **Flow-fact export and CI/SARIF** (I1, I2): immediate industrial value, no theory.
+   **Done 2026-11-14**: FFX, AIS, AIS2, SARIF, cost diff; FFX values equal oRange's on 114
+   TACLeBench loops. Open: loading the files into OTAWA and aiT on compiled code.
 3. **Modular symbolic certificates + library contracts** (S2, I4): the main scientific and
    industrial step; closes the TPDB gap and makes real code bases tractable.
 4. **Globals, structs, iterators** (§4): legacy coverage, measured on an open-source

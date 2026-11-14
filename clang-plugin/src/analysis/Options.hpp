@@ -49,6 +49,17 @@ struct Options {
   /// the plugin to `certificatesPath` when it is not empty.
   bool certificates = false;
   std::string certificatesPath;
+  /// Loop bounds as flow facts for WCET tools (src/analysis/Export.hpp), written to
+  /// `flowFactsPath` in `flowFactsFormat` ("ffx": OTAWA; "ais": aiT, AIS;
+  /// "ais2": aiT, AIS2), with the bounds valid for every call or, with
+  /// `flowFactsContext == "program"`, in the calling contexts of the program.
+  std::string flowFactsPath;
+  std::string flowFactsFormat;   ///< empty: from the file extension (.ais: ais2, else ffx)
+  std::string flowFactsContext = "every-call";
+  /// SARIF 2.1.0 log of the results (src/analysis/Export.hpp); file paths that start
+  /// with `sarifBase` are written relative to it (uriBaseId %SRCROOT%).
+  std::string sarifPath;
+  std::string sarifBase;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -59,6 +70,17 @@ struct Options {
     std::string key = arg.substr(0, eq), value = arg.substr(eq + 1);
     if (key == "report") { reportPath = value; return !value.empty(); }
     if (key == "entry") { entry = value; return !value.empty(); }
+    if (key == "flowfacts") { flowFactsPath = value; return !value.empty(); }
+    if (key == "flowfacts-format") {
+      flowFactsFormat = value;
+      return value == "ffx" || value == "ais" || value == "ais2";
+    }
+    if (key == "flowfacts-context") {
+      flowFactsContext = value;
+      return value == "every-call" || value == "program";
+    }
+    if (key == "sarif") { sarifPath = value; return !value.empty(); }
+    if (key == "sarif-base") { sarifBase = value; return !value.empty(); }
     if (key == "certificates") {
       certificates = true;
       certificatesPath = value;

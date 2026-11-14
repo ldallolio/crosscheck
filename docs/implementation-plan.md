@@ -70,7 +70,9 @@ Each task ends with: tests (including must-reject cases), figures re-run
    with constant floating-point bounds (IEEE semantics of the target).
 7. **Export of flow facts** in the formats of WCET tools (aiT annotations, OTAWA FFX), with
    the in-context bounds; then machine-level costing for cores without caches, using the
-   proved loop bounds on the compiled code.
+   proved loop bounds on the compiled code. **Export done (2026-11-14)**: `flowfacts=FILE`
+   (FFX, AIS, AIS2), `sarif=FILE`, `scripts/cost_diff.py`; not yet loaded into OTAWA or
+   aiT on compiled binaries (next: an OTAWA run on a cross-compiled TACLeBench kernel).
 8. **Rust front-end** on MIR, emitting the same certificates.
 
 ## 4. Things to keep in mind

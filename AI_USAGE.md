@@ -585,6 +585,32 @@ bibliography and already checked; Lean 4 cited where the checker is introduced; 
 `\authortodo` lists the works whose content was not read or only from abstracts. Paper I
 now 29 pages and 45 references, Paper II 13 pages and 28 references.
 
+30. "I propose to proceed with step 2: exporting loop bounds to WCET tools (aiT, OTAWA,
+    SWEET) and CI/SARIF integration"
+
+What the AI did for 30 (design choices are the AI's; no Lean or theory change):
+- Formats researched from sources, not from memory: FFX from Bonenfant et al. (RTNS 2012,
+  sections 3-4 read) and from OTAWA's loader `src/prog/flowfact_FlowFactLoader.cpp` (read
+  partly verbatim, partly through a fetch tool's summary); AIS from the AbsInt white paper
+  of Heckmann and Ferdinand (section 4 read); AIS2 only from one example in AbsInt's a³
+  15.10 release notes and the CompCert manual (section 6) — the AIS2 grammar is not
+  public. SARIF from the OASIS schema. SWEET was dropped: no public input format for loop
+  bounds was found, and SWEET computes flow facts itself.
+- Plugin: `src/analysis/Export.{hpp,cpp}` (FFX, AIS, AIS2, SARIF), options `flowfacts`,
+  `flowfacts-format`, `flowfacts-context`, `sarif`, `sarif-base`; the report gains loop
+  file/column, error locations and linker names; `scripts/cost_diff.py` (cost diff,
+  snapshots); `benchmarks/bounds-baseline.json`; tests `Export.*`, `exports_read_back`
+  (SARIF validated against the schema), `bounds_equal_baseline`; 135 tests pass. CI
+  downloads the schema, uploads the exports and writes the cost diff to the job summary.
+- `benchmarks/tacle/compare_ffx.py`: CrossCheck's in-context FFX equals oRange's FFX on all
+  114 loops both bound.
+- Not done: the files were not loaded into OTAWA or aiT (they need compiled binaries;
+  aiT is commercial). The aiT loop numbering (source order) is a stated caveat.
+- Bibliography: `bonenfant2012ffx` (Crossref), `heckmann2013ait` (the PDF read; undated),
+  `sarif2023` (OASIS page). Paper II: paragraph "Exports", a sentence in the kernel
+  results, related work and future work updated (14 pages). READMEs, guide, proposals,
+  implementation plan, `references/README.md`, `CLAUDE.md` updated.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

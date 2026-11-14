@@ -5,9 +5,7 @@
 
 namespace crosscheck {
 
-namespace {
-
-std::string quote(const std::string& s) {
+std::string jsonQuote(const std::string& s) {
   std::string out = "\"";
   for (unsigned char c : s) {
     switch (c) {
@@ -28,6 +26,10 @@ std::string quote(const std::string& s) {
   return out + "\"";
 }
 
+namespace {
+
+std::string quote(const std::string& s) { return jsonQuote(s); }
+
 std::string strings(const std::vector<std::string>& v) {
   std::string out = "[";
   for (std::size_t i = 0; i < v.size(); ++i) out += (i ? ", " : "") + quote(v[i]);
@@ -42,6 +44,7 @@ std::string Report::toJson() const {
     const FunctionReport& f = functions[i];
     out += i ? ",\n    {" : "\n    {";
     out += "\n      \"name\": " + quote(f.name);
+    out += ",\n      \"symbol\": " + quote(f.symbol);
     out += ",\n      \"file\": " + quote(f.file);
     out += ",\n      \"line\": " + std::to_string(f.line);
     out += ",\n      \"ok\": " + std::string(f.ok ? "true" : "false");
@@ -53,7 +56,8 @@ std::string Report::toJson() const {
     out += ",\n      \"loops\": [";
     for (std::size_t j = 0; j < f.loops.size(); ++j) {
       const LoopReport& l = f.loops[j];
-      out += std::string(j ? ", " : "") + "{\"line\": " + std::to_string(l.line) +
+      out += std::string(j ? ", " : "") + "{\"file\": " + quote(l.file) +
+             ", \"line\": " + std::to_string(l.line) + ", \"column\": " + std::to_string(l.column) +
              ", \"bound\": " + std::to_string(l.bound) +
              ", \"verified\": " + (l.verified ? "true" : "false") +
              ", \"in_context\": " + (l.inContext ? std::to_string(*l.inContext) : std::string("null")) +

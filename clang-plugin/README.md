@@ -91,6 +91,11 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
 | `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
 | `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
+| `flowfacts=FILE` | write the derived loop bounds as flow facts for WCET tools (see [Flow facts, SARIF and CI](#flow-facts-sarif-and-ci)) |
+| `flowfacts-format=ffx\|ais\|ais2` | FFX (OTAWA), AIS or AIS2 (aiT); default from the extension (`.ais`: AIS2, otherwise FFX) |
+| `flowfacts-context=every-call\|program` | export the bounds valid for every call (default) or in the program's calling contexts |
+| `sarif=FILE` | write a SARIF 2.1.0 log (errors, bounds, assumptions) |
+| `sarif-base=DIR` | write file paths under `DIR` relative to it (`%SRCROOT%`), e.g. the repository root |
 
 ### As a standalone tool
 
@@ -287,6 +292,61 @@ integer variables. Unsigned stores carry an explicit wrap-around test whose wrap
 branch the checker must prove dead. How each construct is lowered:
 [`docs/certificate-format.md`](../docs/certificate-format.md).
 
+## Flow facts, SARIF and CI
+
+**Flow facts for WCET tools.** `flowfacts=FILE` writes the loop bounds the analysis
+derived (not those stated by `CROSSCHECK_LOOP_BOUND`, which are assumptions):
+
+| Format | Loop designated by | Bound | Sources |
+|---|---|---|---|
+| FFX (OTAWA, oRange) | `source` file and `line` of the loop keyword, at top level of `<flowfacts>` (every context) | `maxcount`: iterations per entry of the loop | Bonenfant et al., RTNS 2012; OTAWA's `flowfact_FlowFactLoader.cpp` |
+| AIS (aiT) | `loop "R" + n loops max k;`: n-th loop of routine `R` (linker name) | `max k` | Heckmann & Ferdinand, AbsInt white paper |
+| AIS2 (aiT) | `loop "R.Ln" { bound: 0 .. k; }` | `bound` | AbsInt release notes (a³ 15.10) |
+
+The bound counts executions of the loop body per entry of the loop, the convention of
+the report and of oRange's FFX output (on TACLeBench our in-context FFX values equal
+oRange's on all 114 loops both bound: `benchmarks/tacle/compare_ffx.py`). Each file starts
+with what the bounds hold for (every call, or the program's contexts with
+`flowfacts-context=program`) and the analysis' assumptions. FFX elements carry extension
+attributes (`crosscheck-function`, `crosscheck-potential`, `crosscheck-certified`), which
+FFX readers ignore.
+
+**Caveats.** aiT numbers the loops of a routine in the executable; we number them in
+source order. They agree only if the compiler keeps the loops of a function in source
+order and does not inline, unroll or split them: check against aiT's loop list. FFX source
+locations are resolved by OTAWA through debug information (compile with `-g`), and OTAWA
+warns and ignores a loop whose line has no code. Neither file has been loaded into OTAWA or
+aiT here: they are checked against the formats' documentation and OTAWA's loader, and read
+back by `tests/check_exports.py`. SWEET is not a target: it computes flow facts itself and
+has no documented input format for loop bounds.
+
+**SARIF.** `sarif=FILE` writes a SARIF 2.1.0 log for code-scanning interfaces: rule
+`rejected` and `deadline` (errors, at the offending statement), `bound` (a note per
+bounded function, with `wcet`, `wcetInContext`, `certificateBound` as properties) and
+`assumption` (notes). The ctest `exports_read_back` validates it against the SARIF schema
+when CMake is given `-DCROSSCHECK_SARIF_SCHEMA=<sarif-schema-2.1.0.json>` (CI does).
+
+**Cost diff.** `scripts/cost_diff.py BASE HEAD` compares two sets of reports (files,
+directories or snapshots) function by function and exits 1 when a function is newly
+rejected or loses its bound, when a bound grows by more than `--max-increase PCT`
+percent, or, with `--exact`, on any change; `--markdown FILE` writes a table for a
+pull-request comment. `--snapshot` stores the compared fields only, without machine paths.
+The ctest `bounds_equal_baseline` compares the example programs with
+`benchmarks/bounds-baseline.json` (the figures of `tab:plugin`).
+
+A GitHub Actions job for a project that uses the tool:
+
+```yaml
+- run: |
+    for f in $(git ls-files 'src/*.c'); do
+      crosscheck-tool --report=reports/$(basename $f).json --opt=sarif=sarif/$(basename $f).sarif \
+        --opt=sarif-base=$PWD "$f" -- -Iinclude || true
+    done
+    python3 cost_diff.py baseline.json reports --max-increase 5 --markdown cost-diff.md
+- uses: github/codeql-action/upload-sarif@v3   # needs permissions: security-events: write
+  with: { sarif_file: sarif }
+```
+
 ## Limitations
 
 - **Cost is not time.** Turning the bound into a time bound needs per-instruction
@@ -320,6 +380,8 @@ src/core/Solver.{hpp,cpp}           Z3: entailment, ranking and size potentials 
 src/analysis/Analyzer.{hpp,cpp}     the AST walker: profile, cost, symbolic state
 src/analysis/Consumer.{hpp,cpp}     Clang ASTConsumer shared by plugin and tool
 src/analysis/Report.{hpp,cpp}       structured report and JSON output
+src/analysis/Export.{hpp,cpp}       flow facts (FFX, AIS, AIS2) and SARIF, from a report
+scripts/cost_diff.py                cost diff of two sets of reports (CI)
 src/plugin/Plugin.cpp               plugin registration
 src/tool/Main.cpp                   crosscheck-tool
 tests/core_test.cpp                 solver and arithmetic (no Clang needed)
