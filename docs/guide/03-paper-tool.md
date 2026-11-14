@@ -65,6 +65,7 @@ flowchart TB
 | KoAT2 / CoFloCo | 5 / 8 entry functions numerically bounded; CoFloCo never looser than KoAT2 on the same programs | `tab:tools` |
 | Infer | 14 entry functions, but ignores recursion (constant cost for Fibonacci) | `tab:tools` |
 | TPDB, 553 programs | CrossCheck 10 as is, 165 with input ranges; KoAT2 288, CoFloCo 264 | `benchmarks/tpdb/README.md` |
+| TACLeBench sequential + app, 572 loops | in context 317 bounded, 297 = flow fact; 5 below a flow fact, all dead code or overstated `sizeof` facts; 232 of 252 functions certified | `benchmarks/tacle/README.md` |
 
 ```mermaid
 pie title Why TACLeBench functions are not certified (16 of 158)
@@ -73,6 +74,13 @@ pie title Why TACLeBench functions are not certified (16 of 158)
   "break" : 3
   "assignment inside an expression" : 1
 ```
+
+**Related work (Paper II, `sec:related`)**: bound analysers (SPEED, Loopus, KoAT, CoFloCo,
+COSTA, C4B), WCET flow analysis (IPET, oRange), verified and certified bounds (Blazy,
+Maroneze et al. in CompCert; C4B; proof-carrying code), Clang's function effects. The
+point to make: CompCert-based tools verify the analysis down to the compiler's
+representation; CrossCheck verifies a small checker and leaves the C++ → certificate
+translation unverified.
 
 ## 4. How to read the evaluation honestly
 

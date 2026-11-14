@@ -571,6 +571,20 @@ What the AI did for 28 (step 1 of `docs/proposals.md` §5; design choices are th
   TACLeBench READMEs, `docs/certificate-format.md`, guide parts 3, 4, 5 and 7,
   `docs/proposals.md`, `docs/implementation-plan.md`, `CLAUDE.md`.
 
+29. "yes please make these changes as you suggest" (after the user asked: "I wonder if
+    bibliography should be shared between the two papers : I suspect (your call) that most
+    theory-oriented bibliography should go in Paper I and the more technical one in Paper
+    II, what do you think ?", and the AI proposed keeping one `.bib` and moving the
+    tool-side related work to Paper II)
+
+What the AI did for 29: the shared `crosscheck.bib` is unchanged (each paper lists only
+what it cites). Paper I: the paragraph "Compile-time real-time checks" moved to Paper II.
+Paper II: new section `sec:related` (bound analyzers, WCET flow analysis, verified and
+certified bounds, compile-time real-time checks), citing entries already in the
+bibliography and already checked; Lean 4 cited where the checker is introduced; an
+`\authortodo` lists the works whose content was not read or only from abstracts. Paper I
+now 29 pages and 45 references, Paper II 13 pages and 28 references.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

@@ -202,11 +202,6 @@ in \cite{carbonneaux2015compositional}. Program logics for running time have bee
 mechanization is smaller in scope: it covers the semantic characterization and the bounds of this paper, not a
 verified analyzer for a real programming language.
 
-\paragraph{Compile-time real-time checks.}
-Recent versions of the Clang compiler check, through function effect attributes, that functions declared non-blocking or
-non-allocating do not call functions that may block or allocate \cite{clangeffects}. Such checks enforce the absence of
-unbounded operations but do not bound the cost of loops and recursion, which is the question addressed here.
-
 \paragraph{Semantics.}
 Big-step (natural) semantics is due to Kahn \cite{kahn1987natural}; fixed-point semantics of loops and recursion is
 standard \cite{manna1974mathematical,winskel1993formal}. Big-step semantics relates only terminating executions; divergence

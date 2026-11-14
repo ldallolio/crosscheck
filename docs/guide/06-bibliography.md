@@ -1,6 +1,10 @@
 # Part 6 — The bibliography, as a map
 
-`paper/crosscheck.bib`, shared by both papers. On 2026-11-13/14 the bibliographic data of
+`paper/crosscheck.bib`, shared by both papers; each paper's list contains only the entries it
+cites (Paper I: 45, Paper II: 28). Theory-side related work (cost logics, ranking functions,
+closed forms, amortisation, mechanised cost) is discussed in Paper I's `sec:related`; tool-side
+related work (bound analysers, WCET flow analysis, verified and certified bounds, Clang's
+function effects) in Paper II's `sec:related`. On 2026-11-13/14 the bibliographic data of
 every entry were checked against Crossref, DataCite or Open Library (one error fixed). The
 column **Read** says what the AI assistant actually read (`references/README.md`):
 *A* = abstract, *S* = the sections the text relies on, — = not obtained or not read.
