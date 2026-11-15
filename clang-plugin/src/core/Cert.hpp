@@ -102,11 +102,11 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, Seq, Ite, While, WhileAnd, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
-  std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test
+  std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test; HavocC: the constraints
   Assn mid;                     // Seq
   SB b1, b2;                    // Seq, Ite: bounds of the parts; While: Wb in b1
   Assn inv;                     // While
@@ -142,6 +142,8 @@ SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint
 /// Only the logical variables below `gammas` may occur (the parameters' values).
 std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>>
 symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas);
+/// The least `a >= 1` such that `a*e` has such a bound with integer coefficients (0: none).
+std::int64_t symbolicScale(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas);
 
 /// The variables a certificate's program may modify (Lean `writes`); `mods[f]` are the
 /// declared variables of function `f`.

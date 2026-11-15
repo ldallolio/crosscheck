@@ -104,6 +104,12 @@ flowchart LR
    the checker (rule 9).
 4. **Globals, structs, iterators** (§4): legacy coverage, measured on an open-source
    embedded code base (choose one with a permissive licence and MISRA-like style).
+   **Done 2026-11-15** on CMSIS-DSP (`benchmarks/cmsis`): globals and statics, fields
+   through pointer parameters, constant tables, C integer tests, Arm intrinsics, statement
+   expressions, inline assembly, `input-range`, annotations in C; 357 → 616 of 786
+   functions bounded (with ranges). Pointer iterators were **not** done: neither CMSIS-DSP
+   nor TACLeBench controls loops by pointer comparison often enough to show up among the
+   blockers; logarithmic loops (FFTs) are now the largest blocker.
 5. **Verified lowering** (S1): the flagship result for a venue paper on certified cost
    analysis.
 6. **Time on predictable cores** (S5), **fork-join and interrupts** (S6), **Rust** (I6).

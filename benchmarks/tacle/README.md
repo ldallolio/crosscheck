@@ -22,7 +22,7 @@ python3 benchmarks/tacle/run_tacle.py --markdown=out.md --latex=out.tex --json=o
 The whole run takes about one minute. The same script runs in CI
 (`.github/workflows/plugin_build.yml`), which uploads the JSON as a build artifact.
 
-## Results (2026-11-13, with calling contexts)
+## Results (2026-11-15, with calling contexts, globals, fields, tables, C tests)
 
 Two bounds are reported for a loop (see the plugin's README, "Calls"):
 
@@ -37,40 +37,43 @@ every call; of these, bound equal to / larger than / smaller than the pragma's m
 loops with no such bound; cost bound of the kernel's entry function `<kernel>_main`
 (abstract units, unit weights), or "—" if any loop or call it reaches is unbounded;
 loops bounded in context, and how many of those bounds equal the pragma's maximum
-(in context, 7 bounds are larger and 2 smaller).
+(in context, 7 bounds are larger and 2 smaller). Since 2026-11-15 the analysis tracks
+globals and `static` variables, fields read through pointer parameters, constant tables
+and C integer tests (`while (--j)`): `isqrt` gains a loop (a global counter), its entry
+function a bound, and one more loop is bounded in context.
 
-| Kernel | Loops | Derived | = max | > max | < max | No bound | `_main` bound | In context: derived | = max |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| binarysearch | 2 | 1 | 1 | 0 | 0 | 1 | — | 1 | 1 |
-| bitcount | 4 | 2 | 1 | 1 | 0 | 2 | — | 2 | 1 |
-| bitonic | 3 | 2 | 2 | 0 | 0 | 1 | — | 2 | 2 |
-| bsort | 4 | 4 | 4 | 0 | 0 | 0 | 240 702 | 4 | 4 |
-| complex_updates | 4 | 4 | 4 | 0 | 0 | 0 | 871 | 4 | 4 |
-| cosf | 3 | 0 | 0 | 0 | 0 | 3 | — | 0 | 0 |
-| countnegative | 4 | 4 | 4 | 0 | 0 | 0 | 5 752 | 4 | 4 |
-| cubic | 6 | 0 | 0 | 0 | 0 | 6 | — | 0 | 0 |
-| deg2rad | 1 | 0 | 0 | 0 | 0 | 1 | — | 0 | 0 |
-| fac | 1 | 0 | 0 | 0 | 0 | 1 | — | 0 | 0 |
-| fft | 12 | 10 | 8 | 2 | 0 | 2 | — | 10 | 8 |
-| filterbank | 14 | 11 | 11 | 0 | 0 | 3 | — | 11 | 11 |
-| fir2dim | 17 | 9 | 9 | 0 | 0 | 8 | — | 9 | 9 |
-| iir | 6 | 6 | 6 | 0 | 0 | 0 | 210 | 6 | 6 |
-| insertsort | 4 | 2 | 2 | 0 | 0 | 2 | — | 2 | 2 |
-| isqrt | 5 | 1 | 1 | 0 | 0 | 4 | — | 2 | 2 |
-| jfdctint | 4 | 4 | 4 | 0 | 0 | 0 | 2 699 | 4 | 4 |
-| lms | 7 | 4 | 4 | 0 | 0 | 3 | 115 950 | 7 | 7 |
-| ludcmp | 12 | 12 | 3 | 9 | 0 | 0 | 4 903 | 12 | 12 |
-| matrix1 | 7 | 7 | 7 | 0 | 0 | 0 | 15 496 | 7 | 7 |
-| md5 | 9 | 2 | 2 | 0 | 0 | 7 | — | 5 | 5 |
-| minver | 21 | 17 | 8 | 9 | 0 | 4 | — | 20 | 20 |
-| pm | 30 | 5 | 5 | 0 | 0 | 25 | — | 5 | 5 |
-| prime | 1 | 0 | 0 | 0 | 0 | 1 | — | 0 | 0 |
-| quicksort | 16 | 4 | 3 | 0 | 1 | 12 | — | 4 | 3 |
-| rad2deg | 1 | 0 | 0 | 0 | 0 | 1 | — | 0 | 0 |
-| recursion | 0 | 0 | 0 | 0 | 0 | 0 | — | 0 | 0 |
-| sha | 17 | 10 | 6 | 4 | 0 | 7 | — | 11 | 6 |
-| st | 5 | 5 | 5 | 0 | 0 | 0 | 65 074 | 5 | 5 |
-| **Total** | **220** | **126** | **100** | **25** | **1** | **94** | **9 of 29** | **137** | **128** |
+| Kernel | Loops | Derived | = max | > max | < max | No bound | Not reached | `_main` bound | In context: derived | = max | > max | < max |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| binarysearch | 2 | 1 | 1 | 0 | 0 | 1 | 0 | — | 1 | 1 | 0 | 0 |
+| bitcount | 4 | 2 | 1 | 1 | 0 | 2 | 0 | — | 2 | 1 | 1 | 0 |
+| bitonic | 3 | 2 | 2 | 0 | 0 | 1 | 0 | — | 2 | 2 | 0 | 0 |
+| bsort | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 240 702 | 4 | 4 | 0 | 0 |
+| complex_updates | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 871 | 4 | 4 | 0 | 0 |
+| cosf | 3 | 0 | 0 | 0 | 0 | 3 | 0 | — | 0 | 0 | 0 | 0 |
+| countnegative | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 5 752 | 4 | 4 | 0 | 0 |
+| cubic | 6 | 0 | 0 | 0 | 0 | 6 | 0 | — | 0 | 0 | 0 | 0 |
+| deg2rad | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
+| fac | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
+| fft | 12 | 10 | 8 | 2 | 0 | 2 | 0 | — | 10 | 8 | 2 | 0 |
+| filterbank | 14 | 11 | 11 | 0 | 0 | 3 | 0 | — | 11 | 11 | 0 | 0 |
+| fir2dim | 17 | 9 | 9 | 0 | 0 | 8 | 0 | — | 9 | 9 | 0 | 0 |
+| iir | 6 | 6 | 6 | 0 | 0 | 0 | 0 | 210 | 6 | 6 | 0 | 0 |
+| insertsort | 4 | 2 | 2 | 0 | 0 | 2 | 0 | — | 2 | 2 | 0 | 0 |
+| isqrt | 5 | 2 | 2 | 0 | 0 | 3 | 0 | 861 860 | 3 | 3 | 0 | 0 |
+| jfdctint | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 2 699 | 4 | 4 | 0 | 0 |
+| lms | 7 | 4 | 4 | 0 | 0 | 3 | 0 | 115 950 | 7 | 7 | 0 | 0 |
+| ludcmp | 12 | 12 | 3 | 9 | 0 | 0 | 0 | 4 903 | 12 | 12 | 0 | 0 |
+| matrix1 | 7 | 7 | 7 | 0 | 0 | 0 | 0 | 15 496 | 7 | 7 | 0 | 0 |
+| md5 | 9 | 2 | 2 | 0 | 0 | 7 | 0 | — | 5 | 5 | 0 | 0 |
+| minver | 21 | 17 | 8 | 9 | 0 | 4 | 0 | — | 20 | 20 | 0 | 0 |
+| pm | 30 | 5 | 5 | 0 | 0 | 25 | 0 | — | 5 | 5 | 0 | 0 |
+| prime | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
+| quicksort | 16 | 4 | 3 | 0 | 1 | 12 | 0 | — | 4 | 3 | 0 | 1 |
+| rad2deg | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
+| recursion | 0 | 0 | 0 | 0 | 0 | 0 | 0 | — | 0 | 0 | 0 | 0 |
+| sha | 17 | 10 | 6 | 4 | 0 | 7 | 0 | — | 11 | 6 | 4 | 1 |
+| st | 5 | 5 | 5 | 0 | 0 | 0 | 0 | 65 074 | 5 | 5 | 0 | 0 |
+| **Total** | **220** | **127** | **101** | **25** | **1** | **93** | **0** | **10 kernels** | **138** | **129** | **7** | **2** |
 
 ## Certificates
 
@@ -81,7 +84,7 @@ checker on them and fails if one is rejected.
 
 On 2026-11-14, after early exits, `switch`, `&&` tests and unsigned variables were added
 to the generator: **156 of the 158 bounded functions** get a certificate, **all accepted
-by the checker** (before: 142). The entry functions `<kernel>_main` of 9 kernels are
+by the checker** (before: 142; 158 of 160 since 2026-11-15). The entry functions `<kernel>_main` of 9 kernels are
 certified. 141 certified bounds equal the plugin's bound; 12 are smaller (9:
 `__kernel_cosf` and its callers, in four kernels: the forward assertions show that an
 expensive branch cannot follow an earlier test; 3 in `bsort`: the iteration that leaves
@@ -98,7 +101,7 @@ Since program certificates (2026-11-14) the figures are unchanged (156 of 158, 1
 (a summary) instead of being inlined. No kernel function has a summary that depends on its
 parameters: the kernels' loops have constant bounds.
 
-## Sequential and application programs (2026-11-14)
+## Sequential and application programs (2026-11-15)
 
 ```bash
 python3 benchmarks/tacle/run_tacle.py --category sequential --category app \
@@ -111,10 +114,17 @@ concatenation), without annotations, 572 loops with a flow fact:
 
 | | Derived | = flow fact | > flow fact | < flow fact | No bound | Not reached |
 |---|---|---|---|---|---|---|
-| for every call | 263 | 252 | 7 | 4 | 299 | 10 |
-| in context | 317 | 297 | 15 | 5 | | |
+| for every call | 273 | 257 | 7 | 9 | 289 | 10 |
+| in context | 328 | 303 | 15 | 10 | | |
 
-- **Below the flow fact (5 in context), none a counter-example.** `h264_dec`: two loops
+(2026-11-14, before globals, fields, tables and C integer tests: 263 / 252 / 7 / 4 for
+every call, 317 / 297 / 15 / 5 in context.)
+
+- **Below the flow fact (10 in context), none a counter-example.** Besides the five
+  below, a loop of `lift` (`for (lift_level = 1; lift_level < 14; ++lift_level)`, 13
+  iterations; flow fact 14) and four more loops of `h264_dec` under `if (smb)`, where
+  `smb` is set to 0 and never changed (bound 0: the C test `if (smb)` is now a fact).
+  The five of 2026-11-14: `h264_dec`: two loops
   `for (i = 0; i < sizeof(a); ++i)` over `signed char [65][65][2]` and
   `short [2][45][45]` run 8,450 and 8,100 times, the bounds derived; the flow facts say
   33,800 and 16,200. Two loops of `h264_dec_decode_one_macroblock` are in a branch that
@@ -127,9 +137,10 @@ concatenation), without annotations, 572 loops with a flow fact:
   does not track (see `docs/proposals.md` §4).
 - **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
   `statemate`.
-- **Certificates: 232 of 252 bounded functions, all 232 accepted by the checker**; 209
-  equal to the plugin's bound, 16 smaller; 169 calls are checked against the callee's
-  certificate (program certificates, 2026-11-14). Not certified: assignments inside expressions
+- **Certificates: 231 of 263 bounded functions, all 231 accepted by the checker**; 208
+  equal to the plugin's bound, 13 smaller; 165 calls are checked against the callee's
+  certificate. Not certified: assignments inside expressions (17), loop tests or conditions
+  with a call or an assignment (10), calls with a trusted cost (5). (2026-11-14: 232 of 252.) Not certified: assignments inside expressions
   (15, `gsm_dec` and `gsm_enc`: the macros of the GSM code, e.g. `STEP`, use `*LARc++`
   inside an expression), calls to library functions
   with a trusted cost (5, `susan`: `sqrtf`, `atanf`, `cosf`, …).
@@ -208,8 +219,8 @@ are never called, which Clang does not emit, so ScalarEvolution never sees them)
 
 | | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange |
 |---|---:|---:|---:|---:|
-| bounded | 126 | 137 | 113 (+46 type range only) | 131 |
-| equal to the flow fact | 100 | 128 | 108 | 127 |
+| bounded | 127 | 138 | 113 (+46 type range only) | 131 |
+| equal to the flow fact | 101 | 129 | 108 | 127 |
 | larger | 25 | 7 | 5 | 3 |
 | smaller | 1 (loose flow fact) | 2 (loose flow facts) | 0 | 1 (wrong bound, see below) |
 
@@ -232,11 +243,11 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 
 | loops reached (208) | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange | flow fact |
 |---|---:|---:|---:|---:|---:|
-| bounded | 126 | 137 | 113 | 131 | 208 |
+| bounded | 127 | 138 | 113 | 131 | 208 |
 | below the observed count | **0** | **0** | **0** | 1 | 2 |
-| equal to it | 100 | 129 | 107 | 127 | 198 |
+| equal to it | 101 | 130 | 107 | 127 | 198 |
 | above it | 26 | 8 | 6 | 3 | 8 |
-| bound / observed: median, geometric mean, max | 1.00, 1.93, 166.7 | 1.00, 1.06, 102.3 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
+| bound / observed: median, geometric mean, max | 1.00, 1.92, 166.7 | 1.00, 1.06, 102.3 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
 
 (Ratios are over the loops with a nonzero count.)
 
@@ -264,8 +275,8 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 **oRange** analyses the whole program from `main`, propagating the values of the
 built-in input: its bounds are bounds for the program as given, like the flow facts,
 and it agrees with them on 127 of its 131 loops. The comparable CrossCheck bounds are
-those in context. Compared loop by loop: 113 loops are bounded by both, with
-**identical bounds on all 113** (against CrossCheck's bounds for every call: 87
+those in context. Compared loop by loop: 114 loops are bounded by both, with
+**identical bounds on all 114** (against CrossCheck's bounds for every call: 87
 identical, oRange tighter on 18, in `ludcmp` and `minver`). 18 loops are bounded only
 by oRange: 12 with floating-point counters (`cosf`, `deg2rad`, `rad2deg`, `pm`, 8 in
 `fir2dim`), loops on a global or `volatile` counter (`isqrt`, `insertsort`, and the
@@ -281,9 +292,9 @@ finish in 600 s. It took 251 s on `pm` and at most 7 s on the others.
 
 | | CrossCheck | KoAT2 | CoFloCo | Infer |
 |---|---:|---:|---:|---:|
-| entry functions with a numeric bound | 9 | 5 | 8 | 14 |
+| entry functions with a numeric bound | 10 | 5 | 8 | 14 |
 | entry functions with a symbolic bound | 0 | 5 | 0 | 2 |
-| functions with a numeric / symbolic bound | 158 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
+| functions with a numeric / symbolic bound | 160 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
 
 Reading this table:
 

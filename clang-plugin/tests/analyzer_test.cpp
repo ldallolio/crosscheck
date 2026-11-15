@@ -713,6 +713,128 @@ TEST(Unsound, ContractArgumentWithoutBoundIsRejected) {
   EXPECT_TRUE(anyErrorContains(fn(r, "f"), "has no upper bound, which its contract needs"));
 }
 
+// --- legacy C idioms: globals, struct fields, tables, `--j` tests, intrinsics ------
+
+TEST(Globals, TrackedWithAnAssumption) {
+  Report r = check(R"(
+    int nbits;
+    CROSSCHECK_REALTIME int f() {
+      nbits = 16; int c = 0;
+      for (int i = 0; i < nbits; i++) c++;
+      return c;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  EXPECT_TRUE(f.ok);
+  EXPECT_EQ(f.loops.at(0).bound, 16u);
+  EXPECT_TRUE(anyAssumptionContains(f, "not modified by interrupts"));
+}
+
+TEST(Unsound, GlobalResetByACalleeInTheLoop) {
+  Report r = check(R"(
+    int k;
+    static void touch() { k = 0; }
+    CROSSCHECK_REALTIME int f() {
+      k = 0;
+      while (k < 10) { k++; touch(); }
+      return k;
+    })");
+  EXPECT_FALSE(fn(r, "f").ok);
+}
+
+TEST(Unsound, GlobalWhoseAddressIsTaken) {
+  Report r = check(R"(
+    int k;
+    int* pk = &k;
+    CROSSCHECK_REALTIME int f() {
+      k = 0;
+      while (k < 10) { k++; *pk = 0; }
+      return k;
+    })");
+  EXPECT_FALSE(fn(r, "f").ok);
+}
+
+TEST(Unsound, VolatileGlobalLimit) {
+  Report r = check(R"(
+    volatile int lim;
+    CROSSCHECK_REALTIME int f() { int c = 0; for (int i = 0; i < lim && i >= 0; i++) c++; return c; })");
+  EXPECT_FALSE(fn(r, "f").ok);
+}
+
+TEST(Fields, ReadThroughAPointerParameter) {
+  Options o;
+  ASSERT_TRUE(o.parse("input-range=1,64"));
+  Report r = check(R"(
+    struct Inst { unsigned short numTaps; const short* coeffs; };
+    CROSSCHECK_REALTIME int dot(const Inst* S, const short* x) {
+      int acc = 0;
+      for (unsigned k = 0; k < S->numTaps; k++) acc += S->coeffs[k] * x[k];
+      return acc;
+    })", o);
+  const FunctionReport& f = fn(r, "dot");
+  EXPECT_TRUE(f.ok);
+  EXPECT_EQ(f.loops.at(0).bound, 64u);
+  EXPECT_TRUE(anyAssumptionContains(f, "S->numTaps are not modified"));
+  EXPECT_TRUE(anyAssumptionContains(f, "input-range"));
+}
+
+TEST(Unsound, FieldWrittenInTheFunctionIsNotASymbol) {
+  Report r = check(R"(
+    struct C { int n; };
+    CROSSCHECK_REALTIME int f(C* c) {
+      int k = 0;
+      c->n = 5;
+      while (k < c->n) { k++; c->n = c->n + 1; }
+      return k;
+    })");
+  EXPECT_FALSE(fn(r, "f").ok);
+}
+
+TEST(Tables, ConstTableGivesTheRangeOfItsEntries) {
+  Report r = check(R"(
+    static const unsigned char kLen[4] = {3, 8, 12, 5};
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 3) int kind) {
+      int n = kLen[kind], s = 0;
+      for (int i = 0; i < n; i++) s++;
+      return s;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+  EXPECT_EQ(fn(r, "f").loops.at(0).bound, 12u);
+}
+
+TEST(Loops, PreDecrementTest) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 64) unsigned n) {
+      unsigned j = n; int c = 0;
+      do { c++; } while (--j);
+      return c;
+    })");
+  EXPECT_TRUE(fn(r, "f").ok);
+}
+
+TEST(Unsound, PreDecrementTestFromZero) {
+  // j = 0: --j wraps to 2^32 - 1, and the loop runs about 2^32 times.
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 64) unsigned n) {
+      unsigned j = n; int c = 0;
+      while (--j) c++;
+      return c;
+    })");
+  EXPECT_FALSE(fn(r, "f").ok);
+}
+
+TEST(Cost, TargetIntrinsicsAndInlineAssembly) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(int a) {
+      int r = ({ int t = a; __asm__ volatile ("nop" ::: "memory"); t; });
+      __builtin_ia32_pause();
+      return r;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  EXPECT_TRUE(f.ok);
+  EXPECT_TRUE(anyAssumptionContains(f, "inline assembly"));
+  EXPECT_TRUE(anyAssumptionContains(f, "target intrinsics"));
+}
+
 // --- facts kept when a loop is left through `break` -------------------------------
 
 TEST(Loops, BreakKeepsTheInvariantsForTheNextLoop) {

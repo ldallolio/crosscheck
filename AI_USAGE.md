@@ -652,6 +652,43 @@ What the AI did for 31 (design choices are the AI's):
   accepted, 92 with a summary in their parameters (KoAT2 linear for 67 of them), 39 contract
   entries; examples 11 of 15 bounded functions, 3 with a summary. 138 tests pass.
 
+32. "Proceed with step 4"
+33. (sent while the AI was working) "try again, continue what you were doing"
+34. "proceed with the next step"
+
+What the AI did for 32-34 (step 4 of `docs/proposals.md` §5; design choices are the AI's):
+- Code base: CMSIS-DSP (Arm, Apache-2.0) and CMSIS 6 Core, pinned, fetched into a
+  gitignored cache, analysed for a Cortex-M4 target with generated freestanding stubs
+  (`benchmarks/cmsis/run_cmsis.py`). The blockers were measured first and drove the work.
+- Plugin (analysis): annotations usable in C; target intrinsics, straight-line statement
+  expressions and inline assembly costed (assumptions); `input-range=LO,HI` (assumption);
+  fields read through pointer parameters as entry symbols (assumption: not modified while
+  the function runs); globals and static locals tracked (assumption: no interrupt, thread,
+  bodiless function or inline assembly writes them), cleared after calls that may write
+  them, also inside loops; constant tables; C integer tests as `!= 0`; absolute-bound
+  invariant candidates for variables modified by the loop test (`while (--j)`); C++
+  pre-increment lvalues. A performance regression (`cjpeg_transupp` > 30 min) was found by
+  the AI on the benchmark campaign, bisected to these candidates and fixed (100 s).
+- Lean: checker node `havocC` (an unknown value with constraints), proof case in
+  `check_sound`, examples `shiftCert_checks` / `shiftCert_rejected`; 215 theorems.
+  Plugin certificates: `havocC` for shifts, divisions, remainders, masks and table reads,
+  shared variables for globals, field variables, scaled potentials for fractional
+  summaries (`blockSize >> 2`). Paper I: the constrained atom in the linear instance and
+  the checker description.
+- Tests: 149 (must-be-rejected: callee resetting a global, escaped global, volatile limit,
+  written field, `--j` from 0; a C-language test).
+- Results: TACLeBench kernels 127 / 138 loops (every call / in context; were 126 / 137),
+  entry functions 10 (were 9), certificates 158 of 160, no bound below an observed count,
+  in-context bounds equal to oRange's on all 114 common loops; sequential/app 273 / 328
+  (were 263 / 317), the 10 in-context bounds below a flow fact all checked by the AI in the
+  sources (dead branches, overstated facts); TPDB 166 with ranges (was 165); CMSIS-DSP 161
+  functions as is, 616 of 786 with ranges and context (357 before the step).
+- Not done: pointer iterators (no measured need in these code bases); logarithmic loops.
+- Documents: Paper II (implementation, results, a paragraph on CMSIS-DSP, limitations),
+  READMEs (plugin, tacle, tpdb, new cmsis), certificate format, guide, proposals,
+  CLAUDE.md. **Author to check** the new assumptions' wording and that the CMSIS-DSP
+  harness (ranges, context, illustrative contracts) is a fair way to report coverage.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

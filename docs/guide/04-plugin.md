@@ -203,6 +203,13 @@ What is easy to get wrong, and why the code is as it is:
   symbolic (`symbolicUpper`) only if no looser there. Calls of certified functions are
   `call` nodes (`certCallNode`): parameters := arguments, precondition proved, argument
   bounds, frame. Trusted costs are contract entries (`contractFun`).
+- **Legacy C (step 4).** Globals and statics: tracked if non-`volatile`, non-`const` and
+  never address-taken in the TU (`scanGlobals`); `globalWrites` (transitive) clears them
+  after calls and adds them to loop modifications (`ModScan::callWrites`). Fields `p->f`:
+  `fieldSyms` at entry (`FieldScan`). Tables: `tableRange`. C integer tests: `evalCond`
+  fallback `v != 0`. Intrinsics, `({ })`, `asm`: `asmCost`, `straightLine`. In
+  certificates: one shared variable per global, field variables, `havocC` for divisions and
+  tables. Each comes with the assumption listed in the report.
 - **Unsigned.** `certAffine` is exact (signed arithmetic, value-preserving conversions
   only); `certModular` gives a value modulo 2^w for unsigned stores; `certStore` adds
   the range test. Nothing about wrap-around is decided by the generator alone.
@@ -220,13 +227,15 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (138)
+## 9. Tests (149)
 
 | Suite | Count | Checks |
 |---|---|---|
 | `core_test` (`LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds`, `Cert`) | 20 | arithmetic, entailment, intervals, potentials, the checker's vector operations, Farkas, elimination |
 | `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 59 | expected bounds and behaviours (incl. summaries, call nodes, library contract files) |
-| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 20 | must be rejected (incl. a contract argument without a bound) |
+| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 26 | must be rejected (incl. a contract argument without a bound, globals reset by a callee or escaped, `volatile` limits, written fields, `--j` from 0) |
+| `Globals`, `Fields`, `Tables`, `Cost.TargetIntrinsicsAndInlineAssembly`, `Loops.PreDecrementTest` | 5 | legacy C idioms |
+| `c_annotations` | 1 | the annotations in C (`tests/c/annotations.c`) |
 | `RealTime/Profile` | 11 | forbidden constructs |
 | `Benchmarks` | 10 | Table `tab:plugin` figures |
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |

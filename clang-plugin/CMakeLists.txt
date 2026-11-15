@@ -128,6 +128,10 @@ if(BUILD_TESTING)
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_exports.py
         $<TARGET_FILE:crosscheck-tool> ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${SCHEMA_ARG}
         -- ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+    add_test(NAME c_annotations
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_c.sh $<TARGET_FILE:crosscheck-tool>
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/c/annotations.c ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
     add_test(NAME bounds_equal_baseline
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_baseline.sh $<TARGET_FILE:crosscheck-tool>
         ${BENCH} ${CMAKE_CURRENT_SOURCE_DIR}/include ${Python3_EXECUTABLE} ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})

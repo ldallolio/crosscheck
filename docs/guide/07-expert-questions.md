@@ -70,7 +70,7 @@ limitation, it says so.
 
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
-  (`check_sound`), the examples. 208 theorems, no `sorry`, three standard axioms.
+  (`check_sound`), the examples. 215 theorems, no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
   translation from C/C++; the plugin.

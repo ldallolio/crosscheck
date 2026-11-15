@@ -70,6 +70,7 @@ postcondition. Everything is integer data:
 | `skip` | – | `P = Q`, `B = 0` |
 | `assign w x a` | weight, variable, `PExp` | `P = Q[a/x]` (syntactically, constraint by constraint), `B = w` |
 | `havoc w x` | weight, variable | `P = Q`, `x` does not occur in `Q`, `B = w` |
+| `havocC w x cs` | weight, variable, constraints `cs` (each `g ≤ 0`, program variables only) | `x` does not occur in `P`; `Q = P ++ cs`; `B ≥ w` (an unknown value of which the constraints hold) |
 | `seq c₁ mid B₁ B₂ c₂` | intermediate assertion, two bounds | both parts accepted, `B = B₁ + B₂` |
 | `ite w g B₁ B₂ c₁ c₂` | test `g ≤ 0`, two bounds | `c₁` accepted from `g ≤ 0 :: P`, `c₂` from `1 − g ≤ 0 :: P`, `B = w + max B₁ B₂` |
 | `while w g inv pot d k kl j posCert Wb body` | invariant, potential `pot/d`, entry bound `K = k + Σ kl[i]·γᵢ` (`kl` optional), logical variable `j`, certificate of `pot ≥ d`, body bound | `d ≥ 1`; `P = (pot − K ≤ 0) :: inv`; `Q = (1 − g ≤ 0) :: inv`; `γⱼ` neither in `inv` nor in `Wb`; `posCert` proves `d − pot ≤ 0` from `g :: inv`; body accepted from `(pot − γⱼ ≤ 0) :: g :: inv` to `(pot + d − γⱼ ≤ 0) :: inv` with bound `Wb`; either `kl = 0` and `B ≥ ⌊k/d⌋·(w + Wb) + w`, or `Wb` constant, `B.c ≥ w`, `(w+Wb)·k ≤ d·(B.c − w)` and `(w+Wb)·kl ≤ d·B.co` (`loopBoundOk`) |
@@ -84,7 +85,7 @@ vectors the checker computes (e.g. for `assign`, apply the same substitution as
 worked example; use it as the first test.
 
 JSON field names: `skip`; `assign {w, x, a}`; `havoc {w, x}`; `seq {c1, mid, B1, B2, c2}`;
-`ite {w, g, B1, B2, c1, c2}`; `while {w, g, inv, pot, d, k, j, posCert, Wb, body}`;
+`havocC {w, x, cs}`; `ite {w, g, B1, B2, c1, c2}`; `while {w, g, inv, pot, d, k, j, posCert, Wb, body}`;
 `whileAnd {w, gs, inv, pot, d, k, j, posCert, Wb, body}` (both with an optional `kl`);
 `call {w, f, inst, preCerts, ubs, ubCerts}`; bounds `B1`, `B2`, `Wb`, `B`, `bound`, `ubs[j]` are
 symbolic bounds;
@@ -143,6 +144,15 @@ symbolic bounds;
 - **`&&` loop tests** become the list of a `whileAnd` node; a conjunct that is not a
   linear comparison (`||`, `!=`, a memory read) is replaced by a choice variable
   `?test<j>` havocked before the test.
+- **Shifts, quotients, remainders and masks by constants** (`x = y >> k`, `y / c`, `y % c`,
+  `y & m`, and `x >>= k` …): `if (0 ≤ y) x := ? with c·x ≤ y ≤ c·x + c − 1` (or `0 ≤ x ≤
+  c − 1, x ≤ y`; `0 ≤ x ≤ m`) `else x := ?` (`havocC`), when the result type fits `x`.
+- **Constant tables**: `x = tab[i]` for a `const` integer array with a constant
+  initializer is `x := ? with min ≤ x ≤ max` of its entries.
+- **Globals and static locals**: one variable of the program certificate each, shared by all
+  functions (a callee's writes are in its `mods`). **Fields** `p->f` read through pointer
+  parameters: a variable never assigned (its value at entry); the precondition contains the
+  `input-range` facts.
 - **Unsigned variables** of width w: the plugin computes an affine `a` congruent to the
   stored value modulo 2^w (sums, differences and multiples, through conversions that
   keep values or reduce modulo at least 2^w), and emits

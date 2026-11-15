@@ -15,14 +15,15 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 208 theorems. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 215 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 29 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 13 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 135 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 149 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
+| `benchmarks/cmsis/` | `run_cmsis.py`: fetches CMSIS-DSP (Arm, Apache-2.0) and CMSIS 6 Core at pinned revisions into `.cache/` (gitignored), analyses every source file for a Cortex-M4 target (freestanding stubs generated), as is and with input ranges + group context + illustrative `memset`/`memcpy` contracts; classifies blockers. Results in its `README.md` and Paper II paragraph "An embedded library". |
 | `references/` | `fetch_papers.py` downloads open-access copies of cited papers into `references/pdf/` (gitignored: do not commit PDFs, most are copyrighted); `README.md` records, per entry, the source and what was actually read and checked. Update it when a paper is read. |
 | `docs/proposals.md` | Argued proposals and order after the first certificate results: scientific (verified lowering, modular symbolic certificates…), industrial (flow-fact export, CI, qualification, contracts), legacy-language subset. |
 | `docs/implementation-plan.md` | Hand-off from the theory phase: what is proved, the certificate format (= Lean type `ACmd`), and the ordered implementation tasks. Keep it current. |
@@ -243,8 +244,9 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
    `docs/implementation-plan.md`**: checker executable, certificate emission by the plugin,
    checker extensions, symbolic bounds, library contracts, industrial C coverage, flow-fact
    export, Rust front-end. The paper is split (theory + Lean; tool + evaluation). The order
-   of the next steps is `docs/proposals.md` §5; steps 1-3 are done (Nov 2026: early exits,
-   switch, unsigned; flow-fact export and SARIF; symbolic summaries, calls and contracts).
+   of the next steps is `docs/proposals.md` §5; steps 1-4 are done (Nov 2026: early exits,
+   switch, unsigned; flow-fact export and SARIF; symbolic summaries, calls and contracts;
+   legacy C idioms measured on CMSIS-DSP).
    Plugin precision done so far (Nov 2026): calling contexts as argument intervals
    (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
    remains, agreed with the author — **with theory and Lean** (new certificates): symbolic

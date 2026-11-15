@@ -205,12 +205,38 @@ symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas) {
   return best;
 }
 
+std::int64_t symbolicScale(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas) {
+  Assn q = p;
+  q.push_back(Lin{vadd(e.sv, vsmul(-1, unitVec(t))), {}, e.c});
+  q.push_back(Lin{vadd(vsmul(-1, e.sv), unitVec(t)), {}, -e.c});
+  std::size_t nv = 0;
+  for (const Lin& l : q) nv = std::max(nv, l.sv.size());
+  for (std::size_t x = 0; x < nv; ++x)
+    if (x != t && mentions(q, x)) q = eliminate(q, x);
+  std::int64_t best = 0;
+  for (const Lin& l : q) {
+    std::int64_t a = coeff(l.sv, t);
+    if (a <= 1) continue;
+    bool ok = true, sym = false;
+    for (std::size_t x = 0; x < l.sv.size(); ++x)
+      if (x != t && l.sv[x] != 0) ok = false;
+    for (std::size_t g = 0; g < l.lv.size(); ++g) {
+      if (l.lv[g] != 0 && g >= gammas) ok = false;
+      if (l.lv[g] > 0) ok = false;
+      if (l.lv[g] < 0) sym = true;
+    }
+    if (ok && sym && (!best || a < best)) best = a;
+  }
+  return best;
+}
+
 std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std::size_t>>& mods) {
   std::vector<std::size_t> out;
   std::function<void(const Node&)> go = [&](const Node& m) {
     switch (m.kind) {
       case Node::Assign:
-      case Node::Havoc: out.push_back(m.x); break;
+      case Node::Havoc:
+      case Node::HavocC: out.push_back(m.x); break;
       case Node::Seq:
       case Node::Ite: go(*m.c1); go(*m.c2); break;
       case Node::While:
@@ -480,6 +506,11 @@ std::string node(const Node& n) {
     case Node::Assign:
       return "{\"node\":\"assign\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + ",\"a\":" + pexp(n.a) + "}";
     case Node::Havoc: return "{\"node\":\"havoc\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + "}";
+    case Node::HavocC: {
+      std::string cs = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) cs += (i ? "," : "") + pexp(n.gs[i]);
+      return "{\"node\":\"havocC\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + ",\"cs\":" + cs + "]}";
+    }
     case Node::Seq:
       return "{\"node\":\"seq\",\"c1\":" + node(*n.c1) + ",\"mid\":" + assn(n.mid) + ",\"B1\":" +
              sb(n.b1) + ",\"B2\":" + sb(n.b2) + ",\"c2\":" + node(*n.c2) + "}";

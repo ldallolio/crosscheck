@@ -63,6 +63,11 @@ struct Options {
   /// Library contracts (JSON, docs/contracts.md): trusted cost bounds of functions,
   /// linear in their integer arguments; listed in the report's assumptions.
   std::string contractsPath;
+  /// Assumed range of the integer inputs that have no declared range: parameters and the
+  /// fields read through pointer parameters. Unsigned inputs get [inputLo, inputHi],
+  /// signed ones [-inputHi, inputHi]. Listed as an assumption; not checked at call sites.
+  bool inputRange = false;
+  std::int64_t inputLo = 0, inputHi = 0;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -84,6 +89,17 @@ struct Options {
     }
     if (key == "sarif") { sarifPath = value; return !value.empty(); }
     if (key == "contracts") { contractsPath = value; return !value.empty(); }
+    if (key == "input-range") {
+      auto comma = value.find(',');
+      std::string lo = comma == std::string::npos ? "0" : value.substr(0, comma);
+      std::string hi = comma == std::string::npos ? value : value.substr(comma + 1);
+      for (const std::string& x : {lo, hi})
+        if (x.empty() || x.size() > 18 || x.find_first_not_of("0123456789") != std::string::npos) return false;
+      inputLo = std::stoll(lo);
+      inputHi = std::stoll(hi);
+      inputRange = inputLo <= inputHi;
+      return inputRange;
+    }
     if (key == "sarif-base") { sarifBase = value; return !value.empty(); }
     if (key == "certificates") {
       certificates = true;

@@ -177,11 +177,28 @@ nested loops are multiplied without amortisation.
 
 ## How bounds are derived
 
-**State.** Each tracked local integer variable is mapped to an affine expression
+**State.** Each tracked integer variable is mapped to an affine expression
 over symbols; path conditions and invariants are linear constraints over the
 same symbols. A local is tracked if its address is never taken and it is not
-captured or bound to a reference. Everything else (globals, fields, memory,
-results of calls) is an unknown value.
+captured or bound to a reference. Memory and results of calls are unknown values,
+except for the following, each with the assumption it needs listed in the report:
+
+| Value | How | Assumption (listed) |
+|---|---|---|
+| global or `static` variable (non-`volatile`, non-`const`, address never taken in the translation unit) | tracked; unknown at entry; after a call, the globals the callee may write (transitively) become unknown, also inside loops | not modified by interrupts, other threads, functions without an analysed body or inline assembly while the function runs |
+| field `p->f` read through a pointer parameter, if the function neither writes `p->f` nor changes `p` | one symbol: its value at entry | not modified while the function runs (aliasing pointers, callees, inline assembly, interrupts) |
+| `tab[i]` from a `const` integer array with a constant initializer | an unknown value in [min, max] of the entries | none (an out-of-bounds read is undefined behaviour, like signed overflow) |
+| `y >> k`, `y / c`, `y % c`, `y & m` with constants | facts `c·q ≤ y ≤ c·q + c − 1` etc., when `y ≥ 0` is proved | none |
+| `while (--j)`, `if (x)` | tests `!= 0` (also in C, where they have no conversion to `bool`) | none |
+
+The option `input-range=LO,HI` assumes every integer input without a declared range
+(parameters and such fields) in `[LO, HI]` (unsigned) or `[-HI, HI]` (signed): a harness
+for libraries whose sizes are parameters (CMSIS-DSP, `benchmarks/cmsis`); the
+assumption names the inputs. Target intrinsics (`__builtin_arm_*`, behind the CMSIS
+intrinsics) cost one arithmetic unit, straight-line GNU statement expressions `({ ... })`
+are evaluated, and inline assembly costs one arithmetic unit per instruction of its
+template (an assumption); `asm goto` is rejected. The annotations work in C and in C++
+(`CROSSCHECK_*` expand to `__attribute__((annotate))` in C).
 
 **Loops.** For each loop the analyser
 
@@ -370,8 +387,8 @@ A GitHub Actions job for a project that uses the tool:
   is bounded by `O(n²)`).
 - **Calling contexts are intervals of integer arguments.** Relations between
   arguments, values of globals, and what a callee leaves in memory are not passed
-  to the callee or back; recursive functions get no context. Bounds are numbers,
-  not expressions in the parameters.
+  to the callee or back; recursive functions get no context. The analysis' bounds are
+  numbers (certificates add summaries in the parameters).
 - **Integers only.** Loop counters that are pointers, iterators or floating-point
   values are not tracked; iterate by index or state the bound. Range-`for` is
   supported over C arrays and `std::array`.

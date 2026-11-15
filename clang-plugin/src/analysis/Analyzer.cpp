@@ -15,6 +15,7 @@
 #include "Analyzer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <map>
 #include <numeric>
@@ -224,7 +225,9 @@ const CallExpr* asMarker(const Stmt* s, llvm::StringRef name) {
   const auto* call = dyn_cast<CallExpr>(so->getArgumentExpr()->IgnoreParenCasts());
   if (!call) return nullptr;
   const FunctionDecl* fd = call->getDirectCallee();
-  if (!fd || fd->getQualifiedNameAsString() != ("crosscheck::detail::" + name.str()))
+  // C++: `crosscheck::detail::NAME`; C: `crosscheck_detail_NAME` (attributes.hpp).
+  if (!fd || (fd->getQualifiedNameAsString() != ("crosscheck::detail::" + name.str()) &&
+              fd->getQualifiedNameAsString() != ("crosscheck_detail_" + name.str())))
     return nullptr;
   return call->getNumArgs() == 1 ? call : nullptr;
 }
@@ -282,6 +285,18 @@ struct ModInfo {
 class ModScan : public RecursiveASTVisitor<ModScan> {
  public:
   ModScan(ASTContext& ctx) : ctx_(ctx) {}
+  /// The global variables a call may modify (set by the analyser): a call in the loop
+  /// modifies them, so they are loop-modified variables too.
+  std::function<std::set<const VarDecl*>(const CallExpr*)> callWrites;
+  bool VisitCallExpr(CallExpr* c) {
+    if (callWrites)
+      for (const VarDecl* g : callWrites(c)) {
+        ModInfo& m = mods[g];
+        m.nonNegative = m.nonPositive = false;
+        refs.insert(g);
+      }
+    return true;
+  }
   std::map<const VarDecl*, ModInfo> mods;
   std::set<const VarDecl*> refs;
   bool hasCaseLabel = false;
@@ -389,6 +404,12 @@ struct Summary {
   std::vector<std::optional<SymId>> paramSyms;
   /// Preconditions over `paramSyms` (CROSSCHECK_RANGE, CROSSCHECK_REQUIRE).
   std::vector<Constraint> requires_;
+  /// Facts assumed of the inputs (option input-range): true at entry, listed as an
+  /// assumption, not checked at call sites.
+  std::vector<Constraint> assumedInputs;
+  /// Integer fields read through pointer parameters, and the symbols of their values at
+  /// entry (assumed unchanged while the function runs).
+  std::map<std::pair<const ParmVarDecl*, const FieldDecl*>, SymId> fieldSyms;
   /// Why the function is rejected (first violation found), if it is.
   std::string reason;
   FunctionReport report;
@@ -551,8 +572,211 @@ class Analyzer {
     return p.isInvalid() ? 0 : p.getLine();
   }
 
+  // -- global variables ------------------------------------------------------
+  /// Globals and static locals whose address is taken somewhere in the translation unit
+  /// (never tracked).
+  std::set<const VarDecl*> globalEscaped_;
+  bool globalsScanned_ = false;
+  void scanGlobals() {
+    if (globalsScanned_) return;
+    globalsScanned_ = true;
+    struct G : RecursiveASTVisitor<G> {
+      std::set<const VarDecl*>* out;
+      bool shouldVisitTemplateInstantiations() const { return true; }
+      static const VarDecl* global(const Expr* e) {
+        const auto* d = dyn_cast<DeclRefExpr>(e->IgnoreParenImpCasts());
+        const auto* v = d ? dyn_cast<VarDecl>(d->getDecl()) : nullptr;
+        return v && v->hasGlobalStorage() ? v->getCanonicalDecl() : nullptr;
+      }
+      bool VisitUnaryOperator(UnaryOperator* u) {
+        if (u->getOpcode() == UO_AddrOf)
+          if (const VarDecl* v = global(u->getSubExpr())) out->insert(v);
+        return true;
+      }
+      bool VisitVarDecl(VarDecl* v) {  // a reference bound to a global
+        if (v->getType()->isReferenceType() && v->getInit())
+          if (const VarDecl* g = global(v->getInit())) out->insert(g);
+        return true;
+      }
+      bool VisitCallExpr(CallExpr* c) {  // a global passed to a reference parameter
+        if (const FunctionDecl* fd = c->getDirectCallee())
+          for (unsigned i = 0; i < c->getNumArgs() && i < fd->getNumParams(); ++i)
+            if (fd->getParamDecl(i)->getType()->isReferenceType())
+              if (const VarDecl* g = global(c->getArg(i))) out->insert(g);
+        return true;
+      }
+    } g;
+    g.out = &globalEscaped_;
+    g.TraverseDecl(ctx_.getTranslationUnitDecl());
+  }
+  bool trackableGlobal(const VarDecl* v) {
+    if (!v || !v->hasGlobalStorage() || v->hasLocalStorage()) return false;
+    QualType t = v->getType();
+    if (!isIntType(t) || t.isVolatileQualified() || v->getTLSKind() != VarDecl::TLS_None) return false;
+    // A const object cannot be modified (and its initializer is evaluated as a constant).
+    if (t.isConstQualified()) return false;
+    scanGlobals();
+    return !globalEscaped_.count(v->getCanonicalDecl());
+  }
+  /// The globals that a call of `fd` may modify: written in the bodies it may run
+  /// (transitively). Functions without an analysed body are assumed to modify none.
+  std::map<const FunctionDecl*, std::set<const VarDecl*>> globalWrites_;
+  const std::set<const VarDecl*>& globalWrites(const FunctionDecl* fd) {
+    const FunctionDecl* key = fd->getCanonicalDecl();
+    if (auto it = globalWrites_.find(key); it != globalWrites_.end()) return it->second;
+    std::set<const VarDecl*> out;
+    std::set<const FunctionDecl*> seen;
+    std::vector<const FunctionDecl*> work{key};
+    while (!work.empty()) {
+      const FunctionDecl* f = work.back();
+      work.pop_back();
+      if (!seen.insert(f).second) continue;
+      const FunctionDecl* def = nullptr;
+      if (!f->hasBody(def) || !def->getBody()) continue;
+      struct W : RecursiveASTVisitor<W> {
+        std::set<const VarDecl*>* out;
+        std::vector<const FunctionDecl*>* work;
+        void lhs(const Expr* e) {
+          const auto* d = dyn_cast<DeclRefExpr>(e->IgnoreParenImpCasts());
+          if (const auto* v = d ? dyn_cast<VarDecl>(d->getDecl()) : nullptr)
+            if (v->hasGlobalStorage()) out->insert(v->getCanonicalDecl());
+        }
+        bool VisitBinaryOperator(BinaryOperator* b) {
+          if (b->isAssignmentOp()) lhs(b->getLHS());
+          return true;
+        }
+        bool VisitUnaryOperator(UnaryOperator* u) {
+          if (u->isIncrementDecrementOp()) lhs(u->getSubExpr());
+          return true;
+        }
+        bool VisitCallExpr(CallExpr* c) {
+          if (const FunctionDecl* g = c->getDirectCallee()) work->push_back(g->getCanonicalDecl());
+          return true;
+        }
+        bool VisitCXXConstructExpr(CXXConstructExpr* c) {
+          work->push_back(c->getConstructor()->getCanonicalDecl());
+          return true;
+        }
+      } w;
+      w.out = &out;
+      w.work = &work;
+      w.TraverseStmt(def->getBody());
+    }
+    return globalWrites_.emplace(key, std::move(out)).first->second;
+  }
+  /// The tracked variables (globals) that a call may modify.
+  std::set<const VarDecl*> trackedWrittenBy(const CallExpr* c) {
+    std::set<const VarDecl*> out;
+    const FunctionDecl* fd = c->getDirectCallee();
+    if (!fd || stack_.empty()) return out;
+    const std::set<const VarDecl*>& w = globalWrites(fd);
+    for (const VarDecl* v : cur().tracked)
+      if (!v->hasLocalStorage() && w.count(v->getCanonicalDecl())) out.insert(v);
+    return out;
+  }
+  /// `tab[i]` for a const integer array with a constant initializer: the least and
+  /// greatest entry (missing trailing entries are 0). Whatever the index: reading out
+  /// of bounds is undefined behaviour, assumed absent like signed overflow.
+  std::map<const VarDecl*, std::optional<std::pair<std::int64_t, std::int64_t>>> tableRange_;
+  std::optional<std::pair<std::int64_t, std::int64_t>> tableRange(const Expr* e) {
+    const auto* as = dyn_cast<ArraySubscriptExpr>(e->IgnoreParenImpCasts());
+    if (!as || !isIntType(as->getType())) return std::nullopt;
+    const auto* d = dyn_cast<DeclRefExpr>(as->getBase()->IgnoreParenImpCasts());
+    const auto* v = d ? dyn_cast<VarDecl>(d->getDecl()) : nullptr;
+    if (!v) return std::nullopt;
+    if (auto it = tableRange_.find(v); it != tableRange_.end()) return it->second;
+    std::optional<std::pair<std::int64_t, std::int64_t>> out;
+    const auto* at = ctx_.getAsConstantArrayType(v->getType());
+    const VarDecl* def = v->getDefinition() ? v->getDefinition() : v;
+    const auto* il = def->getInit() ? dyn_cast<InitListExpr>(def->getInit()->IgnoreImplicit()) : nullptr;
+    if (at && at->getElementType().isConstQualified() && !at->getElementType().isVolatileQualified() &&
+        il && il->getNumInits() > 0) {
+      std::int64_t lo = 0, hi = 0;
+      bool ok = true, first = true;
+      for (const Expr* x : il->inits()) {
+        Expr::EvalResult r;
+        if (!x->EvaluateAsInt(r, ctx_) || r.Val.getInt().getSignificantBits() > 63) { ok = false; break; }
+        std::int64_t val = r.Val.getInt().getExtValue();
+        lo = first ? val : std::min(lo, val);
+        hi = first ? val : std::max(hi, val);
+        first = false;
+      }
+      if (ok && il->getNumInits() < at->getSize().getZExtValue()) { lo = std::min<std::int64_t>(lo, 0); hi = std::max<std::int64_t>(hi, 0); }
+      if (ok) out = std::make_pair(lo, hi);
+    }
+    tableRange_[v] = out;
+    return out;
+  }
+  /// After a call: the tracked globals the callee may modify are unknown.
+  void callClobbers(const FunctionDecl* fd, State& s) {
+    for (const VarDecl* g : globalWrites(fd))
+      for (auto it = s.val.begin(); it != s.val.end();)
+        if (it->first->getCanonicalDecl() == g) it = s.val.erase(it);
+        else ++it;
+  }
+
+  // -- GNU extensions used by intrinsic headers (CMSIS Core) -------------------
+  /// The statements of `({ ... })` if they are straight-line: declarations,
+  /// expressions and inline assembly (no control flow).
+  static std::optional<std::vector<const Stmt*>> straightLine(const StmtExpr* se) {
+    std::vector<const Stmt*> out;
+    for (const Stmt* st : se->getSubStmt()->body()) {
+      if (isa<NullStmt>(st)) continue;
+      if (!isa<DeclStmt>(st) && !isa<Expr>(st) && !isa<GCCAsmStmt>(st)) return std::nullopt;
+      if (const auto* a = dyn_cast<GCCAsmStmt>(st); a && a->isAsmGoto()) return std::nullopt;
+      out.push_back(st);
+    }
+    return out;
+  }
+  /// Inline assembly: one arithmetic unit per instruction of its template (trusted).
+  Cost asmCost(const GCCAsmStmt* a) {
+    if (a->isAsmGoto()) {
+      error(a->getBeginLoc(), "'asm goto' is not supported in a real-time function");
+      return Cost{};
+    }
+    std::string t = a->getAsmString()->getString().str();
+    std::uint64_t n = 0;
+    bool any = false;
+    for (char c : t + "\n") {
+      if (c == '\n' || c == ';') { n += any; any = false; }
+      else if (!std::isspace(static_cast<unsigned char>(c))) any = true;
+    }
+    std::string first = t.substr(0, t.find_first_of("\n;"));
+    assume("inline assembly ('" + first + "') costs one arithmetic unit per instruction");
+    Cost c{};
+    for (const Expr* in : a->inputs()) c = seq(c, exprCost(in));
+    return seq(c, unit(w_.arith * std::max<std::uint64_t>(1, n)));
+  }
+
   // -- symbols and values ---------------------------------------------------
   bool tracked(const VarDecl* v) { return v && cur().tracked.count(v); }
+
+  void addInputRange(FnCtx& fc, SymId id, QualType t) {
+    bool u = t->isUnsignedIntegerOrEnumerationType();
+    std::int64_t lo = u ? opts_.inputLo : -opts_.inputHi;
+    fc.summary.assumedInputs.push_back(ge(LinExpr::symbol(id), LinExpr::constant(lo)));
+    fc.summary.assumedInputs.push_back(le(LinExpr::symbol(id), LinExpr::constant(opts_.inputHi)));
+  }
+
+  /// `p->f` (or `(*p).f`) for a pointer parameter `p` and an integer field `f`.
+  static std::optional<std::pair<const ParmVarDecl*, const FieldDecl*>> fieldOf(const Expr* e) {
+    const auto* me = dyn_cast<MemberExpr>(e->IgnoreParenImpCasts());
+    if (!me) return std::nullopt;
+    const auto* fd = dyn_cast<FieldDecl>(me->getMemberDecl());
+    if (!fd || fd->isBitField() || !isIntType(fd->getType()) || fd->getType().isVolatileQualified())
+      return std::nullopt;
+    const Expr* base = me->getBase()->IgnoreParenImpCasts();
+    if (!me->isArrow()) {
+      const auto* uo = dyn_cast<UnaryOperator>(base);
+      if (!uo || uo->getOpcode() != UO_Deref) return std::nullopt;
+      base = uo->getSubExpr()->IgnoreParenImpCasts();
+    }
+    const auto* dr = dyn_cast<DeclRefExpr>(base);
+    const auto* p = dr ? dyn_cast<ParmVarDecl>(dr->getDecl()) : nullptr;
+    if (!p || !p->getType()->isPointerType()) return std::nullopt;
+    if (p->getType()->getPointeeType().isVolatileQualified()) return std::nullopt;
+    return std::make_pair(p, fd);
+  }
 
   LinExpr freshInt(QualType t, const std::string& name) {
     auto [lo, hi] = symbolRange(t, ctx_);
@@ -722,6 +946,15 @@ class Analyzer {
   std::optional<cert::PExp> certValueFor(CertCtx& cc, std::size_t x, const Expr* e);
   std::optional<CertPiece> certStore(CertCtx& cc, std::uint64_t w, std::size_t x,
                                      const std::optional<cert::PExp>& a, const cert::Assn& pre);
+  /// `x = y OP c` for OP in >>, /, %, & and a constant c: an unknown value with the facts
+  /// that hold of it (`havocC`), guarded by `y >= 0` where they need it. No value: the
+  /// expression is not of that form.
+  /// `x = tab[i]` for a constant table: an unknown value in [min, max] of its entries.
+  std::optional<CertPiece> certStoreTable(CertCtx& cc, std::uint64_t w, std::size_t x, QualType xt,
+                                          const Expr* rhs, const cert::Assn& pre);
+  std::optional<CertPiece> certStoreDivision(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                             QualType xt, const Expr* lhs, BinaryOperatorKind op,
+                                             const Expr* rhs, QualType rt, const cert::Assn& pre);
   std::optional<cert::PExp> certTest(CertCtx& cc, const Expr* e);
   std::uint64_t costOf(const Expr* e);
   std::vector<std::string> certificates_;
@@ -729,6 +962,7 @@ class Analyzer {
   // functions (checked or contracts) that calls can refer to.
   std::vector<std::string> certNames_{"?choice", "?cost"};
   std::map<std::size_t, unsigned> certUWidth_;
+  std::map<const VarDecl*, std::size_t> certGlobalVar_;
   std::vector<cert::FunJson> certFuns_;
   std::map<const FunctionDecl*, CertFunInfo> certFunOf_;
   std::map<const FunctionDecl*, CertFunInfo> certContractOf_;
@@ -948,6 +1182,7 @@ LinExpr Analyzer::evalCall(const CallExpr* call, State& s) {
       }
     checkContract(fd, args, argExprs, call->getExprLoc(), s);
     recordCall(call, fd, args, argExprs, s);
+    callClobbers(fd, s);
   }
   return unknown(call->getType(), "result");
 }
@@ -965,6 +1200,23 @@ LinExpr Analyzer::eval(const Expr* e, State& s) {
       case CK_LValueToRValue: {
         const VarDecl* v = TrackScan::varOf(sub);
         if (tracked(v)) return lookup(v, s);
+        if (auto key = fieldOf(sub))
+          if (auto it = cur().summary.fieldSyms.find(*key); it != cur().summary.fieldSyms.end())
+            return LinExpr::symbol(it->second);
+        // C++: `++x` / `--x` and `x = e` are lvalues; their value is the variable's new value.
+        if (const auto* uo = dyn_cast<UnaryOperator>(sub->IgnoreParens());
+            uo && (uo->getOpcode() == UO_PreInc || uo->getOpcode() == UO_PreDec))
+          if (const VarDecl* x = TrackScan::varOf(uo->getSubExpr()); tracked(x)) {
+            eval(uo, s);
+            return lookup(x, s);
+          }
+        if (auto tr = tableRange(sub)) {
+          eval(sub, s);  // the index (its side effects and costs)
+          LinExpr v = unknown(t, "entry");
+          s.facts.push_back(ge(v, LinExpr::constant(tr->first)));
+          s.facts.push_back(le(v, LinExpr::constant(tr->second)));
+          return v;
+        }
         eval(sub, s);
         return unknown(t);
       }
@@ -1007,6 +1259,25 @@ LinExpr Analyzer::eval(const Expr* e, State& s) {
     return unknown(t);
   }
   if (const auto* bo = dyn_cast<BinaryOperator>(e)) return evalBinary(bo, s);
+  if (const auto* se = dyn_cast<StmtExpr>(e)) {
+    LinExpr last = unknown(t);
+    if (auto list = straightLine(se))
+      for (const Stmt* st : *list) {
+        last = unknown(t);
+        if (const auto* a = dyn_cast<GCCAsmStmt>(st)) {
+          for (const Expr* in : a->inputs()) eval(in, s);
+        } else if (const auto* x = dyn_cast<Expr>(st)) {
+          last = eval(x, s);
+        } else if (const auto* ds = dyn_cast<DeclStmt>(st)) {
+          for (const Decl* d : ds->decls())
+            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit()) {
+              LinExpr v = eval(vd->getInit(), s);
+              if (tracked(vd)) assignVar(vd, v, s);
+            }
+        }
+      }
+    return isIntType(t) ? last : LinExpr::poison();
+  }
   if (const auto* co = dyn_cast<ConditionalOperator>(e)) {
     CondResult r = evalCond(co->getCond(), s);
     State s1 = s, s2 = s;
@@ -1136,6 +1407,18 @@ CondResult Analyzer::evalCond(const Expr* e, State& s) {
       return r;
     }
   }
+  // An integer used as a condition without a conversion to bool (C: `while (--j)`,
+  // `if (x)`): true iff it is not 0, as in the CK_IntegralToBoolean case above.
+  if (isIntType(e->getType()) && !e->getType()->isBooleanType()) {
+    LinExpr v = eval(e, s);
+    if (!v.poisoned()) {
+      LinExpr zero = LinExpr::constant(0);
+      r.neqTrue.push_back({v, zero});
+      r.ifFalse.push_back(le(v, zero));
+      r.ifFalse.push_back(ge(v, zero));
+    }
+    return r;
+  }
   eval(e, s);
   return r;
 }
@@ -1212,6 +1495,20 @@ Cost Analyzer::exprCost(const Expr* e) {
     error(e->getExprLoc(),
           "temporary with a non-trivial destructor (hidden cost) in a real-time function");
     return childrenCost(e);
+  }
+  if (const auto* se = dyn_cast<StmtExpr>(e)) {
+    if (auto list = straightLine(se)) {
+      Cost c{};
+      for (const Stmt* st : *list) {
+        if (const auto* a = dyn_cast<GCCAsmStmt>(st)) c = seq(c, asmCost(a));
+        else if (const auto* x = dyn_cast<Expr>(st)) c = seq(c, exprCost(x));
+        else if (const auto* ds = dyn_cast<DeclStmt>(st))
+          for (const Decl* d : ds->decls())
+            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit())
+              c = seq(c, seq(exprCost(vd->getInit()), unit(w_.assign)));
+      }
+      return c;
+    }
   }
   if (isa<StmtExpr>(e) || isa<CoroutineSuspendExpr>(e)) {
     error(e->getExprLoc(), "unsupported expression in a real-time function");
@@ -1361,6 +1658,12 @@ Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc, const Ca
     Cost callee;
     callee.units = wcet;
     return seq(unit(w_.call), callee);
+  }
+  // Target-specific builtins (Arm DSP and SIMD instructions behind the CMSIS intrinsics,
+  // `__builtin_arm_qadd16`, ...): one instruction, or a short fixed sequence.
+  if (unsigned id = fd->getBuiltinID(); id != 0 && ctx_.BuiltinInfo.isTSBuiltin(id)) {
+    assume("target intrinsics such as '" + name + "' cost one arithmetic unit");
+    return unit(w_.arith);
   }
   if (cLike && constantCost.count(base)) {
     if (fd->getBuiltinID() == 0 || base == name)
@@ -1604,6 +1907,7 @@ Cost Analyzer::execSwitch(const SwitchStmt* ss, std::vector<State>& states) {
   }
   c = seq(c, seq(exprCost(ss->getCond()), unit(w_.branch)));
   ModScan scan(ctx_);
+  scan.callWrites = [this](const CallExpr* c) { return trackedWrittenBy(c); };
   scan.TraverseStmt(const_cast<Stmt*>(ss->getBody()));
   // Every case label is reached with the entry state in which all variables
   // modified anywhere in the switch are unknown; the same state describes the
@@ -1657,6 +1961,7 @@ Cost Analyzer::execRangeFor(const CXXForRangeStmt* fs, std::vector<State>& state
   for (State& s : states) (s.flow == Flow::Normal ? normals : out).push_back(std::move(s));
   State entry = normals.empty() ? State{} : mergeStates(normals);
   ModScan scan(ctx_);
+  scan.callWrites = [this](const CallExpr* c) { return trackedWrittenBy(c); };
   scan.TraverseStmt(const_cast<Stmt*>(fs->getBody()));
   scan.TraverseStmt(const_cast<Stmt*>(static_cast<const Stmt*>(fs->getLoopVarStmt())));
   State head = havoc(entry, scan.mods);
@@ -1706,6 +2011,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   State origin = reachable ? mergeStates(normals) : State{};
 
   ModScan scan(ctx_);
+  scan.callWrites = [this](const CallExpr* c) { return trackedWrittenBy(c); };
   if (cond) scan.TraverseStmt(const_cast<Expr*>(cond));
   if (inc) scan.TraverseStmt(const_cast<Expr*>(inc));
   scan.TraverseStmt(const_cast<Stmt*>(body));
@@ -1766,28 +2072,43 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     std::optional<Constraint> strict;  ///< added to the guard when `inv` holds
   };
   std::vector<Candidate> candidates;
+  std::set<const VarDecl*> inCond;
+  if (cond) {
+    ModScan cs(ctx_);
+    cs.TraverseStmt(const_cast<Expr*>(cond));
+    for (const auto& [v, m] : cs.mods) inCond.insert(v);
+  }
   for (const auto& [var, id] : headSym) {
     const ModInfo& info = scan.mods.at(var);
     auto it = entry.val.find(var);
     if (it == entry.val.end()) continue;
     if (info.nonNegative) candidates.push_back({ge(LinExpr::symbol(id), it->second), std::nullopt});
     if (info.nonPositive) candidates.push_back({le(LinExpr::symbol(id), it->second), std::nullopt});
+    // The bounds of the entry value, as absolute bounds (`j >= 1` for `do ... while (--j)`),
+    // for the variables that the loop test itself modifies only: elsewhere the relative
+    // candidates suffice, and each of these costs an optimisation query in every round.
+    if (!inCond.count(var)) continue;
+    if (std::optional<Interval> b = boundsOf(syms_, entry.facts, it->second)) {
+      if (b->lo) candidates.push_back({ge(LinExpr::symbol(id), LinExpr::constant(*b->lo)), std::nullopt});
+      if (b->hi) candidates.push_back({le(LinExpr::symbol(id), LinExpr::constant(*b->hi)), std::nullopt});
+    }
   }
   if (cond) {
-    // `a != b` in the guard: try the invariants a <= b and a >= b, which turn
-    // the disequality into a strict inequality.
+    // `a != b` in the guard: try the invariants a <= b and a >= b, which turn the
+    // disequality into a strict inequality. The guard is evaluated with the candidates
+    // as facts, so that a side effect in it (`--j`) has an affine value; every candidate
+    // is proved on entry and inductive below, so this only shapes the candidates.
     ++fc.speculative;
     State probe = head;
+    for (const Candidate& c : candidates) probe.facts.push_back(c.inv);
     CondResult r = evalCond(cond, probe);
     --fc.speculative;
-    if (probe.val == head.val) {
-      for (const auto& [a, b] : r.neqTrue) {
-        Constraint up{le(a, b).e.substitute(toEntry)}, down{ge(a, b).e.substitute(toEntry)};
-        if (entails(syms_, entry.facts, up))
-          candidates.push_back({le(a, b), lt(a, b)});
-        else if (entails(syms_, entry.facts, down))
-          candidates.push_back({ge(a, b), gt(a, b)});
-      }
+    for (const auto& [a, b] : r.neqTrue) {
+      Constraint up{le(a, b).e.substitute(toEntry)}, down{ge(a, b).e.substitute(toEntry)};
+      if (entails(syms_, entry.facts, up))
+        candidates.push_back({le(a, b), lt(a, b)});
+      else if (entails(syms_, entry.facts, down))
+        candidates.push_back({ge(a, b), gt(a, b)});
     }
   }
 
@@ -2076,6 +2397,12 @@ Cost Analyzer::exec(const Stmt* st, std::vector<State>& states) {
       if (s.flow == Flow::Normal) eval(e, s);
     return exprCost(e);
   }
+  if (const auto* a = dyn_cast<GCCAsmStmt>(st)) {
+    for (State& s : states)
+      if (s.flow == Flow::Normal)
+        for (const Expr* in : a->inputs()) eval(in, s);
+    return asmCost(a);
+  }
   error(st->getBeginLoc(), std::string("unsupported statement (") + st->getStmtClassName() + ")");
   return Cost{};
 }
@@ -2092,11 +2419,24 @@ State Analyzer::enterFunction(const FunctionDecl* def, FnCtx& fc) {
   ts.TraverseStmt(def->getBody());
   auto trackable = [&](const VarDecl* v) {
     QualType t = v->getType();
-    return isIntType(t) && !t.isVolatileQualified() && v->hasLocalStorage() &&
+    return isIntType(t) && !t.isVolatileQualified() &&
+           (v->hasLocalStorage() || trackableGlobal(v)) &&
            !ts.escaped.count(v) && ts.total[v] == ts.benign[v];
   };
+  // A global referred to through two declarations would be two variables: not tracked.
+  std::map<const VarDecl*, int> decls;
   for (const auto& [v, n] : ts.total)
-    if (trackable(v)) fc.tracked.insert(v);
+    if (!v->hasLocalStorage()) ++decls[v->getCanonicalDecl()];
+  std::string globals;
+  for (const auto& [v, n] : ts.total)
+    if (trackable(v) && (v->hasLocalStorage() || decls[v->getCanonicalDecl()] == 1)) {
+      fc.tracked.insert(v);
+      if (!v->hasLocalStorage()) globals += (globals.empty() ? "" : ", ") + v->getNameAsString();
+    }
+  if (!globals.empty())
+    assume("the global or static variables " + globals + " are not modified by interrupts or other "
+           "threads while '" + def->getQualifiedNameAsString() + "' runs, nor by functions without an "
+           "analysed body or by inline assembly");
 
   // Parameters and their preconditions.
   State init;
@@ -2126,6 +2466,64 @@ State Analyzer::enterFunction(const FunctionDecl* def, FnCtx& fc) {
       }
     }
   }
+  // Integer fields read through pointer parameters: one symbol each (their value at entry),
+  // if the function neither writes them nor changes the pointer. That nothing else writes
+  // them (aliasing pointers, callees, interrupts) is an assumption.
+  {
+    struct FieldScan : RecursiveASTVisitor<FieldScan> {
+      std::set<std::pair<const ParmVarDecl*, const FieldDecl*>> read, written;
+      std::set<const ParmVarDecl*> moved;
+      void lhs(const Expr* e) {
+        if (auto k = Analyzer::fieldOf(e)) written.insert(*k);
+        if (const auto* d = dyn_cast<DeclRefExpr>(e->IgnoreParenImpCasts()))
+          if (const auto* p = dyn_cast<ParmVarDecl>(d->getDecl())) moved.insert(p);
+      }
+      bool VisitBinaryOperator(BinaryOperator* b) {
+        if (b->isAssignmentOp()) lhs(b->getLHS());
+        return true;
+      }
+      bool VisitUnaryOperator(UnaryOperator* u) {
+        if (u->isIncrementDecrementOp() || u->getOpcode() == UO_AddrOf) lhs(u->getSubExpr());
+        return true;
+      }
+      bool VisitMemberExpr(MemberExpr* m) {
+        if (auto k = Analyzer::fieldOf(m)) read.insert(*k);
+        return true;
+      }
+    } fs;
+    fs.TraverseStmt(def->getBody());
+    std::string names;
+    for (const auto& k : fs.read) {
+      if (fs.written.count(k) || fs.moved.count(k.first)) continue;
+      auto [lo, hi] = symbolRange(k.second->getType(), ctx_);
+      std::string name = k.first->getNameAsString() + "->" + k.second->getNameAsString();
+      SymId id = syms_.fresh(name, lo, hi);
+      fc.summary.fieldSyms[k] = id;
+      names += (names.empty() ? "" : ", ") + name;
+      if (opts_.inputRange) addInputRange(fc, id, k.second->getType());
+    }
+    if (!names.empty())
+      assume("the fields " + names + " are not modified while '" + def->getQualifiedNameAsString() +
+             "' runs (no write through an aliasing pointer, a callee, inline assembly or an interrupt)");
+  }
+  if (opts_.inputRange) {
+    std::string names;
+    for (unsigned i = 0; i < def->getNumParams(); ++i) {
+      if (!fc.summary.paramSyms[i]) continue;
+      bool declared = false;
+      for (const FunctionDecl* r : def->redecls())
+        if (i < r->getNumParams() && findAnnotation(r->getParamDecl(i), "crosscheck::range")) declared = true;
+      if (declared) continue;
+      addInputRange(fc, *fc.summary.paramSyms[i], def->getParamDecl(i)->getType());
+      names += (names.empty() ? "" : ", ") + def->getParamDecl(i)->getNameAsString();
+    }
+    for (const auto& [k, id] : fc.summary.fieldSyms)
+      names += (names.empty() ? "" : ", ") + k.first->getNameAsString() + "->" + k.second->getNameAsString();
+    if (!names.empty())
+      assume("inputs without a declared range are in [" + std::to_string(opts_.inputLo) + ", " +
+             std::to_string(opts_.inputHi) + "] (signed: [-" + std::to_string(opts_.inputHi) + ", " +
+             std::to_string(opts_.inputHi) + "]; option input-range): " + names);
+  }
   if (const auto* body = dyn_cast<CompoundStmt>(def->getBody()))
     for (const Stmt* s : body->body()) {
       const CallExpr* m = asMarker(s, "require");
@@ -2136,6 +2534,7 @@ State Analyzer::enterFunction(const FunctionDecl* def, FnCtx& fc) {
       for (const Constraint& c : r.ifTrue) fc.summary.requires_.push_back(c);
     }
   init.facts = fc.summary.requires_;
+  init.facts.insert(init.facts.end(), fc.summary.assumedInputs.begin(), fc.summary.assumedInputs.end());
   return init;
 }
 
@@ -2410,6 +2809,9 @@ struct Analyzer::CertCtx {
   std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
   std::size_t depth = 0;   ///< loop nesting: index of the logical variable
   std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
+  /// Fields read through pointer parameters of the function being certified (variables
+  /// that the program never assigns: their value at entry).
+  std::map<std::pair<const ParmVarDecl*, const FieldDecl*>, std::size_t> fieldVar;
   /// The largest value of each of them that the precondition allows (if any): a symbolic
   /// bound is used only if it is no looser than a constant one there.
   std::vector<std::optional<std::uint64_t>> gammaHi;
@@ -2450,8 +2852,25 @@ struct Analyzer::CertCtx {
   std::size_t temp() const { return names.size(); }  ///< scratch variable for eliminations
   /// Variables of unsigned type, with their width in bits.
   std::map<std::size_t, unsigned> uwidth;
+  /// Globals and static locals: one variable of the program certificate each, shared
+  /// by every function (so that a callee's writes are in its `mods`, and the frame rule
+  /// drops the caller's facts about them).
+  std::map<const VarDecl*, std::size_t> globalVar;
   void addVar(const VarDecl* v) {
     if (var.count(v) || !relevant.count(v)) return;
+    if (!v->hasLocalStorage()) {
+      const VarDecl* key = v->getCanonicalDecl();
+      if (auto it = globalVar.find(key); it != globalVar.end()) {
+        var[v] = it->second;
+        return;
+      }
+      globalVar[key] = names.size();
+      var[v] = names.size();
+      QualType t = v->getType();
+      if (t->isUnsignedIntegerType()) uwidth[names.size()] = v->getASTContext().getIntWidth(t);
+      names.push_back(v->getQualifiedNameAsString());
+      return;
+    }
     var[v] = names.size();
     QualType t = v->getType();
     if (t->isUnsignedIntegerType()) uwidth[names.size()] = v->getASTContext().getIntWidth(t);
@@ -2727,6 +3146,9 @@ std::optional<cert::PExp> Analyzer::certAffine(CertCtx& cc, const Expr* e) {
     if (it == cc.var.end()) return std::nullopt;
     return PExp{cert::unitVec(it->second), 0};
   }
+  if (auto key = fieldOf(e))
+    if (auto it = cc.fieldVar.find(*key); it != cc.fieldVar.end())
+      return PExp{cert::unitVec(it->second), 0};
   if (!signedInt(e->getType())) return std::nullopt;
   if (const auto* uo = dyn_cast<UnaryOperator>(e)) {
     if (uo->getOpcode() == UO_Minus)
@@ -2831,6 +3253,87 @@ std::optional<Analyzer::CertPiece> Analyzer::certStore(CertCtx& cc, std::uint64_
   return certIfThen(cc, up, 0, inner, havocF, pre);
 }
 
+std::optional<Analyzer::CertPiece> Analyzer::certStoreTable(CertCtx& cc, std::uint64_t w,
+                                                           std::size_t x, QualType xt,
+                                                           const Expr* rhs, const cert::Assn& pre) {
+  std::optional<std::pair<std::int64_t, std::int64_t>> tr = tableRange(rhs);
+  if (!tr || !certInt(xt)) return std::nullopt;
+  auto [tlo, thi] = typeRange(xt, ctx_);  // the entries must fit: no conversion of the value
+  if ((tlo && tr->first < *tlo) || (thi && tr->second > *thi)) return std::nullopt;
+  std::vector<PExp> cs{PExp{cert::vsmul(-1, cert::unitVec(x)), tr->first},
+                       PExp{cert::unitVec(x), -tr->second}};
+  Assn frame = cert::eliminate(pre, x);
+  std::optional<std::vector<Farkas>> pc = cert::farkasAll(pre, frame);
+  if (!pc) return cc.failed("internal: an assignment could not be justified"), std::nullopt;
+  Node n;
+  n.kind = Node::HavocC;
+  n.w = w;
+  n.x = x;
+  n.gs = cs;
+  Assn post = frame;
+  for (const PExp& g : cs) post.push_back(cert::toLin(g));
+  return CertPiece{weaken(frame, *pc, w, post, identityCerts(post), mk(n)), post, w};
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certStoreDivision(
+    CertCtx& cc, std::uint64_t w, std::size_t x, QualType xt, const Expr* lhs, BinaryOperatorKind op,
+    const Expr* rhs, QualType rt, const cert::Assn& pre) {
+  if (op != BO_Shr && op != BO_Div && op != BO_Rem && op != BO_And) return std::nullopt;
+  std::optional<std::int64_t> cv = constantValue(rhs);
+  std::optional<PExp> y = lhs ? certAffine(cc, lhs) : std::nullopt;
+  if (op == BO_And && !cv) {  // the mask may be on the left
+    std::swap(lhs, rhs);
+    cv = constantValue(rhs);
+    y = certAffine(cc, lhs);
+  }
+  if (!cv || !y || *cv < 0) return std::nullopt;
+  // The stored value is the result itself: the result type must fit the variable.
+  if (!certInt(rt) || !certInt(xt) || !(ctx_.hasSameUnqualifiedType(rt, xt) || widens(rt, xt)))
+    return std::nullopt;
+  std::int64_t c = *cv;
+  if (op == BO_Shr) {
+    if (c >= 62) return std::nullopt;
+    c = std::int64_t{1} << c;
+  }
+  if ((op == BO_Div || op == BO_Shr || op == BO_Rem) && c <= 0) return std::nullopt;
+  trimP(*y);
+  PExp xv{cert::unitVec(x), 0};
+  auto lin = [](const PExp& a, std::int64_t k, const PExp& b, std::int64_t cst) {  // k*a - b + cst
+    PExp r{cert::vadd(cert::vsmul(k, a.sv), cert::vsmul(-1, b.sv)), k * a.c - b.c + cst};
+    trimP(r);
+    return r;
+  };
+  std::vector<PExp> csPos, csAny;  // facts for y >= 0, and facts for every y
+  if (op == BO_Div || op == BO_Shr) {
+    csPos = {lin(xv, c, *y, 0), lin(*y, 1, PExp{cert::vsmul(c, xv.sv), 0}, -(c - 1))};
+  } else if (op == BO_Rem) {
+    csPos = {PExp{cert::vsmul(-1, xv.sv), 0}, PExp{xv.sv, -(c - 1)}, lin(xv, 1, *y, 0)};
+  } else {  // x & c, c >= 0: 0 <= x <= c always, and x <= y for y >= 0
+    csAny = {PExp{cert::vsmul(-1, xv.sv), 0}, PExp{xv.sv, -c}};
+    csPos = csAny;
+    csPos.push_back(lin(xv, 1, *y, 0));
+  }
+  auto store = [&](const std::vector<PExp>& cs, const Assn& p) -> std::optional<CertPiece> {
+    if (cs.empty()) return certAssign(cc, w, x, std::nullopt, p);
+    Assn frame = cert::eliminate(p, x);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(p, frame);
+    if (!pc) return cc.failed("internal: an assignment could not be justified"), std::nullopt;
+    Node n;
+    n.kind = Node::HavocC;
+    n.w = w;
+    n.x = x;
+    n.gs = cs;
+    Assn post = frame;
+    for (const PExp& g : cs) post.push_back(cert::toLin(g));
+    return CertPiece{weaken(frame, *pc, w, post, identityCerts(post), mk(n)), post, w};
+  };
+  // if (-y <= 0) x := ? with csPos else x := ? with csAny (tests of weight 0)
+  PExp guard{cert::vsmul(-1, y->sv), -y->c};
+  trimP(guard);
+  return certIfThen(cc, guard, 0, [&](const Assn& p) { return store(csPos, p); },
+                    [&](const Assn& p) { return store(csAny, p); }, pre);
+}
+
 std::optional<cert::PExp> Analyzer::certTest(CertCtx& cc, const Expr* e) {
   e = e->IgnoreParenImpCasts();
   if (const auto* uo = dyn_cast<UnaryOperator>(e); uo && uo->getOpcode() == UO_LNot) {
@@ -2924,6 +3427,21 @@ std::optional<Analyzer::CertPiece> Analyzer::certExprAfterCalls(CertCtx& cc, con
     bool exact = isUnsigned || !isa<CompoundAssignOperator>(bo) ||
                  signedInt(cast<CompoundAssignOperator>(bo)->getComputationResultType());
     std::optional<PExp> rhs = certValueFor(cc, *t, bo->getRHS());
+    if (const VarDecl* tv = TrackScan::varOf(bo->getLHS())) {
+      // x = y >> k, y / c, y % c, y & m; x >>= k, x /= c, ...
+      if (bo->getOpcode() == BO_Assign && !rhs)
+        if (auto p = certStoreTable(cc, w, *t, tv->getType(), bo->getRHS(), pre)) return p;
+      if (bo->getOpcode() == BO_Assign && !rhs)
+        if (const auto* d = dyn_cast<BinaryOperator>(bo->getRHS()->IgnoreParenImpCasts()))
+          if (auto p = certStoreDivision(cc, w, *t, tv->getType(), d->getLHS(), d->getOpcode(),
+                                         d->getRHS(), d->getType(), pre))
+            return p;
+      if (const auto* cao = dyn_cast<CompoundAssignOperator>(bo))
+        if (auto p = certStoreDivision(cc, w, *t, tv->getType(), bo->getLHS(),
+                                       BinaryOperator::getOpForCompoundAssignment(bo->getOpcode()),
+                                       bo->getRHS(), cao->getComputationResultType(), pre))
+          return p;
+    }
     std::optional<PExp> a;
     PExp self{cert::unitVec(*t), 0};
     switch (bo->getOpcode()) {
@@ -3401,6 +3919,19 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     if (!(gp.sv == pot.sv && gp.c == pot.c)) potentials.push_back({gp, 1});
   }
   potentials.push_back({pot, dA});
+  // A potential whose entry bound is a fraction of a parameter (`blockSize >> 2`) has a
+  // summary once scaled: `a*pot` with decrease `a*d`. Tried first (a tie keeps it).
+  if (cc.gammas) {
+    std::vector<std::pair<PExp, std::uint64_t>> scaled;
+    for (const auto& [p0, d0] : potentials) {
+      std::int64_t a = cert::symbolicScale(entry, p0, cc.temp(), cc.gammas);
+      if (a > 1 && a <= 64) {
+        PExp ps{cert::vsmul(a, p0.sv), a * p0.c};
+        scaled.push_back({ps, d0 * static_cast<std::uint64_t>(a)});
+      }
+    }
+    potentials.insert(potentials.begin(), scaled.begin(), scaled.end());
+  }
   std::string lastWhy;
   // The candidates are compared by their bound at the largest admissible parameters;
   // the first one wins a tie.
@@ -3801,7 +4332,13 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
       std::uint64_t wd = (init ? costOf(init) : 0) + (init && isIntType(vd->getType()) ? w_.assign : 0);
       if (it != cc.var.end()) {
         std::optional<PExp> a = init ? certValueFor(cc, it->second, init) : std::nullopt;
-        p = certStore(cc, wd, it->second, a, before.post);
+        p = std::nullopt;
+        if (!a && init) p = certStoreTable(cc, wd, it->second, vd->getType(), init, before.post);
+        if (!p && !a && init)
+          if (const auto* d = dyn_cast<BinaryOperator>(init->IgnoreParenImpCasts()))
+            p = certStoreDivision(cc, wd, it->second, vd->getType(), d->getLHS(), d->getOpcode(),
+                                  d->getRHS(), d->getType(), before.post);
+        if (!p) p = certStore(cc, wd, it->second, a, before.post);
       } else {
         Node n;
         n.kind = Node::Havoc;
@@ -3970,6 +4507,7 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   // own variables are added to them (kept only if its certificate is emitted).
   cc.names = certNames_;
   cc.uwidth = certUWidth_;
+  cc.globalVar = certGlobalVar_;
   cc.prefix = def->getQualifiedNameAsString() + "::";
   cc.potentials = &fc.potentials;
   cc.callKeys = &fc.callKeys;
@@ -4005,6 +4543,8 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   std::sort(locals.begin(), locals.end(),
             [](const VarDecl* a, const VarDecl* b) { return a->getLocation() < b->getLocation(); });
   for (const VarDecl* v : locals) cc.addVar(v);
+  for (const auto& [k, id] : fc.summary.fieldSyms)
+    cc.fieldVar[k] = cc.freshVar(cc.prefix + k.first->getNameAsString() + "->" + k.second->getNameAsString());
   cc.prefix.clear();
 
   // Precondition: the declared ranges and requirements on the parameters, and
@@ -4028,7 +4568,11 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     if (i < fc.summary.paramSyms.size() && fc.summary.paramSyms[i])
       if (auto it = cc.var.find(def->getParamDecl(i)); it != cc.var.end())
         paramIndex[*fc.summary.paramSyms[i]] = it->second;
-  for (const Constraint& c : fc.summary.requires_) {
+  for (const auto& [k, id] : fc.summary.fieldSyms)
+    if (auto it = cc.fieldVar.find(k); it != cc.fieldVar.end()) paramIndex[id] = it->second;
+  std::vector<Constraint> entryFacts = fc.summary.requires_;
+  entryFacts.insert(entryFacts.end(), fc.summary.assumedInputs.begin(), fc.summary.assumedInputs.end());
+  for (const Constraint& c : entryFacts) {
     if (c.e.poisoned()) continue;
     Lin l;
     l.c = c.e.constantTerm();
@@ -4072,6 +4616,7 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   // The variables created (also those of contracts) stay in the program's table.
   certNames_ = cc.names;
   certUWidth_ = cc.uwidth;
+  certGlobalVar_ = cc.globalVar;
   if (!p) {
     reason = cc.fail.empty() ? "unsupported construct" : cc.fail;
     return false;
