@@ -88,6 +88,14 @@ statements:
     note: "validation of a certificate against its mini-C source (translation validation); MiniCCore has the definitions (no mathlib), MiniC the proofs"
     module: ImperativeOptimization.MiniC
     lean: [MStmt, MExp, MCond, lower, nf, app, validate, CEquiv, nf_equiv, app_equiv, seq_assoc, seq_skip_left, seq_skip_right, CImp.while, dot_trim, equiv_of_nf_eq, validate_lower, validated_sound, countCert_validated, countCert_not_validated]
+  - paper_labels: [def:interrupt-model, lem:sporadic, thm:response-time]
+    note: "response time of a computation under sporadic interrupt handlers; the executable check is in ResponseCore (no mathlib)"
+    module: ImperativeOptimization.Interrupts
+    lean: [Handlers, Admissible, sporadic_count, handler_demand, response_time_bound, rtaIter_fixed, rtaHolds_sound, rtaHolds_mono, rtaSearch_sound, exH_iter, oneRun_admissible, oneRun_completes]
+  - paper_labels: [prop:graham]
+    note: "Graham's bound for greedy scheduling of independent tasks, with certified task bounds"
+    module: ImperativeOptimization.ForkJoin
+    lean: [Greedy, greedy_bound, greedy_exists, forkjoin_bound, load_lower, example_bound]
   - paper_labels: [prop:lex-log]
     module: ImperativeOptimization.Certificate
     lean: [lex_ranking_bound, log_ranking_bound]

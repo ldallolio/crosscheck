@@ -72,6 +72,9 @@ struct Options {
   /// (src/analysis/MiniC.hpp), which the checker validates against the certificate's
   /// program; dead code in certificates then contains the program's real statements.
   bool minic = false;
+  /// Cost of entering and leaving an interrupt handler, added to each activation's bound
+  /// (trusted, listed as an assumption).
+  std::uint64_t interruptOverhead = 0;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -115,6 +118,7 @@ struct Options {
         value.size() > 18)
       return false;
     std::uint64_t n = std::stoull(value);
+    if (key == "interrupt-overhead") { interruptOverhead = n; return true; }
     if (key == "max-paths") { maxPaths = n == 0 ? 1 : static_cast<unsigned>(n); return true; }
     if (key.rfind("weight-", 0) == 0) return weights.set(key.substr(7), n);
     return false;

@@ -123,6 +123,12 @@ flowchart LR
    division/shift/mask (the generator's `havocC` facts, to be derived by `lower`), jumps
    inside loops.
 6. **Time on predictable cores** (S5), **fork-join and interrupts** (S6), **Rust** (I6).
+   **S6 done 2026-11-15**: Lean `Interrupts` (response-time bound for a computation under
+   sporadic handlers, executable check `rtaHolds` in the checker) and `ForkJoin` (Graham's
+   bound for independent tasks, with certified task bounds); plugin `CROSSCHECK_INTERRUPT`,
+   `response_time` in the report, deadlines checked against it, response-time claims in
+   certificate files. Open for S6: the busy-period argument (activations pending at the
+   start), fork-join in the plugin, dependencies between tasks.
 
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
 tests, Lean proofs for every new checker rule, and the papers, READMEs and guide updated

@@ -105,6 +105,9 @@ int main(int argc, const char** argv) {
     for (const auto& f : combined.functions)
       llvm::outs() << (f.ok ? "OK   " : "FAIL ") << f.name << ": "
                    << (f.bounded ? std::to_string(f.wcet) + " units" : std::string("no bound"))
-                   << "\n";
+                   << (f.responseTime ? ", response time " + std::to_string(*f.responseTime) +
+                                            " under interrupts"
+                                      : std::string())
+                   << (f.interruptHandler ? " (interrupt handler)" : "") << "\n";
   return (status == 0 && combined.allOk()) ? 0 : 1;
 }

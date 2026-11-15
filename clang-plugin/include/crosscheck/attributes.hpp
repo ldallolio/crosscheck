@@ -39,6 +39,13 @@
 /// not available or should not be analysed (reported as an assumption).
 #define CROSSCHECK_COST(units) CROSSCHECK_ANNOTATE("crosscheck::cost", units)
 
+/// Function: an interrupt handler, activated at most once every `min_interarrival`
+/// cost units (trusted, reported as an assumption). It is analysed like a real-time
+/// function, and the response time of every other analysed function is bounded under
+/// the interference of all handlers of the translation unit (see the README).
+#define CROSSCHECK_INTERRUPT(min_interarrival) \
+  CROSSCHECK_ANNOTATE("crosscheck::interrupt", min_interarrival)
+
 // Markers recognised by the analyser. They are only ever named inside an
 // unevaluated `sizeof`, so they are never called and need no definition.
 #if defined(__cplusplus)

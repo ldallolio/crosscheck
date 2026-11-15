@@ -91,6 +91,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
 | `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
 | `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
+| `interrupt-overhead=N` | cost of entering and leaving an interrupt handler, added per activation (assumption) |
 | `minic` | with `certificates`: also export each certified function as mini-C, which the checker validates against the certificate (see [Validation against the source](#validation-against-the-source-minic)) |
 | `input-range=LO,HI` | assume every integer input without a declared range in `[LO,HI]` (unsigned) or `[-HI,HI]` (signed); listed as an assumption |
 | `contracts=FILE` | library contracts: trusted costs linear in the arguments (see [`docs/contracts.md`](../docs/contracts.md)) |
@@ -124,6 +125,7 @@ effect; other compilers ignore them.
 | `CROSSCHECK_LOOP_BOUND(n)` | first statement of a loop body | the loop runs at most `n` times | **yes**, unless a tighter bound is derived |
 | `CROSSCHECK_BOUNDED(n)` | variable of a `for` init-statement | same | **yes**, unless a tighter bound is derived |
 | `CROSSCHECK_COST(n)` | function declaration | cost of a function whose body is not analysed | **yes** |
+| `CROSSCHECK_INTERRUPT(T)` | function | interrupt handler, activated at most once every `T` units; other functions get a response time (see [Interrupts](#interrupts)) | **yes** (`T`) |
 
 Everything trusted is listed under `assumptions` in the report, so a reviewer
 sees exactly what the bound depends on. Only conjunctions of linear integer
@@ -280,6 +282,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | a certificate validated against the function's mini-C source (`minic`) ⇒ its bound holds for the source program | `validated_sound`, `nf_equiv` (`MiniC`) |
+| response time under sporadic interrupt handlers | `response_time_bound`, `rtaHolds_sound` (`Interrupts`) |
 
 **Not verified:** the C++ implementation (the translation from the Clang AST to
 constraints, the invariant generation, the cost counting) and Z3; for a certificate, the
@@ -338,6 +341,22 @@ address-taken tracked variables, and the division/shift/mask/table forms. The ct
 `minic_sources_validated` runs `tests/c/minic.c`: functions `ok_*` must be validated, no
 function `no_*` may be. The list of what is refused is in
 [`docs/certificate-format.md`](../docs/certificate-format.md#mini-c-sources-validation-against-the-source).
+
+## Interrupts
+
+Handlers annotated `CROSSCHECK_INTERRUPT(T)` are analysed like real-time functions. Every
+other bounded function then gets `response_time` in the report: the least `R` with
+`C + Σₖ (cₖ + o)·⌈R/Tₖ⌉ ≤ R`, where `C` is its bound (in context if known), `cₖ` the
+handlers' bounds and `o` the `interrupt-overhead` (Lean `Interrupts.response_time_bound`,
+Paper I `thm:response-time`). A `CROSSCHECK_DEADLINE` is checked against the response time.
+With certificates, when the function and all handlers have constant certified bounds, the
+certificate file contains a response-time claim with those bounds, and `crosscheck-check`
+prints `RESPONSE … completes within R` (`Interrupts.rtaHolds_sound`). Assumptions, listed
+in the report: the `T`s, the overhead, no activation pending when the function starts, one
+cost unit = one time unit (true only for a timing cost model of the target), and that
+handlers do not write variables the function's bounds depend on. Example:
+`tests/certificates/interrupts.cpp`. Fork-join is not supported by the plugin (only its
+theory, `ForkJoin.lean`).
 
 ## Flow facts, SARIF and CI
 

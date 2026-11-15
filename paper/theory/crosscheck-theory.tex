@@ -150,6 +150,10 @@ The primary contributions of this work are:
     (Theorem~\ref{thm:program-soundness}). A certificate can also be validated against an independent
     description of the source in a small fragment of C, so that its bound holds for that description
     without trusting the producer of the certificate (Theorem~\ref{thm:validated}).
+    \item \textbf{Interrupts and Fork-Join:} From the certified bounds of a computation and of the interrupt
+    handlers that preempt it, a response-time bound (Theorem~\ref{thm:response-time}), which the checker
+    verifies; and Graham's bound for a fork--join block of independent tasks (Proposition~\ref{prop:graham}).
+    Both results are classical; they are mechanized here and connected to the certificates.
     \item \textbf{Machine-Checked Soundness:} All of the above, together with the worked examples, are formalized
     in Lean~4 \cite{demoura2021lean4} on top of mathlib \cite{mathlib2020}, without \lean{sorry} and without any axiom
     beyond the three standard axioms of Lean's logic (Section~\ref{sec:mechanization}).
@@ -867,7 +871,7 @@ The first statement is rule (6) applied to the triple for the budget $k$. The se
 A calling context is the special case in which $B$ is constant on $P$. The bounds of Proposition~\ref{prop:size-potential} for branching recursion bound the \emph{number} of activations; rule (9) bounds the cost of a recursive procedure directly, level by level, and the two are not yet connected in the mechanization.
 
 \paragraph{Weights, architectures and parallel composition.}
-The logic is parametric in the weights. A cost model for a target is a choice of $\omega$: for a processor on which the duration of an instruction does not depend on the execution history, $\omega$ may be an upper bound of that duration, and the derived bound is then a time bound; for processors with caches or speculative execution no such context-independent weights exist in general (Section~\ref{sec:limitations}), and the loop and recursion bounds derived here are better used as flow facts for a timing analysis of the binary. For fork--join parallelism, the same rules bound two quantities: the \emph{work}, with the parallel composition of two commands that do not interfere costing the sum of their costs, and the \emph{span}, with parallel composition costing the maximum, as in the analysis of multithreaded computations \cite{blumofe1999scheduling}; the span rule for parallel composition is the rule for a conditional without its test. We do not formalize a parallel composition here, and interference between threads through shared state is outside the scope of the framework.
+The logic is parametric in the weights. A cost model for a target is a choice of $\omega$: for a processor on which the duration of an instruction does not depend on the execution history, $\omega$ may be an upper bound of that duration, and the derived bound is then a time bound; for processors with caches or speculative execution no such context-independent weights exist in general (Section~\ref{sec:limitations}), and the loop and recursion bounds derived here are better used as flow facts for a timing analysis of the binary. For fork--join parallelism, the same rules bound two quantities: the \emph{work}, with the parallel composition of two commands that do not interfere costing the sum of their costs, and the \emph{span}, with parallel composition costing the maximum, as in the analysis of multithreaded computations \cite{blumofe1999scheduling}; the span rule for parallel composition is the rule for a conditional without its test. We do not formalize a parallel composition in the logic; Section~\ref{subsec:concurrency} bounds the duration of a fork--join block of independent tasks on $p$ processors, and of a computation preempted by interrupt handlers, from the cost bounds of the tasks and handlers. Interference between threads through shared state is outside the scope of the framework.
 
 \subsection{Certificates and a verified checker}
 \label{subsec:checker}
@@ -952,6 +956,48 @@ By Theorem~\ref{thm:program-soundness}, the body $c$ of $F_i$ satisfies these tw
 \end{proof}
 
 With validation, the producer of certificates is no longer trusted: what remains is the description of the C function in mini-C, the cost model (the weights, which are part of that description), and the hypotheses under which a C function means its mini-C description. Among the latter: signed integer arithmetic is exact (signed overflow is undefined behaviour in C, assumed absent), variables that the description does not track are read as unknown values and written by $\mathtt{cost}$ statements, and tracked variables are modified only by the assignments that the description shows (their address is not taken). How the companion tool \cite{crosscheckTool} produces the description, and which functions it covers, is described there. Dead code is part of the program: a dead-code node must contain the code of the source that is not reached, which the checker of certificates does not inspect but validation does. Validation is an equality up to the normal form, so a producer that transforms the program, even correctly (for instance by unrolling a loop), is not validated. Mini-C has no calls, no early exits from loops, no unsigned arithmetic and no division; extending it means extending $\mathcal{L}$ and the proof of Lemma~\ref{lem:nf-equiv}. \authortodo{check that Definition~\ref{def:minic}, Lemma~\ref{lem:nf-equiv} and Theorem~\ref{thm:validated} say what \lean{MStmt}, \lean{lower}, \lean{nf}, \lean{validate}, \lean{nf\_equiv} and \lean{validated\_sound} do in MiniCCore.lean and MiniC.lean; read \cite{pnueli1998translation} and \cite{necula2000translation}, which are cited from the assistant's general knowledge (their bibliographic data were checked on Crossref, their content was not read).}
+
+\subsection{Interrupts and fork-join}
+\label{subsec:concurrency}
+
+The bounds of the previous sections are costs of sequential code. Real-time software combines such code in two ways that this subsection addresses: a computation is preempted by interrupt handlers, and independent tasks are run in parallel. In both cases the duration is bounded from the cost bounds of the components, under the hypothesis that one unit of cost takes one unit of time (a cost model that is a timing model, Section~\ref{subsec:cost-logic}). Both results are classical; what is new here is only their connection to the certified bounds, and their mechanization in our setting (a mechanized theory of response-time analysis, far more general, is Prosa \cite{cerqueira2016prosa}).
+
+\begin{defn}[Computation under interrupts]
+\label{def:interrupt-model}
+Time is divided into slots $0, 1, 2, \dots$ from the start of a computation that needs $C$ slots. There are handlers $k \in K$; each activation of handler $k$ needs at most $c_k$ slots, activations of $k$ are released at least $T_k > 0$ slots apart, and none is released before slot $0$. A \emph{schedule} assigns to each slot either nothing, the computation, or an activation of a handler released at or before that slot, with at most $c_k$ slots per activation; it is \emph{admissible} if no slot is idle while the computation has received fewer than $C$ slots.
+\end{defn}
+
+\begin{lem}
+\label{lem:sporadic}
+At most $\lceil t / T_k \rceil$ activations of handler $k$ are released before slot $t$, and handler $k$ receives at most $c_k \lceil t / T_k \rceil$ of the first $t$ slots.
+\end{lem}
+
+\begin{proof}
+Two activations released before $t$ are at least $T_k$ apart, so they lie in different intervals $[jT_k, (j+1)T_k)$, of which $\lceil t/T_k \rceil$ meet $[0, t)$. Each slot of handler $k$ belongs to one of these activations, and each activation receives at most $c_k$ slots.
+\end{proof}
+
+\begin{thm}[Response time]
+\label{thm:response-time}
+In every admissible schedule, the computation receives its $C$ slots within the first $R$ slots, for every $R$ such that
+\[ C + \sum_{k \in K} c_k \left\lceil \frac{R}{T_k} \right\rceil \le R. \]
+\end{thm}
+
+\begin{proof}
+Suppose the computation receives fewer than $C$ of the first $R$ slots. Then none of these slots is idle, so $R$ is at most the number of slots of the computation, which is less than $C$, plus the number of slots of the handlers, which is at most $\sum_k c_k \lceil R/T_k \rceil$ by Lemma~\ref{lem:sporadic}. This contradicts the hypothesis.
+\end{proof}
+
+This is the response-time bound of fixed-priority preemptive scheduling \cite{joseph1986finding,audsley1993applying}, for one computation of the lowest priority; the least such $R$ is found by the iteration $R_0 = C$, $R_{n+1} = C + \sum_k c_k \lceil R_n / T_k \rceil$, stopped at a fixed point. The priority order of the handlers is not needed for this bound, only that the processor does not idle while the computation is pending. The hypothesis that no activation is pending at slot $0$ is the restrictive one: the classical analysis removes it by considering the busy period that contains the start of the computation, which is not mechanized here. With $C$ and the $c_k$ certified bounds of the computation and of the handlers (Theorem~\ref{thm:program-soundness}), plus a bound on the cost of entering and leaving a handler, the only assumptions left are the minimum inter-arrival times $T_k$, the overhead, and the hypothesis that cost is time. The checker accepts a response-time claim when the task and handlers have accepted certificates with constant bounds and the inequality of Theorem~\ref{thm:response-time} holds.
+
+\begin{prop}[Fork-join, after Graham]
+\label{prop:graham}
+Let independent tasks of costs $w_1, \dots, w_n$ be scheduled on $p \ge 1$ processors by a greedy scheduler, which starts each task, in a fixed order, on a processor of least load. Then every processor's load $L$ satisfies $p L \le \sum_i w_i + p \max_i w_i$, that is, the makespan is at most $W/p + S$, where the work $W = \sum_i w_i$ and the span $S = \max_i w_i$ are lower bounds on the makespan of every schedule (the latter as $W/p$). If $w_i \le B_i$ for every $i$, then $p L \le \sum_i B_i + p \max_i B_i$.
+\end{prop}
+
+\begin{proof}
+By induction on the number of tasks scheduled, the loads sum to the work of the tasks scheduled so far and satisfy the inequality. When task $w$ is started on a processor of least load $\ell$, $p\ell$ is at most the sum of the loads, which is the work so far; the new load $\ell + w$ thus satisfies $p(\ell + w) \le W' + pw$, where $W'$ is the new work, and the other loads are unchanged while the right-hand side does not decrease. The last statement follows from the monotonicity of sums and maxima.
+\end{proof}
+
+Proposition~\ref{prop:graham} is Graham's bound for list scheduling \cite{graham1966bounds}, here for independent tasks; with dependencies between tasks the same form $W/p + S$ holds for greedy schedulers of task graphs, where $S$ is the longest path \cite{blumofe1999scheduling}, which we do not mechanize. With certified bounds $B_i$ of the tasks, the duration of a fork--join block of independent tasks is at most $\sum_i B_i / p + \max_i B_i$, under the hypotheses that the tasks do not interfere (no shared variables, locks or shared caches), that cost is time, and that the costs of forking and joining are added. \authortodo{check Definition~\ref{def:interrupt-model}, Theorem~\ref{thm:response-time} and Proposition~\ref{prop:graham} against Interrupts.lean (\lean{Admissible}, \lean{response\_time\_bound}, \lean{rtaHolds\_sound}) and ForkJoin.lean (\lean{Greedy}, \lean{greedy\_bound}, \lean{forkjoin\_bound}); read \cite{joseph1986finding}, \cite{audsley1993applying}, \cite{graham1966bounds} and \cite{cerqueira2016prosa}, cited from the assistant's general knowledge (bibliographic data checked on Crossref, which lists only the first author of \cite{joseph1986finding}; content not read).}
 
 \section{Examples}
 \label{sec:examples}
@@ -1120,12 +1166,12 @@ and the value synthesized at the root is $v_{\varepsilon} = 4$. The function $V_
 \section{Mechanization in Lean 4}
 \label{sec:mechanization}
 
-The development accompanying this paper consists of about 4{,}550 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 239 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+The development accompanying this paper consists of about 4{,}950 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 260 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
 
 \begin{table}[ht]
 \centering
-\footnotesize
-\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{0.94}
+\scriptsize
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.56\textwidth}>{\raggedright\arraybackslash}p{0.16\textwidth}@{}}
 \toprule
 Paper statement & Lean theorem(s) & Module \\
@@ -1153,6 +1199,8 @@ Def.~\ref{def:certificate} & \lean{ACmd}, \lean{Lin}, \lean{PExp}, \lean{check},
 Thm.~\ref{thm:checker-soundness} & \lean{check\_\allowbreak sound}, \lean{loop\_\allowbreak sound}, \lean{loopBoundOk\_\allowbreak sound}, \lean{certified\_\allowbreak cost\_\allowbreak le}, \lean{entails1\_\allowbreak sound}, \lean{Lin.inst\_\allowbreak eval}, \lean{while\_\allowbreak frame}; examples \lean{countCert\_\allowbreak checks}, \lean{countSym\_\allowbreak cost}, \lean{shiftCert\_\allowbreak checks} & \lean{Checker} \\
 Def.~\ref{def:program-certificate}, Thm.~\ref{thm:program-soundness} & \lean{FunCert}, \lean{FunSpec}, \lean{checkProgram}, \lean{program\_\allowbreak sound}; example \lean{exProgram\_\allowbreak checks}, \lean{exProgram\_\allowbreak 17\_\allowbreak rejected}, \lean{exMain\_\allowbreak cost} & \lean{Checker} \\
 Def.~\ref{def:minic}, Lem.~\ref{lem:nf-equiv}, Thm.~\ref{thm:validated} & \lean{lower}, \lean{nf}, \lean{validate}, \lean{nf\_\allowbreak equiv}, \lean{validated\_\allowbreak sound}; example \lean{countCert\_\allowbreak validated} & \lean{MiniC} \\
+Def.~\ref{def:interrupt-model}, Lem.~\ref{lem:sporadic}, Thm.~\ref{thm:response-time} & \lean{Admissible}, \lean{sporadic\_\allowbreak count}, \lean{handler\_\allowbreak demand}, \lean{response\_\allowbreak time\_\allowbreak bound}, \lean{rtaHolds\_\allowbreak sound}; example \lean{oneRun\_\allowbreak completes} & \lean{Interrupts} \\
+Prop.~\ref{prop:graham} & \lean{Greedy}, \lean{greedy\_\allowbreak bound}, \lean{greedy\_\allowbreak exists}, \lean{forkjoin\_\allowbreak bound}, \lean{load\_\allowbreak lower} & \lean{ForkJoin} \\
 Prop.~\ref{prop:lex-log} & \lean{lex\_\allowbreak ranking\_\allowbreak bound}, \lean{log\_\allowbreak ranking\_\allowbreak bound} & \lean{Certificate} \\
 Prop.~\ref{prop:summary-call} & \lean{validSym\_\allowbreak iff}, \lean{validSym\_\allowbreak call}, \lean{validSym\_\allowbreak seq} & \lean{Language} \\
 Prop.~\ref{prop:context-bound} & \lean{run\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak floor\_\allowbreak of\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak context}, \lean{call\_\allowbreak bound\_\allowbreak of\_\allowbreak context} & \lean{Certificate} \\
@@ -1181,6 +1229,7 @@ The following points are \emph{not} mechanized, and the corresponding statements
     \item Theorem~\ref{thm:lyapunov-bound} as stated (termination together with the bound) is proved for a total state update; for partial or nondeterministic updates the bound on the length of runs is proved (\lean{ranking\_\allowbreak bound\_\allowbreak floor}), not the existence of a terminating run;
     \item the equation-generating rules of Section~\ref{sec:application}; and the completeness direction of Farkas' Lemma, which is cited;
     \item in Section~\ref{subsec:cost-logic}, the remark that a program with a derivable bound and positive test and call weights has no infinite execution (the bound on all execution prefixes, from which it follows, is mechanized), and the paragraph on weights and parallel composition, which is not formalized;
+    \item in Section~\ref{subsec:concurrency}, the removal of the hypothesis that no handler activation is pending at the start (the busy-period argument), greedy scheduling of task graphs with dependencies, and the hypothesis that one unit of cost takes one unit of time, which is a property of the target, not a theorem;
     \item the potentials of Proposition~\ref{prop:lex-log} are mechanized as bounds on the length of runs, but they are not rules of the cost logic and are not accepted by the checker; the checker of Section~\ref{subsec:checker} covers assignments, unknown values, sequences, conditionals, loops with a linear or conjunctive test, calls of earlier functions (no recursion) and assumed contracts, with bounds affine in the parameters;
     \item the analyzer of the companion paper \cite{crosscheckTool}, and the translation from C or C++ source to the certificates of Section~\ref{subsec:checker}; for a validated certificate (Section~\ref{subsec:validation}) the translation of the source into mini-C instead, and the hypotheses under which a C function means its mini-C description. The checker program is compiled from the Lean definitions of the checker and of validation by Lean's compiler, together with a parser of the certificate format that is not verified.
 \end{itemize}
@@ -1213,7 +1262,7 @@ Future work on the theory includes lexicographic, logarithmic and amortized pote
 
 \section*{Statement on the Use of AI}
 
-Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language}, \lean{Checker} and \lean{MiniC} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, the validation of Section~\ref{subsec:validation}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language}, \lean{Checker}, \lean{MiniC}, \lean{Interrupts} and \lean{ForkJoin} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, the validation of Section~\ref{subsec:validation}, the results of Section~\ref{subsec:concurrency}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
 
 \section*{Acknowledgements}
 

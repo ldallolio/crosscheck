@@ -1108,6 +1108,50 @@ TEST(Deadline, MetAndMissed) {
   EXPECT_TRUE(anyErrorContains(fn(r, "slow"), "exceeds its deadline"));
 }
 
+// Response time under interrupt handlers (Lean Interrupts.response_time_bound).
+TEST(Interrupts, ResponseTime) {
+  Report r = check(R"(
+    int ticks;
+    CROSSCHECK_INTERRUPT(10) void isr() { ticks = ticks + 1; }
+    CROSSCHECK_DEADLINE(100) int task(const int* a) {
+      int s = 0;
+      for (int i = 0; i < 4; ++i) s += a[i];
+      return s;
+    })");
+  ASSERT_TRUE(fn(r, "isr").interruptHandler);
+  ASSERT_TRUE(fn(r, "task").responseTime.has_value());
+  std::uint64_t C = fn(r, "task").wcet, c = fn(r, "isr").wcet, R = *fn(r, "task").responseTime;
+  // R is a fixed point of the iteration and at least the bound plus one activation
+  EXPECT_EQ(R, C + c * ((R + 9) / 10));
+  EXPECT_GE(R, C + c);
+  EXPECT_TRUE(fn(r, "task").ok);
+}
+
+// Must be rejected: the cost bound meets the deadline, the response time does not.
+TEST(Unsound, DeadlineMissedUnderInterrupts) {
+  Report r = check(R"(
+    int ticks;
+    CROSSCHECK_INTERRUPT(5) void isr() { ticks = ticks + 1; ticks = ticks + 1; }
+    CROSSCHECK_DEADLINE(40) int task(const int* a) {
+      int s = 0;
+      for (int i = 0; i < 4; ++i) s += a[i];
+      return s;
+    })");
+  ASSERT_TRUE(fn(r, "task").bounded);
+  EXPECT_LE(fn(r, "task").wcet, 40u);
+  EXPECT_FALSE(fn(r, "task").ok);
+  EXPECT_TRUE(anyErrorContains(fn(r, "task"), "under interrupts exceeds its deadline"));
+}
+
+// Must be rejected: a handler without a positive minimum inter-arrival time.
+TEST(Unsound, InterruptWithoutPeriod) {
+  Report r = check(R"(
+    CROSSCHECK_INTERRUPT(0) void isr() {}
+    CROSSCHECK_REALTIME int task(int x) { return x; })");
+  EXPECT_FALSE(fn(r, "isr").ok);
+  EXPECT_FALSE(fn(r, "task").responseTime.has_value());
+}
+
 TEST(Report, JsonContainsTheBound) {
   Report r = check("CROSSCHECK_REALTIME int f(int x) { return x + 1; }");
   std::string json = r.toJson();

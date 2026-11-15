@@ -904,6 +904,7 @@ class Analyzer {
                   const std::vector<const Expr*>& argExprs, State& s);
   Context contextFor(const CallExpr* call, const FunctionDecl* def);
   void fillInContext(Report& report, const std::vector<const FunctionDecl*>& roots);
+  std::vector<std::string> responseTimes(Report& report, const std::vector<const FunctionDecl*>& defs);
 
   // -- certificates (docs/certificate-format.md) ------------------------------
  public:
@@ -4705,7 +4706,8 @@ class Collector : public RecursiveASTVisitor<Collector> {
   bool VisitFunctionDecl(FunctionDecl* fd) {
     if (!fd->doesThisDeclarationHaveABody() || fd->isDependentContext()) return true;
     bool annotated = findAnnotation(fd, "crosscheck::realtime") ||
-                     findAnnotation(fd, "crosscheck::deadline");
+                     findAnnotation(fd, "crosscheck::deadline") ||
+                     findAnnotation(fd, "crosscheck::interrupt");
     bool inMain = ctx_.getSourceManager().isInMainFile(
         ctx_.getSourceManager().getExpansionLoc(fd->getLocation()));
     if (annotated || (all_ && inMain && !fd->isImplicit())) roots.push_back(fd);
@@ -4776,10 +4778,11 @@ Report Analyzer::run() {
 
   Report report;
   std::set<const FunctionDecl*> seen;
-  std::vector<const FunctionDecl*> order;
+  std::vector<const FunctionDecl*> order, defs;
   for (const FunctionDecl* fd : collector.roots) {
     if (!seen.insert(fd->getCanonicalDecl()).second) continue;
     order.push_back(fd->getCanonicalDecl());
+    defs.push_back(fd);
     FunctionReport rep = analyzeFunction(fd).report;
 
     DiagnosticsEngine& diags = ctx_.getDiagnostics();
@@ -4814,6 +4817,7 @@ Report Analyzer::run() {
     report.functions.push_back(std::move(rep));
   }
   fillInContext(report, order);
+  std::vector<std::string> responses = responseTimes(report, defs);
   if (!certFuns_.empty())
     report.certificates.push_back(cert::programJson(
         ctx_.getSourceManager().getFileEntryRefForID(ctx_.getSourceManager().getMainFileID())
@@ -4821,8 +4825,96 @@ Report Analyzer::run() {
                               .getFileEntryRefForID(ctx_.getSourceManager().getMainFileID())
                               ->getName())
             : std::string("translation unit"),
-        certNames_, certFuns_));
+        certNames_, certFuns_, responses));
   return report;
+}
+
+/// Interrupt handlers (`CROSSCHECK_INTERRUPT(T)`): every other analysed function gets a
+/// response-time bound under their interference (Lean `Interrupts.response_time_bound`):
+/// the least R with C + sum_k (c_k + overhead) * ceil(R / T_k) <= R, where C is the
+/// function's bound (in context if known) and c_k the handlers' bounds. With
+/// certificates, the same claim with the certified bounds is written for the checker.
+std::vector<std::string> Analyzer::responseTimes(Report& report,
+                                                 const std::vector<const FunctionDecl*>& defs) {
+  struct H {
+    std::size_t idx;
+    std::uint64_t T;
+  };
+  std::vector<H> hs;
+  DiagnosticsEngine& diags = ctx_.getDiagnostics();
+  for (std::size_t i = 0; i < defs.size(); ++i) {
+    const AnnotateAttr* a = findAnnotation(defs[i], "crosscheck::interrupt");
+    if (!a) continue;
+    FunctionReport& f = report.functions[i];
+    f.interruptHandler = true;
+    auto n = annotationArg(a, 0, ctx_);
+    if (!n || *n <= 0) {
+      std::string msg = "CROSSCHECK_INTERRUPT needs a positive constant minimum inter-arrival time";
+      diags.Report(defs[i]->getLocation(), errorId_) << msg;
+      f.errors.push_back(msg);
+      f.errorSites.push_back(siteOf("rejected", defs[i]->getLocation(), msg));
+      f.ok = false;
+      continue;
+    }
+    hs.push_back({i, static_cast<std::uint64_t>(*n)});
+  }
+  std::vector<std::string> claims;
+  if (hs.empty()) return claims;
+  const std::uint64_t o = opts_.interruptOverhead;
+  auto certConst = [&](const FunctionDecl* fd) -> std::optional<std::uint64_t> {
+    auto it = certFunOf_.find(fd->getCanonicalDecl());
+    if (it == certFunOf_.end()) return std::nullopt;
+    const cert::SB& b = certFuns_.at(it->second.index).bound;
+    for (std::uint64_t c : b.co)
+      if (c) return std::nullopt;
+    return b.c;
+  };
+  for (std::size_t i = 0; i < defs.size(); ++i) {
+    FunctionReport& f = report.functions[i];
+    if (f.interruptHandler || !f.bounded) continue;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> load;
+    bool all = true;
+    for (const H& h : hs) {
+      const FunctionReport& hr = report.functions[h.idx];
+      if (!hr.bounded) { all = false; break; }
+      load.push_back({hr.wcet + o, h.T});
+    }
+    for (const H& h : hs) {
+      const FunctionReport& hr = report.functions[h.idx];
+      f.assumptions.push_back("interrupt handler '" + hr.name + "': at least " + std::to_string(h.T) +
+                              " units between activations, " + std::to_string(o) +
+                              " units of entry/exit overhead per activation");
+    }
+    f.assumptions.push_back("response time: no handler activation is pending when '" + f.name +
+                            "' starts, and one cost unit takes one time unit");
+    if (!all) continue;
+    std::uint64_t C = f.wcetInContext ? *f.wcetInContext : f.wcet;
+    f.responseTime = cert::responseTime(C, load);
+    if (f.responseTime && f.deadline && *f.responseTime > *f.deadline) {
+      std::string msg = "response time " + std::to_string(*f.responseTime) + " of '" + f.name +
+                        "' under interrupts exceeds its deadline " + std::to_string(*f.deadline);
+      diags.Report(defs[i]->getLocation(), errorId_) << msg;
+      f.errors.push_back(msg);
+      f.errorSites.push_back(siteOf("deadline", defs[i]->getLocation(), msg));
+      f.ok = false;
+    }
+    // The claim for the checker, with the certified bounds.
+    if (!opts_.certificates) continue;
+    std::optional<std::uint64_t> Cc = certConst(defs[i]);
+    if (!Cc) continue;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> cload;
+    std::vector<std::tuple<std::string, std::uint64_t, std::uint64_t>> named;
+    for (const H& h : hs) {
+      std::optional<std::uint64_t> c = certConst(defs[h.idx]);
+      if (!c) break;
+      cload.push_back({*c + o, h.T});
+      named.emplace_back(defs[h.idx]->getQualifiedNameAsString(), h.T, o);
+    }
+    if (cload.size() != hs.size()) continue;
+    if (std::optional<std::uint64_t> R = cert::responseTime(*Cc, cload))
+      claims.push_back(cert::responseJson(defs[i]->getQualifiedNameAsString(), named, *R));
+  }
+  return claims;
 }
 
 }  // namespace

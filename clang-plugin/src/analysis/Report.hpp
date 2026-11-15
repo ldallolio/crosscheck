@@ -60,6 +60,10 @@ struct FunctionReport {
   std::string certificate;
   std::optional<std::uint64_t> certificateBound;  ///< the certified bound at the largest admissible arguments
   std::string certificateSummary;  ///< the certified bound as a function of the parameters
+  /// With interrupt handlers in the translation unit: a bound on the time from the start of
+  /// the function to its completion, under their interference (none if not derived).
+  std::optional<std::uint64_t> responseTime;
+  bool interruptHandler = false;
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
   std::vector<Site> errorSites;  ///< the errors with their locations

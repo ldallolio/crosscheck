@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 17 modules, about 4,550 lines, 239 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 20 modules, about 4,950 lines, 260 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -122,6 +122,9 @@ flowchart LR
 | `Checker` | 895 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
 | `MiniCCore` | 187 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt`; **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |
 | `MiniC` | 285 | `CImp`/`CEquiv` (same executions and prefixes), congruences, `seq_assoc`, `nf_equiv`, **`validated_sound`** (accepted program + validated body ⇒ the source meets the bound); examples `countCert_validated`, `countCert_not_validated` |
+| `ResponseCore` | 50 | no mathlib: `rtaHolds C hs R` (`C + Σ cₖ⌈R/Tₖ⌉ ≤ R`), `rtaSearch` (the iteration); used by the checker program |
+| `Interrupts` | 260 | schedule model `Admissible`, `sporadic_count`, `handler_demand`, **`response_time_bound`**, `rtaHolds_sound`; example schedule `oneRun_admissible` |
+| `ForkJoin` | 120 | greedy (list) scheduling `Greedy`, **`greedy_bound`** (Graham: `p·L ≤ W + p·S`), `forkjoin_bound` (with certified task bounds), `load_lower` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

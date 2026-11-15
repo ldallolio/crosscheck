@@ -53,6 +53,8 @@ std::string Report::toJson() const {
     out += ",\n      \"wcet_in_context\": " +
            (f.wcetInContext ? std::to_string(*f.wcetInContext) : std::string("null"));
     out += ",\n      \"deadline\": " + (f.deadline ? std::to_string(*f.deadline) : std::string("null"));
+    if (f.interruptHandler) out += ",\n      \"interrupt_handler\": true";
+    if (f.responseTime) out += ",\n      \"response_time\": " + std::to_string(*f.responseTime);
     out += ",\n      \"loops\": [";
     for (std::size_t j = 0; j < f.loops.size(); ++j) {
       const LoopReport& l = f.loops[j];

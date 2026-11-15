@@ -550,8 +550,37 @@ std::string node(const Node& n) {
 
 }  // namespace
 
+std::string responseJson(const std::string& task,
+                         const std::vector<std::tuple<std::string, std::uint64_t, std::uint64_t>>& handlers,
+                         std::uint64_t R) {
+  std::string hs = "[";
+  for (std::size_t i = 0; i < handlers.size(); ++i)
+    hs += std::string(i ? "," : "") + "{\"function\":" + str(std::get<0>(handlers[i])) +
+          ",\"min_interarrival\":" + std::to_string(std::get<1>(handlers[i])) +
+          ",\"overhead\":" + std::to_string(std::get<2>(handlers[i])) + "}";
+  return "{\"name\":" + str(task + " under interrupts") + ",\"task\":" + str(task) +
+         ",\"handlers\":" + hs + "],\"R\":" + std::to_string(R) + "}";
+}
+
+std::optional<std::uint64_t> responseTime(std::uint64_t C,
+                                          const std::vector<std::pair<std::uint64_t, std::uint64_t>>& handlers,
+                                          std::uint64_t limit) {
+  for (const auto& [c, T] : handlers)
+    if (T == 0) return std::nullopt;
+  std::uint64_t R = C;
+  for (int fuel = 0; fuel < 100000; ++fuel) {
+    unsigned __int128 next = C;
+    for (const auto& [c, T] : handlers) next += (unsigned __int128)c * ((R + T - 1) / T);
+    if (next > limit) return std::nullopt;
+    if (next == R) return R;
+    R = static_cast<std::uint64_t>(next);
+  }
+  return std::nullopt;
+}
+
 std::string programJson(const std::string& name, const std::vector<std::string>& variables,
-                        const std::vector<FunJson>& functions) {
+                        const std::vector<FunJson>& functions,
+                        const std::vector<std::string>& responses) {
   std::string vs = "[";
   for (std::size_t i = 0; i < variables.size(); ++i) vs += (i ? "," : "") + str(variables[i]);
   vs += "]";
@@ -565,7 +594,13 @@ std::string programJson(const std::string& name, const std::vector<std::string>&
           (f.source ? ",\"source\":" + *f.source : std::string()) +
           (f.sourceRefused.empty() ? std::string() : ",\"source_refused\":" + str(f.sourceRefused)) + "}";
   }
-  return "{\"name\":" + str(name) + ",\"variables\":" + vs + ",\"functions\":" + fs + "]}";
+  std::string rs;
+  if (!responses.empty()) {
+    rs = ",\"responses\":[";
+    for (std::size_t i = 0; i < responses.size(); ++i) rs += (i ? "," : "") + responses[i];
+    rs += "]";
+  }
+  return "{\"name\":" + str(name) + ",\"variables\":" + vs + ",\"functions\":" + fs + "]" + rs + "}";
 }
 
 std::string fileJson(const std::vector<std::string>& programs) {

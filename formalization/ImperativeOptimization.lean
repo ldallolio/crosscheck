@@ -17,6 +17,9 @@ import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.Checker
 import ImperativeOptimization.MiniCCore
 import ImperativeOptimization.MiniC
+import ImperativeOptimization.ResponseCore
+import ImperativeOptimization.Interrupts
+import ImperativeOptimization.ForkJoin
 import ImperativeOptimization.FixedPoint
 import ImperativeOptimization.OperationalSemantics
 import ImperativeOptimization.Examples

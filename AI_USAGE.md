@@ -733,6 +733,31 @@ without re-implementing its search in Lean, and leaves a translation short enoug
   environment, and the exporter would have to follow the generator's choice between a
   summary and inlining); unsigned arithmetic, division and masks in mini-C; jumps in loops.
 
+37. "proceed with step 6"
+
+What the AI did for 37 (step 6 of `docs/proposals.md` §5 has three parts; the AI chose the
+order S6, S5, I6, and did S6 first; design choices are the AI's):
+- Lean: `ResponseCore` (no mathlib: `rtaHolds`, `rtaSearch`), `Interrupts` (schedule model
+  `Admissible`, `sporadic_count`, `handler_demand`, `response_time_bound`, `rtaHolds_sound`,
+  examples incl. an admissible schedule, so that the hypotheses are satisfiable),
+  `ForkJoin` (`Greedy`, `greedy_bound` = Graham's bound, `forkjoin_bound`, `load_lower`);
+  260 theorems. Both results are classical (Joseph and Pandya 1986, Audsley et al. 1993,
+  Graham 1966); the papers say so and cite Prosa (Cerqueira et al. 2016) as the general
+  mechanization.
+- Checker program: `"responses"` claims (task and handlers must be accepted with constant
+  bounds); tests `response.json`, `response_rejected.json` (four wrong claims), in CI.
+- Plugin: `CROSSCHECK_INTERRUPT(T)`, option `interrupt-overhead=N`, `response_time` in the
+  report and `--summary`, deadlines checked against it, claims in certificate files with
+  the certified bounds; tests `Interrupts.ResponseTime`, `Unsound.DeadlineMissedUnderInterrupts`,
+  `Unsound.InterruptWithoutPeriod`, `tests/certificates/interrupts.cpp`.
+- Papers: Paper I subsection `subsec:concurrency` (Definition `def:interrupt-model`, Lemma
+  `lem:sporadic`, Theorem `thm:response-time`, Proposition `prop:graham`, with proofs),
+  contributions, table, scope; Paper II paragraph "Interrupts". New references checked on
+  Crossref: `joseph1986finding` (Crossref lists only M. Joseph; the co-author P. Pandya is
+  from the AI's memory), `audsley1993applying`, `graham1966bounds`, `cerqueira2016prosa`;
+  content not read. **Author to check** (§3, item 25).
+- Not done in S6: the busy-period argument; fork-join in the plugin; task graphs.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -865,3 +890,8 @@ is whether each Lean statement says what the paper says, and everything outside 
     `return` outside loops, the refusals) are faithful to C, and that the papers state
     the hypotheses (no signed overflow, no aliasing of tracked variables, no concurrent
     writes). Read Pnueli et al. 1998 and Necula 2000 before keeping the citations.
+25. **Interrupts and fork-join.** Read Definition `def:interrupt-model`, Theorem
+    `thm:response-time` and Proposition `prop:graham` against `Interrupts.lean` and
+    `ForkJoin.lean`; confirm that the hypotheses (no activation pending at the start, one
+    cost unit = one time slot, handlers not writing the task's variables) are stated
+    wherever response times are reported; check the authors of `joseph1986finding`.

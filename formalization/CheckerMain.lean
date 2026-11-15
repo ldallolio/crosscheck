@@ -6,6 +6,7 @@ Authors: Luca Dall'Olio
 import Lean.Data.Json
 import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.MiniCCore
+import ImperativeOptimization.ResponseCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -26,11 +27,17 @@ A function may also carry its source program in mini-C (`"source"`, the fragment
 `MiniC.validated_sound`: the bound then holds for the source program). The conversion of
 the source from JSON is trusted in the same way.
 
+A program may also carry response-time claims (`"responses"`): a function (the task)
+preempted by interrupt handlers (functions of the same program) with minimum inter-arrival
+times and per-activation overheads, which are assumed. The checker requires the task and
+handlers to be accepted with constant bounds and runs the verified `Interrupts.rtaHolds`
+(theorem `Interrupts.rtaHolds_sound`).
+
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
 input.
 -/
 
-open Lean ImperativeOptimization.Checker ImperativeOptimization.MiniC
+open Lean ImperativeOptimization.Checker ImperativeOptimization.MiniC ImperativeOptimization.Interrupts
 
 namespace CheckerMain
 
@@ -200,6 +207,8 @@ structure Program where
   funs : List (String × FunCert)
   /-- The mini-C source of each function, if given (same order as `funs`). -/
   sources : List (Option MStmt)
+  /-- Response-time claims: name, task, handlers (function, min inter-arrival, overhead), R. -/
+  responses : List (String × String × List (String × Nat × Nat) × Nat) := []
 
 def strList (j : Json) (k : String) : List String :=
   match j.getObjVal? k with
@@ -221,7 +230,7 @@ def parseCert (j : Json) : Except String Program := do
   -- A standalone certificate is not called: its own writes serve as its frame.
   let F : FunCert := ⟨← parseArr j "pre" parseLin, ← getSB j "bound", ← parseArr j "post" parseLin,
     writes [] body, some body⟩
-  pure ⟨nameOf j "function", strList j "variables", [(nameOf j "function", F)], [none]⟩
+  pure ⟨nameOf j "function", strList j "variables", [(nameOf j "function", F)], [none], []⟩
 
 /-- Version 2: a function of a program certificate; `"contract": true` and no body for an
     assumed contract. -/
@@ -248,8 +257,22 @@ def parseFile (j : Json) : Except String (List Program) := do
   if ver == 1 then parseArr j "certificates" parseCert
   else if ver == 2 then
     parseArr j "programs" fun p => do
+      let responses ← match p.getObjVal? "responses" with
+        | .ok _ => parseArr p "responses" fun r => do
+            let hs ← parseArr r "handlers" fun h => do
+              let fn ← match h.getObjValAs? String "function" with
+                | .ok s => pure s
+                | .error _ => throw "a handler needs a 'function'"
+              pure (fn, ← getNat h "min_interarrival", (match h.getObjValAs? Nat "overhead" with
+                | .ok n => n
+                | .error _ => 0))
+            let task ← match r.getObjValAs? String "task" with
+              | .ok s => pure s
+              | .error _ => throw "a response claim needs a 'task'"
+            pure (nameOf r "name", task, hs, ← getNat r "R")
+        | .error _ => pure []
       pure ⟨nameOf p "name", strList p "variables", ← parseArr p "functions" parseFun,
-        ← parseArr p "functions" parseSource⟩
+        ← parseArr p "functions" parseSource, responses⟩
   else throw s!"unsupported version {ver} (this checker reads versions 1 and 2)"
 
 /-! ### Printing what was checked -/
@@ -359,4 +382,21 @@ def main (args : List String) : IO UInt32 := do
           let rel := if p.funs.any (·.2.body.isNone) then " (relative to the assumed contracts)" else ""
           IO.println (s!"PROGRAM  {p.name}: {if okP then "ACCEPTED" else "REJECTED"}" ++ rel)
         if !okP then status := max status 1
+        -- response-time claims (theorem `Interrupts.rtaHolds_sound`)
+        for (rname, task, hs, R) in p.responses do
+          let costOf (fname : String) : Option Nat :=
+            match p.funs.find? (·.1 == fname) with
+            | some (_, F) =>
+              if F.body.isSome && okP && F.bound.co.all (· == 0) then some F.bound.c else none
+            | none => none
+          match costOf task, hs.mapM (fun (h, T, o) => (costOf h).map (fun c => (c + o, T))) with
+          | some C, some hl =>
+            if rtaHolds C hl R then
+              IO.println s!"RESPONSE {rname}: {task} completes within {R} (cost {C}; handlers {hl}; minimum inter-arrival times and overheads assumed)"
+            else
+              IO.println s!"RESPONSE {rname}: REJECTED (C + interference > {R}, or a period is 0)"
+              status := max status 1
+          | _, _ =>
+            IO.println s!"RESPONSE {rname}: REJECTED (the task or a handler has no accepted constant bound)"
+            status := max status 1
   return status

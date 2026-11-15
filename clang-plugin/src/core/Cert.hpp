@@ -20,6 +20,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace crosscheck::cert {
@@ -163,7 +165,20 @@ struct FunJson {
 
 /// JSON of one program certificate (format version 2).
 std::string programJson(const std::string& name, const std::vector<std::string>& variables,
-                        const std::vector<FunJson>& functions);
+                        const std::vector<FunJson>& functions,
+                        const std::vector<std::string>& responses = {});
+
+/// A response-time claim (JSON): `task` completes within `R` under the handlers
+/// (function name, minimum inter-arrival time, overhead per activation).
+std::string responseJson(const std::string& task,
+                         const std::vector<std::tuple<std::string, std::uint64_t, std::uint64_t>>& handlers,
+                         std::uint64_t R);
+
+/// The least `R >= C` with `C + sum_k c_k * ceil(R / T_k) <= R`, by the usual iteration
+/// (Lean `Interrupts.rtaSearch`), or none above `limit`.
+std::optional<std::uint64_t> responseTime(std::uint64_t C,
+                                          const std::vector<std::pair<std::uint64_t, std::uint64_t>>& handlers,
+                                          std::uint64_t limit = std::uint64_t(1) << 60);
 
 /// The whole file around program certificates produced by `programJson`.
 std::string fileJson(const std::vector<std::string>& programs);

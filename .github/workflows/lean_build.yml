@@ -63,3 +63,11 @@ jobs:
           fi
           cat mrejected.txt
           if grep -q '^VALIDATED' mrejected.txt; then echo "a wrong source was validated"; exit 1; fi
+          # Response-time claims: response.json holds; every claim of response_rejected.json fails.
+          .lake/build/bin/crosscheck-check test/certificates/response.json | tee response.txt
+          grep -q '^RESPONSE.*completes within' response.txt
+          if .lake/build/bin/crosscheck-check test/certificates/response_rejected.json > rrejected.txt; then
+            echo "a wrong response-time claim was accepted"; exit 1
+          fi
+          cat rrejected.txt
+          if grep -q '^RESPONSE.*completes within' rrejected.txt; then echo "a wrong response-time claim was accepted"; exit 1; fi
