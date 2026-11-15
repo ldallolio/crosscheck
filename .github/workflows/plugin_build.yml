@@ -96,6 +96,12 @@ jobs:
       - name: TACLeBench, comparison with LLVM ScalarEvolution and observed loop counts
         run: python3 benchmarks/tacle/compare_tools.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt --check
 
+      # Rust front-end: MIR text is version-specific, so the toolchain is pinned.
+      - name: Rust front-end (differential test of the MIR-to-C translation)
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          python3 frontends/rust/tests/test_rust.py --rustc "$(rustup which --toolchain 1.100.0 rustc)"
+
       # Cycle bounds of the kernels compiled for a Cortex-M0, each checked against an
       # emulated run (the interpreter is self-tested first).
       - name: Cortex-M0 cycle bounds

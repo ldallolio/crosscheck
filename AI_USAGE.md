@@ -770,8 +770,24 @@ order S6, S5, I6, and did S6 first; design choices are the AI's):
   own check on Arm; it is listed as an expected failure. Results: see Paper II and
   `benchmarks/cycles/README.md`. **Author to check** the timing table against the TRM
   (§3, item 26).
-- I6 (Rust) not started: MIR is only available as unstable text output; a front-end needs
-  a `rustc_private`/`stable_mir` driver on a nightly toolchain, a separate project.
+- I6 (Rust): first left out (MIR only as unstable text); done after prompt 38, see below.
+
+38. "proceed with rust, even if the interface may evolve with time"
+
+What the AI did for 38 (design choices are the AI's):
+- Rust front-end on the textual MIR of rustc 1.100.0 (`frontends/rust/mir2c.py`): the MIR
+  of each free function is translated into C, which the existing analyser bounds and
+  certifies; loops rebuilt as `while` loops from the tests at their head, conditionals by
+  immediate post-dominators. Semantic choices (in its README and Paper II): wrapping
+  operations on unsigned C types; checked arithmetic as plain C arithmetic (bounds for the
+  executions that do not panic); other assertions and panics as early returns (more
+  behaviours in C, so the bounds carry over), which makes `assert!` a run-time-checked
+  input range.
+- Tests (`frontends/rust/tests/test_rust.py`): differential test against Rust (382 runs,
+  no mismatch), must-be-unbounded functions; CI step with the toolchain pinned. Results:
+  11 of 12 example functions translated, 6 bounded, 3 certified (1 validated), the 4
+  `rejected_*` not bounded. The translation is not verified.
+- Paper II paragraph "Rust"; docs. **Author to check** (§3, item 27).
 
 ### Earlier work
 
@@ -915,3 +931,7 @@ is whether each Lean statement says what the paper says, and everything outside 
     processing, 2 for loads/stores, 1+N for LDM/STM/PUSH/POP, 4+N for POP with PC, 3 for
     taken branches, 1 not taken, 4 for BL, 3 for BX, MULS 1 or 32), and decide whether the
     loop matching by debug lines (checked on runs only) is acceptable as stated.
+27. **Rust front-end.** Read `frontends/rust/README.md` and `mir2c.py`; confirm the
+    semantic choices (checked arithmetic as non-overflowing C, assertions as early
+    returns, `usize` as 64 bits) and that Paper II states that bounds cover the executions
+    that do not panic and that the translation is unverified and tied to rustc 1.100.0.
