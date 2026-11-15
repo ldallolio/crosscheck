@@ -757,6 +757,21 @@ order S6, S5, I6, and did S6 first; design choices are the AI's):
   from the AI's memory), `audsley1993applying`, `graham1966bounds`, `cerqueira2016prosa`;
   content not read. **Author to check** (§3, item 25).
 - Not done in S6: the busy-period argument; fork-join in the plugin; task graphs.
+- S5 (time on a predictable core), done after S6 in the same prompt: `benchmarks/cycles`
+  (`m0.py`: ARMv6-M decoder, Cortex-M0 timing table from the AI's knowledge of the Arm
+  Technical Reference Manual, an ELF loader and an interpreter; `wcet.py`: CFG of the
+  binary, natural loops matched to source loops by debug lines, timing schema;
+  `run_cycles.py`; `runtime.c`: integer division for the M0, so that CrossCheck bounds
+  it; `test_m0.py` + `selftest.c`: self-test of the interpreter against C semantics). The
+  AI first tried to install the `unicorn` emulator and `pyelftools` with pip into a scratch
+  venv; the action was denied by the session's permission policy, and the AI wrote its own
+  interpreter instead (no external package). While debugging, the AI found that TACLeBench
+  `fft` converts negative floats to `unsigned long` (undefined behaviour), so it fails its
+  own check on Arm; it is listed as an expected failure. Results: see Paper II and
+  `benchmarks/cycles/README.md`. **Author to check** the timing table against the TRM
+  (§3, item 26).
+- I6 (Rust) not started: MIR is only available as unstable text output; a front-end needs
+  a `rustc_private`/`stable_mir` driver on a nightly toolchain, a separate project.
 
 ### Earlier work
 
@@ -895,3 +910,8 @@ is whether each Lean statement says what the paper says, and everything outside 
     `ForkJoin.lean`; confirm that the hypotheses (no activation pending at the start, one
     cost unit = one time slot, handlers not writing the task's variables) are stated
     wherever response times are reported; check the authors of `joseph1986finding`.
+26. **Cortex-M0 cycle bounds.** Check `m0.cycles` against the instruction summary of the
+    Arm Cortex-M0 Technical Reference Manual (the AI wrote it from memory: 1 cycle for data
+    processing, 2 for loads/stores, 1+N for LDM/STM/PUSH/POP, 4+N for POP with PC, 3 for
+    taken branches, 1 not taken, 4 for BL, 3 for BX, MULS 1 or 32), and decide whether the
+    loop matching by debug lines (checked on runs only) is acceptable as stated.

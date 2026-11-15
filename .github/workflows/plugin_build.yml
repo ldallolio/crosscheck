@@ -96,6 +96,14 @@ jobs:
       - name: TACLeBench, comparison with LLVM ScalarEvolution and observed loop counts
         run: python3 benchmarks/tacle/compare_tools.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt --check
 
+      # Cycle bounds of the kernels compiled for a Cortex-M0, each checked against an
+      # emulated run (the interpreter is self-tested first).
+      - name: Cortex-M0 cycle bounds
+        run: |
+          python3 benchmarks/cycles/test_m0.py
+          python3 benchmarks/cycles/run_cycles.py --clang=/usr/lib/llvm-18/bin/clang \
+            --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json
+
       - name: Upload TACLeBench results
         uses: actions/upload-artifact@v4
         with:

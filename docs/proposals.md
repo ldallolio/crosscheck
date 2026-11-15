@@ -129,6 +129,12 @@ flowchart LR
    `response_time` in the report, deadlines checked against it, response-time claims in
    certificate files. Open for S6: the busy-period argument (activations pending at the
    start), fork-join in the plugin, dependencies between tasks.
+   **S5 done 2026-11-15** (`benchmarks/cycles`): cycle bounds of the TACLeBench kernels
+   compiled for a Cortex-M0, from CrossCheck's loop bounds (binary loops matched by debug
+   lines), each checked against an emulated run: 102 of 267 functions, 5 entry functions
+   (bound/observed 1.24 to 2.49), no violation. Open: software floating point, a check on
+   hardware, other cores. **I6 (Rust) not started**: needs a `rustc_private`/`stable_mir`
+   driver on a nightly toolchain.
 
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
 tests, Lean proofs for every new checker rule, and the papers, READMEs and guide updated
