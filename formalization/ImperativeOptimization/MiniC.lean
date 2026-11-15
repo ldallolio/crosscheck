@@ -240,6 +240,15 @@ theorem nf_equiv (c : ACmd) : CEquiv Φ (nf c).toCmd c.toCmd := by
         simp only [nf, ACmd.toCmd, canon_eval, List.all_cons, List.all_nil, Bool.and_true]
         exact ih.while
       | cons g' gs => simp only [nf, ACmd.toCmd, all_canon]; exact ih.while
+  | whileGrow w gs _ _ _ _ _ _ _ b ih =>
+    cases gs with
+    | nil => simp only [nf, ACmd.toCmd, List.map_nil]; exact ih.while
+    | cons g gs =>
+      cases gs with
+      | nil =>
+        simp only [nf, ACmd.toCmd, canon_eval, List.all_cons, List.all_nil, Bool.and_true]
+        exact ih.while
+      | cons g' gs => simp only [nf, ACmd.toCmd, all_canon]; exact ih.while
   | weaken _ _ _ _ _ c ih => exact ih
   | dead _ c ih => exact ih
   | call w f inst _ _ _ => exact CEquiv.refl _

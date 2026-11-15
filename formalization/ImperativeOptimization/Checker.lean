@@ -466,6 +466,8 @@ def ACmd.toCmd : ACmd → Cmd ℕ Env
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .whileLog w gs _ _ _ _ _ _ _ body =>
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
+  | .whileGrow w gs _ _ _ _ _ _ _ body =>
+      Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
   | .call w f _ _ _ _ => Cmd.call w f
@@ -733,6 +735,148 @@ theorem logloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
     show ((logPot b (pot.eval s) : ℕ) : ℚ) ≤ ((logIters b k : ℕ) : ℚ)
     exact_mod_cast logPot_le (b := b) hs
 
+/-! ### Growing logarithmic loops -/
+
+theorem growEntry_eval (pot : PExp) (ρ s : Env) : (growEntry pot).eval ρ s = 1 - pot.eval s := by
+  simp only [growEntry, Lin.eval, PExp.eval, dot_vsmul, dot]; ring
+
+theorem ghostLow_eval (pot : PExp) (j : ℕ) (ρ s : Env) :
+    (ghostLow pot j).eval ρ s = ρ j - pot.eval s := by
+  simp only [ghostLow, Lin.eval, PExp.eval, dot_vsmul, dot_unit]; ring
+
+theorem ghostGrow_eval (pot : PExp) (j b : ℕ) (ρ s : Env) :
+    (ghostGrow pot j b).eval ρ s = b * ρ j - pot.eval s := by
+  simp only [ghostGrow, Lin.eval, PExp.eval, dot_vsmul, dot_unit]; ring
+
+/-- One growth step increases `⌊log_b⌋` by at least one. -/
+theorem log_grow {b : ℕ} (hb : 1 < b) {x y : ℤ} (hx : 1 ≤ x) (hy : (b : ℤ) * x ≤ y) :
+    Nat.log b x.toNat + 1 ≤ Nat.log b y.toNat := by
+  have hle : x.toNat ≤ y.toNat / b := by
+    rw [Nat.le_div_iff_mul_le (by omega)]
+    have e1 : ((x.toNat : ℕ) : ℤ) = x := Int.toNat_of_nonneg (by omega)
+    have hy0 : 0 ≤ y := by
+      have : (0 : ℤ) ≤ (b : ℤ) * x := by positivity
+      linarith
+    have e2 : ((y.toNat : ℕ) : ℤ) = y := Int.toNat_of_nonneg hy0
+    have : ((x.toNat * b : ℕ) : ℤ) ≤ ((y.toNat : ℕ) : ℤ) := by
+      push_cast; rw [e1, e2]; linarith
+    exact_mod_cast this
+  have h1 := Nat.log_mono_right (b := b) hle
+  rw [Nat.log_div_base] at h1
+  have hby : b ≤ y.toNat := by
+    have : (b : ℤ) * 1 ≤ (b : ℤ) * x := mul_le_mul_of_nonneg_left hx (by positivity)
+    omega
+  have := Nat.log_pos hb hby
+  omega
+
+/-- The loop rule of `whileGrow`, from `valid_while` with the potential
+    `logIters b K - ⌊log_b pot⌋`. -/
+theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {b : ℕ} {K : ℤ} {j : ℕ} {capCert : ℕ × List ℕ} {Wb : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hb : 1 < b) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hWc : Wb.co.all (· = 0) = true)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hcap : entails1 (G ++ inv) ⟨pot.sv, [], pot.c - K⟩ capCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (ghostLow pot j :: growEntry pot :: (G ++ inv)) ρ') body
+        (Wb.eval ρ') (holds (ghostGrow pot j b :: inv) ρ') ∧
+      ∀ s t n, holds (ghostLow pot j :: growEntry pot :: (G ++ inv)) ρ' s → Exec Φ body s t n →
+        ∀ x, x ∉ M → t x = s x)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (growEntry pot :: inv) ρ) (Cmd.while w test body)
+        (logIters b K * (w + Wb.c) + w) (holds Qe ρ) ∧
+      ∀ s t n, holds (growEntry pot :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
+        ∀ x, x ∉ M → t x = s x := by
+  have hWeval : ∀ ρ', Wb.eval ρ' = Wb.c := by
+    intro ρ'
+    simp only [SB.eval, dotN_zero hWc, add_zero]
+  have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
+    intro s hA hB e he
+    rcases List.mem_append.mp he with h | h
+    · exact hA e h
+    · exact hB e h
+  have hGinv : (G ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_append, Bool.and_eq_true]; exact ⟨hGj, hinv⟩
+  have hEj : (growEntry pot :: (G ++ inv)).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_cons, Bool.and_eq_true]
+    exact ⟨by simp [growEntry, coeff], hGinv⟩
+  let I : Env → Prop := fun s => holds inv ρ s ∧ 1 ≤ pot.eval s
+  have body_at : ∀ s, I s → test s = true →
+      Valid Φ (holds (ghostLow pot j :: growEntry pot :: (G ++ inv)) (Function.update ρ j (pot.eval s)))
+        body Wb.c (holds (ghostGrow pot j b :: inv) (Function.update ρ j (pot.eval s))) ∧
+      holds (ghostLow pot j :: growEntry pot :: (G ++ inv)) (Function.update ρ j (pot.eval s)) s := by
+    intro s hI hbt
+    refine ⟨?_, ?_⟩
+    · have := (hbody (Function.update ρ j (pot.eval s))).1
+      rwa [hWeval] at this
+    · rw [holds_cons, ghostLow_eval, holds_update_logical hEj, holds_cons, growEntry_eval]
+      exact ⟨by simp, by linarith [hI.2], happ s (hG s hbt) hI.1⟩
+  have cap : ∀ s, I s → test s = true → pot.eval s ≤ K := by
+    intro s hI hbt
+    have := entails1_sound hcap (ρ := ρ) (s := s) (happ s (hG s hbt) hI.1)
+    simp only [Lin.eval, dot, PExp.eval] at this ⊢
+    linarith
+  let V : Env → ℕ := fun s => logIters b K - Nat.log b (pot.eval s).toNat
+  have key := valid_while (Φ := Φ) (I := I) (C := fun _ => True)
+    (w := w) (b := test) (c := body) (Wb := Wb.c)
+    (fun s => ((V s : ℕ) : ℚ)) ((logIters b K : ℕ) : ℚ) ?_ ?_ ?_
+  · rw [Nat.floor_natCast] at key
+    refine ⟨?_, ?_⟩
+    · refine valid_conseq ?_ key (le_refl _) ?_
+      · intro s hP
+        rw [holds_cons, growEntry_eval] at hP
+        exact ⟨⟨hP.2, by linarith [hP.1]⟩, trivial⟩
+      · rintro t ⟨hI, hbt⟩; exact hQ t hI.1 hbt
+    · intro s t n hP he
+      rw [holds_cons, growEntry_eval] at hP
+      refine while_frame (I := I) (fun s' hI hbt t' n' e => ?_) ⟨hP.2, by linarith [hP.1]⟩ he
+      obtain ⟨hv, hpre⟩ := body_at s' hI hbt
+      have ht := (hv s' hpre).2 t' n' e
+      rw [holds_cons, ghostGrow_eval, holds_update_logical hinv, Function.update_self] at ht
+      have h1 := hI.2
+      refine ⟨⟨ht.2, ?_⟩, (hbody _).2 s' t' n' hpre e⟩
+      have : (b : ℤ) * 1 ≤ (b : ℤ) * pot.eval s' := mul_le_mul_of_nonneg_left h1 (by positivity)
+      have : (1 : ℤ) ≤ b := by exact_mod_cast hb.le
+      linarith [ht.1]
+  · intro v s hs
+    obtain ⟨hI, hbt, hv⟩ := hs
+    obtain ⟨H, hpre⟩ := body_at s hI hbt
+    refine ⟨(H s hpre).1, fun t n he => ?_⟩
+    have ht := (H s hpre).2 t n he
+    rw [holds_cons, ghostGrow_eval, holds_update_logical hinv, Function.update_self] at ht
+    have hgrow : (b : ℤ) * pot.eval s ≤ pot.eval t := by linarith [ht.1]
+    have h1 := hI.2
+    have hpt : 1 ≤ pot.eval t := by
+      have : (b : ℤ) * 1 ≤ (b : ℤ) * pot.eval s := mul_le_mul_of_nonneg_left h1 (by positivity)
+      have : (1 : ℤ) ≤ b := by exact_mod_cast hb.le
+      linarith
+    refine ⟨⟨ht.2, hpt⟩, ?_⟩
+    have hl := log_grow hb h1 hgrow
+    -- V s ≥ 1 (the test holds at s)
+    have hK := cap s hI hbt
+    have hKpos : 1 ≤ K := le_trans h1 hK
+    have hmono := Nat.log_mono_right (b := b) (show (pot.eval s).toNat ≤ K.toNat by omega)
+    have hL : logIters b K = Nat.log b K.toNat + 1 := by
+      simp only [logIters, ilog_eq]; rw [if_neg (by omega)]
+    have : V t + 1 ≤ V s := by
+      simp only [V, hL]; omega
+    rw [← hv]
+    have : ((V t : ℕ) : ℚ) + 1 ≤ ((V s : ℕ) : ℚ) := by exact_mod_cast this
+    linarith
+  · intro s hI hbt
+    have hK := cap s hI hbt
+    have hKpos : 1 ≤ K := le_trans hI.2 hK
+    have hmono := Nat.log_mono_right (b := b) (show (pot.eval s).toNat ≤ K.toNat by omega)
+    have hL : logIters b K = Nat.log b K.toNat + 1 := by
+      simp only [logIters, ilog_eq]; rw [if_neg (by omega)]
+    have : 1 ≤ V s := by simp only [V, hL]; omega
+    show (1 : ℚ) ≤ ((V s : ℕ) : ℚ)
+    exact_mod_cast this
+  · intro s _
+    show ((V s : ℕ) : ℚ) ≤ ((logIters b K : ℕ) : ℚ)
+    exact_mod_cast Nat.sub_le _ _
+
 /-- **Soundness of the checker.** If every function that calls may refer to meets its
     specification (`hfs`), a certificate accepted by `check` proves its triple: for
     every valuation `ρ` of the logical variables, from every state satisfying `P`, every
@@ -898,6 +1042,32 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
     exact ⟨valid_conseq (fun s hs => hs) H.1 (by
         have := SB.le_eval hB ρ
         simpa [SB.eval, SB.const, dotN] using this) (fun _ h => h), H.2⟩
+  | whileGrow w gs inv pot b K j capCert Wb body ih =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hcap⟩, hbody⟩, hB⟩ := h
+    have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
+      simp [List.all_map, PExp.toLin, coeff]
+    have H := growloop_sound (Φ := Φ) (w := w) (test := fun s => gs.all (fun e => decide (e.eval s ≤ 0)))
+      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (K := K) ρ hb hinv hWc
+      (fun s hs e he => by
+        simp only [List.all_eq_true, decide_eq_true_eq] at hs
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        rw [PExp.toLin_eval]
+        exact hs g hg)
+      hGj hcap (fun ρ' => ih _ _ _ hbody ρ')
+      (Qe := logExit gs inv)
+      (fun t hI hbt => by
+        unfold logExit
+        split
+        · next g =>
+          rw [holds_cons, PExp.negLin_eval]
+          simp at hbt
+          exact ⟨by omega, hI⟩
+        · exact hI)
+    exact ⟨valid_conseq (fun s hs => hs) H.1 (by
+        have := SB.le_eval hB ρ
+        simpa [SB.eval, SB.const, dotN] using this) (fun _ h => h), H.2⟩
   | weaken P' preCerts B' Q' postCerts c ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true] at h
@@ -1023,6 +1193,34 @@ theorem logCert_base1_rejected :
 theorem logCert_cost (Φ : ℕ → Cmd ℕ Env) {s : Env} (hs : s 0 ≤ 1000) {n : ℕ}
     (hp : Pre Φ logCert.toCmd s n) : n ≤ 21 := by
   have := certified_cost_le logCert_checks Φ (ρ := fun _ => 0) (s := s) (by
+    intro e he
+    simp only [List.mem_singleton] at he
+    subst he
+    simp [Lin.eval, dot]
+    omega) hp
+  simpa [SB.eval, SB.const, dotN] using this
+
+/-- `while (len ≤ 100) len := 2·len` from `len ≥ 1`: a growing potential, base 2, at most
+    `⌊log₂ 100⌋ + 1 = 7` iterations (from `len = 1`: 1, 2, …, 64), bound `7·2 + 1 = 15`. -/
+def growCert : ACmd :=
+  .whileGrow 1 [⟨[1], -100⟩] [] ⟨[1], 0⟩ 2 100 0 (1, [1]) (SB.const 1)
+    (.weaken [⟨[-2], [2], 0⟩] [(1, [2, 0, 0])] (SB.const 1) [⟨[-1], [2], 0⟩] [(1, [1])]
+      (.assign 1 0 ⟨[2], 0⟩))
+
+theorem growCert_checks :
+    check [] [⟨[-1], [], 1⟩] growCert (SB.const 15) [⟨[-1], [], 101⟩] = true := by decide
+
+/-- One less than the bound is rejected. -/
+theorem growCert_rejected :
+    check [] [⟨[-1], [], 1⟩] growCert (SB.const 14) [⟨[-1], [], 101⟩] = false := by decide
+
+/-- Without `len ≥ 1` on entry (`len` could be 0 and never grow), it is rejected. -/
+theorem growCert_needs_entry :
+    check [] [] growCert (SB.const 15) [⟨[-1], [], 101⟩] = false := by decide
+
+theorem growCert_cost (Φ : ℕ → Cmd ℕ Env) {s : Env} (hs : 1 ≤ s 0) {n : ℕ}
+    (hp : Pre Φ growCert.toCmd s n) : n ≤ 15 := by
+  have := certified_cost_le growCert_checks Φ (ρ := fun _ => 0) (s := s) (by
     intro e he
     simp only [List.mem_singleton] at he
     subst he

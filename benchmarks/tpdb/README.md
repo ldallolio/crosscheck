@@ -46,21 +46,22 @@ Programs whose entry function gets a bound:
 | Family | Programs | CrossCheck as is | CrossCheck, inputs in [-1000, 1000] | KoAT2 | CoFloCo |
 |---|---:|---:|---:|---:|---:|
 | Benamram_2025 | 14 | 0 | 0 | 8 | 0 |
-| Flores-Montoya_2017 | 458 | 10 | 161 | 254 | 246 |
+| Flores-Montoya_2017 | 458 | 10 | 166 | 254 | 246 |
 | Lommen_22 | 20 | 0 | 1 | 1 | 1 |
 | Lommen_23 | 15 | 0 | 1 | 6 | 1 |
 | Lommen_24 | 20 | 0 | 0 | 1 | 0 |
 | Sinn_2016 | 26 | 0 | 3 | 18 | 16 |
-| **Total** | **553** | **10** | **166** | **288** | **264** |
+| **Total** | **553** | **10** | **171** | **288** | **264** |
 
-(2026-11-13: 165 with ranges; the one more is in `Sinn_2016`.)
+(2026-11-13: 165 with ranges; then one more in `Sinn_2016`; five more in
+`Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15.)
 
 KoAT2 or CoFloCo bound 305 programs. CrossCheck with ranges against them:
 
 | | KoAT2 or CoFloCo: bound | no bound |
 |---|---:|---:|
-| CrossCheck (ranges): bound | 159 | 7 |
-| no bound | 146 | 241 |
+| CrossCheck (ranges): bound | 164 | 7 |
+| no bound | 141 | 241 |
 
 Reading the results:
 
@@ -109,9 +110,9 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **125 of the 166 bounded entry functions are
-certified, all accepted by the checker**: 92 with a *summary* affine in their parameters
+In the second mode (inputs in [-K, K]), **130 of the 171 bounded entry functions are
+certified, all accepted by the checker**: 97 with a *summary* affine in their parameters
 (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 33 with a constant bound,
-40 not certified. For 67 of the 92, KoAT2 also reports a linear bound. The harness's
+41 not certified. For 67 of the 97, KoAT2 also reports a linear bound. The harness's
 `CROSSCHECK_COST(1)` declarations become assumed contracts (39 entries). The analysis still
 needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.

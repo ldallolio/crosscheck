@@ -804,8 +804,8 @@
     "loops": 3,
     "functions": 15,
     "crosscheck": {
-      "bounded": 0,
-      "equal": 0,
+      "bounded": 1,
+      "equal": 1,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
@@ -833,14 +833,14 @@
     },
     "both_loops": 0,
     "overlap": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 0
     },
     "overlap_orange": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 1,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -1114,15 +1114,15 @@
     "loops": 6,
     "functions": 16,
     "crosscheck": {
-      "bounded": 0,
-      "equal": 0,
+      "bounded": 1,
+      "equal": 1,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
     },
     "crosscheck_ctx": {
-      "bounded": 0,
-      "equal": 0,
+      "bounded": 1,
+      "equal": 1,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
@@ -1143,21 +1143,21 @@
     },
     "both_loops": 0,
     "overlap": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 0
     },
     "overlap_orange": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 0
     },
     "overlap_ctx_orange": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -1173,20 +1173,24 @@
     "vs_observed": {
       "crosscheck": {
         "reached": 5,
-        "bounded": 0,
+        "bounded": 1,
         "below": 0,
-        "equal": 0,
+        "equal": 1,
         "above": 0,
-        "ratios": [],
+        "ratios": [
+          1.0
+        ],
         "below_at": []
       },
       "crosscheck_ctx": {
         "reached": 5,
-        "bounded": 0,
+        "bounded": 1,
         "below": 0,
-        "equal": 0,
+        "equal": 1,
         "above": 0,
-        "ratios": [],
+        "ratios": [
+          1.0
+        ],
         "below_at": []
       },
       "scev": {
@@ -1547,16 +1551,16 @@
     "loops": 12,
     "functions": 10,
     "crosscheck": {
-      "bounded": 10,
+      "bounded": 11,
       "equal": 8,
-      "looser": 2,
+      "looser": 3,
       "tighter": 0,
       "type_range": 0
     },
     "crosscheck_ctx": {
-      "bounded": 10,
+      "bounded": 11,
       "equal": 8,
-      "looser": 2,
+      "looser": 3,
       "tighter": 0,
       "type_range": 0
     },
@@ -1574,23 +1578,23 @@
       "tighter": 0,
       "type_range": 0
     },
-    "both_loops": 9,
+    "both_loops": 10,
     "overlap": {
       "cc_only": 1,
-      "other_only": 1,
+      "other_only": 0,
       "cc_tighter": 1,
-      "other_tighter": 0,
+      "other_tighter": 1,
       "same": 8
     },
     "overlap_orange": {
-      "cc_only": 3,
+      "cc_only": 4,
       "other_only": 1,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 7
     },
     "overlap_ctx_orange": {
-      "cc_only": 3,
+      "cc_only": 4,
       "other_only": 1,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -1613,12 +1617,13 @@
     "vs_observed": {
       "crosscheck": {
         "reached": 12,
-        "bounded": 10,
+        "bounded": 11,
         "below": 0,
         "equal": 8,
-        "above": 2,
+        "above": 3,
         "ratios": [
           1.0,
+          1.1,
           1.1,
           1.998046875,
           1.0,
@@ -1633,12 +1638,13 @@
       },
       "crosscheck_ctx": {
         "reached": 12,
-        "bounded": 10,
+        "bounded": 11,
         "below": 0,
         "equal": 8,
-        "above": 2,
+        "above": 3,
         "ratios": [
           1.0,
+          1.1,
           1.1,
           1.998046875,
           1.0,
@@ -1713,16 +1719,16 @@
       }
     },
     "main": {
-      "crosscheck": "none",
+      "crosscheck": "const",
       "koat": "none",
       "cofloco": "none",
       "infer": "none"
     },
     "funcs": {
       "crosscheck": {
-        "const": 2,
+        "const": 4,
         "symbolic": 0,
-        "none": 8
+        "none": 6
       },
       "koat": {
         "const": 2,
@@ -2537,8 +2543,8 @@
     "loops": 5,
     "functions": 17,
     "crosscheck": {
-      "bounded": 2,
-      "equal": 2,
+      "bounded": 3,
+      "equal": 3,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
@@ -2566,14 +2572,14 @@
     },
     "both_loops": 1,
     "overlap": {
-      "cc_only": 1,
+      "cc_only": 2,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 1
     },
     "overlap_orange": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -4214,15 +4220,15 @@
     "loops": 16,
     "functions": 24,
     "crosscheck": {
-      "bounded": 4,
-      "equal": 3,
+      "bounded": 5,
+      "equal": 4,
       "looser": 0,
       "tighter": 1,
       "type_range": 0
     },
     "crosscheck_ctx": {
-      "bounded": 4,
-      "equal": 3,
+      "bounded": 5,
+      "equal": 4,
       "looser": 0,
       "tighter": 1,
       "type_range": 0
@@ -4243,21 +4249,21 @@
     },
     "both_loops": 4,
     "overlap": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 1,
       "other_tighter": 0,
       "same": 3
     },
     "overlap_orange": {
-      "cc_only": 4,
+      "cc_only": 5,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
       "same": 0
     },
     "overlap_ctx_orange": {
-      "cc_only": 4,
+      "cc_only": 5,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -4283,28 +4289,30 @@
     "vs_observed": {
       "crosscheck": {
         "reached": 15,
-        "bounded": 4,
+        "bounded": 5,
         "below": 0,
-        "equal": 3,
+        "equal": 4,
         "above": 1,
         "ratios": [
           1.0,
           1.0,
           1.4615384615384615,
+          1.0,
           1.0
         ],
         "below_at": []
       },
       "crosscheck_ctx": {
         "reached": 15,
-        "bounded": 4,
+        "bounded": 5,
         "below": 0,
-        "equal": 3,
+        "equal": 4,
         "above": 1,
         "ratios": [
           1.0,
           1.0,
           1.4615384615384615,
+          1.0,
           1.0
         ],
         "below_at": []

@@ -791,6 +791,56 @@ What the AI did for 38 (design choices are the AI's):
 
 39. "proceed with the next step"
 40. "proceed with the next step" (sent again while step 7 was being measured)
+41. "proceed with the next step when you are ready, do not forget to update the guide too"
+42. "I would like to switch to the Fable model, can I do it now or should I wait for the background tasks to terminate ?"
+43. "While we wait for the background runs to complete to finalize step 8 of the current improvements, I would like you to read once again the papers, the guide, analyze lean theorems, the clang and rust implementations with these main objectives :
+- make sure that the research work is solid and complete
+- plan to further improve the scientific relevance and innovative contribution
+- plan to increase as much as possible the industrial value, engineering interest and widen applicability to legacy or future code
+- get better results on benchmarks and with respect to existing tools comparison
+Give me any advice about how to proceed : how to make this project really useful for a big company such as Safran, Dassault, Thales, Airbus or others ? What would you do now ?"
+
+What the AI did for 41 to 43 (Claude Opus 5.5 until prompt 42, Claude Fable 5.2 from
+prompt 43, after the user switched models):
+- 41: the companion guide was brought up to date (all seven parts: logarithmic loops,
+  interrupts, cycles, Rust, validation, current figures and line numbers); step 8 was
+  measured and its figures put into Paper II, the READMEs and the guide (below).
+- 42: answered that the model can be switched while background runs continue.
+- 43: a review and advice given in the conversation (no file changed by it): weak points
+  (validated share of certificates, informal link from mini-C to C, soundness evidence on
+  one input per kernel, analyser needing numeric ranges, time on one core only, breadth
+  over depth); suggested order (finish steps 8 and 9, soundness tests on random programs
+  and mutated certificates, mini-C with calls and unsigned, parametric analyser, an
+  end-to-end OTAWA demonstration on a recognised benchmark, stack bounds, a qualification
+  kit, an ACSL export). The benchmark names it mentions (ROSACE, PapaBench, NASA cFS) are
+  from the model's memory and unchecked. Not yet written into `docs/proposals.md`.
+
+What the AI did for 40 (step 8, chosen by the AI: the CMSIS-DSP figures had not moved with
+step 7, and the AI found why):
+- Analyser: unsigned `/`, `>>`, `%`, `&` of a value of the same type are exact (the result
+  lies between 0 and the operand or mask, so it cannot wrap): before, the range check could
+  not be proved (symbols get no type limits) and the facts were dropped, so no unsigned
+  halving loop was bounded. Growing potentials (a counter at least 1, multiplied by a base
+  64..2 on every path, at most a constant under the test). Bases include 10.
+- Lean: checker node `whileGrow` (`growEntry`, `ghostLow`, `ghostGrow`), `growloop_sound`
+  via the logic's loop rule with `logIters b K - ⌊log_b pot⌋`; examples `growCert_checks`,
+  `growCert_rejected`, `growCert_needs_entry`, `growCert_cost`; 279 theorems.
+- Generator: `whileGrow` emission; `x << k` and `x <<= k`, `x *= c` modelled exactly in
+  signed types (as in the analysis), also in the mini-C exporter so that validation agrees.
+  A crash (empty linear potential with a logarithmic one) found by the certificate ctest
+  and fixed.
+- Tests: `Loops.LogarithmicUnsignedAndGrowing`, must-be-rejected `Unsound.GrowFromZero`,
+  `Unsound.UnsignedHalvedThenIncreased`, `ok_doubling` in `tests/c/minic.c`.
+- Results (measured after prompt 41): TACLeBench kernels, loops bounded for every call
+  127 -> 132 (equal to the flow fact 101 -> 105), in context 138 -> 141 (129 -> 131),
+  entry functions 10 -> 11 (`fft_main`); 158 of 162 bounded functions certified (the two
+  new `fft` functions are not: the generator's invariant does not show the logarithmic
+  potential positive); no bound below an observed count, geometric mean 1.83 / 1.03;
+  FFX equal to oRange's on 115 loops; sequential/app unchanged from step 7 (274 / 329
+  loops); CMSIS-DSP 616 functions (unchanged), loops with ranges 1024 -> 1044, one file
+  timed out in the run; TPDB with ranges 166 -> 171, 130 certified; Cortex-M0 104
+  functions, 10 calls and 43 loops compared without violation, one `fft` function with a
+  bound 970 times the observed cycles (product of nested bounds), stated in Paper II.
 
 What the AI did for 39 (step 7, chosen by the AI after steps 1-6: logarithmic potentials,
 the largest measured blocker on CMSIS-DSP; the user then asked for the next step, which the
@@ -969,3 +1019,9 @@ is whether each Lean statement says what the paper says, and everything outside 
     against `logloop_sound` and `logPot_step` in `Checker.lean`, and the `whileLog` case of
     `check` in `CheckerCore.lean`; note the generator bug on `x >>= k` found during this step
     (certificates emitted before it may describe a different program for such statements).
+29. **Growing logarithmic loops and exact unsigned division.** Read the growing case of
+    the proof of `thm:checker-soundness` against `growloop_sound` and `log_grow` in
+    `Checker.lean` and the `whileGrow` case of `check`; in `Analyzer.cpp`, check the claim
+    that unsigned `/`, `>>`, `%` and `&` cannot wrap (function `shrinking` and its uses in
+    `evalBinary`), which is an analyser rule without a Lean proof; check the new figures of
+    Paper II (`tab:tacle`, `tab:tools`, CMSIS-DSP, TPDB, cycles) against the READMEs.

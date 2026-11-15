@@ -136,8 +136,21 @@ flowchart LR
   checked once, from `pot ≤ γⱼ` to `pot + d ≤ γⱼ`; since soundness holds for every value of
   `γⱼ`, the proof instantiates it with the current potential.
 - `thm:checker-soundness` (`check_sound`): accepted ⇒ valid. Fragment: assignments, unknown
-  values, sequences, conditionals, loops with one linear test; no calls, `&&` or `break`
-  (Paper II handles calls and early returns by transforming the program first).
+  values (also with constraints, `havocC`), sequences, conditionals, loops with a linear or
+  conjunctive test, calls against summaries, contracts; early exits are expressed by the
+  producer with flags (Paper II).
+- **Logarithmic loops** (two more loop nodes, each reduced to the same loop rule of the
+  logic with a transformed potential, so the logic itself is unchanged):
+
+| Node | Premises checked | Iterations | Potential used in the proof |
+|---|---|---|---|
+| `while` | `pot ≥ d` under the test; body: `pot ≤ γ` → `pot + d ≤ γ` | `⌊k/d⌋` | `pot / d` |
+| `whileLog` | `pot ≥ 1` under the test; body: `pot ≤ γ` → `b·pot ≤ γ`; `pot ≤ k` on entry | `⌊log_b k⌋ + 1` | `⌊log_b pot⌋ + 1` (`logloop_sound`) |
+| `whileGrow` | `pot ≥ 1` on entry, `pot ≤ K` under the test; body: `pot ≥ γ` → `pot ≥ b·γ` | `⌊log_b K⌋ + 1` | `N − ⌊log_b pot⌋` (`growloop_sound`) |
+
+  The step in both proofs: `b·y ≤ x`, `x ≥ 1` give `⌊log_b y⌋ + 1 ≤ ⌊log_b x⌋` (or `y ≤ 0`).
+  `ilog` is defined by structural recursion (with fuel) so that `decide` can run the
+  examples, and proved equal to mathlib's `Nat.log` (`ilog_eq`).
 
 ### Validation against the source (`subsec:validation`)
 
@@ -174,14 +187,37 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 5,200 lines, 270 theorems, 20 modules, no `sorry`, only the standard axioms. Table
+- About 5,450 lines, 279 theorems, 20 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas
-  completeness; the remark on infinite executions; the parallelism paragraph; lex/log as
-  rules; the translation from C/C++; the plugin.
-- Limitations: cost is not time; no amortisation; affine potentials only; structured
-  control flow over scalar variables.
+  completeness; the remark on infinite executions; the parallelism paragraph; lexicographic
+  potentials as rules (the logarithmic ones are checker cases); the translation from C/C++;
+  the plugin; the busy-period argument for interrupts.
+- Limitations: cost is not time; no amortisation; affine and logarithmic potentials only;
+  structured control flow over scalar variables.
+
+### Interrupts and fork-join (`subsec:concurrency`)
+
+```mermaid
+flowchart LR
+  C["certified bound C<br/>of the task"] --> RTA["R = C + Σ cₖ·⌈R/Tₖ⌉<br/>(least fixed point)"]
+  H["certified bounds cₖ<br/>of the handlers"] --> RTA
+  T["min. inter-arrival Tₖ<br/>(assumed)"] --> RTA
+  RTA --> TH["thm:response-time:<br/>the task gets its C slots<br/>within the first R"]
+```
+
+- `def:interrupt-model`: slots from the start of the computation; handler activations at
+  least `Tₖ` apart, at most `cₖ` slots each, none pending at slot 0; no idle slot while the
+  computation is unfinished. `lem:sporadic`: at most `⌈t/Tₖ⌉` activations before `t`.
+- `thm:response-time` (`response_time_bound`): the classical bound (Joseph & Pandya 1986,
+  Audsley et al. 1993); priority order not needed for this upper bound. The checker
+  verifies a claim with `rtaHolds` (`rtaHolds_sound`). Prosa (Coq) is the general
+  mechanization to cite.
+- `prop:graham` (`greedy_bound`): greedy scheduling of independent tasks, makespan
+  `≤ W/p + S`; with certified task bounds (`forkjoin_bound`). Not in the plugin.
+- Hypotheses to say aloud: cost = time (needs a timing cost model, Paper II's Cortex-M0),
+  no pending activation at the start (the busy-period argument is not mechanized).
 
 ## 9. Paper I on one page
 

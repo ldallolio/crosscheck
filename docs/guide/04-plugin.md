@@ -116,11 +116,24 @@ flowchart TD
   F -- "no: drop it" --> E
   F -- yes --> G["RankingProblem: one step per completed path"]
   G --> H["Z3: V = w·x + c₀, decrease ≥ 1, V ≥ 1, min K"]
+  G --> LG["logarithmic: a variable v ≥ 1 with b·v' ≤ v<br/>(or v' ≥ b·v up to a limit), b = 64..2, 10"]
   H -- found --> I["bound floor(K); potential kept for certificates"]
+  LG -- "smaller bound" --> I
   H -- none --> J["LOOP_BOUND annotation? → assumption; else error"]
   I --> K["exits: guard exit (invariants + ¬guard) and one state per break path"]
   K --> L["cost = K·(test + body + inc) + test (+ body if early exit)"]
 ```
+
+**Logarithmic potentials** (`execLoop`, after the linear search): for each loop variable,
+`entails` checks on every path back to the head that `b·v' ≤ v` (decreasing; `v ≥ 1` at
+the start of the iteration) or `v' ≥ b·v` (growing; `v ≥ 1` on entry, `v ≤ K` under the
+test, `K` from `boundsOf`), for the largest base in 64, 32, 16, 10, 8, 4, 3, 2. The result,
+`⌊log_b K⌋ + 1`, replaces the linear bound when smaller. They need exact facts about
+`x >> k` and `x / c`: in **unsigned** types these used to be dropped (the range check
+`0 ≤ v ≤ UINT_MAX` cannot be proved, symbols have no type limits); `/`, `>>`, `%`, `&` of
+an operand of the same unsigned type are now exact (`shrinking`): the result lies between
+0 and the operand, so it cannot wrap. In certificates, `x << k` and `x *= c` in signed
+types are `x·2^k`, `x·c` (no overflow assumed, as everywhere for signed arithmetic).
 
 **Farkas, by hand** (`sum`): premises `0 ≤ n ≤ 64`, `i ≥ 0`, `i − n + 1 ≤ 0`. Positivity
 of `V = 64 − i` means `i − 63 ≤ 0`, which is `1·(i − n + 1) + 1·(n − 64)`. The
@@ -243,18 +256,21 @@ What is easy to get wrong, and why the code is as it is:
 | Farkas multipliers ⇒ implication | `farkas_sound_affine` |
 | loop cost, branch = max | `while_cost_bound`, `condTrace_cost_le` |
 | recursion bounds | `callTree_size_le_geom`, `callTree_size_le_potential` |
-| **an accepted certificate** ⇒ the bound of its program | `check_sound` |
+| **an accepted certificate** ⇒ the bound of its program | `check_sound` (incl. `logloop_sound`, `growloop_sound`) |
+| a **validated** certificate ⇒ the bound of the mini-C source | `validated_sound` (the exporter `MiniC.cpp` is trusted instead of the generator) |
+| response time under interrupts | `response_time_bound`, `rtaHolds_sound` (inter-arrival times assumed) |
 | AST → symbolic state, invariants, cost counting | trusted C++ (tests) |
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (149)
+## 9. Tests (161)
 
 | Suite | Count | Checks |
 |---|---|---|
 | `core_test` (`LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds`, `Cert`) | 20 | arithmetic, entailment, intervals, potentials, the checker's vector operations, Farkas, elimination |
 | `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 59 | expected bounds and behaviours (incl. summaries, call nodes, library contract files) |
-| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 26 | must be rejected (incl. a contract argument without a bound, globals reset by a callee or escaped, `volatile` limits, written fields, `--j` from 0) |
+| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 33 | must be rejected (incl. a contract argument without a bound, globals reset by a callee or escaped, `volatile` limits, written fields, `--j` from 0; a deadline missed only under interrupts, a handler without a period; division on some paths only, a path that multiplies again, a possibly negative potential, doubling from 0, unsigned halved then increased) |
+| `Loops.Logarithmic*`, `Interrupts.ResponseTime`, `Certificates.LogarithmicLoop` | 4 | logarithmic bounds (signed, unsigned, growing), response time, `whileLog` with the `?old` copy for `x >>= k` |
 | `Globals`, `Fields`, `Tables`, `Cost.TargetIntrinsicsAndInlineAssembly`, `Loops.PreDecrementTest` | 5 | legacy C idioms |
 | `c_annotations` | 1 | the annotations in C (`tests/c/annotations.c`) |
 | `RealTime/Profile` | 11 | forbidden constructs |
@@ -262,7 +278,7 @@ What is easy to get wrong, and why the code is as it is:
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |
 | `Export` (in `analyzer_test`) | 5 | FFX, AIS, AIS2, SARIF contents |
 | `exports_read_back`, `bounds_equal_baseline` | 2 | outputs parsed back (SARIF against its schema if given); example bounds = `benchmarks/bounds-baseline.json` |
-| `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
+| `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned, interrupts, logarithmic loops); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
 | `minic_sources_validated` | 1 | `tests/c/minic.c` with `--opt=minic`: every `ok_*` validated, no `no_*` validated (unsigned, narrow counter, aliasing, `return` in a loop, division) |
 
 ## 10. Extending it
@@ -275,5 +291,29 @@ What is easy to get wrong, and why the code is as it is:
   `certificate` field says why a certificate is missing, with a line number.
 
 Reading order: `attributes.hpp` → `core/LinExpr.hpp`, `Cost.hpp`, `Solver.hpp` →
-`Analyzer.cpp`: `analyzeFunction` (≈ 2081), `exec` (≈ 1814), `execLoop` (≈ 1568),
-`functionCost` (≈ 1156), certificates (≈ 2213) → `core/Cert.cpp` → `tests/analyzer_test.cpp`.
+`Analyzer.cpp`: `analyzeFunction` (≈ 2760), `exec` (≈ 2400), `execLoop` (≈ 2030),
+`functionCost` (≈ 1590), certificates (≈ 2900; `certLoop` ≈ 3940), `responseTimes`
+(≈ 5080) → `core/Cert.cpp` → `MiniC.cpp` → `tests/analyzer_test.cpp`.
+
+## 11. Around the plugin: three more tools
+
+```mermaid
+flowchart LR
+  RS["Rust file"] -->|"rustc --emit=mir<br/>(1.100.0)"| MIR["MIR text"]
+  MIR -->|"frontends/rust/mir2c.py"| C["C"]
+  C --> PL["crosscheck-tool<br/>(bounds, certificates, mini-C)"]
+  PL -->|"loop bounds by line"| CY["benchmarks/cycles/wcet.py<br/>Cortex-M0 binary, timing schema"]
+  CY --> EM["m0.py interpreter:<br/>every bound checked on a run"]
+```
+
+- **Rust** (`frontends/rust`): MIR → C, loops rebuilt as `while (test)` from the tests at
+  the head, conditionals by post-dominators. Checked arithmetic becomes plain C arithmetic
+  (bounds for non-panicking runs); other `assert`s and panics become `return 0;` (more
+  behaviours in C), so a Rust `assert!(n <= 1000)` is a range checked at run time.
+  `tests/test_rust.py` compares Rust and the generated C on random inputs.
+- **Cortex-M0 cycles** (`benchmarks/cycles`): compiled at `-O1`, loops of the binary matched
+  to source loops by debug line (back-edge branch first), per-instruction timings from Arm's
+  manual, timing schema on the binary; a self-tested interpreter runs every kernel and
+  checks every call and loop against its bound. Integer division comes from `runtime.c`.
+- **Interrupts**: `CROSSCHECK_INTERRUPT(T)` handlers, `interrupt-overhead=N`,
+  `response_time` in the report, claims in the certificate file.

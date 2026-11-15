@@ -56,7 +56,7 @@ so that its loop is bounded by CrossCheck and its cycles are counted; floating p
 `unsigned long`, undefined behaviour in C, which Arm's conversion saturates and x86's wraps;
 it is listed in `EXPECTED_FAILURE`). 156 s in total.
 
-- **102 of the 267 kernel functions** receive a cycle bound (`runtime.c` not counted).
+- **104 of the 267 kernel functions** receive a cycle bound (`runtime.c` not counted).
 - **5 entry functions** (`main`) are bounded:
 
 | Kernel | Bound (cycles) | Observed | Bound / observed |
@@ -67,9 +67,12 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 | jfdctint | 75,652 | 60,911 | 1.24 |
 | matrix1 | 63,722 | 48,548 | 1.31 |
 
-- **Checks**: 9 calls of bounded functions (the others are inlined at `-O1`) and 37 binary
-  loops were compared with the run: **no violation**; over the calls, bound/observed is
-  between 1.02 and 2.49. `bsort`'s factor comes from its triangular nested loops, bounded
+- **Checks**: 10 calls of bounded functions (the others are inlined at `-O1`) and 43 binary
+  loops were compared with the run: **no violation**; over 9 of the calls, bound/observed is
+  between 1.02 and 2.49. The tenth, a function of `fft` bounded since logarithmic potentials
+  (2026-11-15), has a bound 970 times its observed cycles: its three nested loops are
+  bounded by the product of their bounds, while at each outer iteration the count of one
+  inner loop doubles and that of the other halves. `bsort`'s factor comes from its triangular nested loops, bounded
   as a rectangle (no amortisation).
 - **Not bounded**, by cause: software floating point (`__aeabi_f*`, `__aeabi_d*`: most of the
   numeric kernels), source loops without a bound (data-dependent: `insertsort`,

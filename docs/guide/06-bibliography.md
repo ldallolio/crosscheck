@@ -1,7 +1,7 @@
 # Part 6 — The bibliography, as a map
 
 `paper/crosscheck.bib`, shared by both papers; each paper's list contains only the entries it
-cites (Paper I: 45, Paper II: 28). Theory-side related work (cost logics, ranking functions,
+cites (Paper I: 51, Paper II: 33). Theory-side related work (cost logics, ranking functions,
 closed forms, amortisation, mechanised cost) is discussed in Paper I's `sec:related`; tool-side
 related work (bound analysers, WCET flow analysis, verified and certified bounds, Clang's
 function effects) in Paper II's `sec:related`. On 2026-11-13/14 the bibliographic data of
@@ -19,7 +19,8 @@ flowchart LR
   WCET["WCET<br/>Wilhelm, Li & Malik, Shaw,<br/>Puschner & Koza, oRange,<br/>TACLeBench, Mälardalen"] --> CC
   MECH["Mechanised cost<br/>Blazy, Maroneze, Guéneau,<br/>Haslbeck & Nipkow, Nielson, Nipkow"] --> CC
   TOOLS["Tools<br/>Z3, Lean, mathlib, LLVM,<br/>llvm2kittel, Infer, TermComp"] --> CC
-  PCC["Proof-carrying code<br/>Necula"] --> CC
+  PCC["Proof-carrying code and<br/>translation validation<br/>Necula, Pnueli et al."] --> CC
+  RT["Real-time scheduling<br/>Joseph & Pandya, Audsley,<br/>Graham, Prosa"] --> CC
 ```
 
 ## Theory (Paper I)
@@ -85,3 +86,15 @@ flowchart LR
 | `clangeffects` | Clang function effects / RealtimeSanitizer documentation | web page checked |
 | `agmai2026responsible` | AGMAI policy on AI-generated mathematics | web page checked |
 | `crosscheckTheory`, `crosscheckTool` | the two companion papers | — |
+
+## Added in steps 5-6 (Nov 2026; data checked on Crossref, content not read)
+
+| Key | Work | Role in the papers | Read |
+|---|---|---|---|
+| `pnueli1998translation` | Pnueli, Siegel & Singerman, *Translation Validation*, TACAS 1998 | the idea behind validating certificates against the source (Paper I `subsec:validation`, Paper II) | — |
+| `necula2000translation` | Necula, *Translation Validation for an Optimizing Compiler*, PLDI 2000 | same, for a compiler | — |
+| `joseph1986finding` | Joseph & Pandya, *Finding Response Times in a Real-Time System*, Comput. J. 1986 | the response-time equation (`thm:response-time`); Crossref lists only the first author | — |
+| `audsley1993applying` | Audsley et al., *Applying New Scheduling Theory to Static Priority Pre-emptive Scheduling*, SEJ 1993 | response-time analysis | — |
+| `graham1966bounds` | Graham, *Bounds for Certain Multiprocessing Anomalies*, BSTJ 1966 | greedy scheduling bound (`prop:graham`) | — |
+| `cerqueira2016prosa` | Cerqueira, Stutz & Brandenburg, *PROSA*, ECRTS 2016 | the general mechanized schedulability theory (Coq), to contrast with our small model | — |
+

@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 20 modules, about 5,200 lines, 270 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 20 modules, about 5,450 lines, 279 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -118,8 +118,8 @@ flowchart LR
 | `Certificate` | 280 | relational rational potentials `ranking_bound_floor`; invariants/contexts `ranking_bound_of_context`, `call_bound_of_context`; `farkas_sound`; `while_cost_bound`; `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | 230 | trees of any arity, `callTree_size_le_geom`, `callTree_size_le_potential` |
 | `Language` | 563 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; examples `countLoop_cost`, `down_cost` |
-| `CheckerCore` | 315 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB`, `ACmd` (with `whileAnd` and `call`), `FunCert`, **`check`**, **`checkProgram`** |
-| `Checker` | 895 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
+| `CheckerCore` | 388 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB`, `ACmd` (with `whileAnd`, `whileLog`, `whileGrow`, `call`), `ilog` (structural, so `decide` evaluates it), `FunCert`, **`check`**, **`checkProgram`** |
+| `Checker` | 1,340 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `logloop_sound`, `growloop_sound` (logarithmic loops via the same loop rule), `ilog_eq`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
 | `MiniCCore` | 187 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt`; **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |
 | `MiniC` | 285 | `CImp`/`CEquiv` (same executions and prefixes), congruences, `seq_assoc`, `nf_equiv`, **`validated_sound`** (accepted program + validated body ⇒ the source meets the bound); examples `countCert_validated`, `countCert_not_validated` |
 | `ResponseCore` | 50 | no mathlib: `rtaHolds C hs R` (`C + Σ cₖ⌈R/Tₖ⌉ ≤ R`), `rtaSearch` (the iteration); used by the checker program |
@@ -140,6 +140,12 @@ case starts with `intro hΓ`; the `call` case is a strong induction on the rank.
 applies the corresponding `valid_*` lemma of `Language`. The loop case sets the logical
 variable `γⱼ` to the current potential with `Function.update ρ j (pot.eval s)` and uses
 `holds_update_logical` (the invariant does not mention `γⱼ`).
+
+**`logloop_sound`** (`Checker`): no new rule of the logic. The proof applies
+`valid_while` (the linear loop rule) to the potential `logPot b pot = ⌊log_b pot⌋ + 1`
+(0 if `pot ≤ 0`); the only arithmetic is `logPot_step` (`b·y ≤ x`, `1 ≤ x` ⇒
+`logPot y + 1 ≤ logPot x`, from `Nat.log_div_base` and `Nat.log_mono_right`).
+`growloop_sound` is the mirror image, with `N − ⌊log_b pot⌋` and `log_grow`.
 
 ## 7. Common errors
 

@@ -49,17 +49,17 @@ function a bound, and one more loop is bounded in context.
 | bitonic | 3 | 2 | 2 | 0 | 0 | 1 | 0 | — | 2 | 2 | 0 | 0 |
 | bsort | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 240 702 | 4 | 4 | 0 | 0 |
 | complex_updates | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 871 | 4 | 4 | 0 | 0 |
-| cosf | 3 | 0 | 0 | 0 | 0 | 3 | 0 | — | 0 | 0 | 0 | 0 |
+| cosf | 3 | 1 | 1 | 0 | 0 | 2 | 0 | — | 0 | 0 | 0 | 0 |
 | countnegative | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 5 752 | 4 | 4 | 0 | 0 |
-| cubic | 6 | 0 | 0 | 0 | 0 | 6 | 0 | — | 0 | 0 | 0 | 0 |
+| cubic | 6 | 1 | 1 | 0 | 0 | 5 | 0 | — | 1 | 1 | 0 | 0 |
 | deg2rad | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
 | fac | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
-| fft | 12 | 10 | 8 | 2 | 0 | 2 | 0 | — | 10 | 8 | 2 | 0 |
+| fft | 12 | 11 | 8 | 3 | 0 | 1 | 0 | 271 351 277 | 11 | 8 | 3 | 0 |
 | filterbank | 14 | 11 | 11 | 0 | 0 | 3 | 0 | — | 11 | 11 | 0 | 0 |
 | fir2dim | 17 | 9 | 9 | 0 | 0 | 8 | 0 | — | 9 | 9 | 0 | 0 |
 | iir | 6 | 6 | 6 | 0 | 0 | 0 | 0 | 210 | 6 | 6 | 0 | 0 |
 | insertsort | 4 | 2 | 2 | 0 | 0 | 2 | 0 | — | 2 | 2 | 0 | 0 |
-| isqrt | 5 | 2 | 2 | 0 | 0 | 3 | 0 | 861 860 | 3 | 3 | 0 | 0 |
+| isqrt | 5 | 3 | 3 | 0 | 0 | 2 | 0 | 861 860 | 3 | 3 | 0 | 0 |
 | jfdctint | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 2 699 | 4 | 4 | 0 | 0 |
 | lms | 7 | 4 | 4 | 0 | 0 | 3 | 0 | 115 950 | 7 | 7 | 0 | 0 |
 | ludcmp | 12 | 12 | 3 | 9 | 0 | 0 | 0 | 4 903 | 12 | 12 | 0 | 0 |
@@ -68,12 +68,12 @@ function a bound, and one more loop is bounded in context.
 | minver | 21 | 17 | 8 | 9 | 0 | 4 | 0 | — | 20 | 20 | 0 | 0 |
 | pm | 30 | 5 | 5 | 0 | 0 | 25 | 0 | — | 5 | 5 | 0 | 0 |
 | prime | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
-| quicksort | 16 | 4 | 3 | 0 | 1 | 12 | 0 | — | 4 | 3 | 0 | 1 |
+| quicksort | 16 | 5 | 4 | 0 | 1 | 11 | 0 | — | 5 | 4 | 0 | 1 |
 | rad2deg | 1 | 0 | 0 | 0 | 0 | 1 | 0 | — | 0 | 0 | 0 | 0 |
 | recursion | 0 | 0 | 0 | 0 | 0 | 0 | 0 | — | 0 | 0 | 0 | 0 |
 | sha | 17 | 10 | 6 | 4 | 0 | 7 | 0 | — | 11 | 6 | 4 | 1 |
 | st | 5 | 5 | 5 | 0 | 0 | 0 | 0 | 65 074 | 5 | 5 | 0 | 0 |
-| **Total** | **220** | **127** | **101** | **25** | **1** | **93** | **0** | **10 kernels** | **138** | **129** | **7** | **2** |
+| **Total** | **220** | **132** | **105** | **26** | **1** | **88** | **0** | **11 kernels** | **141** | **131** | **8** | **2** |
 
 ## Certificates
 
@@ -84,7 +84,7 @@ checker on them and fails if one is rejected.
 
 On 2026-11-14, after early exits, `switch`, `&&` tests and unsigned variables were added
 to the generator: **156 of the 158 bounded functions** get a certificate, **all accepted
-by the checker** (before: 142; 158 of 160 since 2026-11-15). The entry functions `<kernel>_main` of 9 kernels are
+by the checker** (before: 142; 158 of 160 with logarithmic potentials on 2026-11-15, then 158 of 162 with growing logarithmic loops and exact unsigned division: `fft_bit_reduct` and `fft_main` are bounded but not certified, the generator's invariant does not show their logarithmic potential positive; `fft_main` brings the bounded entry functions to 11). The entry functions `<kernel>_main` of 9 kernels are
 certified. 141 certified bounds equal the plugin's bound; 12 are smaller (9:
 `__kernel_cosf` and its callers, in four kernels: the forward assertions show that an
 expensive branch cannot follow an earlier test; 3 in `bsort`: the iteration that leaves
@@ -113,7 +113,7 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
-Kernels: the tables are unchanged (158 of 160 certified, all accepted); **93 certificates
+Kernels: the tables are unchanged (158 of 162 certified, all accepted); **93 certificates
 validated, none failing validation**; 26 of them contain loops (42 of the 82 loops of the
 certified programs), 3 are entry functions (`complex_updates_main`, `iir_main`,
 `matrix1_main`); many of the others are small (initialisations, `*_return`). Refused by
@@ -139,8 +139,8 @@ concatenation), without annotations, 572 loops with a flow fact:
 
 | | Derived | = flow fact | > flow fact | < flow fact | No bound | Not reached |
 |---|---|---|---|---|---|---|
-| for every call | 273 | 257 | 7 | 9 | 289 | 10 |
-| in context | 328 | 303 | 15 | 10 | | |
+| for every call | 274 | 258 | 7 | 9 | 288 | 10 |
+| in context | 329 | 304 | 15 | 10 | | |
 
 (2026-11-14, before globals, fields, tables and C integer tests: 263 / 252 / 7 / 4 for
 every call, 317 / 297 / 15 / 5 in context.)
@@ -157,7 +157,7 @@ every call, 317 / 297 / 15 / 5 in context.)
   `cjpeg_wrbmp`, the grayscale branch of `write_colormap` is not taken by the program's
   two calls (`cMap = 1`): bound 0 in context. Observed counts were not measured for these
   programs (`measure_loops.py` covers the kernels).
-- **No bound** (299 loops for every call): mostly loops over data read from memory,
+- **No bound** (298 loops for every call): mostly loops over data read from memory,
   global or `struct` counters, pointers and floating-point values, which the analysis
   does not track (see `docs/proposals.md` §4).
 - **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
@@ -179,9 +179,9 @@ python3 benchmarks/tacle/compare_ffx.py DIR                             # vs res
 
 Both FFX files are read the same way (every `<loop>` with `source`, `line` and a numeric
 `maxcount`; for oRange the maximum over its calling contexts). On the 29 kernels:
-**114 loops bounded in both files, all 114 equal**; 24 only in CrossCheck's, 18 only in
+**115 loops bounded in both files, all 115 equal**; 29 only in CrossCheck's, 17 only in
 oRange's. (These are all loops of the files; `tab:tools` counts the 220 loops that have a
-flow fact, 113 of them bounded by both.)
+flow fact, 114 of them bounded by both.)
 
 ## Reading the results
 
@@ -244,20 +244,22 @@ are never called, which Clang does not emit, so ScalarEvolution never sees them)
 
 | | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange |
 |---|---:|---:|---:|---:|
-| bounded | 127 | 138 | 113 (+46 type range only) | 131 |
-| equal to the flow fact | 101 | 129 | 108 | 127 |
-| larger | 25 | 7 | 5 | 3 |
+| bounded | 132 | 141 | 113 (+46 type range only) | 131 |
+| equal to the flow fact | 105 | 131 | 108 | 127 |
+| larger | 26 | 8 | 5 | 3 |
 | smaller | 1 (loose flow fact) | 2 (loose flow facts) | 0 | 1 (wrong bound, see below) |
 
 CrossCheck's bounds for every call and ScalarEvolution's are both obtained from one
-function at a time. 103 loops are bounded by both; there the bounds agree on 99 and
+function at a time. 104 loops are bounded by both; there the bounds agree on 99,
 CrossCheck's is smaller on 4 (loops left by `break`, which must be counted once more
-from LLVM's backedge-taken count). 24 loops are bounded only by CrossCheck: 18 in
+from LLVM's backedge-taken count) and ScalarEvolution's is smaller by one on the doubling
+loop of `fft` (10, exact, against the logarithmic bound 11). 28 loops are bounded only by CrossCheck: 18 in
 `ludcmp` and `minver` (where ScalarEvolution has only the type range, or nothing), two
 whose guard combines the counter with another condition (`x && i < 64`,
-`m >= 2 && j >= m`), two in `sha`, one in `isqrt` and one empty loop. 10 are bounded only by ScalarEvolution: the 9 loops with
+`m >= 2 && j >= m`), two in `sha`, one in `isqrt`, one empty loop, and four bounded since exact unsigned
+division (2026-11-15: in `cosf`, `cubic`, `isqrt`, `quicksort`). 9 are bounded only by ScalarEvolution: the 9 loops with
 floating-point counters, which it evaluates exhaustively because start, step and
-limit are constants, and one doubling loop in `fft`.
+limit are constants.
 
 **Against executions.** `measure_loops.py` instruments the unoptimised LLVM IR of
 each kernel (the loop's preheader resets a counter local to the function activation,
@@ -268,11 +270,11 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 
 | loops reached (208) | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange | flow fact |
 |---|---:|---:|---:|---:|---:|
-| bounded | 127 | 138 | 113 | 131 | 208 |
+| bounded | 130 | 141 | 113 | 131 | 208 |
 | below the observed count | **0** | **0** | **0** | 1 | 2 |
-| equal to it | 101 | 130 | 107 | 127 | 198 |
-| above it | 26 | 8 | 6 | 3 | 8 |
-| bound / observed: median, geometric mean, max | 1.00, 1.85, 166.7 | 1.00, 1.03, 3.5 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
+| equal to it | 103 | 132 | 107 | 127 | 198 |
+| above it | 27 | 9 | 6 | 3 | 8 |
+| bound / observed: median, geometric mean, max | 1.00, 1.83, 166.7 | 1.00, 1.03, 3.5 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
 
 (Ratios are over the loops with a nonzero count.)
 
@@ -302,12 +304,12 @@ built-in input: its bounds are bounds for the program as given, like the flow fa
 and it agrees with them on 127 of its 131 loops. The comparable CrossCheck bounds are
 those in context. Compared loop by loop: 114 loops are bounded by both, with
 **identical bounds on all 114** (against CrossCheck's bounds for every call: 87
-identical, oRange tighter on 18, in `ludcmp` and `minver`). 18 loops are bounded only
+identical, oRange tighter on 18, in `ludcmp` and `minver`). 17 loops are bounded only
 by oRange: 12 with floating-point counters (`cosf`, `deg2rad`, `rad2deg`, `pm`, 8 in
-`fir2dim`), loops on a global or `volatile` counter (`isqrt`, `insertsort`, and the
+`fir2dim`), loops on a global or `volatile` counter (`insertsort`, and the
 wrong `filterbank` bound), and `binarysearch`, `fft`, `insertsort` (data-dependent or
-halving). 24 are bounded only by CrossCheck: 8 in kernels where oRange gives no
-result, 6 with a guard `i < sizeof( a )` (`fir2dim`, `iir`), 3 in `fft`, 5 in `sha`,
+halving). 27 are bounded only by CrossCheck: 10 in kernels where oRange gives no
+result, 6 with a guard `i < sizeof( a )` (`fir2dim`, `iir`), 4 in `fft`, 5 in `sha`,
 1 in `isqrt` and 1 in `md5` (oRange reports `NOCOMP`). oRange gave no result on 5 kernels: `bitonic`, `quicksort` and
 `recursion` are rejected ("complex recursivity"), `bitcount` raises an internal
 error (`Failure("frontc/iftofor.ml : list_string_of_paire")`), and `cubic` did not
@@ -317,9 +319,9 @@ finish in 600 s. It took 251 s on `pm` and at most 7 s on the others.
 
 | | CrossCheck | KoAT2 | CoFloCo | Infer |
 |---|---:|---:|---:|---:|
-| entry functions with a numeric bound | 10 | 5 | 8 | 14 |
+| entry functions with a numeric bound | 11 | 5 | 8 | 14 |
 | entry functions with a symbolic bound | 0 | 5 | 0 | 2 |
-| functions with a numeric / symbolic bound | 160 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
+| functions with a numeric / symbolic bound | 162 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
 
 Reading this table:
 

@@ -143,8 +143,14 @@ flowchart LR
    were the largest measured blocker on CMSIS-DSP. **Done 2026-11-15**: checker node
    `whileLog` with `logloop_sound` (reduced to the logic's loop rule), analyser and
    generator (constant entry bound, no early exits); a generator bug on `x >>= k` fixed.
-8. **Growing logarithmic loops** (a counter multiplied towards a limit, `len <<= 1`), then
-   **lexicographic potentials** (the rest of S3).
+8. **Growing logarithmic loops** (a counter multiplied towards a limit, `len <<= 1`).
+   **Done 2026-11-15**: checker node `whileGrow` with `growloop_sound`; unsigned `/`, `>>`,
+   `%`, `&` exact in the analyser (they cannot wrap), which is what had kept step 7 from
+   changing the CMSIS-DSP figures. Kernels: 132 loops for every call, 141 in context, 11
+   entry functions; CMSIS-DSP loops with ranges 1024 -> 1044 (functions unchanged at 616);
+   TPDB with ranges 171. Open: certificates for the two `fft` functions (an invariant
+   showing the potential positive), early exits in logarithmic loops, symbolic entry bounds.
+9. **Lexicographic potentials** (the rest of S3): next.
 
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
 tests, Lean proofs for every new checker rule, and the papers, READMEs and guide updated

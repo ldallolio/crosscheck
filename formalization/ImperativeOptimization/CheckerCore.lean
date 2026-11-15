@@ -217,6 +217,12 @@ inductive ACmd where
       body runs at most `⌊log_b k⌋ + 1` times. The body bound `Wb` must be constant. -/
   | whileLog (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (b : Nat) (k : Int)
       (j : Nat) (posCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
+  /-- `while (gs) body` with a **growing** logarithmic potential: `pot ≥ 1` on entry, the
+      test implies `pot ≤ K`, and each iteration multiplies the potential by at least
+      `b ≥ 2` (`b·pot` before the body is at most `pot` after it), so the body runs at
+      most `⌊log_b K⌋ + 1` times. The body bound `Wb` must be constant. -/
+  | whileGrow (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (b : Nat) (K : Int)
+      (j : Nat) (capCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
   /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
       follows by the given Farkas certificates. -/
   | weaken (P' : List Lin) (preCerts : List (Nat × List Nat)) (B' : SB) (Q' : List Lin)
@@ -258,6 +264,17 @@ def logIters (b : Nat) (k : Int) : Nat := if k ≤ 0 then 0 else ilog b k.toNat 
 def ghostMul (pot : PExp) (j : Nat) (b : Nat) : Lin :=
   ⟨vsmul b pot.sv, vsmul (-1) (unit j), b * pot.c⟩
 
+/-- `1 - pot ≤ 0`. -/
+def growEntry (pot : PExp) : Lin := ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩
+
+/-- `γⱼ - pot ≤ 0`: the potential is at least its value before the iteration. -/
+def ghostLow (pot : PExp) (j : Nat) : Lin := ⟨vsmul (-1) pot.sv, unit j, -pot.c⟩
+
+/-- `b·γⱼ - pot ≤ 0`: after an iteration, the potential is at least `b` times its value
+    before it. -/
+def ghostGrow (pot : PExp) (j : Nat) (b : Nat) : Lin :=
+  ⟨vsmul (-1) pot.sv, vsmul b (unit j), -pot.c⟩
+
 /-- What is known after a logarithmic loop: the negated test if there is one test. -/
 def logExit (gs : List PExp) (inv : List Lin) : List Lin :=
   match gs with
@@ -283,6 +300,7 @@ def writes (fs : List FunCert) : ACmd → List Nat
   | .while _ _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileAnd _ _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileLog _ _ _ _ _ _ _ _ _ body => writes fs body
+  | .whileGrow _ _ _ _ _ _ _ _ _ body => writes fs body
   | .weaken _ _ _ _ _ c => writes fs c
   | .dead _ c => writes fs c
   | .call _ f _ _ _ _ => match fs[f]? with
@@ -331,6 +349,15 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩ posCert &&
       check fs (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghostMul pot j b :: inv) &&
       SB.le (SB.const (logIters b k * (w + Wb.c) + w)) B
+  | .whileGrow w gs inv pot b K j capCert Wb body, B, Q =>
+      decide (1 < b) &&
+      decide (P = growEntry pot :: inv) &&
+      decide (Q = logExit gs inv) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) &&
+      entails1 (gs.map PExp.toLin ++ inv) ⟨pot.sv, [], pot.c - K⟩ capCert &&
+      check fs (ghostLow pot j :: growEntry pot :: (gs.map PExp.toLin ++ inv)) body Wb
+        (ghostGrow pot j b :: inv) &&
+      SB.le (SB.const (logIters b K * (w + Wb.c) + w)) B
   | .weaken P' preCerts B' Q' postCerts c, B, Q =>
       entailsAll P P' preCerts && check fs P' c B' Q' && SB.le B' B &&
         entailsAll Q' Q postCerts

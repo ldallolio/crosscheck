@@ -90,3 +90,11 @@ int no_halve(int n) {
   while (n > 0) { n = n / 2; k++; }
   return k;
 }
+
+/* a counter doubled up to a limit (whileGrow); x << 1 is 2 * x in mini-C (signed) */
+int ok_doubling(int n) {
+  CROSSCHECK_REQUIRE(n >= 1 && n <= 1000);
+  int s = 0;
+  for (int len = 1; len < n; len <<= 1) s++;
+  return s;
+}

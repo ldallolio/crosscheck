@@ -12,7 +12,7 @@ limitation, it says so.
 > for a small language with procedures and contracts is proved sound, including for
 > diverging runs. Its linear instance has certificates that a small verified checker
 > validates with integer arithmetic. A Clang plugin emits such certificates for real-time
-> C/C++: on TACLeBench, 156 of 158 bounded functions are certified. The ingredients are
+> C/C++: on the TACLeBench kernels, 158 of 162 bounded functions are certified. The ingredients are
 > classical; the contribution is the end-to-end, machine-checked chain."
 
 ## 2. Semantics and programming languages
@@ -35,10 +35,13 @@ limitation, it says so.
 - **"What is new compared with SPEED, KoAT, Loopus, COSTA, C4B?"** Not the bounds: affine
   potentials by Farkas are standard. New: certificates checked by a Lean-verified checker,
   and the evaluation against executions. On TPDB, KoAT2 and CoFloCo are clearly stronger
-  (288 and 264 programs, against 165 with input ranges): say so first.
-- **"Which ranking functions?"** Affine, rational, per loop, synthesised by LP.
-  Lexicographic and logarithmic potentials exist as theorems (`prop:lex-log`), not yet in
-  the plugin or the checker.
+  (288 and 264 programs, against 171 with input ranges): say so first.
+- **"Which ranking functions?"** Affine, rational, per loop, synthesised by LP; and
+  logarithmic ones on a single variable, decreasing (`n >>= 1`, `n /= 10`) or growing to a
+  limit (`len <<= 1`), in the plugin and as checker nodes (`whileLog`, `whileGrow`, proved
+  by reduction to the linear loop rule). Lexicographic potentials exist as a theorem on
+  runs (`prop:lex-log`), not yet in the plugin or the checker. Binary search (a difference
+  of two variables halves) still gets a linear bound.
 - **"Integers vs rationals?"** Rational potentials over integer programs are sound
   (`ranking_bound_floor`); incomplete for integer-only arguments (Ben-Amram & Genaim).
 - **"Invariants?"** Houdini over simple candidates, each proved inductive by Z3; in
@@ -51,27 +54,35 @@ limitation, it says so.
 
 ## 4. WCET and real-time
 
-- **"Is this a WCET tool?"** No. It gives loop bounds and path costs in abstract units.
-  Time needs per-instruction worst-case durations, which exist only for simple cores
-  without caches; otherwise the loop bounds should be exported to a timing analyser
-  (future work).
+- **"Is this a WCET tool?"** Not in general. It gives loop bounds and path costs in
+  abstract units, and exports the loop bounds for aiT and OTAWA. For one predictable core,
+  the Cortex-M0 (no cache, fixed timings), `benchmarks/cycles` turns them into cycle bounds
+  of the compiled code, checked against an interpreter's cycle counts; the timing table is
+  taken from Arm's manual and not checked on hardware.
 - **"Why the timing schema and not IPET?"** Structured code and compositionality. It
   ignores infeasible paths — although certificates do exclude some (`__kernel_cosf`).
-- **"Evaluation?"** TACLeBench kernels without annotations: in context, 137 of 220 loops
-  bounded, 128 equal to the flow facts; no bound below an observed loop count; identical
-  to oRange on all 113 loops both bound; ScalarEvolution, KoAT2, CoFloCo and Infer compared
+- **"Evaluation?"** TACLeBench kernels without annotations: in context, 141 of 220 loops
+  bounded, 131 equal to the flow facts; no bound below an observed loop count; identical
+  to oRange on all 114 loops both bound; ScalarEvolution, KoAT2, CoFloCo and Infer compared
   too. Caveats: small kernels, untuned tools, flow facts that hold for one input.
 - **"oRange gives a wrong bound?"** On `filterbank` (`while (n-- > 0)` with `n = 2`, it
   reports 1): an observation to confirm with its authors, not an attack.
-- **"Interrupts, preemption, multicore?"** Out of scope: CrossCheck bounds one task's
-  sequential code; schedulability analysis consumes such bounds.
+- **"Interrupts, preemption, multicore?"** Interrupts: handlers annotated
+  `CROSSCHECK_INTERRUPT(T)` give each other function a response time (the classical
+  response-time equation, mechanized as `response_time_bound`; the checker verifies the
+  claim from certified bounds). Assumptions: minimum inter-arrival times, cost = time, no
+  activation pending at the start. Fork-join: Graham's bound in Lean only. Multicore
+  interference (shared caches, buses): out of scope.
+- **"Rust?"** A front-end translates the textual MIR of rustc 1.100 into C for the same
+  analyser; checked by a differential test against Rust, not verified; bounds hold for
+  executions that do not panic. The MIR text format changes between releases.
 
 ## 5. Formal methods and Lean
 
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
   (`check_sound`), validation against mini-C (`validated_sound`), response times under interrupts (`response_time_bound`), Graham's
-  fork-join bound (`greedy_bound`), logarithmic loops in the checker (`logloop_sound`), the examples. 270 theorems, no `sorry`, three standard axioms.
+  fork-join bound (`greedy_bound`), logarithmic loops in the checker (`logloop_sound`, `growloop_sound`), the examples. 279 theorems, no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
   translation from C/C++ (to certificates, or to mini-C for validated ones); the plugin.
@@ -106,11 +117,13 @@ verify, and must not be submitted while one remains.
 ## 8. Known weak points, ranked
 
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
-2. **Coverage**: 165 of 553 TPDB programs vs 288 for KoAT2. Certificates give summaries
+   For the functions whose certificate is validated against their mini-C export, the
+   generator is out of the trusted base, the exporter (syntactic) is in it.
+2. **Coverage**: 171 of 553 TPDB programs (with input ranges) vs 288 for KoAT2. Certificates give summaries
    affine in the parameters, but the analyser still needs numeric ranges to bound a loop.
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
-4. **Precision**: affine potentials, no amortisation.
+4. **Precision**: affine and logarithmic potentials, no lexicographic ones, no amortisation.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
 

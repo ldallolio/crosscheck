@@ -33,8 +33,8 @@ headers need), every function (`--all`), in two modes:
 
 | Mode | Functions bounded | Loops with a derived bound |
 |---|---:|---:|
-| as is | 161 | 356 |
-| with input ranges and context | **616** (78%) | 1024 |
+| as is | 161 | 363 |
+| with input ranges and context | **616** (78%) | 1044 |
 | *before this step (2026-11-14), with ranges on parameters only* | *357* | *758* |
 
 What the step changed, by the blockers measured on the first run:
@@ -51,9 +51,13 @@ What the step changed, by the blockers measured on the first run:
 
 Remaining, with ranges and context (functions not bounded, by error):
 
-- **loops (291 errors)**: mostly the transforms' loops that halve or quarter a counter
-  (`n2 >>= 2`: logarithmic, beyond linear potentials) and loops whose bound is a
-  value read from memory;
+- **loops**: mostly loops whose bound is a value read from memory. The transforms'
+  loops that halve or quarter a counter (`n2 >>= 2`) are bounded since logarithmic
+  potentials and exact unsigned division (2026-11-15: 1024 -> 1044 loops with ranges,
+  356 -> 363 as is), but their functions have other unbounded loops or calls, so the
+  number of bounded functions is unchanged. In that run one file
+  (`TransformFunctions/arm_mfcc_f32.c`, not bounded before) exceeded the time limit
+  with ranges: 631 files, 785 functions and 1234 loops were analysed in that mode;
 - **calls into other groups (162)**: callees in another group, not included in the
   context (e.g. a transform calling a support function);
 - **contract arguments without an upper bound (13)**: `memset`/`memcpy` lengths computed

@@ -210,6 +210,13 @@ class Exporter {
         case BO_Add: op = "add"; break;
         case BO_Sub: op = "sub"; break;
         case BO_Mul: op = "mul"; break;
+        case BO_Shl: {
+          // x << k in a signed type is x * 2^k (overflow is undefined behaviour)
+          std::optional<std::int64_t> k = constant(b->getRHS());
+          if (!k || *k < 0 || *k >= 62) return other();
+          return "{\"e\":\"mul\",\"a\":" + exp(b->getLHS()) + ",\"b\":{\"e\":\"lit\",\"k\":" +
+                 num(std::int64_t{1} << *k) + "}}";
+        }
         default: return other();
       }
       return std::string("{\"e\":\"") + op + "\",\"a\":" + exp(b->getLHS()) + ",\"b\":" +
@@ -370,9 +377,18 @@ class Exporter {
       // that type is signed and converting back to x's type preserves values.
       QualType ct = ca->getComputationResultType();
       bool exact = signedNonBool(ct) && preserves(ct, xt) &&
-                   (b->getOpcode() == BO_AddAssign || b->getOpcode() == BO_SubAssign);
+                   (b->getOpcode() == BO_AddAssign || b->getOpcode() == BO_SubAssign ||
+                    b->getOpcode() == BO_MulAssign || b->getOpcode() == BO_ShlAssign);
       if (!exact) return assign(w, *t, other());
       std::string self = "{\"e\":\"var\",\"x\":" + unum(*t) + "}";
+      if (b->getOpcode() == BO_MulAssign)
+        return assign(w, *t, "{\"e\":\"mul\",\"a\":" + self + ",\"b\":" + exp(b->getRHS()) + "}");
+      if (b->getOpcode() == BO_ShlAssign) {
+        std::optional<std::int64_t> k = constant(b->getRHS());
+        if (!k || *k < 0 || *k >= 62) return assign(w, *t, other());
+        return assign(w, *t, "{\"e\":\"mul\",\"a\":" + self + ",\"b\":{\"e\":\"lit\",\"k\":" +
+                                 num(std::int64_t{1} << *k) + "}}");
+      }
       return assign(w, *t, std::string("{\"e\":\"") + (b->getOpcode() == BO_AddAssign ? "add" : "sub") +
                                "\",\"a\":" + self + ",\"b\":" + exp(b->getRHS()) + "}");
     }

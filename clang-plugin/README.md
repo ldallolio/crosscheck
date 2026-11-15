@@ -282,6 +282,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | logarithmic loops (`x >>= k`, `x /= c`: `b·v' ≤ v`, `v ≥ 1`): at most `⌊log_b K⌋ + 1` iterations, certified by `whileLog` | `log_ranking_bound` (`Certificate`), `logloop_sound` (`Checker`) |
+| growing loops (`len <<= 1`: `v ≥ 1` on entry, `v' ≥ b·v`, `v ≤ K` under the test): at most `⌊log_b K⌋ + 1` iterations, certified by `whileGrow` | `growloop_sound` (`Checker`) |
 | a certificate validated against the function's mini-C source (`minic`) ⇒ its bound holds for the source program | `validated_sound`, `nf_equiv` (`MiniC`) |
 | response time under sporadic interrupt handlers | `response_time_bound`, `rtaHolds_sound` (`Interrupts`) |
 

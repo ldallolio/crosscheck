@@ -80,6 +80,9 @@ Lin negLin(const PExp& g);     ///< its negation over the integers: `1 - g <= 0`
 Lin subst(const Lin& e, std::size_t x, const PExp& a);  ///< `e[a/x]`
 Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra);  ///< `pot - gamma_j + extra <= 0`
 Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*pot - gamma_j <= 0` (Lean `ghostMul`)
+Lin growEntry(const PExp& pot);                                  ///< `1 - pot <= 0` (Lean `growEntry`)
+Lin ghostLow(const PExp& pot, std::size_t j);                    ///< `gamma_j - pot <= 0` (Lean `ghostLow`)
+Lin ghostGrow(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*gamma_j - pot <= 0` (Lean `ghostGrow`)
 /// floor(log_b n) (Lean `ilog`) and the iterations of a logarithmic loop (Lean `logIters`).
 std::uint64_t ilog(std::uint64_t b, std::uint64_t n);
 std::uint64_t logIters(std::uint64_t b, std::int64_t k);
@@ -108,7 +111,7 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`

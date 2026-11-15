@@ -556,6 +556,55 @@ TEST(Loops, LogarithmicHalving) {
   EXPECT_EQ(fn(r, "g").loops[0].bound, 5u);   // floor(log4 1000) + 1
 }
 
+TEST(Loops, LogarithmicUnsignedAndGrowing) {
+  Report r = check(R"(
+    #include <stdint.h>
+    CROSSCHECK_REALTIME uint32_t q(CROSSCHECK_RANGE(0, 4096) uint32_t len) {
+      uint32_t s = 0;
+      for (uint32_t k = len; k > 1U; k >>= 2U) s++;
+      return s;
+    }
+    CROSSCHECK_REALTIME int g(CROSSCHECK_RANGE(1, 1000) int n) {
+      int s = 0;
+      for (int len = 1; len < n; len <<= 1) s++;
+      return s;
+    }
+    CROSSCHECK_REALTIME int h(CROSSCHECK_RANGE(1, 4096) int n) {
+      int k = 0, max = 2;
+      while (n > max) { max = max << 1; k++; }
+      return k;
+    })");
+  ASSERT_TRUE(fn(r, "q").ok);
+  EXPECT_EQ(fn(r, "q").loops[0].bound, 7u);   // floor(log4 4096) + 1
+  ASSERT_TRUE(fn(r, "g").ok);
+  EXPECT_EQ(fn(r, "g").loops[0].bound, 10u);  // len <= 999 under the test: floor(log2 999) + 1 (1, 2, ..., 512)
+  ASSERT_TRUE(fn(r, "h").ok);
+  EXPECT_LE(fn(r, "h").loops[0].bound, 12u);
+}
+
+// Must be rejected: the counter starts at 0, which doubling never moves.
+TEST(Unsound, GrowFromZero) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 1000) int n) {
+      int s = 0;
+      for (int len = 0; len < n; len <<= 1) s++;
+      return s;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: an unsigned counter halved then increased: 5 -> 2 + 3 = 5 forever.
+TEST(Unsound, UnsignedHalvedThenIncreased) {
+  Report r = check(R"(
+    #include <stdint.h>
+    CROSSCHECK_REALTIME uint32_t f(CROSSCHECK_RANGE(0, 4096) uint32_t n) {
+      uint32_t s = 0;
+      while (n > 1U) { n >>= 1; n = n + 3U; s++; }
+      return s;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
 // Must be rejected: on one path the variable is not divided, so only the linear bound holds.
 TEST(Unsound, LogOnlyOnSomePaths) {
   Report r = check(R"(

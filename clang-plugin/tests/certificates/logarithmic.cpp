@@ -19,3 +19,9 @@ CROSSCHECK_REALTIME int stages(void) {
   for (int len = 1024; len > 1; len >>= 2) s += len;
   return s;
 }
+
+CROSSCHECK_REALTIME int doubling(CROSSCHECK_RANGE(1, 1000) int n) {
+  int s = 0;
+  for (int len = 1; len < n; len <<= 1) s++;
+  return s;
+}

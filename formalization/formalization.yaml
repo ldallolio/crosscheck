@@ -79,7 +79,7 @@ statements:
     lean: [PExp, Lin, SB, ACmd, ACmd.toCmd, check, entails1, entailsAll, loopBoundOk]
   - paper_labels: [thm:checker-soundness]
     module: ImperativeOptimization.Checker
-    lean: [check_sound, shiftCert_checks, shiftCert_rejected, loop_sound, loopBoundOk_sound, certified_cost_le, entails1_sound, entailsAll_sound, Lin.subst_eval, Lin.inst_eval, Lin.eval_update, holds_update_logical, while_frame, countCert_checks, countCert_cost, countSym_checks, countSym_cost, logloop_sound, ilog_eq, ilogF_eq, logPot_step, logPot_le, ghostMul_eval, logCert_checks, logCert_rejected, logCert_base1_rejected, logCert_cost]
+    lean: [check_sound, shiftCert_checks, shiftCert_rejected, loop_sound, loopBoundOk_sound, certified_cost_le, entails1_sound, entailsAll_sound, Lin.subst_eval, Lin.inst_eval, Lin.eval_update, holds_update_logical, while_frame, countCert_checks, countCert_cost, countSym_checks, countSym_cost, logloop_sound, ilog_eq, ilogF_eq, logPot_step, logPot_le, ghostMul_eval, logCert_checks, logCert_rejected, logCert_base1_rejected, logCert_cost, growloop_sound, log_grow, growEntry_eval, ghostLow_eval, ghostGrow_eval, growCert_checks, growCert_rejected, growCert_needs_entry, growCert_cost]
   - paper_labels: [def:program-certificate, thm:program-soundness]
     note: "program certificates: calls checked against summaries, assumed contracts"
     module: ImperativeOptimization.Checker

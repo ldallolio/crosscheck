@@ -104,6 +104,11 @@ flowchart LR
 - Lyapunov analogy: an energy that strictly decreases.
 - Example: `for (i = 0; i < n; i++)` — `V = n − i`, bound `n`.
 - Rational potentials, lexicographic pairs and logarithmic potentials are in Paper I.
+- **Logarithmic potentials**: if `V ≥ 1` while the loop runs and each iteration divides it,
+  `b·V' ≤ V`, the loop runs at most `⌊log_b V₀⌋ + 1` times (binary halving, `n >>= 1`).
+  The dual: a counter `u ≥ 1` multiplied by `b` each time, up to a limit `K`, runs at most
+  `⌊log_b K⌋ + 1` times (`len <<= 1`). Both reduce to an ordinary ranking function
+  (`⌊log_b V⌋ + 1`, resp. `⌊log_b K⌋ + 1 − ⌊log_b u⌋`).
 
 ```mermaid
 flowchart LR

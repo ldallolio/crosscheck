@@ -98,6 +98,14 @@ Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b) {
              static_cast<std::int64_t>(b) * pot.c};
 }
 
+Lin growEntry(const PExp& pot) { return Lin{vsmul(-1, pot.sv), {}, 1 - pot.c}; }
+
+Lin ghostLow(const PExp& pot, std::size_t j) { return Lin{vsmul(-1, pot.sv), unitVec(j), -pot.c}; }
+
+Lin ghostGrow(const PExp& pot, std::size_t j, std::uint64_t b) {
+  return Lin{vsmul(-1, pot.sv), vsmul(static_cast<std::int64_t>(b), unitVec(j)), -pot.c};
+}
+
 std::uint64_t ilog(std::uint64_t b, std::uint64_t n) {
   std::uint64_t r = 0;
   while (b > 1 && n >= b) {
@@ -260,6 +268,7 @@ std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std
       case Node::While:
       case Node::WhileAnd:
       case Node::WhileLog:
+      case Node::WhileGrow:
       case Node::Weaken:
       case Node::Dead: go(*m.c1); break;
       case Node::Call:
@@ -557,6 +566,15 @@ std::string node(const Node& n) {
       return "{\"node\":\"whileLog\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"b\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
              ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
+             ",\"body\":" + node(*n.c1) + "}";
+    }
+    case Node::WhileGrow: {
+      std::string g = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) g += (i ? "," : "") + pexp(n.gs[i]);
+      g += "]";
+      return "{\"node\":\"whileGrow\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
+             ",\"pot\":" + pexp(n.pot) + ",\"b\":" + u(n.d) + ",\"K\":" + std::to_string(n.k) +
+             ",\"j\":" + u(n.j) + ",\"capCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     }
     case Node::Weaken:

@@ -429,6 +429,9 @@ struct LoopPotential {
   /// every iteration and divided by at least `logBase` by every iteration; 0: linear.
   std::uint64_t logBase = 0;
   std::size_t logSlot = 0;
+  /// Growing (Lean `whileGrow`): the slot is at least 1, multiplied by `logBase` or more by
+  /// every iteration, and at most a constant under the test.
+  bool grow = false;
 };
 
 struct FnCtx {
@@ -848,6 +851,13 @@ class Analyzer {
     return v;
   }
 
+  /// `x / c`, `x >> k`, `x % c`, `x & m` in an unsigned type, the left operand a value of
+  /// that type: the result lies between 0 and the operand (or the mask), so it cannot wrap,
+  /// and the facts `arith` states about it describe the C value exactly.
+  static bool shrinking(BinaryOperatorKind op) {
+    return op == BO_Div || op == BO_Shr || op == BO_Rem || op == BO_And;
+  }
+
   /// Does every value of `from` fit in `to`?
   bool widens(QualType from, QualType to) {
     if (!isIntType(from) || !isIntType(to)) return false;
@@ -1107,11 +1117,16 @@ LinExpr Analyzer::evalBinary(const BinaryOperator* bo, State& s) {
     QualType compTy = cao->getComputationResultType();
     LinExpr curVal = lookup(var, s);
     if (!widens(var->getType(), cao->getComputationLHSType())) curVal = fit(curVal, cao->getComputationLHSType(), s);
-    LinExpr v = arith(BinaryOperator::getOpForCompoundAssignment(op), curVal, rhs, compTy, s);
-    v = arithResult(v, compTy, s);
-    if (!v.poisoned() && !(compTy->isSignedIntegerOrEnumerationType() &&
-                           ctx_.hasSameUnqualifiedType(compTy, var->getType())))
-      v = fit(v, var->getType(), s);
+    BinaryOperatorKind aop = BinaryOperator::getOpForCompoundAssignment(op);
+    LinExpr v = arith(aop, curVal, rhs, compTy, s);
+    bool exactShrink = shrinking(aop) && compTy->isUnsignedIntegerType() &&
+                       ctx_.hasSameUnqualifiedType(compTy, var->getType()) && !v.poisoned();
+    if (!exactShrink) {
+      v = arithResult(v, compTy, s);
+      if (!v.poisoned() && !(compTy->isSignedIntegerOrEnumerationType() &&
+                             ctx_.hasSameUnqualifiedType(compTy, var->getType())))
+        v = fit(v, var->getType(), s);
+    }
     assignVar(var, v, s);
     return v;
   }
@@ -1122,6 +1137,11 @@ LinExpr Analyzer::evalBinary(const BinaryOperator* bo, State& s) {
   LinExpr a = eval(bo->getLHS(), s);
   LinExpr b = eval(bo->getRHS(), s);
   if (!isIntType(t)) return LinExpr::poison();
+  if (shrinking(op) && t->isUnsignedIntegerType() &&
+      ctx_.hasSameUnqualifiedType(bo->getLHS()->getType(), t)) {
+    LinExpr v = arith(op, a, b, t, s);
+    return v.poisoned() ? unknown(t) : v;
+  }
   return arithResult(arith(op, a, b, t, s), t, s);
 }
 
@@ -2222,7 +2242,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     if (pre.poisoned() || !entails(syms_, it.startFacts, ge(pre, LinExpr::constant(1)))) continue;
     std::optional<Interval> ent = boundsOf(syms_, entry.facts, entry.val.at(slots[i]));
     if (!ent || !ent->hi) continue;
-    for (std::uint64_t b : {64, 32, 16, 8, 4, 3, 2}) {
+    for (std::uint64_t b : {64, 32, 16, 10, 8, 4, 3, 2}) {
       bool ok = true;
       for (const State& p : it.complete) {
         auto pv = p.val.find(slots[i]);
@@ -2239,11 +2259,55 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     }
   }
 
+  // Growing potential (Lean `growloop_sound`): v >= 1 on entry, b*v <= v' on every path back
+  // to the head (given v >= 1 there, which then holds at every head by induction), and
+  // v <= K under the test: at most floor(log_b K) + 1 iterations.
+  std::optional<LogPot> growp;
+  for (std::size_t i = 0; i < slots.size(); ++i) {
+    const LinExpr& pre = head.val.at(slots[i]);
+    if (pre.poisoned() || entry.val.at(slots[i]).poisoned() ||
+        !entails(syms_, entry.facts, ge(entry.val.at(slots[i]), LinExpr::constant(1))))
+      continue;
+    std::vector<Constraint> start = it.startFacts;
+    start.push_back(ge(pre, LinExpr::constant(1)));
+    std::optional<Interval> cap = boundsOf(syms_, start, pre);
+    if (!cap || !cap->hi) continue;
+    for (std::uint64_t b : {64, 32, 16, 10, 8, 4, 3, 2}) {
+      bool ok = true;
+      for (const State& p : it.complete) {
+        auto pv = p.val.find(slots[i]);
+        std::vector<Constraint> f = p.facts;
+        f.push_back(ge(pre, LinExpr::constant(1)));
+        if (pv == p.val.end() || pv->second.poisoned() ||
+            !entails(syms_, f, ge(pv->second, pre.scaled(static_cast<std::int64_t>(b))))) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      std::uint64_t n = cert::logIters(b, *cap->hi);
+      if (!growp || n < growp->iters) growp = LogPot{i, b, n};
+      break;
+    }
+  }
+  bool useGrow = growp && (!logp || growp->iters < logp->iters) && (!rank || growp->iters < rank->bound) &&
+                 (!user || growp->iters <= *user);
+  if (useGrow) logp.reset();
+
   LoopReport lr;
   locate(lr, loc);
   std::uint64_t k = 0;
   bool useLog = logp && (!rank || logp->iters < rank->bound) && (!user || logp->iters <= *user);
-  if (useLog) {
+  if (useGrow) {
+    k = growp->iters;
+    lr.verified = true;
+    LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    lp.logBase = growp->base;
+    lp.logSlot = growp->slot;
+    lp.grow = true;
+    if (!fc.speculative) fc.potentials[loop] = lp;
+    lr.potential = "log" + std::to_string(growp->base) + "(K/" + names[growp->slot] + ")";
+  } else if (useLog) {
     k = logp->iters;
     lr.verified = true;
     LoopPotential lp{slots, rank ? *rank : RankingResult{}};
@@ -2275,7 +2339,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // the reported loop bound counts it too unless V >= 1 is proved at the start of
   // every iteration.
   bool leavingExtra = false;
-  if (lr.verified && rank && it.early && !useLog) {
+  if (lr.verified && rank && it.early && !useLog && !useGrow) {
     std::int64_t den = std::max<std::int64_t>(1, rank->offset.den);
     for (const Rational& q : rank->weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
     LinExpr v = LinExpr::constant(rank->offset.num * (den / std::max<std::int64_t>(1, rank->offset.den)));
@@ -3222,6 +3286,14 @@ std::optional<cert::PExp> Analyzer::certAffine(CertCtx& cc, const Expr* e) {
       if (b->sv.empty()) return scaleP(*a, b->c);
       return std::nullopt;
     }
+    // x << k in a signed type is x * 2^k (overflow, and shifting a negative value, are
+    // undefined behaviour, assumed absent as for signed arithmetic)
+    if (op == BO_Shl) {
+      std::optional<std::int64_t> k = constantValue(bo->getRHS());
+      auto a = certAffine(cc, bo->getLHS());
+      if (!a || !k || *k < 0 || *k >= 62) return std::nullopt;
+      return scaleP(*a, std::int64_t{1} << *k);
+    }
   }
   return std::nullopt;
 }
@@ -3519,6 +3591,18 @@ std::optional<Analyzer::CertPiece> Analyzer::certExprAfterCalls(CertCtx& cc, con
       case BO_Assign: a = rhs; break;
       case BO_AddAssign: if (rhs && exact) a = addP(self, *rhs, 1); break;
       case BO_SubAssign: if (rhs && exact) a = addP(self, *rhs, -1); break;
+      case BO_MulAssign:
+        if (rhs && exact) {
+          trimP(*rhs);
+          if (rhs->sv.empty()) a = scaleP(self, rhs->c);
+        }
+        break;
+      case BO_ShlAssign:
+        if (rhs && exact) {
+          trimP(*rhs);
+          if (rhs->sv.empty() && rhs->c >= 0 && rhs->c < 62) a = scaleP(self, std::int64_t{1} << rhs->c);
+        }
+        break;
       default: break;  // other compound assignments: unknown value
     }
     if (a) trimP(*a);
@@ -3878,7 +3962,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   std::int64_t den = std::max<std::int64_t>(1, lp.rank.offset.den);
   for (const Rational& q : lp.rank.weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
   PExp pot;
-  for (std::size_t i = 0; i < lp.slots.size(); ++i) {
+  for (std::size_t i = 0; i < lp.slots.size() && i < lp.rank.weights.size(); ++i) {
     const Rational& q = lp.rank.weights[i];
     if (q.num == 0) continue;
     auto it = cc.var.find(lp.slots[i]);
@@ -3995,6 +4079,53 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
 
   // A logarithmic potential (Lean `whileLog`, `logloop_sound`): the body must take
   // `pot <= gamma_j` to `b*pot <= gamma_j`; constant entry and body bounds.
+  if (lp.logBase && lp.grow) {
+    if (!exitFlags.empty() || nondet)
+      return cc.failed("logarithmic loop with an early exit or an unknown test (not in the fragment yet)"),
+             std::nullopt;
+    auto vit = cc.var.find(lp.slots.at(lp.logSlot));
+    if (vit == cc.var.end()) return cc.failed("potential over a variable outside the fragment"), std::nullopt;
+    PExp gpot{cert::unitVec(vit->second), 0};
+    std::uint64_t base = lp.logBase;
+    Assn guardInv = testLins();
+    guardInv.insert(guardInv.end(), inv.begin(), inv.end());
+    std::optional<std::int64_t> K = cert::upperBound(guardInv, gpot);
+    if (!K && cc.inDead) K = 0;
+    if (!K) return cc.failed("the growing potential has no bound under the test"), std::nullopt;
+    std::optional<Farkas> capCert = cert::farkas(guardInv, Lin{gpot.sv, {}, gpot.c - *K});
+    if (!capCert) return cc.failed("internal: growing potential bound"), std::nullopt;
+    Assn bodyPre = guardInv;
+    bodyPre.insert(bodyPre.begin(), cert::growEntry(gpot));
+    bodyPre.insert(bodyPre.begin(), cert::ghostLow(gpot, j));
+    Assn bodyPost = inv;
+    bodyPost.insert(bodyPost.begin(), cert::ghostGrow(gpot, j, base));
+    std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
+    if (!b) return std::nullopt;
+    std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
+    if (!qc) return cc.failed("the growth of the potential could not be certified"), std::nullopt;
+    if (!b->bound.constant()) return cc.failed("logarithmic loop with a symbolic body bound"), std::nullopt;
+    Node wn;
+    wn.kind = Node::WhileGrow;
+    wn.w = w;
+    wn.gs = gs;
+    wn.inv = inv;
+    wn.pot = gpot;
+    wn.d = base;
+    wn.k = *K;
+    wn.j = j;
+    wn.posCert = *capCert;
+    wn.b1 = b->bound;
+    wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
+    Assn pw = inv;
+    pw.insert(pw.begin(), cert::growEntry(gpot));
+    Assn qw = inv;
+    if (gs.size() == 1) qw.insert(qw.begin(), cert::negLin(gs[0]));
+    cert::SB bw(cert::logIters(base, *K) * (w + b->bound.c) + w);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
+    if (!pc) return cc.failed("internal: loop entry (growing potential below 1)"), std::nullopt;
+    CertPiece piece{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+    return seqPiece(prolog, piece);
+  }
   if (lp.logBase) {
     if (!exitFlags.empty() || nondet)
       return cc.failed("logarithmic loop with an early exit or an unknown test (not in the fragment yet)"),
