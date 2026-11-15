@@ -689,6 +689,50 @@ What the AI did for 32-34 (step 4 of `docs/proposals.md` §5; design choices are
   CLAUDE.md. **Author to check** the new assumptions' wording and that the CMSIS-DSP
   harness (ranges, context, illustrative contracts) is a fair way to report coverage.
 
+35. "try again now" (after an interruption by a usage limit)
+36. "proceed with step 5"
+
+What the AI did for 35-36 (step 5 of `docs/proposals.md` §5, "verified lowering"; the
+design is the AI's): instead of writing the lowering from C in Lean (the plan of S1), the
+AI chose **translation validation** (Pnueli, Siegel and Singerman 1998; Necula 2000): a
+second, syntactic translation of each function into a small subset of C, mini-C, whose
+meaning is defined in Lean, is compared by the checker with the program of the certificate.
+Reason given: it removes the generator (the largest unverified part) from the trusted base
+without re-implementing its search in Lean, and leaves a translation short enough to read.
+- Lean: new modules `MiniCCore` (no mathlib: `MExp`, `MCond`, `MStmt`, `lower` (the
+  meaning of mini-C), the normal form `nf`, `validate`) and `MiniC` (`CImp`/`CEquiv`,
+  congruences for sequences, conditionals and loops, `seq_assoc`, `nf_equiv`,
+  **`validated_sound`**; examples `countCert_validated`, `countCert_not_validated`);
+  `deriving DecidableEq` on `ACmd`; 239 theorems (24 new), standard axioms only.
+- Checker program: reads an optional `"source"` per function, prints `VALIDATED` / `NOT
+  VALIDATED` (exit status 1), `--print` shows both normal forms on a mismatch; test files
+  `test/certificates/minic.json` and `minic_rejected.json` (four wrong sources), in CI.
+- Plugin: option `minic`; exporter `src/analysis/MiniC.cpp`, independent of the generator
+  (inputs: the variable numbering and the cost model); dead-code nodes now contain the code
+  that is not reached (with `minic`; loops there get the potential 0, since nothing inside
+  a dead node is checked). The exporter refuses what it does not model exactly (calls,
+  jumps inside loops, unsigned/global/static/volatile/aliased tracked variables, division,
+  shift, mask and table forms). While building it, the AI found that the generator
+  describes masks and remainders by facts (`havocC`) that mini-C does not have: these
+  functions are refused rather than reported as mismatches. Test `minic_sources_validated`
+  (`tests/c/minic.c`: `ok_*` must validate, `no_*` must not); 150 tests pass.
+- Results (frozen binary): TACLeBench kernels: tables unchanged; 158 of 160 certificates,
+  all accepted; 93 validated, none fails validation, 26 of them with loops (42 of the 82
+  loops of the certified programs), 3 entry functions; 65 refused (calls 31, division
+  forms 19, unsigned 8, global or static 6, `break` 1). Sequential/app: tables unchanged
+  (231 of 263 certified, all accepted); 113 validated, none failing; refused: calls 41,
+  globals/statics 24, division forms 25, unsigned 19, jumps and `switch` 9. TPDB was not
+  re-run with `--minic` (the option was added to `run_tpdb.py`).
+- Papers: Paper I subsection `subsec:validation` (Definition `def:minic`, Lemma
+  `lem:nf-equiv`, Theorem `thm:validated` with proofs), Table `tab:lean`, contributions,
+  scope list, AI statement; Paper II: introduction, paragraph "Validation against the
+  source", trust paragraph, kernel results, related work, limitations, conclusions; two
+  new references checked on Crossref (`pnueli1998translation`, `necula2000translation`;
+  content not read). **Author to check** (see §3, item 24).
+- Not done: calls in mini-C (needs a congruence of the semantics in the procedure
+  environment, and the exporter would have to follow the generator's choice between a
+  summary and inlining); unsigned arithmetic, division and masks in mini-C; jumps in loops.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -812,3 +856,12 @@ is whether each Lean statement says what the paper says, and everything outside 
     `thm:program-soundness`, and the `call` case of `check`/`check_sound`; confirm that
     contracts (functions without a body) are stated as assumptions in both papers and in
     the checker's output, and that `docs/contracts.md` says what a contract may not claim.
+24. **Validation against mini-C.** Read Definition `def:minic`, Lemma `lem:nf-equiv` and
+    Theorem `thm:validated` against `MiniCCore.lean` (`lower`, `nf`, `validate`) and
+    `MiniC.lean` (`nf_equiv`, `validated_sound`). Read `clang-plugin/src/analysis/MiniC.cpp`
+    in full: it is now the trusted translation for validated certificates; confirm that
+    its modelling choices (unknown values for memory and untracked variables, exact signed
+    arithmetic under the no-overflow assumption, the conditions for exact `+=`/`++`,
+    `return` outside loops, the refusals) are faithful to C, and that the papers state
+    the hypotheses (no signed overflow, no aliasing of tracked variables, no concurrent
+    writes). Read Pnueli et al. 1998 and Necula 2000 before keeping the citations.

@@ -70,10 +70,15 @@ limitation, it says so.
 
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
-  (`check_sound`), the examples. 215 theorems, no `sorry`, three standard axioms.
+  (`check_sound`), validation against mini-C (`validated_sound`), the examples. 239
+  theorems, no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
-  translation from C/C++; the plugin.
+  translation from C/C++ (to certificates, or to mini-C for validated ones); the plugin.
+- **"Why should I trust the certificate generator?"** You need not, for a validated
+  certificate: the checker compares the certificate's program with the function's mini-C
+  export (`--opt=minic`), and `validated_sound` transfers the bound. What you trust then is
+  the exporter (`MiniC.cpp`, syntactic, a few hundred lines) and the cost model.
 - **"Is the checker program the verified one?"** It is the Lean definition `check`,
   compiled by Lean's compiler. The JSON parser around it is not verified, and `--print`
   shows what was checked. Trusted: Lean's compiler and runtime, the parser, and the

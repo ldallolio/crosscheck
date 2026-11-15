@@ -5,6 +5,7 @@ Authors: Luca Dall'Olio
 -/
 import Lean.Data.Json
 import ImperativeOptimization.CheckerCore
+import ImperativeOptimization.MiniCCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -19,11 +20,17 @@ from JSON to `ACmd`. A wrong conversion can make the checker examine a different
 certificate than the one in the file, never accept an invalid one; `--print` shows the
 certificate as it was understood.
 
+A function may also carry its source program in mini-C (`"source"`, the fragment
+`MiniC.MStmt`); the checker then runs the verified `MiniC.validate`, and prints
+`VALIDATED` when the certificate's program is the lowering of the source (theorem
+`MiniC.validated_sound`: the bound then holds for the source program). The conversion of
+the source from JSON is trusted in the same way.
+
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
 input.
 -/
 
-open Lean ImperativeOptimization.Checker
+open Lean ImperativeOptimization.Checker ImperativeOptimization.MiniC
 
 namespace CheckerMain
 
@@ -132,12 +139,67 @@ partial def parseCmd (j : Json) : Except String ACmd := do
         (← parseArr j "ubCerts" parseFarkas))
   | other => throw s!"unknown node '{other}'"
 
+/-! ### Mini-C sources -/
+
+def strField (j : Json) (k : String) : Except String String := do
+  match (← field j k).getStr? with
+  | .ok s => pure s
+  | .error _ => throw s!"field '{k}' must be a string"
+
+partial def parseMExp (j : Json) : Except String MExp := do
+  match ← strField j "e" with
+  | "var" => pure (.var (← getNat j "x"))
+  | "lit" => pure (.lit (← getInt j "k"))
+  | "add" => pure (.add (← parseMExp (← field j "a")) (← parseMExp (← field j "b")))
+  | "sub" => pure (.sub (← parseMExp (← field j "a")) (← parseMExp (← field j "b")))
+  | "mul" => pure (.mul (← parseMExp (← field j "a")) (← parseMExp (← field j "b")))
+  | "neg" => pure (.neg (← parseMExp (← field j "a")))
+  | "other" => pure .other
+  | o => throw s!"unknown expression '{o}'"
+
+partial def parseMCond (j : Json) : Except String MCond := do
+  match ← strField j "c" with
+  | "cmp" =>
+    let op ← match ← strField j "op" with
+      | "<" => pure Cmp.lt
+      | "<=" => pure Cmp.le
+      | ">" => pure Cmp.gt
+      | ">=" => pure Cmp.ge
+      | o => throw s!"unknown comparison '{o}'"
+    pure (.cmp op (← parseMExp (← field j "a")) (← parseMExp (← field j "b")))
+  | "not" => pure (.not (← parseMCond (← field j "a")))
+  | "other" => pure .other
+  | o => throw s!"unknown test '{o}'"
+
+/-- Statements; `"seq"` takes a list `ss` (nested to the right). -/
+partial def parseMStmt (j : Json) : Except String MStmt := do
+  match ← strField j "s" with
+  | "skip" => pure .skip
+  | "assign" => pure (.assign (← getNat j "w") (← getNat j "x") (← parseMExp (← field j "e")))
+  | "cost" => pure (.cost (← getNat j "w"))
+  | "seq" =>
+    let ss ← parseArr j "ss" parseMStmt
+    pure (ss.foldr (fun a b => match b with
+      | .skip => a
+      | _ => .seq a b) .skip)
+  | "if" =>
+    pure (.ite (← getNat j "w") (← parseMCond (← field j "c")) (← parseMStmt (← field j "a"))
+      (← parseMStmt (← field j "b")))
+  | "while" =>
+    pure (.while (← getNat j "w") (← parseArr j "cs" parseMCond) (← parseMStmt (← field j "body")))
+  | "for" =>
+    pure (.for_ (← parseMStmt (← field j "init")) (← getNat j "w") (← parseArr j "cs" parseMCond)
+      (← parseMStmt (← field j "inc")) (← parseMStmt (← field j "body")))
+  | o => throw s!"unknown statement '{o}'"
+
 /-- A program certificate as read from a file: the functions (with their names, for
     the messages) and the names of the variables (for `--print`). -/
 structure Program where
   name : String
   vars : List String
   funs : List (String × FunCert)
+  /-- The mini-C source of each function, if given (same order as `funs`). -/
+  sources : List (Option MStmt)
 
 def strList (j : Json) (k : String) : List String :=
   match j.getObjVal? k with
@@ -159,10 +221,15 @@ def parseCert (j : Json) : Except String Program := do
   -- A standalone certificate is not called: its own writes serve as its frame.
   let F : FunCert := ⟨← parseArr j "pre" parseLin, ← getSB j "bound", ← parseArr j "post" parseLin,
     writes [] body, some body⟩
-  pure ⟨nameOf j "function", strList j "variables", [(nameOf j "function", F)]⟩
+  pure ⟨nameOf j "function", strList j "variables", [(nameOf j "function", F)], [none]⟩
 
 /-- Version 2: a function of a program certificate; `"contract": true` and no body for an
     assumed contract. -/
+def parseSource (j : Json) : Except String (Option MStmt) :=
+  match j.getObjVal? "source" with
+  | .ok v => some <$> parseMStmt v
+  | .error _ => pure none
+
 def parseFun (j : Json) : Except String (String × FunCert) := do
   let contract := match j.getObjValAs? Bool "contract" with
     | .ok b => b
@@ -181,7 +248,8 @@ def parseFile (j : Json) : Except String (List Program) := do
   if ver == 1 then parseArr j "certificates" parseCert
   else if ver == 2 then
     parseArr j "programs" fun p => do
-      pure ⟨nameOf p "name", strList p "variables", ← parseArr p "functions" parseFun⟩
+      pure ⟨nameOf p "name", strList p "variables", ← parseArr p "functions" parseFun,
+        ← parseArr p "functions" parseSource⟩
   else throw s!"unsupported version {ver} (this checker reads versions 1 and 2)"
 
 /-! ### Printing what was checked -/
@@ -268,6 +336,23 @@ def main (args : List String) : IO UInt32 := do
               IO.print (showCmd p.vars "    " b)
               IO.println s!"  post: {showAssn p.vars F.post}"
             if !ok then status := max status 1
+            -- the verified `validate` (theorem `MiniC.validated_sound`)
+            match p.sources.getD i none with
+            | none => pure ()
+            | some src =>
+              if validate b src then
+                IO.println s!"VALIDATED {name}: the certificate's program is the lowering of its source"
+              else
+                IO.println s!"NOT VALIDATED {name}: the certificate's program is not the lowering of its source"
+                if printIt then
+                  IO.println "  certificate's program (normal form):"
+                  IO.print (showCmd p.vars "    " (nf b))
+                  match lower src with
+                  | some d =>
+                    IO.println "  source, lowered (normal form):"
+                    IO.print (showCmd p.vars "    " (nf d))
+                  | none => IO.println "  source: not in the fragment (a loop test that is not a conjunction of comparisons)"
+                status := max status 1
         -- the decision of the verified `checkProgram` (theorem `program_sound`)
         let okP := checkProgram fs
         if p.funs.length > 1 || p.funs.any (·.2.body.isNone) then

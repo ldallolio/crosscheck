@@ -139,6 +139,26 @@ flowchart LR
   values, sequences, conditionals, loops with one linear test; no calls, `&&` or `break`
   (Paper II handles calls and early returns by transforming the program first).
 
+### Validation against the source (`subsec:validation`)
+
+```mermaid
+flowchart LR
+  C["C function"] --> GEN["generator (untrusted)"] --> CERT["certificate:<br/>program c + annotations"]
+  C --> EXP["exporter (trusted, syntactic)"] --> SRC["mini-C statement s"]
+  CERT --> EQ{"nf(c) = nf(lower s)?<br/>(validate, Lean)"}
+  SRC --> EQ
+  EQ -->|"yes, and check accepts"| OK["validated_sound:<br/>every execution of lower s costs ≤ B"]
+```
+
+- `def:minic`: mini-C (variables, constants, `+ − ×`, unknown `⊤`; comparisons; skip,
+  assign, `cost(ω)`, seq, if, while with `&&`, for); its meaning **is** `lower`, a program
+  of the checker without annotations. `nf` erases annotations, `weaken`/`dead` (keeping
+  their code), `skip`, the nesting of sequences, trailing zeros.
+- `lem:nf-equiv` (`nf_equiv`): `c` and `nf c` have the same executions and prefixes, same
+  costs (associativity, units, congruences; induction on derivations for loops).
+- `thm:validated` (`validated_sound`): accepted program + validated body ⇒ the bound holds
+  for the source. The idea is translation validation (Pnueli et al. 1998, Necula 2000).
+
 ## 7. Worked examples
 
 | Example | Program | Result | Lean |
@@ -150,10 +170,11 @@ flowchart LR
 | Cost logic | `while (i < n) i++` from `i = 0`, `n ≤ 10` | derivable bound 21 | `countLoop_cost` |
 | Recursion in the logic | `down() { if (x > 0) { x--; down(); } }` | cost ≤ `3n + 2` from `x ≤ n` | `down_cost` |
 | Checker | the counting loop as a certificate | accepted with 21, rejected with 20 | `countCert_checks` (by `decide`) |
+| Validation | the same loop in mini-C, `i = i + 1` | validated; `i = i + 2` is not | `countCert_validated`, `countCert_not_validated` |
 
 ## 8. Mechanization, scope, limitations
 
-- About 4,100 lines, 215 theorems, 15 modules, no `sorry`, only the standard axioms. Table
+- About 4,550 lines, 239 theorems, 17 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas

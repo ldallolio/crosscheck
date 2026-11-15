@@ -15,11 +15,11 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 14 modules, 215 theorems. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 17 modules, 239 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 29 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 13 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 149 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 150 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`; with `minic`, also each function as mini-C, validated by the checker against the certificate), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
@@ -74,6 +74,7 @@ Everything lives in `namespace ImperativeOptimization` (examples in `…Examples
 Import graph: `State`, `Trace`, `Tree` import mathlib only; `Dominance`, `FixedPoint` → `Trace`;
 `OperationalSemantics` → `Trace`, `Tree`; `WhileLoop` → `State`, `FixedPoint`, `OperationalSemantics`;
 `Ranking` → `WhileLoop`; `Recursion` → `OperationalSemantics`; `Certificate` → `WhileLoop`; `Arity` and `Language` import mathlib only; `Checker` → `Language`;
+`CheckerCore` (no mathlib) is imported by `Checker`, `MiniCCore` (no mathlib) and `CheckerMain`; `MiniC` → `Checker`, `MiniCCore`;
 `Examples` → `Ranking`, `Recursion`.
 `ImperativeOptimization.lean` is the root that imports all modules — add new modules there.
 Every file starts with the MIT copyright header; keep it on new files.
@@ -93,6 +94,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 | `Arity` | `RTree`/`Forest` (mutual, arbitrary arity), `geom`, `geom_closed`, `RTree.size_le_geom`; call trees of a scheme `calls : α → List α`: `callTree_size_le_potential` (size potential), `callTree_size_le_geom` |
 | `Language` | Small imperative language `Cmd ι S` (atoms are weighted relations; calls of procedures with bodies `Φ`, recursion allowed), cost semantics `Exec` (terminating) and `Pre` (execution prefixes, so diverging runs are bounded too), `Valid` triples, rules `valid_seq`/`valid_ite`/`valid_while`/`valid_call`/`valid_conseq`/`valid_unreachable`, proof system `Derivable Φ Γ` (assumed triples `Γ` = contracts; rule `call` with a rank for recursion), **`soundness`**; symbolic bounds `ValidSym`, `validSym_call` (function summaries), `validSym_seq`; examples `countLoop_cost`, `down_cost` (recursion) |
 | `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, symbolic bounds `SB` (`c + Σ co_j max(0,γ_j)`), annotated programs `ACmd` (incl. `whileAnd` and `call`), program certificates `FunCert` (a body, or none = assumed contract), executable **`check`** / **`checkProgram`**, **`check_sound`** (triple + frame, given the callees' `FunSpec`), **`program_sound`**, `loopBoundOk_sound`; examples `countCert_checks`, `countSym_checks` (symbolic), `exProgram_checks` / `exMain_cost` (a call), all by `decide`. This is the certificate format the plugin emits (`docs/certificate-format.md`, version 2) |
+| `MiniCCore`, `MiniC` | Validation against the source (translation validation, Paper I `subsec:validation`): mini-C `MExp`/`MCond`/`MStmt`, **`lower`** (its meaning, as an `ACmd` without annotations), normal form `nf`, **`validate`** (`nf c = nf (lower s)`, executable, in `CheckerMain`); `CEquiv` (same `Exec`/`Pre`), congruences, `seq_assoc`, **`nf_equiv`**, **`validated_sound`**; examples `countCert_validated`, `countCert_not_validated`. The plugin's exporter is `clang-plugin/src/analysis/MiniC.cpp` |
 | `Examples` | Paper examples with minimality, big-step agreement and ranking/depth certificates |
 
 ### Paper ↔ Lean correspondence
@@ -111,7 +113,9 @@ Paper content that is **not** mechanized (the paper says so explicitly; keep tha
   on run length is proved there (`ranking_bound_floor`);
 - the equation-generating rules of Section "Application"; completeness of Farkas' Lemma;
 - the Clang plugin itself (C++) and Z3; the translation from C++ to the commands and triples
-  of `Language` and to the certificates of `Checker` (the lowering is unverified); parallel
+  of `Language` and to the certificates of `Checker` (the lowering is unverified; for a
+  validated certificate the export to mini-C is trusted instead, with its hypotheses: no
+  signed overflow, no aliasing of tracked variables); parallel
   composition; lexicographic/logarithmic potentials as rules of the logic or of the checker
   (they are theorems on runs only); recursion in the checker (calls go to earlier functions
   only; rule 9 of the logic is not a checker case); quadratic or polynomial symbolic bounds
@@ -196,6 +200,11 @@ expressions over immutable symbols + linear facts) → Z3 via Farkas (`src/core/
   - certificates: never make the checker accept more without a Lean proof; the generator
     (Analyzer.cpp "Certificates", core/Cert.*) may do anything, the checker decides; lists
     that the checker compares syntactically must be built with the replicas in `Cert.cpp`;
+  - mini-C export (`MiniC.cpp`, trusted for validated certificates): keep it syntactic and
+    independent of the generator and of analysis results; anything it cannot model exactly
+    is `other`, `cost` or a refusal, never a guess; a new construct needs an `ok_`/`no_`
+    pair in `tests/c/minic.c`; never make `validate` accept more without extending
+    `nf_equiv`/`validated_sound`;
   - calling contexts: expressions are evaluated on all states before they are costed; an
     argument counts only if it already has the parameter's type; functions that call
     themselves get no context; every interval end is re-checked by `entails`.
@@ -244,9 +253,11 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
    `docs/implementation-plan.md`**: checker executable, certificate emission by the plugin,
    checker extensions, symbolic bounds, library contracts, industrial C coverage, flow-fact
    export, Rust front-end. The paper is split (theory + Lean; tool + evaluation). The order
-   of the next steps is `docs/proposals.md` §5; steps 1-4 are done (Nov 2026: early exits,
+   of the next steps is `docs/proposals.md` §5; steps 1-5 are done (Nov 2026: early exits,
    switch, unsigned; flow-fact export and SARIF; symbolic summaries, calls and contracts;
-   legacy C idioms measured on CMSIS-DSP).
+   legacy C idioms measured on CMSIS-DSP; validation of certificates against a mini-C
+   export, call-free functions only). Next: step 6, or extending mini-C (calls, unsigned,
+   division) as listed in `docs/implementation-plan.md` task 9.
    Plugin precision done so far (Nov 2026): calling contexts as argument intervals
    (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
    remains, agreed with the author — **with theory and Lean** (new certificates): symbolic

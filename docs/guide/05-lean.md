@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 15 modules, about 4,100 lines, 215 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 17 modules, about 4,550 lines, 239 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -97,6 +97,10 @@ flowchart LR
   Language --> Checker
   CheckerCore --> Checker
   CheckerCore --> CheckerMain["CheckerMain (executable)"]
+  CheckerCore --> MiniCCore
+  MiniCCore --> MiniC
+  Checker --> MiniC
+  MiniCCore --> CheckerMain
   Arity
 ```
 
@@ -116,6 +120,8 @@ flowchart LR
 | `Language` | 563 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; examples `countLoop_cost`, `down_cost` |
 | `CheckerCore` | 315 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB`, `ACmd` (with `whileAnd` and `call`), `FunCert`, **`check`**, **`checkProgram`** |
 | `Checker` | 895 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
+| `MiniCCore` | 187 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt`; **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |
+| `MiniC` | 285 | `CImp`/`CEquiv` (same executions and prefixes), congruences, `seq_assoc`, `nf_equiv`, **`validated_sound`** (accepted program + validated body ⇒ the source meets the bound); examples `countCert_validated`, `countCert_not_validated` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

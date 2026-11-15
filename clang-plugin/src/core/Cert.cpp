@@ -561,7 +561,9 @@ std::string programJson(const std::string& name, const std::vector<std::string>&
     std::vector<std::uint64_t> mods(f.mods.begin(), f.mods.end());
     fs += std::string(i ? ",\n" : "\n") + "{\"name\":" + str(f.name) + ",\"pre\":" + assn(f.pre) +
           ",\"bound\":" + sb(f.bound) + ",\"post\":" + assn(f.post) + ",\"mods\":" + uvec(mods) +
-          (f.body ? ",\"body\":" + node(*f.body) : std::string(",\"contract\":true")) + "}";
+          (f.body ? ",\"body\":" + node(*f.body) : std::string(",\"contract\":true")) +
+          (f.source ? ",\"source\":" + *f.source : std::string()) +
+          (f.sourceRefused.empty() ? std::string() : ",\"source_refused\":" + str(f.sourceRefused)) + "}";
   }
   return "{\"name\":" + str(name) + ",\"variables\":" + vs + ",\"functions\":" + fs + "]}";
 }

@@ -224,6 +224,7 @@ inductive ACmd where
       caller, with the certificates `ubCerts`. -/
   | call (w : Nat) (f : Nat) (inst : List PExp) (preCerts : List (Nat × List Nat))
       (ubs : List SB) (ubCerts : List (Nat × List Nat)) : ACmd
+  deriving DecidableEq
 
 /-- A function of a program certificate: its triple, the variables it may modify, and
     its body. A function without a body is an **assumed contract** (e.g. of a library

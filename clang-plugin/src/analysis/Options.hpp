@@ -68,11 +68,16 @@ struct Options {
   /// signed ones [-inputHi, inputHi]. Listed as an assumption; not checked at call sites.
   bool inputRange = false;
   std::int64_t inputLo = 0, inputHi = 0;
+  /// With certificates: also export each certified function as a mini-C program
+  /// (src/analysis/MiniC.hpp), which the checker validates against the certificate's
+  /// program; dead code in certificates then contains the program's real statements.
+  bool minic = false;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
   bool parse(const std::string& arg) {
     if (arg == "all") { analyzeAll = true; return true; }
+    if (arg == "minic") { minic = true; return true; }
     auto eq = arg.find('=');
     if (eq == std::string::npos) return false;
     std::string key = arg.substr(0, eq), value = arg.substr(eq + 1);

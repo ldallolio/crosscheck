@@ -101,6 +101,31 @@ Since program certificates (2026-11-14) the figures are unchanged (156 of 158, 1
 (a summary) instead of being inlined. No kernel function has a summary that depends on its
 parameters: the kernels' loops have constant bounds.
 
+## Validation against the source (2026-11-15)
+
+With `--minic` as well, every certified function is also exported as mini-C (option
+`--opt=minic`, `clang-plugin/src/analysis/MiniC.cpp`) and the checker validates the
+certificate's program against it (`MiniC.validated_sound`, Paper I `thm:validated`); the
+script prints the counts and the exporter's reasons for refusing the others.
+
+```bash
+python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
+    --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
+```
+
+Kernels: the tables are unchanged (158 of 160 certified, all accepted); **93 certificates
+validated, none failing validation**; 26 of them contain loops (42 of the 82 loops of the
+certified programs), 3 are entry functions (`complex_updates_main`, `iir_main`,
+`matrix1_main`); many of the others are small (initialisations, `*_return`). Refused by
+the exporter: calls (31), division, shift, mask and table forms (19), unsigned tracked
+variables (8), global or static tracked variables (6), `break` (1).
+
+Sequential and application programs (`--category sequential --category app`): tables
+unchanged (231 of 263 certified, all accepted); **113 validated, none failing**, including
+`petrinet_main` and `powerwindow_controlexclusion_main`. Refused: calls (41), global or
+static tracked variables (24), division/shift/mask/table forms (25), unsigned (19),
+`return` in loops (4), `switch` (4), `continue` (1).
+
 ## Sequential and application programs (2026-11-15)
 
 ```bash

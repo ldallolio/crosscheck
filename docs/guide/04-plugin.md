@@ -171,6 +171,27 @@ flowchart TD
   CL --> W
 ```
 
+**Mini-C export** (`MiniC.cpp`, option `minic`): a second, independent translation of the
+same function, from the syntax only (variable numbering and cost model are its only
+inputs). The checker compares it with the certificate's program (`MiniC.validate`), so a
+generator bug shows as `NOT VALIDATED`, never as a wrong bound. The exporter's rules, in
+one table:
+
+| C | mini-C |
+|---|---|
+| read of a tracked signed variable | `var x` |
+| integer constant expression | `lit k` |
+| signed `+ − ×`, unary `−`, value-preserving conversion | exact |
+| anything else read (memory, untracked, unsigned arithmetic, narrowing) | `other` |
+| `x = e`, `x += e`, `x -= e`, `x++` on a tracked variable | `assign` (exact only if converting back preserves values) |
+| any other statement without calls | `cost w` |
+| `if`, `while`, `for` (tests `< <= > >=`, `!`, `&&` in loops) | the same |
+| `return` outside loops | `cost`; the rest of the body goes into the branches |
+| calls, `break`, `continue`, `switch`, `do`, unsigned/global/aliased tracked variables, `/ % >> &`, tables | refused (`source_refused`) |
+
+With `minic`, dead branches are lowered for real (`deadCode`), loops in them with the
+potential 0, so that the dead node contains the source's code.
+
 What is easy to get wrong, and why the code is as it is:
 
 - **Syntactic lists.** The checker compares some lists exactly (assignment preconditions,
@@ -242,6 +263,7 @@ What is easy to get wrong, and why the code is as it is:
 | `Export` (in `analyzer_test`) | 5 | FFX, AIS, AIS2, SARIF contents |
 | `exports_read_back`, `bounds_equal_baseline` | 2 | outputs parsed back (SARIF against its schema if given); example bounds = `benchmarks/bounds-baseline.json` |
 | `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
+| `minic_sources_validated` | 1 | `tests/c/minic.c` with `--opt=minic`: every `ok_*` validated, no `no_*` validated (unsigned, narrow counter, aliasing, `return` in a loop, division) |
 
 ## 10. Extending it
 

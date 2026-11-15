@@ -45,6 +45,7 @@ add_library(crosscheck_analysis STATIC
   src/analysis/Analyzer.cpp
   src/analysis/Consumer.cpp
   src/analysis/Export.cpp
+  src/analysis/MiniC.cpp
   src/analysis/Report.cpp)
 target_include_directories(crosscheck_analysis PUBLIC src)
 target_include_directories(crosscheck_analysis SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
@@ -142,6 +143,12 @@ if(BUILD_TESTING)
     add_test(NAME certificates_accepted_by_lean_checker
       COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_certificates.sh $<TARGET_FILE:crosscheck-tool>
         ${CROSSCHECK_CHECKER} "${BENCH}:${CMAKE_CURRENT_SOURCE_DIR}/tests/certificates" ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+    if(Python3_FOUND)
+      add_test(NAME minic_sources_validated
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_minic.py
+          $<TARGET_FILE:crosscheck-tool> ${CROSSCHECK_CHECKER} ${CMAKE_CURRENT_SOURCE_DIR}/tests/c/minic.c
+          ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+    endif()
   endif()
   foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)
     add_test(NAME plugin_rejects_${name}

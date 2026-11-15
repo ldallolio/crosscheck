@@ -77,6 +77,14 @@ Each task ends with: tests (including must-reject cases), figures re-run
    (FFX, AIS, AIS2), `sarif=FILE`, `scripts/cost_diff.py`; not yet loaded into OTAWA or
    aiT on compiled binaries (next: an OTAWA run on a cross-compiled TACLeBench kernel).
 8. **Rust front-end** on MIR, emitting the same certificates.
+9. **Validation against the source** (proposal S1, done 2026-11-15 as translation
+   validation): `MiniCCore`/`MiniC` in Lean (`lower`, `nf`, `validate`, `nf_equiv`,
+   `validated_sound`), the checker's `"source"` field, the plugin's `--opt=minic` exporter
+   (`src/analysis/MiniC.cpp`) and real code inside dead nodes. Next, in order of the
+   measured blockers: calls (31 kernel functions), division/shift/mask/table forms (19),
+   unsigned variables (8), globals (6). Each extension of mini-C needs: the construct in
+   `MStmt`, its case in `lower` matching what the generator emits, the proof cases of
+   `nf_equiv` if `nf` changes, the exporter, and an `ok_`/`no_` pair in `tests/c/minic.c`.
 
 ## 4. Things to keep in mind
 

@@ -111,7 +111,7 @@ def harness(text):
     return "#include <crosscheck/attributes.hpp>\n" + out
 
 
-def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None):
+def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None, minic=False):
     work.mkdir(parents=True, exist_ok=True)
     report = work / f"{stem}.{mode}.json"
     if mode == "as-is":
@@ -121,6 +121,8 @@ def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None):
         src.write_text(harness(path.read_text(errors="replace")))
         args = ["-x", "c++", "-std=c++20", "-w", f"-I{ROOT / 'clang-plugin/include'}"]
     certs = [f"--opt=certificates={certdir / (stem + '.json')}"] if certdir and mode == "bounded" else []
+    if certs and minic:  # mini-C sources, validated by the checker
+        certs.append("--opt=minic")
     try:
         subprocess.run([str(tool), "--all", f"--report={report}", *certs, str(src), "--", *args, *extra],
                        capture_output=True, text=True, timeout=120)
@@ -171,6 +173,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="only print the files and their entry functions")
     ap.add_argument("--certificates", help="emit certificates (inputs-in-range mode) into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check them (needs --certificates)")
+    ap.add_argument("--minic", action="store_true", help="also export mini-C sources and validate the certificates")
     a = ap.parse_args()
     base = fetch(pathlib.Path(a.cache))
     files = sorted(base.rglob("*.c"))
@@ -190,7 +193,7 @@ def main():
         if certdir:
             certdir.mkdir(parents=True, exist_ok=True)
         for mode in ("as-is", "bounded"):
-            r = run_crosscheck(a.tool, f, mode, pathlib.Path(a.cache) / "work", a.extra_arg, key, certdir)
+            r = run_crosscheck(a.tool, f, mode, pathlib.Path(a.cache) / "work", a.extra_arg, key, certdir, a.minic)
             row[f"crosscheck_{mode}"] = "timeout" if "__timeout__" in r else (
                 "bound" if r.get(entry) else "none")
             if mode == "bounded" and certdir:
@@ -225,6 +228,18 @@ def main():
             acc = sum(l.startswith("ACCEPTED") for l in lines)
             rej = sum(l.startswith("REJECTED") or (l.startswith("PROGRAM") and "REJECTED" in l) for l in lines)
             print(f"checker: {acc} functions accepted, {rej} rejected (exit {proc.returncode})")
+            if a.minic:
+                val = sum(l.startswith("VALIDATED") for l in lines)
+                notval = sum(l.startswith("NOT VALIDATED") for l in lines)
+                refused = collections.Counter()
+                for f in files:
+                    for prog in json.loads(pathlib.Path(f).read_text())["programs"]:
+                        for fn in prog["functions"]:
+                            if "body" in fn and "source" not in fn:
+                                refused[fn.get("source_refused", "?")] += 1
+                print(f"mini-C: {val} validated, {notval} not validated, {sum(refused.values())} not exported")
+                for why, n in refused.most_common():
+                    print(f"  {n:4d} not exported: {why}")
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(rows, indent=2) + "\n")
 

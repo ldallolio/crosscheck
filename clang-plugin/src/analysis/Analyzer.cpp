@@ -13,6 +13,7 @@
 // those symbols (`State::facts`). A fact, once established on a path, stays
 // true on that path because symbols never change.
 #include "Analyzer.hpp"
+#include "MiniC.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -936,6 +937,9 @@ class Analyzer {
                                       const std::function<std::optional<CertPiece>(const cert::Assn&)>& elseF,
                                       const cert::Assn& pre);
   bool certTestList(CertCtx& cc, const Expr* e, std::vector<cert::PExp>& out, bool& nondet);
+  /// With `minic`: the lowering of code that is not reached (to go inside a dead node),
+  /// or null; a failure there is not a failure of the certificate.
+  cert::NodeP deadCode(CertCtx& cc, const std::function<std::optional<CertPiece>()>& lower);
   std::optional<CertPiece> certCallsIn(CertCtx& cc, const Expr* e, const cert::Assn& pre);
   std::optional<CertPiece> certLoop(CertCtx& cc, const Stmt* loop, const Expr* cond,
                                     const Stmt* body, const Expr* inc, const cert::Assn& pre);
@@ -2808,6 +2812,7 @@ struct Analyzer::CertCtx {
   std::size_t choice = 0;  ///< the variable of nondeterministic tests
   std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
   std::size_t depth = 0;   ///< loop nesting: index of the logical variable
+  int inDead = 0;          ///< lowering code that is not reached (inside a dead node)
   std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
   /// Fields read through pointer parameters of the function being certified (variables
   /// that the program never assigns: their value at entry).
@@ -2938,14 +2943,16 @@ NodeP weaken(Assn pPrime, std::vector<Farkas> preCerts, cert::SB bound, Assn qPr
   return mk(std::move(n));
 }
 
-/// A node checked from `pre` whose precondition is contradictory.
-std::optional<NodeP> deadNode(const Assn& pre) {
+/// A node checked from `pre` whose precondition is contradictory. `inner` is the code
+/// that is not reached (the checker does not look at it; the validation against the
+/// mini-C source does), `skip` if not given.
+std::optional<NodeP> deadNode(const Assn& pre, NodeP inner = nullptr) {
   std::optional<Farkas> f = cert::farkas(pre, Lin{{}, {}, 1});
   if (!f) return std::nullopt;
   Node n;
   n.kind = Node::Dead;
   n.deadCert = *f;
-  n.c1 = mk(Node{});
+  n.c1 = inner ? std::move(inner) : mk(Node{});
   return mk(std::move(n));
 }
 
@@ -3364,11 +3371,15 @@ std::optional<cert::PExp> Analyzer::certTest(CertCtx& cc, const Expr* e) {
 std::optional<Analyzer::CertPiece> Analyzer::certAssign(CertCtx& cc, std::uint64_t w, std::size_t x,
                                                        const std::optional<cert::PExp>& a,
                                                        const cert::Assn& pre) {
-  if (!cert::feasible(pre))
-    if (auto d = deadNode(pre)) return CertPiece{*d, pre, 0};
   Node n;
   n.w = w;
   n.x = x;
+  if (!cert::feasible(pre)) {
+    Node inner = n;
+    inner.kind = a ? Node::Assign : Node::Havoc;
+    if (a) inner.a = *a;
+    if (auto d = deadNode(pre, mk(inner))) return CertPiece{*d, pre, 0};
+  }
   Assn q, pPrime;
   if (a) {
     n.kind = Node::Assign;
@@ -3569,6 +3580,16 @@ std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::ve
   return seqPiece(*first, *r);
 }
 
+cert::NodeP Analyzer::deadCode(CertCtx& cc, const std::function<std::optional<CertPiece>()>& lower) {
+  if (!opts_.minic) return nullptr;
+  std::string fail = cc.fail;
+  ++cc.inDead;
+  std::optional<CertPiece> p = lower();
+  --cc.inDead;
+  cc.fail = fail;
+  return p ? p->node : nullptr;
+}
+
 std::optional<Analyzer::CertPiece> Analyzer::certIfThen(
     CertCtx& cc, const cert::PExp& g, std::uint64_t w,
     const std::function<std::optional<CertPiece>(const cert::Assn&)>& thenF,
@@ -3579,7 +3600,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certIfThen(
   auto branch = [&](const std::function<std::optional<CertPiece>(const Assn&)>& f,
                     const Assn& p) -> std::optional<CertPiece> {
     if (!cert::feasible(p))
-      if (auto d = deadNode(p)) return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
+      if (auto d = deadNode(p, deadCode(cc, [&] { return f(p); }))) return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
     return f(p);
   };
   std::optional<CertPiece> b1 = branch(thenF, pre1);
@@ -3734,7 +3755,8 @@ std::optional<Analyzer::CertPiece> Analyzer::certIf(CertCtx& cc, const IfStmt* i
   pre2.insert(pre2.begin(), cert::negLin(*g));
   auto branch = [&](const std::vector<const Stmt*>& l, const Assn& p) -> std::optional<CertPiece> {
     if (!cert::feasible(p))
-      if (auto d = deadNode(p)) return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
+      if (auto d = deadNode(p, deadCode(cc, [&] { return certList(cc, l, 0, p); })))
+        return CertPiece{*d, {Lin{{}, {}, 1}}, 0};
     return certList(cc, l, 0, p);
   };
   std::optional<CertPiece> b1 = branch(thenList, pre1);
@@ -3779,7 +3801,10 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
                                                      const Stmt* body, const Expr* inc,
                                                      const cert::Assn& pre) {
   auto pit = cc.potentials->find(loop);
-  if (pit == cc.potentials->end())
+  // Code that is not reached has no potential; inside a dead node nothing is checked,
+  // so the potential 0 serves (the node only records the program).
+  static const LoopPotential zeroPotential{};
+  if (pit == cc.potentials->end() && !cc.inDead)
     return cc.failed("loop without a derived potential (annotated or not bounded)"), std::nullopt;
   Scan sc = scanOf(cond, cc.var);
   if (sc.calls || sc.writes) return cc.failed("loop test with a call or an assignment"), std::nullopt;
@@ -3789,7 +3814,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   std::uint64_t w = cond ? costOf(cond) + w_.branch : 0;
 
   // The potential, scaled to integer coefficients: pot = D * V, decrease d = D.
-  const LoopPotential& lp = pit->second;
+  const LoopPotential& lp = pit == cc.potentials->end() ? zeroPotential : pit->second;
   std::int64_t den = std::max<std::int64_t>(1, lp.rank.offset.den);
   for (const Rational& q : lp.rank.weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
   PExp pot;
@@ -3966,6 +3991,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
       if (sym && sym->second.empty()) sym.reset();
     }
     std::optional<std::int64_t> k = cert::upperBound(entry, potc);
+    if (!k && !sym && cc.inDead) k = 0;  // not reached: no bound is checked
     if (!k && !sym) { lastWhy = "the potential is unbounded on entry"; continue; }
     Assn bodyPre = guardInv;
     bodyPre.insert(bodyPre.begin(), cert::ghost(potc, j, 0));
@@ -4631,6 +4657,19 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   fj.bound = bound;
   fj.mods = cert::writes(*top, mods);
   fj.body = top;
+  if (opts_.minic) {
+    // The C function as mini-C, from its syntax alone (not from the certificate).
+    minic::Inputs in;
+    in.vars = &cc.var;
+    in.costOf = [this](const Expr* e) { return costOf(e); };
+    in.assign = w_.assign;
+    in.branch = w_.branch;
+    in.ret = w_.ret;
+    in.isRequire = [](const Stmt* st) { return asMarker(st, "require") != nullptr; };
+    minic::Result r = minic::exportFunction(def, ctx_, in);
+    fj.source = r.json;
+    fj.sourceRefused = r.reason;
+  }
   info.index = certFuns_.size();
   certFuns_.push_back(std::move(fj));
   certFunOf_[def->getCanonicalDecl()] = info;

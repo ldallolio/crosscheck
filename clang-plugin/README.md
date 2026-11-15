@@ -91,6 +91,8 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |
 | `entry=NAME` | entry function for the report's in-context results (see [Calls](#how-bounds-are-derived)) |
 | `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
+| `minic` | with `certificates`: also export each certified function as mini-C, which the checker validates against the certificate (see [Validation against the source](#validation-against-the-source-minic)) |
+| `input-range=LO,HI` | assume every integer input without a declared range in `[LO,HI]` (unsigned) or `[-HI,HI]` (signed); listed as an assumption |
 | `contracts=FILE` | library contracts: trusted costs linear in the arguments (see [`docs/contracts.md`](../docs/contracts.md)) |
 | `flowfacts=FILE` | write the derived loop bounds as flow facts for WCET tools (see [Flow facts, SARIF and CI](#flow-facts-sarif-and-ci)) |
 | `flowfacts-format=ffx\|ais\|ais2` | FFX (OTAWA), AIS or AIS2 (aiT); default from the extension (`.ais`: AIS2, otherwise FFX) |
@@ -277,9 +279,12 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
 | an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
+| a certificate validated against the function's mini-C source (`minic`) ⇒ its bound holds for the source program | `validated_sound`, `nf_equiv` (`MiniC`) |
 
 **Not verified:** the C++ implementation (the translation from the Clang AST to
-constraints, the invariant generation, the cost counting) and Z3. The tests in
+constraints, the invariant generation, the cost counting) and Z3; for a certificate, the
+lowering of C to the certificate's program, or, for a validated certificate, the export of
+C as mini-C. The tests in
 `tests/` include a set of loops that must be rejected, as regression tests for
 soundness.
 
@@ -316,6 +321,23 @@ The fragment covers assignments, conditionals, `for`/`while` loops (with `break`
 integer variables. Unsigned stores carry an explicit wrap-around test whose wrapping
 branch the checker must prove dead. How each construct is lowered:
 [`docs/certificate-format.md`](../docs/certificate-format.md).
+
+### Validation against the source (`minic`)
+
+With `--opt=minic` as well, each certified function is also exported as a *mini-C*
+program (`src/analysis/MiniC.cpp`), written from the C syntax alone: it does not use the
+certificate generator or any analysis result, only the variable numbering and the cost
+model. The checker lowers it with the Lean definition of mini-C and compares it with the
+certificate's program (without annotations); it prints `VALIDATED f` when they agree.
+Then the bound holds for the mini-C program (`MiniC.validated_sound`): the generator is
+no longer trusted, the exporter is. The exporter is short and meant to be read: reads of
+untracked variables and of memory are unknown values, writes to them only cost, signed
+arithmetic is exact (no overflow, an assumption), and it refuses what it cannot model:
+calls, jumps other than `return` outside loops, unsigned, global, static or
+address-taken tracked variables, and the division/shift/mask/table forms. The ctest
+`minic_sources_validated` runs `tests/c/minic.c`: functions `ok_*` must be validated, no
+function `no_*` may be. The list of what is refused is in
+[`docs/certificate-format.md`](../docs/certificate-format.md#mini-c-sources-validation-against-the-source).
 
 ## Flow facts, SARIF and CI
 
@@ -406,6 +428,7 @@ src/analysis/Analyzer.{hpp,cpp}     the AST walker: profile, cost, symbolic stat
 src/analysis/Consumer.{hpp,cpp}     Clang ASTConsumer shared by plugin and tool
 src/analysis/Report.{hpp,cpp}       structured report and JSON output
 src/analysis/Export.{hpp,cpp}       flow facts (FFX, AIS, AIS2) and SARIF, from a report
+src/analysis/MiniC.{hpp,cpp}        export of C functions as mini-C (validation of certificates)
 scripts/cost_diff.py                cost diff of two sets of reports (CI)
 src/plugin/Plugin.cpp               plugin registration
 src/tool/Main.cpp                   crosscheck-tool

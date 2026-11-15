@@ -84,6 +84,10 @@ statements:
     note: "program certificates: calls checked against summaries, assumed contracts"
     module: ImperativeOptimization.Checker
     lean: [FunCert, FunSpec, checkFun, checkProgram, program_sound, exProgram_checks, exProgram_17_rejected, exMain_cost]
+  - paper_labels: [def:minic, lem:nf-equiv, thm:validated]
+    note: "validation of a certificate against its mini-C source (translation validation); MiniCCore has the definitions (no mathlib), MiniC the proofs"
+    module: ImperativeOptimization.MiniC
+    lean: [MStmt, MExp, MCond, lower, nf, app, validate, CEquiv, nf_equiv, app_equiv, seq_assoc, seq_skip_left, seq_skip_right, CImp.while, dot_trim, equiv_of_nf_eq, validate_lower, validated_sound, countCert_validated, countCert_not_validated]
   - paper_labels: [prop:lex-log]
     module: ImperativeOptimization.Certificate
     lean: [lex_ranking_bound, log_ranking_bound]
@@ -117,4 +121,4 @@ not_formalized:
   - labels: [sec:application]
     reason: "equation-generating rules are described, not formalized; completeness of Farkas' Lemma is cited"
   - labels: [paper-II]
-    reason: "the Clang plugin of Paper II (C++), its translation to certificates and the SMT solver are not verified"
+    reason: "the Clang plugin of Paper II (C++), its translation to certificates (or, for validated certificates, to mini-C) and the SMT solver are not verified"

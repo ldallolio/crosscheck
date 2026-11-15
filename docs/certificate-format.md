@@ -93,6 +93,58 @@ symbolic bounds;
 `{mu, lam}`; `PExp` is `{sv, c}`; `Lin` is `{sv, lv, c}`.
 
 
+## Mini-C sources (validation against the source)
+
+With `--opt=minic` (and `--opt=certificates=FILE`), each function of a version-2 file may
+also carry `"source"`: the C function as a **mini-C** program (Lean `MiniC.MStmt`,
+`formalization/ImperativeOptimization/MiniCCore.lean`), written by
+`clang-plugin/src/analysis/MiniC.cpp` from the C syntax alone, not from the certificate.
+`crosscheck-check` then runs the verified `MiniC.validate`: it lowers the source
+(`MiniC.lower`, the definition of mini-C's meaning) and compares it with the
+certificate's program after removing annotations, `weaken` and `dead` nodes (keeping the
+code they contain), `skip` and the nesting of sequences (`MiniC.nf`). It prints
+
+```
+VALIDATED f: the certificate's program is the lowering of its source
+NOT VALIDATED f: the certificate's program is not the lowering of its source
+```
+
+(exit status 1 for `NOT VALIDATED`; `--print` then shows both normal forms). A validated
+certificate bounds the cost of the source program (theorem `MiniC.validated_sound`,
+paper `thm:validated`): the certificate generator is not trusted, the exporter and the
+cost model are. When a function is outside the exporter's fragment, `"source_refused"`
+gives the reason (the checker ignores it).
+
+```
+stmt  ::= {"s":"skip"} | {"s":"assign","w":W,"x":X,"e":exp} | {"s":"cost","w":W}
+        | {"s":"seq","ss":[stmt...]} | {"s":"if","w":W,"c":cond,"a":stmt,"b":stmt}
+        | {"s":"while","w":W,"cs":[cond...],"body":stmt}
+        | {"s":"for","init":stmt,"w":W,"cs":[cond...],"inc":stmt,"body":stmt}
+exp   ::= {"e":"var","x":X} | {"e":"lit","k":K} | {"e":"add"|"sub"|"mul","a":exp,"b":exp}
+        | {"e":"neg","a":exp} | {"e":"other"}
+cond  ::= {"c":"cmp","op":"<"|"<="|">"|">=","a":exp,"b":exp} | {"c":"not","a":cond}
+        | {"c":"other"}
+```
+
+`w` are the weights of the cost model; `x` index the program's `variables`; `other` is an
+unknown value (an unknown test, in a conditional, is a nondeterministic choice; in a loop
+test it is outside the fragment). With `minic`, a `dead` node of the certificate
+contains the code that is not reached (loops in it get the potential 0: nothing inside a
+dead node is checked). `test/certificates/minic.json` validates; no source of
+`minic_rejected.json` (four variations of the program) does.
+
+What the exporter does (`MiniC.cpp`): tracked variables (those of the certificate) are
+read as variables, every other read is `other`; assignments to them are `assign`, every
+other statement is `cost`; signed `+`, `-`, `*`, unary `-` and value-preserving
+conversions are exact (signed overflow is undefined behaviour, assumed absent);
+compound `+=`/`-=` and `++`/`--` are exact only when converting the result back to the
+variable's type preserves values. `return` ends the function: outside loops, the rest
+of the body moves into the branches of a conditional that contains one. Refused (no
+source, reason in `source_refused`): calls, `return` in a loop, `break`, `continue`,
+`switch`, `goto`, `do`; tracked variables that are unsigned, global, static, volatile or
+whose address is taken; assignments of `>>`, `/`, `%`, `&` or of reads of constant
+tables (the generator describes these by facts, `havocC`, which mini-C does not have yet).
+
 ## How the plugin produces certificates
 
 `src/analysis/Analyzer.cpp`, section "Certificates", and `src/core/Cert.{hpp,cpp}`:

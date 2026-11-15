@@ -147,7 +147,9 @@ The primary contributions of this work are:
     arithmetic only; a certificate that it accepts bounds the cost of every execution of its program
     (Theorem~\ref{thm:checker-soundness}). Bounds may be affine in the parameters of a function, and calls are
     checked against the callee's summary and against assumed contracts instead of being inlined
-    (Theorem~\ref{thm:program-soundness}).
+    (Theorem~\ref{thm:program-soundness}). A certificate can also be validated against an independent
+    description of the source in a small fragment of C, so that its bound holds for that description
+    without trusting the producer of the certificate (Theorem~\ref{thm:validated}).
     \item \textbf{Machine-Checked Soundness:} All of the above, together with the worked examples, are formalized
     in Lean~4 \cite{demoura2021lean4} on top of mathlib \cite{mathlib2020}, without \lean{sorry} and without any axiom
     beyond the three standard axioms of Lean's logic (Section~\ref{sec:mechanization}).
@@ -912,6 +914,45 @@ Recursion is excluded by the order of the functions; rule (9) of the cost logic 
 
 The checker is a small program, independent of the analysis that produces certificates: it does not search for invariants, potentials or multipliers, and uses neither an SMT solver nor rational arithmetic. Its soundness is Theorems~\ref{thm:checker-soundness} and~\ref{thm:program-soundness}; an analyzer need not be trusted if its output is checked. Bounds are affine in the parameters: a loop whose body bound depends on a parameter needs a constant entry bound, so nested loops over a parameter (quadratic bounds) are not covered. The potentials of Proposition~\ref{prop:lex-log} are not cases of the checker. Early exits from loops (\texttt{break}, \texttt{continue}, \texttt{return}) need no new construct: a producer can express them with flag variables, a conjunctive test that includes ``flag $\le 0$'', and conditionals that skip the rest of the body once a flag is set; how the plugin does this is described in \cite{crosscheckTool}. \authortodo{check that Definitions~\ref{def:certificate} and~\ref{def:program-certificate}, the description of the checker and the proof of Theorem~\ref{thm:program-soundness} say what \lean{ACmd}, \lean{check}, \lean{checkProgram} and \lean{program\_sound} do in CheckerCore.lean and Checker.lean; read \cite{necula1997proof}, \cite{nipkow2002hoare} and \cite{blumofe1999scheduling}, which are cited from the assistant's general knowledge and whose content was not read.}
 
+\subsection{Validation against the source program}
+\label{subsec:validation}
+
+Theorems~\ref{thm:checker-soundness} and~\ref{thm:program-soundness} bound the cost of the program contained in a certificate. That this program is the function that was analysed is a property of the producer of the certificate, which these theorems do not cover. Following the idea of translation validation \cite{pnueli1998translation,necula2000translation}, the producer is not verified; instead the checker compares the program of a certificate with a second description of the source, produced independently, in a small fragment of C whose meaning is defined in Lean.
+
+\begin{defn}[Mini-C, lowering, validation]
+\label{def:minic}
+The expressions of \emph{mini-C} are variables $x_i$, integer constants, sums, differences, products, negations and an expression $\top$ that stands for an unknown value; its tests are comparisons $e_1 \bowtie e_2$ with ${\bowtie} \in \{<, \le, >, \ge\}$, negations of tests, and an unknown test; its statements are \texttt{skip}, assignments $x_i := e$, statements $\mathtt{cost}(\omega)$ that modify no variable, sequences, conditionals, \texttt{while} loops whose test is a conjunction of tests, and \texttt{for} loops. Every assignment, $\mathtt{cost}$ statement, conditional and loop carries a weight $\omega$, the cost of the statement or of the evaluation of its test. The \emph{lowering} $\mathcal{L}$ maps a statement to a program of the checker without annotations (Definition~\ref{def:certificate}):
+\begin{itemize}
+    \item an expression to its affine form if it has one (a product is affine if one factor is a constant); $e_1 < e_2$ to $e_1 - e_2 + 1 \le 0$, $e_1 \le e_2$ to $e_1 - e_2 \le 0$, and symmetrically for $>$ and $\ge$; the negation of $g \le 0$ to $1 - g \le 0$;
+    \item an assignment whose right-hand side has no affine form to $x_i := ?$; $\mathtt{cost}(\omega)$ to an assignment of an unknown value to a variable that no assertion mentions, of weight $\omega$;
+    \item a conditional whose test has no affine form to $x_c := ?\,;\ \mathbf{if}\ (x_c \le 0)\ \dots$, for a dedicated variable $x_c$;
+    \item a loop with one test to a \texttt{while} loop, with several to a loop with a conjunctive test; $\mathbf{for}\,(i;\ t;\ u)\ b$ to $i\,;\ \mathbf{while}\ t\ (b\,;\ u)$;
+\end{itemize}
+and $\mathcal{L}$ is undefined on a loop with a conjunct that has no affine form. The \emph{normal form} $\mathrm{nf}(c)$ of a program $c$ of the checker replaces its annotations (assertions, bounds, invariants, potentials, multipliers) by fixed values, replaces each consequence or dead-code node by the program it contains, associates sequences to the right, removes \texttt{skip} from sequences, and removes trailing zero coefficients from affine expressions. A certificate with program $c$ is \emph{validated} against a mini-C statement $s$ if $\mathcal{L}(s)$ is defined and $\mathrm{nf}(c) = \mathrm{nf}(\mathcal{L}(s))$.
+\end{defn}
+
+The meaning of a mini-C statement $s$ is, by definition, the cost semantics of $\mathcal{L}(s)$ (Definition~\ref{def:valid-triple}): its terminating executions and its execution prefixes, with their costs. Validation is a syntactic test, decided by the checker.
+
+\begin{lem}
+\label{lem:nf-equiv}
+A program of the checker and its normal form have the same terminating executions and the same execution prefixes, with the same costs.
+\end{lem}
+
+\begin{proof}
+The translation of a program of the checker into a command of the logic ignores annotations and replaces consequence and dead-code nodes by the program they contain, and a trailing zero coefficient does not change the value of an affine expression. It remains to show that sequential composition is associative and has \texttt{skip} as a unit, for terminating executions and for execution prefixes, and that having the same executions and prefixes is a congruence for sequences, conditionals and loops. Each of these is a case analysis on the derivations of executions and prefixes, by induction on the derivation for loops.
+\end{proof}
+
+\begin{thm}[Validated certificates]
+\label{thm:validated}
+Under the hypotheses of Theorem~\ref{thm:program-soundness}, let the body of the function $F_i$ be validated against the mini-C statement $s$. Then, for every valuation $\rho$ of the logical variables and every state satisfying $\mathit{pre}_i$, every execution prefix of $\mathcal{L}(s)$ costs at most $\mathit{bound}_i(\rho)$, and every terminating execution of $\mathcal{L}(s)$ ends in a state satisfying $\mathit{post}_i$.
+\end{thm}
+
+\begin{proof}
+By Theorem~\ref{thm:program-soundness}, the body $c$ of $F_i$ satisfies these two properties. Since $\mathrm{nf}(c) = \mathrm{nf}(\mathcal{L}(s))$, Lemma~\ref{lem:nf-equiv}, applied to $c$ and to $\mathcal{L}(s)$, shows that $c$ and $\mathcal{L}(s)$ have the same terminating executions and execution prefixes, with the same costs.
+\end{proof}
+
+With validation, the producer of certificates is no longer trusted: what remains is the description of the C function in mini-C, the cost model (the weights, which are part of that description), and the hypotheses under which a C function means its mini-C description. Among the latter: signed integer arithmetic is exact (signed overflow is undefined behaviour in C, assumed absent), variables that the description does not track are read as unknown values and written by $\mathtt{cost}$ statements, and tracked variables are modified only by the assignments that the description shows (their address is not taken). How the companion tool \cite{crosscheckTool} produces the description, and which functions it covers, is described there. Dead code is part of the program: a dead-code node must contain the code of the source that is not reached, which the checker of certificates does not inspect but validation does. Validation is an equality up to the normal form, so a producer that transforms the program, even correctly (for instance by unrolling a loop), is not validated. Mini-C has no calls, no early exits from loops, no unsigned arithmetic and no division; extending it means extending $\mathcal{L}$ and the proof of Lemma~\ref{lem:nf-equiv}. \authortodo{check that Definition~\ref{def:minic}, Lemma~\ref{lem:nf-equiv} and Theorem~\ref{thm:validated} say what \lean{MStmt}, \lean{lower}, \lean{nf}, \lean{validate}, \lean{nf\_equiv} and \lean{validated\_sound} do in MiniCCore.lean and MiniC.lean; read \cite{pnueli1998translation} and \cite{necula2000translation}, which are cited from the assistant's general knowledge (their bibliographic data were checked on Crossref, their content was not read).}
+
 \section{Examples}
 \label{sec:examples}
 
@@ -1079,12 +1120,13 @@ and the value synthesized at the root is $v_{\varepsilon} = 4$. The function $V_
 \section{Mechanization in Lean 4}
 \label{sec:mechanization}
 
-The development accompanying this paper consists of about 4{,}100 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 215 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+The development accompanying this paper consists of about 4{,}550 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 239 theorems. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
 
 \begin{table}[ht]
 \centering
 \footnotesize
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.24\textwidth}>{\raggedright\arraybackslash}p{0.54\textwidth}>{\raggedright\arraybackslash}p{0.16\textwidth}@{}}
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{0.94}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.23\textwidth}>{\raggedright\arraybackslash}p{0.56\textwidth}>{\raggedright\arraybackslash}p{0.16\textwidth}@{}}
 \toprule
 Paper statement & Lean theorem(s) & Module \\
 \midrule
@@ -1110,6 +1152,7 @@ Thm.~\ref{thm:cost-logic-soundness} & \lean{soundness}, \lean{valid\_\allowbreak
 Def.~\ref{def:certificate} & \lean{ACmd}, \lean{Lin}, \lean{PExp}, \lean{check}, \lean{entails1} & \lean{Checker} \\
 Thm.~\ref{thm:checker-soundness} & \lean{check\_\allowbreak sound}, \lean{loop\_\allowbreak sound}, \lean{loopBoundOk\_\allowbreak sound}, \lean{certified\_\allowbreak cost\_\allowbreak le}, \lean{entails1\_\allowbreak sound}, \lean{Lin.inst\_\allowbreak eval}, \lean{while\_\allowbreak frame}; examples \lean{countCert\_\allowbreak checks}, \lean{countSym\_\allowbreak cost}, \lean{shiftCert\_\allowbreak checks} & \lean{Checker} \\
 Def.~\ref{def:program-certificate}, Thm.~\ref{thm:program-soundness} & \lean{FunCert}, \lean{FunSpec}, \lean{checkProgram}, \lean{program\_\allowbreak sound}; example \lean{exProgram\_\allowbreak checks}, \lean{exProgram\_\allowbreak 17\_\allowbreak rejected}, \lean{exMain\_\allowbreak cost} & \lean{Checker} \\
+Def.~\ref{def:minic}, Lem.~\ref{lem:nf-equiv}, Thm.~\ref{thm:validated} & \lean{lower}, \lean{nf}, \lean{validate}, \lean{nf\_\allowbreak equiv}, \lean{validated\_\allowbreak sound}; example \lean{countCert\_\allowbreak validated} & \lean{MiniC} \\
 Prop.~\ref{prop:lex-log} & \lean{lex\_\allowbreak ranking\_\allowbreak bound}, \lean{log\_\allowbreak ranking\_\allowbreak bound} & \lean{Certificate} \\
 Prop.~\ref{prop:summary-call} & \lean{validSym\_\allowbreak iff}, \lean{validSym\_\allowbreak call}, \lean{validSym\_\allowbreak seq} & \lean{Language} \\
 Prop.~\ref{prop:context-bound} & \lean{run\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak floor\_\allowbreak of\_\allowbreak invariant}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak context}, \lean{call\_\allowbreak bound\_\allowbreak of\_\allowbreak context} & \lean{Certificate} \\
@@ -1139,7 +1182,7 @@ The following points are \emph{not} mechanized, and the corresponding statements
     \item the equation-generating rules of Section~\ref{sec:application}; and the completeness direction of Farkas' Lemma, which is cited;
     \item in Section~\ref{subsec:cost-logic}, the remark that a program with a derivable bound and positive test and call weights has no infinite execution (the bound on all execution prefixes, from which it follows, is mechanized), and the paragraph on weights and parallel composition, which is not formalized;
     \item the potentials of Proposition~\ref{prop:lex-log} are mechanized as bounds on the length of runs, but they are not rules of the cost logic and are not accepted by the checker; the checker of Section~\ref{subsec:checker} covers assignments, unknown values, sequences, conditionals, loops with a linear or conjunctive test, calls of earlier functions (no recursion) and assumed contracts, with bounds affine in the parameters;
-    \item the analyzer of the companion paper \cite{crosscheckTool}, and the translation from C or C++ source to the certificates of Section~\ref{subsec:checker}; the checker program is compiled from the Lean definition of the checker by Lean's compiler, together with a parser of the certificate format that is not verified.
+    \item the analyzer of the companion paper \cite{crosscheckTool}, and the translation from C or C++ source to the certificates of Section~\ref{subsec:checker}; for a validated certificate (Section~\ref{subsec:validation}) the translation of the source into mini-C instead, and the hypotheses under which a C function means its mini-C description. The checker program is compiled from the Lean definitions of the checker and of validation by Lean's compiler, together with a parser of the certificate format that is not verified.
 \end{itemize}
 
 \section{Limitations}
@@ -1170,7 +1213,7 @@ Future work on the theory includes lexicographic, logarithmic and amortized pote
 
 \section*{Statement on the Use of AI}
 
-Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language} and \lean{Checker} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language}, \lean{Checker} and \lean{MiniC} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, the validation of Section~\ref{subsec:validation}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. \authortodo{complete with any AI use in earlier drafts; state that you have read and verified all statements and proofs, including the non-mechanized ones and every citation, and take full responsibility for the content.}
 
 \section*{Acknowledgements}
 

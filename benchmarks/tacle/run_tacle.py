@@ -23,6 +23,7 @@ independent proof of the worst case, and some are not tight.
 """
 
 import argparse
+import collections
 import json
 import pathlib
 import re
@@ -68,13 +69,15 @@ def pragmas(lines):
     return out
 
 
-def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None, ffxdir=None):
+def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None, ffxdir=None, minic=False):
     name = kdir.name
     unit = work / f"{name}.c"
     unit.write_text("".join(f.read_text(errors="replace") for f in sorted(kdir.glob("*.c"))))
     report = work / f"{name}.json"
     report.unlink(missing_ok=True)
     certs = [f"--opt=certificates={certdir / (name + '.json')}"] if certdir else []
+    if certdir and minic:  # mini-C sources, validated by the checker against the certificates
+        certs.append("--opt=minic")
     if ffxdir:  # in-context loop bounds, FFX (OTAWA), for compare_ffx.py
         certs += [f"--opt=flowfacts={ffxdir / (name + '.ffx')}", "--opt=flowfacts-context=program"]
     cmd = [str(tool), "--all", "--opt=entry=main", *certs, f"--report={report}", str(unit), "--",
@@ -189,6 +192,8 @@ def main():
     ap.add_argument("--certificates", help="emit cost certificates into this directory")
     ap.add_argument("--flow-facts", help="write each program's in-context loop bounds as FFX into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check the certificates (needs --certificates)")
+    ap.add_argument("--minic", action="store_true",
+                    help="export each certified function as mini-C; the checker validates it against the certificate")
     a = ap.parse_args()
 
     cache = pathlib.Path(a.cache)
@@ -208,7 +213,7 @@ def main():
         certdir.mkdir(parents=True, exist_ok=True)
     rows = []
     for k in kernels:
-        r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir)
+        r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir, a.minic)
         rows.append(r)
         print(f"{r['kernel']:16s} " + " ".join(f"{c}={r[c]}" for c in COLS)
               + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s", file=sys.stderr)
@@ -231,7 +236,22 @@ def main():
             for u in r.get("uncertified", []):
                 print(f"  not certified: {r['kernel']}: {u}", file=sys.stderr)
         print(f"checker: {acc} accepted, {rej} rejected (exit {proc.returncode})", file=sys.stderr)
-        if proc.returncode != 0:
+        if a.minic:
+            val = sum(l.startswith("VALIDATED") for l in lines)
+            notval = sum(l.startswith("NOT VALIDATED") for l in lines)
+            refused = collections.Counter()
+            for f in files:
+                for prog in json.loads(pathlib.Path(f).read_text())["programs"]:
+                    for fn in prog["functions"]:
+                        if "body" in fn and "source" not in fn:
+                            refused[fn.get("source_refused", "?")] += 1
+            total["validated"], total["not_validated"] = val, notval
+            total["source_refused"] = sum(refused.values())
+            print(f"mini-C: {val} validated, {notval} not validated, {sum(refused.values())} not exported",
+                  file=sys.stderr)
+            for why, n in refused.most_common():
+                print(f"  {n:4d} not exported: {why}", file=sys.stderr)
+        if rej:
             sys.stderr.write(proc.stdout + proc.stderr)
             sys.exit("a certificate was rejected by the checker")
     total.update(kernel="Total", main_ok=sum(r["main_ok"] for r in rows), main_bound=None,

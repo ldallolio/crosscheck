@@ -37,7 +37,7 @@ flowchart LR
 | 2 | [02-paper.md](02-paper.md) | Paper I: every result in plain words with its Lean name; the worked examples | 2 h |
 | 3 | [03-paper-tool.md](03-paper-tool.md) | Paper II: what the plugin does, how certificates are produced, the results to remember | 1 h |
 | 4 | [04-plugin.md](04-plugin.md) | the plugin's code: architecture, data, loops, recursion, calls, certificates, tests | 2 h |
-| 5 | [05-lean.md](05-lean.md) | Lean 4 from scratch with this repository's code; the 15 modules; three proofs to read | 3 h |
+| 5 | [05-lean.md](05-lean.md) | Lean 4 from scratch with this repository's code; the 17 modules; three proofs to read | 3 h |
 | 6 | [06-bibliography.md](06-bibliography.md) | the references as a map and tables, with what was actually read | 30 min |
 | 7 | [07-expert-questions.md](07-expert-questions.md) | questions, answers, weak points, phrases, glossary | 1 h |
 

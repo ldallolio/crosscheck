@@ -156,6 +156,9 @@ struct FunJson {
   SB bound;
   std::vector<std::size_t> mods;
   NodeP body;
+  /// The function as a mini-C program (JSON of `MiniC.MStmt`), if exported, or why not.
+  std::optional<std::string> source;
+  std::string sourceRefused;
 };
 
 /// JSON of one program certificate (format version 2).

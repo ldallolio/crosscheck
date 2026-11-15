@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
+#pragma once
+
+#include <clang/AST/ASTContext.h>
+#include <clang/AST/Decl.h>
+#include <clang/AST/Expr.h>
+#include <clang/AST/Stmt.h>
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <string>
+
+namespace crosscheck::minic {
+
+/// What the exporter needs from the analysis: the variable numbering of the program
+/// certificate (any injective numbering of non-aliased integer locals and parameters),
+/// and the cost model. Neither the generator of certificates nor any analysis result is
+/// used: the exporter reads the C syntax only.
+struct Inputs {
+  const std::map<const clang::VarDecl*, std::size_t>* vars = nullptr;
+  std::function<std::uint64_t(const clang::Expr*)> costOf;  ///< the cost model
+  std::uint64_t assign = 1, branch = 1, ret = 1;            ///< weights of the cost model
+  /// `CROSSCHECK_REQUIRE(...)` markers (no code; their content is the precondition).
+  std::function<bool(const clang::Stmt*)> isRequire;
+};
+
+/// The mini-C program of `def` (JSON, the fragment `MiniC.MStmt` of the Lean
+/// formalization), or the reason why `def` is outside the fragment.
+///
+/// The translation is the trusted part of a validated certificate (theorem
+/// `MiniC.validated_sound`), so it is meant to be read: it is syntactic, and every
+/// construct it does not model exactly is either an unknown value (`other`: reads of
+/// memory and of untracked variables, non-affine or possibly-wrapping arithmetic,
+/// narrowing conversions), a statement that only costs (stores to memory or to untracked
+/// variables), or a refusal (calls, jumps, unsigned or aliased tracked variables, ...).
+/// Signed arithmetic is exact: signed overflow is undefined behaviour, assumed absent.
+struct Result {
+  std::optional<std::string> json;
+  std::string reason;
+};
+Result exportFunction(const clang::FunctionDecl* def, clang::ASTContext& ctx, const Inputs& in);
+
+}  // namespace crosscheck::minic

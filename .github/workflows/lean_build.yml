@@ -54,3 +54,12 @@ jobs:
           fi
           cat prejected.txt
           if grep -q '^PROGRAM.*ACCEPTED' prejected.txt; then echo "a wrong program certificate was accepted"; exit 1; fi
+          # Mini-C sources: minic.json validates; no source of minic_rejected.json does
+          # (each differs from the certificate's program).
+          .lake/build/bin/crosscheck-check test/certificates/minic.json | tee minic.txt
+          grep -q '^VALIDATED' minic.txt
+          if .lake/build/bin/crosscheck-check test/certificates/minic_rejected.json > mrejected.txt; then
+            echo "a wrong source was validated"; exit 1
+          fi
+          cat mrejected.txt
+          if grep -q '^VALIDATED' mrejected.txt; then echo "a wrong source was validated"; exit 1; fi

@@ -52,7 +52,7 @@ jobs:
 
       # Fetches a pinned TACLeBench revision; see benchmarks/tacle/README.md.
       - name: TACLeBench kernels (loop bounds vs. flow facts; cost certificates)
-        run: python3 benchmarks/tacle/run_tacle.py --markdown=tacle.md --json=tacle.json --certificates=certificates/tacle && cat tacle.md >> "$GITHUB_STEP_SUMMARY"
+        run: python3 benchmarks/tacle/run_tacle.py --markdown=tacle.md --json=tacle.json --certificates=certificates/tacle --minic && cat tacle.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Certificates of the example programs
         run: |
@@ -128,3 +128,5 @@ jobs:
         run: |
           formalization/.lake/build/bin/crosscheck-check certificates/*/*.json | tee checked.txt
           echo "Accepted: $(grep -c '^ACCEPTED' checked.txt)" >> "$GITHUB_STEP_SUMMARY"
+          # mini-C sources (TACLeBench): a NOT VALIDATED line also fails this step
+          echo "Validated against their mini-C source: $(grep -c '^VALIDATED' checked.txt)" >> "$GITHUB_STEP_SUMMARY"

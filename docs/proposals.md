@@ -111,7 +111,17 @@ flowchart LR
    nor TACLeBench controls loops by pointer comparison often enough to show up among the
    blockers; logarithmic loops (FFTs) are now the largest blocker.
 5. **Verified lowering** (S1): the flagship result for a venue paper on certified cost
-   analysis.
+   analysis. **Done 2026-11-15, as translation validation** rather than a lowering written
+   in Lean: the plugin exports each certified function as mini-C (`MiniC.cpp`, syntactic,
+   independent of the generator); the checker compares it with the certificate's program
+   up to a normal form (`MiniC.validate`), and `MiniC.validated_sound` (Paper I
+   `thm:validated`) transfers the bound. The generator leaves the trusted base for the
+   validated functions: 93 of the 158 TACLeBench kernel certificates and 113 of the 231
+   sequential/app ones, none failing.
+   Open: calls in mini-C (a congruence of the semantics in the procedure environment, and
+   following the generator's choice between summary and inlining), unsigned arithmetic,
+   division/shift/mask (the generator's `havocC` facts, to be derived by `lower`), jumps
+   inside loops.
 6. **Time on predictable cores** (S5), **fork-join and interrupts** (S6), **Rust** (I6).
 
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
