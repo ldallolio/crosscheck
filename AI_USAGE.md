@@ -800,6 +800,12 @@ What the AI did for 38 (design choices are the AI's):
 - get better results on benchmarks and with respect to existing tools comparison
 Give me any advice about how to proceed : how to make this project really useful for a big company such as Safran, Dassault, Thales, Airbus or others ? What would you do now ?"
 
+44. "Write your advices into docs/proposals.md then go on with step 9 and follow up with all your advices, one by one, without stopping to ask anymore until all you can think of has been done."
+
+What the AI did for 44 (Claude Fable 5.2): the advice of prompt 43 was written into
+`docs/proposals.md` section 6, with an order of steps 9 to 18; the steps are described
+below as they are done.
+
 What the AI did for 41 to 43 (Claude Opus 5.5 until prompt 42, Claude Fable 5.2 from
 prompt 43, after the user switched models):
 - 41: the companion guide was brought up to date (all seven parts: logarithmic loops,
@@ -813,7 +819,7 @@ prompt 43, after the user switched models):
   and mutated certificates, mini-C with calls and unsigned, parametric analyser, an
   end-to-end OTAWA demonstration on a recognised benchmark, stack bounds, a qualification
   kit, an ACSL export). The benchmark names it mentions (ROSACE, PapaBench, NASA cFS) are
-  from the model's memory and unchecked. Not yet written into `docs/proposals.md`.
+  from the model's memory and unchecked. Written into `docs/proposals.md` section 6 after prompt 44.
 
 What the AI did for 40 (step 8, chosen by the AI: the CMSIS-DSP figures had not moved with
 step 7, and the AI found why):

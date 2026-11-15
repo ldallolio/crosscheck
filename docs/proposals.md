@@ -155,3 +155,65 @@ flowchart LR
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
 tests, Lean proofs for every new checker rule, and the papers, READMEs and guide updated
 together.
+
+## 6. Review of 2026-11-15 and order after step 8
+
+Written after steps 1-8, at the author's request (advice on solidity, scientific
+contribution, industrial value and benchmark results). The author asked for all of it to
+be carried out in order. Statements about industrial practice and the benchmark names
+(ROSACE, PapaBench, NASA cFS) come from the model's memory: **check before relying on
+them**.
+
+### 6.1 Weak points found
+
+| Weak point | Why it matters | Remedy (step) |
+|---|---|---|
+| 93 of 158 kernel certificates are validated against the source | for the others the unverified generator is trusted | mini-C with calls, unsigned variables, division (11) |
+| the link from mini-C to C is informal | last unproved step of the chain | run mini-C (its Lean semantics, executable) and the compiled C on random inputs (10); long term, CompCert Clight |
+| soundness evidence is one fixed input per kernel | none for sequential/app and CMSIS-DSP | random loop programs run against their bounds; mutated certificates must be rejected (10) |
+| the analyser needs numeric input ranges | TPDB as is: 10 programs, KoAT2 288 | parametric analyser (12) |
+| time is one core, compared with our own interpreter | the exported flow facts were never loaded into OTAWA or aiT | an end-to-end OTAWA run (13) |
+| breadth over depth (Rust, cycles, interrupts are thin) | reviewers and users judge the weakest link | no new front-end or target until 10-13 are done |
+
+### 6.2 Contribution to claim
+
+The foundations of Paper I (order-by-composition, loops as optimisation problems) mostly
+restate classical results. The less common part is the certified chain: a verified
+checker, validation against the source, response times from certified bounds. The papers
+should centre their claims there (an author decision; the abstracts already say what is
+proved and what is not).
+
+### 6.3 Where the industrial value is
+
+Flight-control code generated from models (SCADE, Simulink) has constant loop bounds; its
+hard problem is hardware timing, which CrossCheck does not address. The value is in:
+
+- **qualification**: a small proved checker is cheaper to qualify (DO-330) than an
+  analyser; a kit skeleton (requirements, traced tests, trusted base) is the entry ticket;
+- **certified flow facts for existing WCET tools** (OTAWA, aiT), replacing hand-written
+  loop bounds;
+- **hand-written code** (drivers, protocol stacks, RTOS, crypto, new C++ and Rust), with
+  compile-time deadline checks and cost diffs in CI;
+- **stack bounds**, a DO-178C objective, often wanted before WCET;
+- **a bridge to Frama-C**: invariants and loop variants exported as ACSL, re-provable by WP;
+- **engineering basics**: a whole-project driver, analysis speed, messages that say why a
+  loop is unbounded and which annotation would fix it;
+- **recognised benchmarks**: ROSACE, PapaBench, NASA cFS rather than kernels only.
+
+### 6.4 Order
+
+| Step | Content | Kind | Status |
+|---|---|---|---|
+| 9 | Lexicographic potentials: checker node, proof by the loop rule, analyser, generator, must-be-rejected tests | T | |
+| 10 | Soundness tests: random loop programs run against their bounds; mutated certificates rejected; mini-C interpreter against compiled C | E | |
+| 11 | Mini-C extended (unsigned, division/shift/mask, calls), in the order of the measured refusals | T | |
+| 12 | Parametric analyser: bounds affine in the parameters without input ranges; TPDB as is | T + E | |
+| 13 | Explanations for unbounded loops (which annotation would fix it); whole-project driver on `compile_commands.json` | E | |
+| 14 | Stack-depth bounds (high-water mark: a new resource in the theory), checked against the Cortex-M0 runs | T + E | |
+| 15 | ACSL export of invariants and variants | E | |
+| 16 | Qualification-kit skeleton for the checker | E | |
+| 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | needs tools and sources from the network |
+| 18 | Recursion in the checker (rule 9); amortised bounds for nested loops | T | |
+
+The author's own verification items (`AI_USAGE.md` section 3) remain what blocks the arXiv
+submission; no step above replaces them.
