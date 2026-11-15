@@ -582,6 +582,94 @@ TEST(Loops, LogarithmicUnsignedAndGrowing) {
   EXPECT_LE(fn(r, "h").loops[0].bound, 12u);
 }
 
+// Lexicographic arguments with a bounded inner counter are affine potentials once the
+// bounds of the inner counter are invariants (Paper I, prop:lex-log (1)).
+TEST(Loops, LexicographicWithBoundedInnerCounter) {
+  Report r = check(R"(
+    CROSSCHECK_COST(1) int nd(void);
+    CROSSCHECK_REALTIME int reset(CROSSCHECK_RANGE(0, 100) int n, CROSSCHECK_RANGE(0, 50) int m) {
+      int i = 0, j = 0, c = 0;
+      while (i < n) { if (j < m) j++; else { j = 0; i++; } c++; }
+      return c;
+    }
+    CROSSCHECK_REALTIME int refill(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(0, 50) int y) {
+      int c = 0;
+      while (x > 0 && y > 0) { if (nd()) x--; else { y--; x = 100; } c++; }
+      return c;
+    }
+    CROSSCHECK_REALTIME int twophase(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(0, 50) int y) {
+      int c = 0;
+      while (x > 0) { if (y > 0) y--; else x--; c++; }
+      return c;
+    }
+    CROSSCHECK_REALTIME int down_up(CROSSCHECK_RANGE(0, 100) int n) {
+      int i = n, j = 0, c = 0;
+      while (i > 0) { if (j > 0) j--; else { i--; j = i; } c++; }
+      return c;
+    })");
+  ASSERT_TRUE(fn(r, "reset").ok);
+  EXPECT_EQ(fn(r, "reset").loops[0].bound, 5100u);     // n (m + 1), reached
+  ASSERT_TRUE(fn(r, "refill").ok);
+  EXPECT_EQ(fn(r, "refill").loops[0].bound, 5000u);    // reached by x = 100, y = 50
+  ASSERT_TRUE(fn(r, "twophase").ok);
+  EXPECT_EQ(fn(r, "twophase").loops[0].bound, 150u);   // x + y
+  ASSERT_TRUE(fn(r, "down_up").ok);
+  EXPECT_GE(fn(r, "down_up").loops[0].bound, 5050u);   // 5050 iterations for n = 100
+}
+
+// Must not be reported as 0 executions: the body of the outer loop starts once and never
+// ends (the inner loop does not terminate). Found by tests/fuzz_bounds.py.
+TEST(Unsound, OuterLoopWhoseBodyNeverCompletes) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 9) int n) {
+      int l = 2, acc = 0;
+      for (int p = 2; p <= n; p = p * 2) {
+        while (l >= p) { l += 1; }
+        acc += 1;
+      }
+      return acc;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  EXPECT_FALSE(f.bounded);
+  ASSERT_FALSE(f.loops.empty());
+  if (f.loops[0].verified) { EXPECT_GE(f.loops[0].bound, 1u); }
+}
+
+// Must be rejected: the inner counter is refilled with an unknown value.
+TEST(Unsound, LexInnerCounterRefilledWithUnknown) {
+  Report r = check(R"(
+    CROSSCHECK_COST(1) int nd(void);
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int n) {
+      int i = 0, j = 0, c = 0;
+      while (i < n) { if (j > 0) j--; else { j = nd(); i++; } c++; }
+      return c;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: the outer counter does not advance when the inner one is reset.
+TEST(Unsound, LexOuterCounterNotAdvanced) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 100) int n, CROSSCHECK_RANGE(0, 50) int m) {
+      int i = 0, j = 0, c = 0;
+      while (i < n) { if (j < m) j++; else { j = 0; } c++; }
+      return c;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: the refill is larger than any bound of the inner counter at entry,
+// and grows with the outer counter's start, which has no range.
+TEST(Unsound, LexRefillFromUnboundedParameter) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int n, int big) {
+      int i = n, j = 0, c = 0;
+      while (i > 0) { if (j > 0) j--; else { i--; j = big; } c++; }
+      return c;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
 // Must be rejected: the counter starts at 0, which doubling never moves.
 TEST(Unsound, GrowFromZero) {
   Report r = check(R"(
@@ -657,6 +745,26 @@ TEST(Certificates, LogarithmicLoop) {
   ASSERT_FALSE(r.certificates.empty());
   EXPECT_NE(r.certificates.back().find("\"whileLog\""), std::string::npos);
   EXPECT_NE(r.certificates.back().find("?old"), std::string::npos);
+}
+
+// A lexicographic loop is certified with the ordinary while node: the analysis hands its
+// invariant j <= m to the generator, which proves it again.
+TEST(Certificates, LexicographicLoop) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int n, CROSSCHECK_RANGE(0, 50) int m) {
+      int i = 0, j = 0, c = 0;
+      while (i < n) { if (j < m) j++; else { j = 0; i++; } c++; }
+      return c;
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.ok);
+  EXPECT_EQ(f.loops[0].bound, 5100u);
+  EXPECT_EQ(f.certificate, "emitted");
+  ASSERT_FALSE(r.certificates.empty());
+  EXPECT_NE(r.certificates.back().find("\"while\""), std::string::npos);
 }
 
 // --- certificates (docs/certificate-format.md) ------------------------------------

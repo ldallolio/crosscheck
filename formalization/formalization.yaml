@@ -98,7 +98,7 @@ statements:
     lean: [Greedy, greedy_bound, greedy_exists, forkjoin_bound, load_lower, example_bound]
   - paper_labels: [prop:lex-log]
     module: ImperativeOptimization.Certificate
-    lean: [lex_ranking_bound, log_ranking_bound]
+    lean: [lex_potential, lex_ranking_bound, log_ranking_bound]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

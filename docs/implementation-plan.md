@@ -16,7 +16,7 @@ See `docs/proposals.md` (2026-11-14) for the argued order of the next steps afte
 | Symbolic bounds (bound = function of the initial state) and the call rule for summaries | `prop:summary-call` | `Language`: `ValidSym`, `validSym_call`, `validSym_seq` |
 | Linear certificates and an executable checker; an accepted certificate bounds every execution | `subsec:checker`, `def:certificate`, `thm:checker-soundness` | `Checker`: `ACmd`, `check`, `check_sound`, `certified_cost_le` |
 | Bound under an invariant and a calling context | `prop:context-bound` | `Certificate`: `ranking_bound_of_context`, `call_bound_of_context` |
-| Lexicographic and logarithmic potentials (bounds on run length only) | `prop:lex-log` | `Certificate`: `lex_ranking_bound`, `log_ranking_bound` |
+| Lexicographic and logarithmic potentials (bounds on run length only) | `prop:lex-log` | `Certificate`: `lex_potential`, `lex_ranking_bound`, `log_ranking_bound` |
 
 Not proved, and to be kept out of any claim: the translation from C/C++ (or Rust) to
 `ACmd`; parallel composition; time on real processors.

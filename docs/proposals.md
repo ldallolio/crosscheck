@@ -204,14 +204,14 @@ hard problem is hardware timing, which CrossCheck does not address. The value is
 
 | Step | Content | Kind | Status |
 |---|---|---|---|
-| 9 | Lexicographic potentials: checker node, proof by the loop rule, analyser, generator, must-be-rejected tests | T | |
-| 10 | Soundness tests: random loop programs run against their bounds; mutated certificates rejected; mini-C interpreter against compiled C | E | |
+| 9 | Lexicographic potentials: checker node, proof by the loop rule, analyser, generator, must-be-rejected tests | T | **done 2026-11-16**, without a new checker node: with a constant inner bound the pair is an affine potential (`lex_potential`); the analyser retries with more candidate invariants and hands them to the generator. Binary search bounded (linearly). Not covered: a symbolic inner bound (a product) |
+| 10 | Soundness tests: random loop programs run against their bounds; mutated certificates rejected; mini-C interpreter against compiled C | E | **done 2026-11-16**: `fuzz_bounds.py`, `mutate_certificates.py`; two defects found and fixed (a loop whose body never completes reported with 0 executions; a mini-C source written for an inexpressible loop test) |
 | 11 | Mini-C extended (unsigned, division/shift/mask, calls), in the order of the measured refusals | T | |
 | 12 | Parametric analyser: bounds affine in the parameters without input ranges; TPDB as is | T + E | |
-| 13 | Explanations for unbounded loops (which annotation would fix it); whole-project driver on `compile_commands.json` | E | |
+| 13 | Explanations for unbounded loops (which annotation would fix it); whole-project driver on `compile_commands.json` | E | **done 2026-11-16**: cause in the error message; `scripts/crosscheck_project.py` |
 | 14 | Stack-depth bounds (high-water mark: a new resource in the theory), checked against the Cortex-M0 runs | T + E | |
-| 15 | ACSL export of invariants and variants | E | |
-| 16 | Qualification-kit skeleton for the checker | E | |
+| 15 | ACSL export of invariants and variants | E | **done 2026-11-16** (`scripts/acsl_export.py`), tested as run-time checks on random programs; **not run through Frama-C** (not installed here) |
+| 16 | Qualification-kit skeleton for the checker | E | **done 2026-11-16** (`docs/qualification/`): 9 requirements with evidence, traceability checked in CI; not reviewed by a specialist |
 | 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | needs tools and sources from the network |
 | 18 | Recursion in the checker (rule 9); amortised bounds for nested loops | T | |
 

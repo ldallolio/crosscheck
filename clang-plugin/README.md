@@ -415,16 +415,56 @@ A GitHub Actions job for a project that uses the tool:
   with: { sarif_file: sarif }
 ```
 
+## Whole projects, ACSL, and explanations
+
+**A project.** `scripts/crosscheck_project.py --tool crosscheck-tool -p BUILD --out OUT
+[--checker crosscheck-check] [--filter REGEX] [--all] [--baseline SNAPSHOT]` analyses
+every translation unit of `BUILD/compile_commands.json` in parallel and writes
+`OUT/project.json` (one record per function), `OUT/index.html` (totals, then a row per
+function with its bound, loops, certificate status, assumptions and errors) and
+`OUT/snapshot.json` (the baseline for the next run, compared by `cost_diff.py`).
+
+**ACSL.** The report gives, for each loop, the invariants the analysis proved at the loop
+head and a variant, and for each function its preconditions on integer parameters
+(`"invariants"`, `"variant"`, `"requires"`). `scripts/acsl_export.py REPORT... --out DIR`
+writes copies of the sources with these as ACSL annotations, for a deductive verifier
+(Frama-C/WP) to prove independently. They are claims in mathematical integers: the
+verifier needs its own overflow checks. The export has not been run through Frama-C in
+this repository; the annotations are executed as run-time checks by
+`tests/fuzz_bounds.py`.
+
+**Why a loop has no bound.** The error for an unbounded loop names a likely cause: a
+variable of the test without a range where the loop starts (and which side is missing), a
+test that reads memory, a floating-point value or a call result, or bounded variables
+with no decreasing combination. It is a hint and plays no part in any bound.
+
+## Tests of soundness beyond the unit tests
+
+| Test | What it does | Fails when |
+|---|---|---|
+| `tests/fuzz_bounds.py` (ctest `random_loops_bounds_hold`) | generates random loop programs, analyses them, runs them instrumented on all or sampled inputs | a derived loop bound is below an executed count; an exported invariant or variant is false at run time; a certificate is rejected; the interpreted mini-C export counts other loop iterations than the compiled C |
+| `formalization/test/mutate_certificates.py` (ctest `checker_mutants_rejected_or_sound`) | changes one integer of an accepted certificate; runs accepted mutants in an independent interpreter of certificate programs | the checker accepts a mutant of which a run exceeds the bound |
+| `benchmarks/tacle/compare_tools.py --check` | runs the TACLeBench kernels instrumented | a loop bound is below an observed count |
+| `benchmarks/cycles/run_cycles.py --check` | runs the kernels on a Cortex-M0 interpreter | a cycle bound or a binary loop bound is exceeded |
+
+The random programs found two defects when first run (2026-11-16): a loop whose body can
+never return to the loop head was reported with 0 executions of its body instead of 1
+(the function itself was already rejected, but the loop bound and the exported flow fact
+were wrong), and the mini-C exporter wrote a source for a loop whose test it cannot
+express (the checker then refused to validate it, rightly).
+
 ## Limitations
 
 - **Cost is not time.** Turning the bound into a time bound needs per-instruction
   worst-case durations for the target, which depend on caches, pipelines and the
   compiler's code generation. The analysis works on the source AST, before
   optimisation.
-- **Linear potentials only.** A loop or recursion that terminates by a
-  logarithmic, lexicographic or non-linear argument gets a linear bound (binary
-  search: depth `≤ n` instead of `log n`) or is rejected; state the bound with
-  `CROSSCHECK_LOOP_BOUND`.
+- **Affine and simple logarithmic potentials.** A variable divided, or multiplied up to
+  a constant limit, by a constant gets a logarithmic bound. A lexicographic argument
+  (an inner counter reset when the outer one advances) is found when the inner counter
+  has constant bounds that are inductive: the combination is then affine. Other loops
+  or recursions that terminate by a logarithmic or non-linear argument get a linear
+  bound (binary search) or are rejected; state the bound with `CROSSCHECK_LOOP_BOUND`.
 - **No amortisation.** Nested loops are multiplied; a recursive function is
   charged the worst-case cost of one activation for every activation (merge sort
   is bounded by `O(n²)`).

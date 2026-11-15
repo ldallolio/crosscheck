@@ -805,6 +805,46 @@ Give me any advice about how to proceed : how to make this project really useful
 What the AI did for 44 (Claude Fable 5.2): the advice of prompt 43 was written into
 `docs/proposals.md` section 6, with an order of steps 9 to 18; the steps are described
 below as they are done.
+- **Step 9, lexicographic potentials.** The AI first ran five lexicographic loops through
+  the analyser: none was bounded, and the cause was missing invariants (bounds of the
+  inner counter), not a missing kind of potential, since `V1 (K2 + 1) + V2` is affine when
+  `K2` is a constant. So no checker node was added. Lean: `lex_potential` (the pair
+  satisfies the two premises of the loop rule), `lex_ranking_bound` now derived from it;
+  280 theorems. Analyser: when no potential is found, a second set of candidate
+  invariants (branch tests as they are and relaxed by one, hulls of assigned constants
+  and entry bounds, pairs of variables left equal), each proved on entry and inductive as
+  before; the proved invariants are handed to the certificate generator as hints that it
+  proves again. Tests: `Loops.LexicographicWithBoundedInnerCounter` (three bounds checked
+  exact by brute force: 5100, 5000, 150), must-be-rejected
+  `Unsound.LexInnerCounterRefilledWithUnknown`, `LexOuterCounterNotAdvanced`,
+  `LexRefillFromUnboundedParameter`, `Certificates.LexicographicLoop`,
+  `tests/certificates/lexicographic.cpp` (five certificates accepted). Cost: the kernel
+  run takes about 1.5 times longer.
+- **Step 10, soundness tests.** `clang-plugin/tests/fuzz_bounds.py` (random loop programs,
+  bounds against instrumented runs, the mini-C export interpreted against the compiled C)
+  and `formalization/test/mutate_certificates.py` with `cert_interp.py` (an interpreter of
+  certificate programs written from the Lean semantics; mutated certificates). **Defects
+  found and fixed**: (a) a loop whose body can never return to the head (an inner loop
+  that does not terminate) was reported with 0 executions of its body, although the body
+  starts once; the function was already rejected, but the reported loop bound and the
+  exported flow fact were wrong (three occurrences in the first 480 random functions;
+  regression test `Unsound.OuterLoopWhoseBodyNeverCompletes`); (b) the mini-C exporter
+  wrote a source for a loop with a `!=` conjunct, which the checker then did not validate
+  (`no_loop_test_ne` in `tests/c/minic.c`). One mismatch reported by the test was a defect
+  of the test itself (runs discarded for overflow on one side only), corrected. After the
+  fixes: 960 random functions, 873 bounded loops, 1.29 million runs, no bound below an
+  executed count, 238 certificates accepted; 1,898 mutants of 14 accepted programs, 1,853
+  rejected, 45 accepted, none with a run above its bound.
+- **Step 13.** The unbounded-loop error names a likely cause;
+  `clang-plugin/scripts/crosscheck_project.py` (compilation database, `project.json`,
+  `index.html`, baseline).
+- **Step 15.** Reports carry `invariants`, `variant` and `requires`;
+  `clang-plugin/scripts/acsl_export.py`. Frama-C is not installed on this machine: the
+  export was **not** run through it; the annotations are executed as run-time checks in
+  `fuzz_bounds.py` (and a falsified annotation is detected).
+- **Step 16.** `docs/qualification/` (requirements, traceability script, requirement
+  tests, README). Written from the model's general knowledge of DO-330 and ISO 26262;
+  it claims no compliance. **Author to check** (section 3, item 30).
 
 What the AI did for 41 to 43 (Claude Opus 5.5 until prompt 42, Claude Fable 5.2 from
 prompt 43, after the user switched models):
@@ -1031,3 +1071,10 @@ is whether each Lean statement says what the paper says, and everything outside 
     that unsigned `/`, `>>`, `%` and `&` cannot wrap (function `shrinking` and its uses in
     `evalBinary`), which is an analyser rule without a Lean proof; check the new figures of
     Paper II (`tab:tacle`, `tab:tools`, CMSIS-DSP, TPDB, cycles) against the READMEs.
+30. **Steps 9, 10, 13, 15, 16.** Read `lex_potential` and the remark after
+    `prop:lex-log`; in `Analyzer.cpp` (`execLoop`), the retry with more candidates and the
+    rule that counts one more body execution when an iteration may never return to the
+    head; decide whether the two defects found by the random tests need a note in Paper II
+    (the AI added one); have `docs/qualification/README.md` read by someone who knows
+    DO-330 before showing it to an industrial partner; run `acsl_export.py` output through
+    Frama-C/WP on one example before claiming that the export is usable.

@@ -454,6 +454,11 @@ class Exporter {
   std::string loopTest(const Expr* c) const {
     std::vector<std::string> cs;
     if (c) conjuncts(c, cs);
+    // Mini-C gives no meaning to a loop whose test has an unknown part (Lean `lower`
+    // returns none): refuse, so that no source is written for the function.
+    for (const std::string& x : cs)
+      if (x.find("\"other\"") != std::string::npos)
+        throw Refused{"a loop test that is not a conjunction of comparisons of tracked values"};
     std::string s = "\"w\":" + unum(c ? in_.costOf(c) + in_.branch : 0) + ",\"cs\":[";
     for (std::size_t i = 0; i < cs.size(); ++i) s += (i ? "," : "") + cs[i];
     return s + "]";

@@ -98,3 +98,12 @@ int ok_doubling(int n) {
   for (int len = 1; len < n; len <<= 1) s++;
   return s;
 }
+
+/* a loop test with a disequality: mini-C has no meaning for it, the exporter refuses
+   (found by tests/fuzz_bounds.py: a source was written and then not validated) */
+int no_loop_test_ne(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  int i = 0, k = 0;
+  while (i != n && i <= n) { i++; k++; }
+  return k;
+}

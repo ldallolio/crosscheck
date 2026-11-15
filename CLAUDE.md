@@ -15,11 +15,11 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 20 modules, 279 theorems. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 20 modules, 280 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 35 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 18 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
-| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 161 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`; with `minic`, also each function as mini-C, validated by the checker against the certificate), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
+| `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 169 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`; with `minic`, also each function as mini-C, validated by the checker against the certificate), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
@@ -34,6 +34,9 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
 | `.github/workflows/lean_build.yml` | CI: elan → `lake exe cache get` → `lake build` on push/PR to `main`. |
 | `.github/workflows/plugin_build.yml` | CI: Ubuntu 24.04 apt packages (LLVM/Clang 18, Z3, GTest) → CMake/Ninja build → full `ctest` → TACLeBench run and comparison (`compare_tools.py --check`) → certificates of TACLeBench and the examples; a second job builds `crosscheck-check` and checks every certificate. |
+| `docs/qualification/` | Qualification-kit skeleton of the checker: `requirements.yaml` (TOR-1..9 with evidence: Lean theorems, tests, CI steps), `check_traceability.py`, `run_tests.sh` (exit statuses, integers beyond 64 bits). Not reviewed by a certification specialist; claims no compliance. Update the YAML when a Lean theorem it names is renamed. |
+| `clang-plugin/tests/fuzz_bounds.py`, `formalization/test/mutate_certificates.py` | Soundness tests: random loop programs run against their bounds, exported annotations and mini-C export; mutated certificates run by an independent interpreter (`cert_interp.py`). Both in ctest and CI. A defect they find gets a regression test in `analyzer_test.cpp` or `tests/c/minic.c`. |
+| `clang-plugin/scripts/` | `cost_diff.py` (CI cost diff), `crosscheck_project.py` (whole `compile_commands.json`: `project.json`, `index.html`), `acsl_export.py` (ACSL `requires` / `loop invariant` / `loop variant` from reports; not run through Frama-C here). |
 | `docs/certificate-format.md` | The certificate format (= Lean `ACmd`, `FunCert`; version 2 = program certificates) and how the plugin produces certificates. |
 | `docs/contracts.md` | Library contracts (`contracts=FILE`): trusted costs linear in the arguments; assumed contracts in certificates. |
 
@@ -122,8 +125,8 @@ Paper content that is **not** mechanized (the paper says so explicitly; keep tha
   signed overflow, no aliasing of tracked variables); parallel
   composition in the logic (only Graham's bound for independent tasks, `ForkJoin`); for
   interrupts, the busy-period argument that removes "no activation pending at the start", and
-  "one cost unit = one time slot" (a property of the target); lexicographic/logarithmic potentials as rules of the logic or of the checker
-  (they are theorems on runs only); recursion in the checker (calls go to earlier functions
+  "one cost unit = one time slot" (a property of the target); lexicographic potentials with a symbolic inner bound (with a constant one the pair is an affine potential, `lex_potential`, certified by the ordinary loop node); lexicographic/logarithmic potentials as rules of the logic
+  (they are theorems on runs; the logarithmic ones are checker cases); recursion in the checker (calls go to earlier functions
   only; rule 9 of the logic is not a checker case); quadratic or polynomial symbolic bounds
   (bounds are affine in the parameters). Conjunctive loop tests (`whileAnd`), calls with
   summaries and assumed contracts are in the checker; `break`/`continue`/`return` and
@@ -196,7 +199,9 @@ expressions over immutable symbols + linear facts) → Z3 via Farkas (`src/core/
   `sizeof(crosscheck::detail::marker(...))`; there are no custom `[[crosscheck::...]]` attributes.
 - **Soundness rules of the analyser — do not weaken them:**
   - every fact in a `State` must be true on that path forever (symbols are immutable);
-  - candidate loop invariants are kept only if Z3 proves base case and inductive step;
+  - candidate loop invariants are kept only if Z3 proves base case and inductive step
+    (also those of the retry made when no potential is found; the invariants handed to the
+    certificate generator are hints that it must prove again);
   - unsigned results are used only when proved not to wrap; signed overflow is assumed absent (UB);
   - limits of 32/64-bit types are never given to symbols (`symbolRange`), so they cannot become bounds;
   - anything trusted (LOOP_BOUND, BOUNDED, ASSUME, COST, libm, external preconditions) goes into
@@ -265,8 +270,8 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
    legacy C idioms measured on CMSIS-DSP; validation of certificates against a mini-C
    export, call-free functions only). Steps 6 to 8 are done too (interrupts and fork-join,
    Cortex-M0 cycles, Rust; logarithmic potentials `whileLog`; growing ones `whileGrow` and
-   exact unsigned division). Next: step 9, lexicographic potentials, or extending mini-C
-   (calls, unsigned, division) as listed in `docs/implementation-plan.md` task 9.
+   exact unsigned division). Step 9 too (lexicographic arguments as affine potentials, by a retry
+   with more candidate invariants). Next: `docs/proposals.md` section 6.4, steps 10 to 18.
    Plugin precision done so far (Nov 2026): calling contexts as argument intervals
    (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
    remains, agreed with the author — **with theory and Lean** (new certificates): symbolic

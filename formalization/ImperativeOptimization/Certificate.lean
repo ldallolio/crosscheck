@@ -210,12 +210,37 @@ theorem call_bound_of_context {A : Type} (callCost : A → ℕ) (C : A → Prop)
     rw [Nat.succ_mul]
     omega
 
+omit [FloorSemiring α] in
+/-- **A lexicographic pair is one potential.** For one step `s → s'`: if `0 ≤ V₁`,
+    `0 ≤ V₂ ≤ K₂` in both states and the step either decreases `V₁` by at least `1` (with
+    `V₁ s ≥ 1`), or leaves `V₁` not larger and decreases `V₂` by at least `1` (with
+    `V₂ s ≥ 1`), then `W = V₁ · (K₂ + 1) + V₂` decreases by at least `1` and `W s ≥ 1`:
+    the two premises of the loop rule. When `V₁`, `V₂` are affine and `K₂` is a constant,
+    `W` is affine, so a certificate with the ordinary loop node of the checker, whose
+    invariant contains the bounds of `V₁` and `V₂`, certifies the loop. -/
+theorem lex_potential (V₁ V₂ : S → α) (K₂ : α) (s s' : S)
+    (h_range : 0 ≤ V₁ s ∧ 0 ≤ V₂ s ∧ V₂ s ≤ K₂)
+    (h_range' : 0 ≤ V₁ s' ∧ 0 ≤ V₂ s' ∧ V₂ s' ≤ K₂)
+    (h_step : (V₁ s' ≤ V₁ s - 1 ∧ 1 ≤ V₁ s) ∨ (V₁ s' ≤ V₁ s ∧ V₂ s' ≤ V₂ s - 1 ∧ 1 ≤ V₂ s)) :
+    V₁ s' * (K₂ + 1) + V₂ s' ≤ V₁ s * (K₂ + 1) + V₂ s - 1 ∧ 1 ≤ V₁ s * (K₂ + 1) + V₂ s := by
+  obtain ⟨h1, h2, h3⟩ := h_range
+  obtain ⟨_, h2', h3'⟩ := h_range'
+  have hK : 0 < K₂ + 1 := by linarith
+  rcases h_step with ⟨hd, hp⟩ | ⟨hle, hd, hp⟩
+  · have := mul_le_mul_of_nonneg_right hd (le_of_lt hK)
+    have := mul_le_mul_of_nonneg_right hp (le_of_lt hK)
+    constructor <;> nlinarith
+  · have := mul_le_mul_of_nonneg_right hle (le_of_lt hK)
+    have := mul_nonneg h1 (le_of_lt hK)
+    constructor <;> linarith
+
 /-- **Lexicographic certificate.** Let every step, from a state of the invariant, either
     decrease `V₁` by at least `1` (with `V₁ ≥ 1`), or leave `V₁` not larger and decrease
     `V₂` by at least `1` (with `V₂ ≥ 1`); and let `0 ≤ V₁`, `0 ≤ V₂ ≤ K₂` on the
     invariant. Then every run has at most `⌊V₁ · (K₂ + 1) + V₂⌋` steps (evaluated in the
-    initial state): the combination `V₁ · (K₂ + 1) + V₂` is a ranking potential. This
-    covers loops whose inner counter is reset when the outer one advances. -/
+    initial state): the combination `V₁ · (K₂ + 1) + V₂` is a ranking potential
+    (`lex_potential`). This covers loops whose inner counter is reset when the outer one
+    advances. -/
 theorem lex_ranking_bound (step : S → S → Prop) (V₁ V₂ : S → α) (I : S → Prop) (K₂ : α)
     (h_inv : ∀ s s', I s → step s s' → I s')
     (h_range : ∀ s, I s → 0 ≤ V₁ s ∧ 0 ≤ V₂ s ∧ V₂ s ≤ K₂)
@@ -226,26 +251,11 @@ theorem lex_ranking_bound (step : S → S → Prop) (V₁ V₂ : S → α) (I : 
   refine ranking_bound_floor_of_invariant step (fun s => V₁ s * (K₂ + 1) + V₂ s) I h_inv
     ?_ ?_ σ n h_run h0
   · intro s s' hI hs
-    obtain ⟨h1, h2, h3⟩ := h_range s hI
-    obtain ⟨h1', h2', h3'⟩ := h_range s' (h_inv s s' hI hs)
-    have hK : 0 < K₂ + 1 := by linarith
-    rcases h_step s s' hI hs with ⟨hd, _⟩ | ⟨hle, hd, _⟩
-    · have := mul_le_mul_of_nonneg_right hd (le_of_lt hK)
-      show V₁ s' * (K₂ + 1) + V₂ s' ≤ V₁ s * (K₂ + 1) + V₂ s - 1
-      nlinarith
-    · have := mul_le_mul_of_nonneg_right hle (le_of_lt hK)
-      show V₁ s' * (K₂ + 1) + V₂ s' ≤ V₁ s * (K₂ + 1) + V₂ s - 1
-      linarith
+    exact (lex_potential V₁ V₂ K₂ s s' (h_range s hI) (h_range s' (h_inv s s' hI hs))
+      (h_step s s' hI hs)).1
   · intro s s' hI hs
-    obtain ⟨h1, h2, h3⟩ := h_range s hI
-    have hK : 0 < K₂ + 1 := by linarith
-    rcases h_step s s' hI hs with ⟨_, hp⟩ | ⟨_, _, hp⟩
-    · have := mul_le_mul_of_nonneg_right hp (le_of_lt hK)
-      show 1 ≤ V₁ s * (K₂ + 1) + V₂ s
-      nlinarith
-    · have := mul_nonneg h1 (le_of_lt hK)
-      show 1 ≤ V₁ s * (K₂ + 1) + V₂ s
-      linarith
+    exact (lex_potential V₁ V₂ K₂ s s' (h_range s hI) (h_range s' (h_inv s s' hI hs))
+      (h_step s s' hI hs)).2
 
 /-- **Logarithmic certificate.** If every step, from a state of the invariant, divides a
     natural-valued potential by at least `b ≥ 2` (`b · V s' ≤ V s`) and `V ≥ 1` whenever a

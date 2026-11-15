@@ -70,4 +70,9 @@ jobs:
             echo "a wrong response-time claim was accepted"; exit 1
           fi
           cat rrejected.txt
-          if grep -q '^RESPONSE.*completes within' rrejected.txt; then echo "a wrong response-time claim was accepted"; exit 1; fi
+          if grep -q '^RESPONSE.*completes within' rrejected.txt; then echo "a wrong response-time claim was accepted"; exit 1; fi          # Qualification kit of the checker (docs/qualification): every requirement has
+          # evidence that exists; exit statuses and large integers; mutated certificates
+          # are rejected or still true when run by an independent interpreter.
+          python3 ../docs/qualification/check_traceability.py
+          sh ../docs/qualification/run_tests.sh .lake/build/bin/crosscheck-check
+          python3 test/mutate_certificates.py .lake/build/bin/crosscheck-check test/certificates/program.json --mutants 150

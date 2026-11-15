@@ -63,9 +63,11 @@ std::string Report::toJson() const {
              ", \"bound\": " + std::to_string(l.bound) +
              ", \"verified\": " + (l.verified ? "true" : "false") +
              ", \"in_context\": " + (l.inContext ? std::to_string(*l.inContext) : std::string("null")) +
-             ", \"potential\": " + quote(l.potential) + "}";
+             ", \"potential\": " + quote(l.potential) +
+             ", \"invariants\": " + strings(l.invariants) + ", \"variant\": " + quote(l.variant) + "}";
     }
     out += "]";
+    out += ",\n      \"requires\": " + strings(f.requires_);
     out += ",\n      \"recursion\": ";
     if (f.recursion) {
       out += "{\"activations\": " + std::to_string(f.recursion->activations) +

@@ -1,0 +1,77 @@
+# Tool operational requirements of crosscheck-check, with their evidence.
+# Checked by docs/qualification/check_traceability.py: every Lean name must be a theorem
+# or definition of the given file, every test file must exist, every CI step must be
+# found in the workflow. kind: proof | test | inspection.
+tool: crosscheck-check
+requirements:
+  - id: TOR-1
+    text: >
+      When the tool prints "PROGRAM <name>: ACCEPTED" for a version-2 file with no assumed
+      contract, every execution of every function of that program from a state satisfying
+      the function's precondition costs at most its stated bound, in the cost semantics of
+      the certificate's program, and ends in its postcondition.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Checker.lean, lean: [check_sound, program_sound, certified_cost_le]}
+      - {kind: test, files: [formalization/test/certificates/program.json, formalization/test/mutate_certificates.py, formalization/test/cert_interp.py]}
+  - id: TOR-2
+    text: >
+      With assumed contracts (functions without a body), the tool prints them as ASSUMED and
+      qualifies the verdict "relative to the assumed contracts"; TOR-1 then holds provided
+      every execution of an assumed function satisfies its contract.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Checker.lean, lean: [program_sound, FunSpec]}
+      - {kind: test, files: [formalization/test/certificates/program.json]}
+  - id: TOR-3
+    text: >
+      A loop certified with a logarithmic potential (nodes whileLog, whileGrow) satisfies
+      TOR-1 with the iteration count floor(log_b K) + 1.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Checker.lean, lean: [logloop_sound, growloop_sound, ilog_eq, logCert_rejected, growCert_rejected]}
+  - id: TOR-4
+    text: >
+      When the tool prints "VALIDATED <f>", the certificate's program of f is the meaning
+      (Lean `lower`) of the mini-C source carried by the file, up to annotations and the
+      nesting of sequences, so the accepted bound is a bound of that mini-C program.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/MiniC.lean, lean: [nf_equiv, validated_sound]}
+      - {kind: test, files: [formalization/test/certificates/minic.json, formalization/test/certificates/minic_rejected.json, clang-plugin/tests/check_minic.py, clang-plugin/tests/c/minic.c]}
+  - id: TOR-5
+    text: >
+      When the tool prints "RESPONSE <name>: <task> completes within R", then under the
+      schedule model (sporadic handlers with the stated minimum inter-arrival times, no
+      activation pending at the start, one cost unit per time slot) the task completes
+      within R slots.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Interrupts.lean, lean: [response_time_bound, rtaHolds_sound]}
+      - {kind: test, files: [formalization/test/certificates/response.json, formalization/test/certificates/response_rejected.json]}
+  - id: TOR-6
+    text: >
+      The exit status is 0 only if every certificate, program, validation and response
+      claim of every input file is accepted; 1 if one is rejected or not validated; 2 if a
+      file is missing or is not a well-formed certificate file.
+    evidence:
+      - {kind: test, files: [formalization/test/certificates/count_rejected.json, formalization/test/certificates/program_rejected.json, formalization/test/certificates/minic_rejected.json, formalization/test/certificates/response_rejected.json, docs/qualification/run_tests.sh]}
+      - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [count_rejected.json, program_rejected.json, minic_rejected.json, response_rejected.json]}
+  - id: TOR-7
+    text: >
+      All arithmetic of the check is on unbounded integers: no coefficient, weight or bound
+      can overflow in the tool.
+    evidence:
+      - {kind: inspection, note: "CheckerCore.lean uses Lean's Int and Nat only (arbitrary precision); CheckerMain.lean parses numbers into them."}
+      - {kind: test, files: [docs/qualification/run_tests.sh]}
+      - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [run_tests.sh]}
+  - id: TOR-8
+    text: >
+      The part of the tool that is not covered by the proofs (the JSON reader and the main
+      program, CheckerMain.lean) does not make the tool accept a false claim: changing one
+      integer of an accepted certificate yields either a rejection or a certificate whose
+      claim still holds on executions.
+    evidence:
+      - {kind: test, files: [formalization/test/mutate_certificates.py, formalization/test/cert_interp.py]}
+      - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [mutate_certificates.py]}
+  - id: TOR-9
+    text: >
+      The tool reads only the files named on its command line, writes only to its standard
+      output and error, and its verdict depends only on the contents of those files.
+    evidence:
+      - {kind: inspection, note: "CheckerMain.lean: IO.FS.readFile on the arguments, IO.println / IO.eprintln; no other IO action."}

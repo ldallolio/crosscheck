@@ -148,6 +148,21 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_minic.py
           $<TARGET_FILE:crosscheck-tool> ${CROSSCHECK_CHECKER} ${CMAKE_CURRENT_SOURCE_DIR}/tests/c/minic.c
           ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+      # Random loop programs: no derived loop bound below an executed count, and every
+      # certificate emitted for them accepted (tests/fuzz_bounds.py; fixed seed).
+      add_test(NAME random_loops_bounds_hold
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz_bounds.py
+          $<TARGET_FILE:crosscheck-tool> ${CMAKE_CURRENT_SOURCE_DIR}/include
+          --checker ${CROSSCHECK_CHECKER} --cxx ${CMAKE_CXX_COMPILER} --files 3 --seed 1
+          -- ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+      # Mutated certificates: rejected by the checker, or still true when run by an
+      # independent interpreter (formalization/test/mutate_certificates.py).
+      add_test(NAME checker_mutants_rejected_or_sound
+        COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/mutate_certificates.py
+          ${CROSSCHECK_CHECKER}
+          ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/program.json
+          --mutants 150)
     endif()
   endif()
   foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)

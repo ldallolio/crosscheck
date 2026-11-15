@@ -21,6 +21,11 @@ struct LoopReport {
   /// Largest bound over the calling contexts in which the program uses the
   /// function, when the loop is bounded in all of them (see FunctionReport).
   std::optional<std::uint64_t> inContext;
+  /// For the ACSL export (scripts/acsl_export.py): invariants proved at the loop head,
+  /// as C expressions over the variables in scope at the loop, and an integer expression
+  /// that is non-negative when an iteration starts and strictly decreases (empty: none).
+  std::vector<std::string> invariants;
+  std::string variant;
 };
 
 struct RecursionReport {
@@ -64,6 +69,9 @@ struct FunctionReport {
   /// the function to its completion, under their interference (none if not derived).
   std::optional<std::uint64_t> responseTime;
   bool interruptHandler = false;
+  /// Preconditions on the integer parameters (ranges, CROSSCHECK_REQUIRE), as C
+  /// expressions over the parameter names, for the ACSL export.
+  std::vector<std::string> requires_;
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
   std::vector<Site> errorSites;  ///< the errors with their locations

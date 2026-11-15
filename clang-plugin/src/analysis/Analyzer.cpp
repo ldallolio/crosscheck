@@ -432,6 +432,10 @@ struct LoopPotential {
   /// Growing (Lean `whileGrow`): the slot is at least 1, multiplied by `logBase` or more by
   /// every iteration, and at most a constant under the test.
   bool grow = false;
+  /// Invariants the analysis proved at the loop head, as forms over the slots
+  /// (`sum_i w_i * slot_i + c <= 0`): candidates for the certificate generator, which
+  /// keeps those that its own assertions prove (they are hints, not trusted).
+  std::vector<std::pair<std::vector<std::int64_t>, std::int64_t>> invs;
 };
 
 struct FnCtx {
@@ -445,6 +449,7 @@ struct FnCtx {
   std::vector<RecSite> recSites;
   bool recImprecise = false;          ///< self-call lists are not path-exact
   unsigned speculative = 0;
+  std::size_t errorCount = 0;  ///< errors reported so far (not in trial runs)
   unsigned loopDepth = 0;
   std::map<const Stmt*, LoopReport> loops;
   std::set<std::pair<unsigned, std::string>> emitted;
@@ -525,6 +530,7 @@ class Analyzer {
   void error(SourceLocation loc, const std::string& msg, const std::string& root = "") {
     FnCtx& c = cur();
     if (c.speculative) return;
+    ++c.errorCount;
     c.summary.ok = false;
     if (c.summary.reason.empty()) c.summary.reason = root.empty() ? msg : root;
     if (!c.emitted.insert({loc.getRawEncoding(), msg}).second) return;
@@ -2091,6 +2097,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // Loop-head state: modified variables become fresh symbols.
   std::map<const VarDecl*, SymId> headSym;
   State head = havoc(entry, scan.mods, &headSym);
+  const std::size_t headMark = syms_.size();  // symbols created later belong to one iteration
   std::map<SymId, LinExpr> toEntry;
   for (const auto& [var, id] : headSym) {
     auto it = entry.val.find(var);
@@ -2182,8 +2189,10 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   };
 
   // Houdini-style refinement: drop candidates that are not inductive.
+  auto refine = [&](unsigned maxRounds) {
   ++fc.speculative;
-  for (;;) {
+  bool settled = false;
+  for (unsigned round = 0; round < maxRounds; ++round) {
     Iteration it = runIteration(candidates);
     std::vector<Candidate> kept;
     for (const Candidate& c : candidates) {
@@ -2201,22 +2210,33 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     }
     bool stable = kept.size() == candidates.size();
     candidates = std::move(kept);
-    if (stable) break;
+    if (stable) { settled = true; break; }
   }
   --fc.speculative;
+  return settled;
+  };
+  refine(~0u);
 
+  const std::size_t errorsBefore = fc.errorCount;
   Iteration it = runIteration(candidates);
-  fc.switchStack.pop_back();
-  --fc.loopDepth;
+  // An error inside the body (an inner loop without a bound, for instance) means that an
+  // iteration may start and never return to the head.
+  const bool bodyMayDiverge = fc.errorCount != errorsBefore;
 
   // Ranking potential.
+  std::optional<std::uint64_t> user = annotated ? annotated : loopBoundMarker(body);
+  std::vector<std::string> names;
+  for (const VarDecl* v : slots) names.push_back(v->getNameAsString());
+  std::optional<RankingResult> rank;
+  struct LogPot { std::size_t slot; std::uint64_t base, iters; std::int64_t cap = 0; };
+  std::optional<LogPot> logp, growp;
+  auto search = [&] {
+  rank.reset();
+  logp.reset();
+  growp.reset();
   RankingProblem problem;
   problem.slots = slots.size();
-  std::vector<std::string> names;
-  for (const VarDecl* v : slots) {
-    problem.entry.push_back(entry.val.at(v));
-    names.push_back(v->getNameAsString());
-  }
+  for (const VarDecl* v : slots) problem.entry.push_back(entry.val.at(v));
   problem.entryFacts = entry.facts;
   for (const State& p : it.complete) {
     RankingProblem::Step step;
@@ -2228,15 +2248,12 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     step.premises = p.facts;
     problem.steps.push_back(std::move(step));
   }
-  std::optional<std::uint64_t> user = annotated ? annotated : loopBoundMarker(body);
-  std::optional<RankingResult> rank = synthesizeRanking(syms_, problem);
+  rank = synthesizeRanking(syms_, problem);
 
   // Logarithmic potential (Lean `logloop_sound`): a variable v with v >= 1 at the start of
   // every iteration and b*v' <= v on every path back to the head; then at most
   // floor(log_b K) + 1 iterations, K the largest value of v on entry. The largest base
   // from 64 down to 2 that every path satisfies.
-  struct LogPot { std::size_t slot; std::uint64_t base, iters; };
-  std::optional<LogPot> logp;
   for (std::size_t i = 0; i < slots.size(); ++i) {
     const LinExpr& pre = head.val.at(slots[i]);
     if (pre.poisoned() || !entails(syms_, it.startFacts, ge(pre, LinExpr::constant(1)))) continue;
@@ -2262,7 +2279,6 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // Growing potential (Lean `growloop_sound`): v >= 1 on entry, b*v <= v' on every path back
   // to the head (given v >= 1 there, which then holds at every head by induction), and
   // v <= K under the test: at most floor(log_b K) + 1 iterations.
-  std::optional<LogPot> growp;
   for (std::size_t i = 0; i < slots.size(); ++i) {
     const LinExpr& pre = head.val.at(slots[i]);
     if (pre.poisoned() || entry.val.at(slots[i]).poisoned() ||
@@ -2286,10 +2302,128 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
       }
       if (!ok) continue;
       std::uint64_t n = cert::logIters(b, *cap->hi);
-      if (!growp || n < growp->iters) growp = LogPot{i, b, n};
+      if (!growp || n < growp->iters) growp = LogPot{i, b, n, *cap->hi};
       break;
     }
   }
+  };
+  search();
+
+  // No potential: try again with more candidate invariants, taken from the tests met on
+  // the paths of one iteration (as they are, and relaxed by one: `j < m` gives `j <= m`,
+  // `y > 0` gives `y >= 0`), from the constants assigned to a variable together with the
+  // bounds of its entry value (`lo <= v <= hi`), and from pairs of variables that some
+  // path leaves equal (`v <= w`, `v >= w`). Each is kept only if proved on entry and
+  // inductive, like the others. With bounds on an inner counter, a lexicographic argument
+  // becomes an affine potential (Paper I, `prop:lex-log`(1): V1 (K2 + 1) + V2 with K2 a
+  // constant), which the search above then finds. The iteration is run again without
+  // recording anything: what the first run recorded for inner loops was proved under
+  // fewer invariants and stays valid.
+  // Not inside the trial runs of an enclosing loop: an inner loop would be retried in
+  // every one of them, and only its bound, which those runs discard, is at stake.
+  if (!rank && !logp && !growp && !fc.speculative) {
+    std::vector<Candidate> rich;
+    auto add = [&](const Constraint& c) {
+      if (c.e.poisoned() || c.e.isConstant() || rich.size() >= 24) return;
+      bool usesHead = false;
+      for (const auto& [id, co] : c.e.terms()) {
+        if (id >= headMark) return;
+        for (const auto& [var, h] : headSym) usesHead = usesHead || h == id;
+      }
+      if (!usesHead) return;
+      for (const Candidate& o : candidates) if (o.inv == c) return;
+      for (const Candidate& o : rich) if (o.inv == c) return;
+      rich.push_back({c, std::nullopt});
+    };
+    auto relaxed = [](const Constraint& c) { return Constraint{c.e - LinExpr::constant(1)}; };
+    for (std::size_t i = head.facts.size(); i < it.startFacts.size(); ++i) {
+      add(it.startFacts[i]);
+      add(relaxed(it.startFacts[i]));
+    }
+    for (const State& p : it.complete)
+      for (std::size_t i = it.startFacts.size(); i < p.facts.size(); ++i) {
+        add(p.facts[i]);
+        add(relaxed(p.facts[i]));
+      }
+    for (const auto& [var, id] : headSym) {
+      auto ev = entry.val.find(var);
+      if (ev == entry.val.end() || ev->second.poisoned()) continue;
+      std::optional<Interval> b = boundsOf(syms_, entry.facts, ev->second);
+      const bool hasLo = b && b->lo, hasHi = b && b->hi;
+      std::int64_t lo = hasLo ? *b->lo : 0, hi = hasHi ? *b->hi : 0;
+      for (const State& p : it.complete) {
+        auto pv = p.val.find(var);
+        if (pv == p.val.end() || !pv->second.isConstant()) continue;
+        lo = std::min(lo, pv->second.constantTerm());
+        hi = std::max(hi, pv->second.constantTerm());
+      }
+      if (hasLo) add(ge(LinExpr::symbol(id), LinExpr::constant(lo)));
+      if (hasHi) add(le(LinExpr::symbol(id), LinExpr::constant(hi)));
+      for (const auto& [var2, id2] : headSym) {
+        if (var2 == var) continue;
+        for (const State& p : it.complete) {
+          auto pv = p.val.find(var), pw = p.val.find(var2);
+          if (pv == p.val.end() || pw == p.val.end() || pv->second.poisoned() ||
+              pw->second.poisoned() || pv->second.isConstant() || !(pv->second == pw->second))
+            continue;
+          add(le(LinExpr::symbol(id), LinExpr::symbol(id2)));
+          add(ge(LinExpr::symbol(id), LinExpr::symbol(id2)));
+          break;
+        }
+      }
+    }
+    if (!rich.empty()) {
+      std::vector<Candidate> base = candidates;
+      for (Candidate& c : rich) candidates.push_back(std::move(c));
+      if (refine(~0u) && candidates.size() > base.size()) {
+        ++fc.speculative;
+        Iteration again = runIteration(candidates);
+        --fc.speculative;
+        Iteration first = std::move(it);
+        it = std::move(again);
+        search();
+        if (rank || logp || growp) {
+          // Costs of calls are not computed in a run that records nothing: keep those
+          // of the first run, which do not depend on the invariants.
+          it.test = first.test;
+          it.body = first.body;
+          it.inc = first.inc;
+        } else {
+          it = std::move(first);
+          candidates = std::move(base);
+        }
+      } else {
+        candidates = std::move(base);
+      }
+    }
+  }
+  fc.switchStack.pop_back();
+  --fc.loopDepth;
+
+  // The proved invariants as forms over the slots, for the certificate generator.
+  std::vector<std::pair<std::vector<std::int64_t>, std::int64_t>> invForms;
+  {
+    std::map<SymId, std::size_t> slotOf;
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+      auto h = headSym.find(slots[i]);
+      if (h != headSym.end()) { slotOf[h->second] = i; continue; }
+      const LinExpr& e = head.val.at(slots[i]);
+      if (!e.poisoned() && e.constantTerm() == 0 && e.terms().size() == 1 && e.terms().begin()->second == 1)
+        slotOf.emplace(e.terms().begin()->first, i);
+    }
+    for (const Candidate& c : candidates) {
+      if (c.inv.e.poisoned()) continue;
+      std::vector<std::int64_t> w(slots.size(), 0);
+      bool ok = true;
+      for (const auto& [id, co] : c.inv.e.terms()) {
+        auto s = slotOf.find(id);
+        if (s == slotOf.end()) { ok = false; break; }
+        w[s->second] += co;
+      }
+      if (ok) invForms.push_back({std::move(w), c.inv.e.constantTerm()});
+    }
+  }
+
   bool useGrow = growp && (!logp || growp->iters < logp->iters) && (!rank || growp->iters < rank->bound) &&
                  (!user || growp->iters <= *user);
   if (useGrow) logp.reset();
@@ -2302,6 +2436,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     k = growp->iters;
     lr.verified = true;
     LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    lp.invs = invForms;
     lp.logBase = growp->base;
     lp.logSlot = growp->slot;
     lp.grow = true;
@@ -2311,6 +2446,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     k = logp->iters;
     lr.verified = true;
     LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    lp.invs = invForms;
     lp.logBase = logp->base;
     lp.logSlot = logp->slot;
     if (!fc.speculative) fc.potentials[loop] = lp;
@@ -2318,14 +2454,60 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   } else if (rank && (!user || rank->bound <= *user)) {
     k = rank->bound;
     lr.verified = true;
-    if (!fc.speculative) fc.potentials[loop] = LoopPotential{slots, *rank};
+    if (!fc.speculative) {
+      LoopPotential lp{slots, *rank};
+      lp.invs = invForms;
+      fc.potentials[loop] = std::move(lp);
+    }
     lr.potential = potentialString(*rank, names);
   } else if (user) {
     k = *user;
     assume("loop at line " + std::to_string(lr.line) + " runs at most " + std::to_string(k) +
            " times (user annotation)");
   } else {
-    error(loc, "cannot derive an iteration bound for this loop; make the bound provable "
+    // A likely cause, from what is known where the loop starts (a hint for the user: it
+    // plays no part in any bound).
+    std::string cause;
+    if (!fc.speculative) {
+      std::set<const VarDecl*> condRefs;
+      if (cond) {
+        ModScan cs(ctx_);
+        cs.TraverseStmt(const_cast<Expr*>(cond));
+        condRefs.insert(cs.refs.begin(), cs.refs.end());
+      }
+      std::vector<std::string> noRange, noUpper, noLower, tested;
+      for (std::size_t i = 0; i < slots.size(); ++i) {
+        if (!condRefs.count(slots[i])) continue;
+        tested.push_back("'" + names[i] + "'");
+        const LinExpr& e = entry.val.at(slots[i]);
+        std::optional<Interval> b = e.poisoned() ? std::nullopt : boundsOf(syms_, entry.facts, e);
+        if (!b || (!b->lo && !b->hi)) noRange.push_back(tested.back());
+        else if (!b->hi) noUpper.push_back(tested.back());
+        else if (!b->lo) noLower.push_back(tested.back());
+      }
+      auto list = [](const std::vector<std::string>& v) {
+        std::string s;
+        for (std::size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + v[i];
+        return s;
+      };
+      if (!cond)
+        cause = "the loop has no test, and no bounded counter controls the exits of its body";
+      else if (tested.empty())
+        cause = "its test does not depend on a tracked integer variable: it reads memory, a "
+                "floating-point value, a pointer or the result of a call";
+      else if (!noRange.empty() || !noUpper.empty() || !noLower.empty()) {
+        cause = "where the loop starts, ";
+        if (!noRange.empty()) cause += list(noRange) + " has no known range";
+        if (!noUpper.empty()) cause += (noRange.empty() ? "" : ", ") + list(noUpper) + " has no upper bound";
+        if (!noLower.empty())
+          cause += (noRange.empty() && noUpper.empty() ? "" : ", ") + list(noLower) + " has no lower bound";
+      } else
+        cause = "the variables of its test (" + list(tested) + ") are bounded where the loop starts, but no "
+                "affine or logarithmic combination of the loop's variables is proved to decrease on each of the " +
+                std::to_string(it.complete.size()) + " path(s) through its body";
+    }
+    error(loc, "cannot derive an iteration bound for this loop" + (cause.empty() ? "" : " (" + cause + ")") +
+               "; make the bound provable "
                "(CROSSCHECK_RANGE / CROSSCHECK_REQUIRE / CROSSCHECK_ASSUME on its inputs) or "
                "state it with CROSSCHECK_LOOP_BOUND(n)");
   }
@@ -2337,9 +2519,10 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // `while (1) { ... if (i++ >= 1000) break; }`, 1001 executions with K = 1000): then
   // the body runs up to K + 1 times. The cost already counts that body (`early`);
   // the reported loop bound counts it too unless V >= 1 is proved at the start of
-  // every iteration.
+  // every iteration. The same holds for an iteration that never ends (an inner loop that
+  // does not terminate: `bodyMayDiverge`, or no path back to the head at all).
   bool leavingExtra = false;
-  if (lr.verified && rank && it.early && !useLog && !useGrow) {
+  if (lr.verified && rank && (it.early || bodyMayDiverge || it.complete.empty()) && !useLog && !useGrow) {
     std::int64_t den = std::max<std::int64_t>(1, rank->offset.den);
     for (const Rational& q : rank->weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
     LinExpr v = LinExpr::constant(rank->offset.num * (den / std::max<std::int64_t>(1, rank->offset.den)));
@@ -2352,6 +2535,30 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
                    !entails(syms_, it.startFacts, Constraint{LinExpr::constant(den) - v});
   }
   lr.bound = (isDo && lr.verified ? k + 1 : k) + (leavingExtra ? 1 : 0);
+  // For the ACSL export: the invariants as C expressions, and a variant. The variant must
+  // be non-negative whenever an iteration starts, which is proved for the potentials
+  // below except when an iteration that leaves early may start with V < 1.
+  if (!fc.speculative && !isDo) {  // (a do-while has no state "before the test" on entry)
+    auto intForm = [&](const std::vector<std::int64_t>& ws, std::int64_t c0) {
+      RankingResult r;
+      for (std::int64_t x : ws) r.weights.push_back(Rational{x, 1});
+      r.offset = Rational{c0, 1};
+      return potentialString(r, names);
+    };
+    for (const auto& [ws, c0] : invForms) lr.invariants.push_back(intForm(ws, c0) + " <= 0");
+    if (useGrow) {
+      lr.variant = std::to_string(growp->cap) + " - " + names[growp->slot];
+    } else if (useLog) {
+      lr.variant = names[logp->slot];
+    } else if (lr.verified && rank && !leavingExtra && !isDo) {
+      std::int64_t den = std::max<std::int64_t>(1, rank->offset.den);
+      for (const Rational& q : rank->weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
+      std::vector<std::int64_t> ws;
+      for (std::size_t i = 0; i < slots.size(); ++i)
+        ws.push_back(i < rank->weights.size() ? rank->weights[i].num * (den / std::max<std::int64_t>(1, rank->weights[i].den)) : 0);
+      lr.variant = intForm(ws, rank->offset.num * (den / std::max<std::int64_t>(1, rank->offset.den)));
+    }
+  }
   if (!fc.speculative) fc.loops[loop] = lr;
 
   // Exit states. The loop is left either through its guard, at a loop head
@@ -2787,6 +2994,26 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   }
 
   State init = enterFunction(def, fc);
+  {
+    // Preconditions over the parameters, as C expressions (ACSL export).
+    std::map<SymId, std::string> pname;
+    for (unsigned i = 0; i < def->getNumParams() && i < fc.summary.paramSyms.size(); ++i)
+      if (fc.summary.paramSyms[i]) pname[*fc.summary.paramSyms[i]] = def->getParamDecl(i)->getNameAsString();
+    for (const Constraint& c : fc.summary.requires_) {
+      if (c.e.poisoned()) continue;
+      RankingResult r;
+      std::vector<std::string> ns;
+      bool ok = true;
+      for (const auto& [id, co] : c.e.terms()) {
+        auto it = pname.find(id);
+        if (it == pname.end() || it->second.empty()) { ok = false; break; }
+        r.weights.push_back(Rational{co, 1});
+        ns.push_back(it->second);
+      }
+      r.offset = Rational{c.e.constantTerm(), 1};
+      if (ok) rep.requires_.push_back(potentialString(r, ns) + " <= 0");
+    }
+  }
   // Calling context: facts on the parameter symbols, proved at the call sites
   // this analysis is used for (never for functions that call themselves).
   for (std::size_t i = 0; i < context.size() && i < fc.summary.paramSyms.size(); ++i) {
@@ -4057,6 +4284,20 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   for (std::size_t f : exitFlags) {
     cands.push_back(Lin{cert::vsmul(-1, cert::unitVec(f)), {}, 0});  // f >= 0
     cands.push_back(Lin{cert::unitVec(f), {}, -1});                  // f <= 1
+  }
+  // The invariants of the analysis, as further candidates.
+  for (const auto& [ws, c0] : lp.invs) {
+    Lin e;
+    e.c = c0;
+    bool known = true;
+    for (std::size_t i = 0; i < ws.size() && i < lp.slots.size(); ++i) {
+      if (ws[i] == 0) continue;
+      auto it = cc.var.find(lp.slots[i]);
+      if (it == cc.var.end()) { known = false; break; }
+      if (e.sv.size() <= it->second) e.sv.resize(it->second + 1, 0);
+      e.sv[it->second] += ws[i];
+    }
+    if (known) cands.push_back(std::move(e));
   }
   cands = cert::normalize(cands);
   cands.erase(std::remove_if(cands.begin(), cands.end(),

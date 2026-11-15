@@ -117,6 +117,8 @@ flowchart TD
   F -- yes --> G["RankingProblem: one step per completed path"]
   G --> H["Z3: V = w·x + c₀, decrease ≥ 1, V ≥ 1, min K"]
   G --> LG["logarithmic: a variable v ≥ 1 with b·v' ≤ v<br/>(or v' ≥ b·v up to a limit), b = 64..2, 10"]
+  H -- "none: retry" --> RC["more candidates: branch tests (and relaxed by 1),<br/>hull of assigned constants, v ≤ w for pairs left equal"]
+  RC --> E
   H -- found --> I["bound floor(K); potential kept for certificates"]
   LG -- "smaller bound" --> I
   H -- none --> J["LOOP_BOUND annotation? → assumption; else error"]
@@ -263,14 +265,14 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (161)
+## 9. Tests (169)
 
 | Suite | Count | Checks |
 |---|---|---|
 | `core_test` (`LinExpr`, `Sat`, `Solver`, `Ranking`, `SizePotential`, `Bounds`, `Cert`) | 20 | arithmetic, entailment, intervals, potentials, the checker's vector operations, Farkas, elimination |
 | `analyzer_test`: `Loops`, `Contexts`, `Recursion`, `Cost`, `Profile`, `Contracts`, `Deadline`, `Report`, `Options`, `Certificates` | 59 | expected bounds and behaviours (incl. summaries, call nodes, library contract files) |
-| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 33 | must be rejected (incl. a contract argument without a bound, globals reset by a callee or escaped, `volatile` limits, written fields, `--j` from 0; a deadline missed only under interrupts, a handler without a period; division on some paths only, a path that multiplies again, a possibly negative potential, doubling from 0, unsigned halved then increased) |
-| `Loops.Logarithmic*`, `Interrupts.ResponseTime`, `Certificates.LogarithmicLoop` | 4 | logarithmic bounds (signed, unsigned, growing), response time, `whileLog` with the `?old` copy for `x >>= k` |
+| `Loops/Unsound`, `Calls/UnsoundContext`, `Unsound` | 36 | must be rejected (incl. lexicographic loops whose inner counter is refilled with an unknown value or whose outer counter does not advance, a contract argument without a bound, globals reset by a callee or escaped, `volatile` limits, written fields, `--j` from 0; a deadline missed only under interrupts, a handler without a period; division on some paths only, a path that multiplies again, a possibly negative potential, doubling from 0, unsigned halved then increased) |
+| `Loops.Logarithmic*`, `Loops.Lexicographic*`, `Interrupts.ResponseTime`, `Certificates.LogarithmicLoop`, `Certificates.LexicographicLoop` | 6 | logarithmic bounds (signed, unsigned, growing), lexicographic loops (exact bounds 5100, 5000, 150), response time, `whileLog` with the `?old` copy for `x >>= k` |
 | `Globals`, `Fields`, `Tables`, `Cost.TargetIntrinsicsAndInlineAssembly`, `Loops.PreDecrementTest` | 5 | legacy C idioms |
 | `c_annotations` | 1 | the annotations in C (`tests/c/annotations.c`) |
 | `RealTime/Profile` | 11 | forbidden constructs |
@@ -278,7 +280,8 @@ What is easy to get wrong, and why the code is as it is:
 | `plugin_accepts_*` / `plugin_rejects_*` | 10 | real `clang++ -fplugin=` runs |
 | `Export` (in `analyzer_test`) | 5 | FFX, AIS, AIS2, SARIF contents |
 | `exports_read_back`, `bounds_equal_baseline` | 2 | outputs parsed back (SARIF against its schema if given); example bounds = `benchmarks/bounds-baseline.json` |
-| `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned, interrupts, logarithmic loops); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
+| `certificates_accepted_by_lean_checker` | 1 | emit and check the certificates of the examples and of `tests/certificates/` (jumps, `switch`, `&&`, unsigned, interrupts, logarithmic and lexicographic loops); fails if the tool crashes (needs `-DCROSSCHECK_CHECKER=…`) |
+| `random_loops_bounds_hold`, `checker_mutants_rejected_or_sound` | 2 | random programs against executions; mutated certificates (section 11) |
 | `minic_sources_validated` | 1 | `tests/c/minic.c` with `--opt=minic`: every `ok_*` validated, no `no_*` validated (unsigned, narrow counter, aliasing, `return` in a loop, division) |
 
 ## 10. Extending it
@@ -295,7 +298,7 @@ Reading order: `attributes.hpp` → `core/LinExpr.hpp`, `Cost.hpp`, `Solver.hpp`
 `functionCost` (≈ 1590), certificates (≈ 2900; `certLoop` ≈ 3940), `responseTimes`
 (≈ 5080) → `core/Cert.cpp` → `MiniC.cpp` → `tests/analyzer_test.cpp`.
 
-## 11. Around the plugin: three more tools
+## 11. Around the plugin: more tools
 
 ```mermaid
 flowchart LR
@@ -317,3 +320,28 @@ flowchart LR
   checks every call and loop against its bound. Integer division comes from `runtime.c`.
 - **Interrupts**: `CROSSCHECK_INTERRUPT(T)` handlers, `interrupt-overhead=N`,
   `response_time` in the report, claims in the certificate file.
+
+Tools added on 2026-11-16 (`docs/proposals.md` section 6):
+
+| Tool | File | Purpose |
+|---|---|---|
+| Random loop programs | `tests/fuzz_bounds.py` | bounds, exported invariants/variants, certificates and the mini-C export checked against executions of generated programs |
+| Mutated certificates | `formalization/test/mutate_certificates.py`, `cert_interp.py` | tests the checker executable (unverified JSON reader included) with an independent interpreter of certificate programs |
+| Project driver | `scripts/crosscheck_project.py` | a whole `compile_commands.json`: `project.json`, `index.html`, baseline for `cost_diff.py` |
+| ACSL export | `scripts/acsl_export.py` | `requires`, `loop invariant`, `loop variant` from the report, for Frama-C/WP (not run through it here) |
+| Qualification kit | `docs/qualification/` | requirements TOR-1..9 of the checker with evidence, checked by `check_traceability.py` |
+
+```mermaid
+flowchart LR
+  G["random program"] --> T["crosscheck-tool"]
+  G --> R["compiled with -DRUN:<br/>loop counters, annotation checks"]
+  T -->|"bounds, invariants, variants"| CMP{"observed ≤ bound?<br/>annotations true?"}
+  R --> CMP
+  T -->|"certificates + mini-C"| CK["crosscheck-check"]
+  T -->|"mini-C source"| MI["mini-C interpreter (Python)"]
+  MI --> EQ{"same loop counts<br/>as compiled C?"}
+  R --> EQ
+```
+
+Unbounded-loop errors now carry a likely cause (see `execLoop`, the branch that reports
+"cannot derive an iteration bound").

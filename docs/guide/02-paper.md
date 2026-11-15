@@ -75,7 +75,9 @@ flowchart LR
 - **Two more shapes** (`prop:lex-log`): a lexicographic pair `(V₁, V₂)` with `V₂ ≤ K₂` gives
   `⌊V₁(K₂+1) + V₂⌋` steps (an inner counter reset by the outer one); a natural potential
   divided by `b ≥ 2` per step gives `⌊log_b V⌋ + 1` (binary search). These are theorems on
-  runs, not yet rules of the logic (`lex_ranking_bound`, `log_ranking_bound`).
+  runs (`lex_ranking_bound`, `log_ranking_bound`). The lexicographic pair is also one
+  potential for the loop rule (`lex_potential`): affine when `K₂` is a constant, so the
+  ordinary `while` node certifies it.
 - **Recursion** (`prop:tree-envelope`, `prop:size-potential`): a depth potential bounds the
   depth `D`, hence `1 + b + … + b^D` activations; a *size* potential `U(x) ≥ 1 + Σ U(xᵢ)`
   bounds the activations by `U(x)` directly, which is linear for divide and conquer
@@ -187,12 +189,13 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 5,450 lines, 279 theorems, 20 modules, no `sorry`, only the standard axioms. Table
+- About 5,450 lines, 280 theorems, 20 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas
   completeness; the remark on infinite executions; the parallelism paragraph; lexicographic
-  potentials as rules (the logarithmic ones are checker cases); the translation from C/C++;
+  potentials with a symbolic inner bound (with a constant one they are affine; the
+  logarithmic ones are checker cases); the translation from C/C++;
   the plugin; the busy-period argument for interrupts.
 - Limitations: cost is not time; no amortisation; affine and logarithmic potentials only;
   structured control flow over scalar variables.

@@ -39,13 +39,23 @@ limitation, it says so.
 - **"Which ranking functions?"** Affine, rational, per loop, synthesised by LP; and
   logarithmic ones on a single variable, decreasing (`n >>= 1`, `n /= 10`) or growing to a
   limit (`len <<= 1`), in the plugin and as checker nodes (`whileLog`, `whileGrow`, proved
-  by reduction to the linear loop rule). Lexicographic potentials exist as a theorem on
-  runs (`prop:lex-log`), not yet in the plugin or the checker. Binary search (a difference
-  of two variables halves) still gets a linear bound.
+  by reduction to the linear loop rule). A lexicographic pair with a bounded inner counter is one affine potential
+  (`lex_potential`): the plugin finds it once the inner counter's bounds are invariants (a
+  retry with more candidates), and certifies it with the ordinary `while` node. With a
+  symbolic inner bound the cost is a product: not covered. Binary search (a difference of
+  two variables halves) gets a linear bound.
 - **"Integers vs rationals?"** Rational potentials over integer programs are sound
   (`ranking_bound_floor`); incomplete for integer-only arguments (Ben-Amram & Genaim).
-- **"Invariants?"** Houdini over simple candidates, each proved inductive by Z3; in
-  certificates, re-justified for the checker.
+- **"How do you know the analyser is sound, since it is not verified?"** We don't prove
+  it; we test it against executions: benchmark runs, and random loop programs
+  (`fuzz_bounds.py`: no violation in 960 functions and 1.29 million runs after a first
+  defect was fixed). Certified bounds don't depend on it; the checker executable is tested
+  with mutated certificates (1,898 mutants: 1,853 rejected, the other 45 still true on
+  executions).
+- **"Invariants?"** Houdini over simple candidates, each proved inductive by Z3; when no
+  potential is found, a second set (branch tests as they are and relaxed by one, hulls of
+  assigned constants, pairs left equal). In certificates they are hints, proved again for
+  the checker.
 - **"Amortisation?"** None: nested loops multiply, merge sort is quadratic.
 - **"Is your cost logic new?"** No: Nielson 1987; Haslbeck & Nipkow mechanised three such
   logics, sound *and* complete, for deterministic IMP. Here: soundness only, but
@@ -123,7 +133,8 @@ verify, and must not be submitted while one remains.
    affine in the parameters, but the analyser still needs numeric ranges to bound a loop.
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
-4. **Precision**: affine and logarithmic potentials, no lexicographic ones, no amortisation.
+4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a
+   constant inner bound, no amortisation.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
 
