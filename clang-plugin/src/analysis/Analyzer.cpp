@@ -425,6 +425,10 @@ struct RecSite {
 struct LoopPotential {
   std::vector<const VarDecl*> slots;
   RankingResult rank;
+  /// A logarithmic potential (Lean `whileLog`): slot `logSlot` is at least 1 at the start of
+  /// every iteration and divided by at least `logBase` by every iteration; 0: linear.
+  std::uint64_t logBase = 0;
+  std::size_t logSlot = 0;
 };
 
 struct FnCtx {
@@ -938,6 +942,8 @@ class Analyzer {
                                       const std::function<std::optional<CertPiece>(const cert::Assn&)>& elseF,
                                       const cert::Assn& pre);
   bool certTestList(CertCtx& cc, const Expr* e, std::vector<cert::PExp>& out, bool& nondet);
+  std::optional<CertPiece> certStoreDivisionOf(CertCtx& cc, std::uint64_t w, std::size_t x, const cert::PExp& y,
+                                               BinaryOperatorKind op, std::int64_t cv, const cert::Assn& pre);
   /// With `minic`: the lowering of code that is not reached (to go inside a dead node),
   /// or null; a failure there is not a failure of the certificate.
   cert::NodeP deadCode(CertCtx& cc, const std::function<std::optional<CertPiece>()>& lower);
@@ -2205,10 +2211,47 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   std::optional<std::uint64_t> user = annotated ? annotated : loopBoundMarker(body);
   std::optional<RankingResult> rank = synthesizeRanking(syms_, problem);
 
+  // Logarithmic potential (Lean `logloop_sound`): a variable v with v >= 1 at the start of
+  // every iteration and b*v' <= v on every path back to the head; then at most
+  // floor(log_b K) + 1 iterations, K the largest value of v on entry. The largest base
+  // from 64 down to 2 that every path satisfies.
+  struct LogPot { std::size_t slot; std::uint64_t base, iters; };
+  std::optional<LogPot> logp;
+  for (std::size_t i = 0; i < slots.size(); ++i) {
+    const LinExpr& pre = head.val.at(slots[i]);
+    if (pre.poisoned() || !entails(syms_, it.startFacts, ge(pre, LinExpr::constant(1)))) continue;
+    std::optional<Interval> ent = boundsOf(syms_, entry.facts, entry.val.at(slots[i]));
+    if (!ent || !ent->hi) continue;
+    for (std::uint64_t b : {64, 32, 16, 8, 4, 3, 2}) {
+      bool ok = true;
+      for (const State& p : it.complete) {
+        auto pv = p.val.find(slots[i]);
+        if (pv == p.val.end() || pv->second.poisoned() ||
+            !entails(syms_, p.facts, le(pv->second.scaled(static_cast<std::int64_t>(b)), pre))) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      std::uint64_t n = cert::logIters(b, *ent->hi);
+      if (!logp || n < logp->iters) logp = LogPot{i, b, n};
+      break;
+    }
+  }
+
   LoopReport lr;
   locate(lr, loc);
   std::uint64_t k = 0;
-  if (rank && (!user || rank->bound <= *user)) {
+  bool useLog = logp && (!rank || logp->iters < rank->bound) && (!user || logp->iters <= *user);
+  if (useLog) {
+    k = logp->iters;
+    lr.verified = true;
+    LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    lp.logBase = logp->base;
+    lp.logSlot = logp->slot;
+    if (!fc.speculative) fc.potentials[loop] = lp;
+    lr.potential = "log" + std::to_string(logp->base) + "(" + names[logp->slot] + ")";
+  } else if (rank && (!user || rank->bound <= *user)) {
     k = rank->bound;
     lr.verified = true;
     if (!fc.speculative) fc.potentials[loop] = LoopPotential{slots, *rank};
@@ -2232,7 +2275,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // the reported loop bound counts it too unless V >= 1 is proved at the start of
   // every iteration.
   bool leavingExtra = false;
-  if (lr.verified && rank && it.early) {
+  if (lr.verified && rank && it.early && !useLog) {
     std::int64_t den = std::max<std::int64_t>(1, rank->offset.den);
     for (const Rational& q : rank->weights) den = std::lcm(den, std::max<std::int64_t>(1, q.den));
     LinExpr v = LinExpr::constant(rank->offset.num * (den / std::max<std::int64_t>(1, rank->offset.den)));
@@ -3298,13 +3341,29 @@ std::optional<Analyzer::CertPiece> Analyzer::certStoreDivision(
   // The stored value is the result itself: the result type must fit the variable.
   if (!certInt(rt) || !certInt(xt) || !(ctx_.hasSameUnqualifiedType(rt, xt) || widens(rt, xt)))
     return std::nullopt;
-  std::int64_t c = *cv;
-  if (op == BO_Shr) {
-    if (c >= 62) return std::nullopt;
-    c = std::int64_t{1} << c;
-  }
-  if ((op == BO_Div || op == BO_Shr || op == BO_Rem) && c <= 0) return std::nullopt;
+  if (op == BO_Shr && *cv >= 62) return std::nullopt;
+  if ((op == BO_Div || op == BO_Rem) && *cv <= 0) return std::nullopt;
   trimP(*y);
+  // `x = x >> k`, `x /= c`: the facts relate the new x to the old value, which is first
+  // copied into a fresh variable (the facts would otherwise mention the new x twice).
+  if (cert::coeff(y->sv, x) != 0) {
+    std::size_t old = cc.freshVar(cc.prefix + "?old" + std::to_string(cc.names.size()));
+    std::optional<CertPiece> cp = certAssign(cc, 0, old, *y, pre);
+    if (!cp) return std::nullopt;
+    PExp yo{cert::unitVec(old), 0};
+    std::optional<CertPiece> rest = certStoreDivisionOf(cc, w, x, yo, op, *cv, cp->post);
+    if (!rest) return std::nullopt;
+    return seqPiece(*cp, *rest);
+  }
+  return certStoreDivisionOf(cc, w, x, *y, op, *cv, pre);
+}
+
+std::optional<Analyzer::CertPiece> Analyzer::certStoreDivisionOf(CertCtx& cc, std::uint64_t w, std::size_t x,
+                                                                const cert::PExp& y0, BinaryOperatorKind op,
+                                                                std::int64_t cv, const cert::Assn& pre) {
+  std::optional<PExp> y = y0;
+  std::int64_t c = cv;
+  if (op == BO_Shr) c = std::int64_t{1} << c;
   PExp xv{cert::unitVec(x), 0};
   auto lin = [](const PExp& a, std::int64_t k, const PExp& b, std::int64_t cst) {  // k*a - b + cst
     PExp r{cert::vadd(cert::vsmul(k, a.sv), cert::vsmul(-1, b.sv)), k * a.c - b.c + cst};
@@ -3934,6 +3993,55 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   }
   const Assn& inv = cands;
 
+  // A logarithmic potential (Lean `whileLog`, `logloop_sound`): the body must take
+  // `pot <= gamma_j` to `b*pot <= gamma_j`; constant entry and body bounds.
+  if (lp.logBase) {
+    if (!exitFlags.empty() || nondet)
+      return cc.failed("logarithmic loop with an early exit or an unknown test (not in the fragment yet)"),
+             std::nullopt;
+    auto vit = cc.var.find(lp.slots.at(lp.logSlot));
+    if (vit == cc.var.end()) return cc.failed("potential over a variable outside the fragment"), std::nullopt;
+    PExp lpot{cert::unitVec(vit->second), 0};
+    std::uint64_t base = lp.logBase;
+    Assn guardInv = testLins();
+    guardInv.insert(guardInv.end(), inv.begin(), inv.end());
+    std::optional<Farkas> posCert = cert::farkas(guardInv, Lin{cert::vsmul(-1, lpot.sv), {}, 1 - lpot.c});
+    if (!posCert) return cc.failed("the potential is not shown positive by the invariant"), std::nullopt;
+    std::optional<std::int64_t> k = cert::upperBound(entry, lpot);
+    if (!k && cc.inDead) k = 0;
+    if (!k) return cc.failed("the logarithmic potential is unbounded on entry"), std::nullopt;
+    Assn bodyPre = guardInv;
+    bodyPre.insert(bodyPre.begin(), cert::ghost(lpot, j, 0));
+    Assn bodyPost = inv;
+    bodyPost.insert(bodyPost.begin(), cert::ghostMul(lpot, j, base));
+    std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
+    if (!b) return std::nullopt;
+    std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
+    if (!qc) return cc.failed("the division of the potential could not be certified"), std::nullopt;
+    if (!b->bound.constant()) return cc.failed("logarithmic loop with a symbolic body bound"), std::nullopt;
+    Node wn;
+    wn.kind = Node::WhileLog;
+    wn.w = w;
+    wn.gs = gs;
+    wn.inv = inv;
+    wn.pot = lpot;
+    wn.d = base;
+    wn.k = *k;
+    wn.j = j;
+    wn.posCert = *posCert;
+    wn.b1 = b->bound;
+    wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qc, b->node);
+    Assn pw = inv;
+    pw.insert(pw.begin(), Lin{lpot.sv, {}, lpot.c - *k});
+    Assn qw = inv;
+    if (gs.size() == 1) qw.insert(qw.begin(), cert::negLin(gs[0]));
+    cert::SB bw(cert::logIters(base, *k) * (w + b->bound.c) + w);
+    std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
+    if (!pc) return cc.failed("internal: loop entry"), std::nullopt;
+    CertPiece piece{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+    return seqPiece(prolog, piece);
+  }
+
   // Potentials to try. In a function with parameters, first the one the loop test
   // suggests (`1 - g` for the test `g <= 0`, e.g. `n - i` for `i < n`), whose entry bound
   // is often a function of the parameters (a summary); then the analysis' potential. The
@@ -4553,6 +4661,8 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
       for (const auto& [l, lp] : m)
         for (std::size_t i = 0; i < lp.slots.size() && i < lp.rank.weights.size(); ++i)
           if (lp.rank.weights[i].num != 0) fs.control.insert(lp.slots[i]);
+      for (const auto& [l2, lp2] : m)
+        if (lp2.logBase && lp2.logSlot < lp2.slots.size()) fs.control.insert(lp2.slots[lp2.logSlot]);
     };
     addSlots(fc.potentials);
     for (const auto& [key, sm] : cache_)

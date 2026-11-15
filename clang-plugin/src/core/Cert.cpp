@@ -93,6 +93,24 @@ Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra) {
   return Lin{pot.sv, vsmul(-1, unitVec(j)), pot.c + extra};
 }
 
+Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b) {
+  return Lin{vsmul(static_cast<std::int64_t>(b), pot.sv), vsmul(-1, unitVec(j)),
+             static_cast<std::int64_t>(b) * pot.c};
+}
+
+std::uint64_t ilog(std::uint64_t b, std::uint64_t n) {
+  std::uint64_t r = 0;
+  while (b > 1 && n >= b) {
+    n /= b;
+    ++r;
+  }
+  return r;
+}
+
+std::uint64_t logIters(std::uint64_t b, std::int64_t k) {
+  return k <= 0 ? 0 : ilog(b, static_cast<std::uint64_t>(k)) + 1;
+}
+
 bool SB::constant() const {
   return std::all_of(co.begin(), co.end(), [](std::uint64_t x) { return x == 0; });
 }
@@ -241,6 +259,7 @@ std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std
       case Node::Ite: go(*m.c1); go(*m.c2); break;
       case Node::While:
       case Node::WhileAnd:
+      case Node::WhileLog:
       case Node::Weaken:
       case Node::Dead: go(*m.c1); break;
       case Node::Call:
@@ -529,6 +548,15 @@ std::string node(const Node& n) {
       return "{\"node\":\"whileAnd\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
              klField(n.kl) + ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
+             ",\"body\":" + node(*n.c1) + "}";
+    }
+    case Node::WhileLog: {
+      std::string g = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) g += (i ? "," : "") + pexp(n.gs[i]);
+      g += "]";
+      return "{\"node\":\"whileLog\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
+             ",\"pot\":" + pexp(n.pot) + ",\"b\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
+             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     }
     case Node::Weaken:

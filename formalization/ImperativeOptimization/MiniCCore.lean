@@ -174,6 +174,10 @@ def nf : ACmd → ACmd
   | .while w g _ _ _ _ _ _ _ _ b => .while w (canon g) [] ⟨[], 0⟩ 1 0 [] 0 (1, []) noSB (nf b)
   | .whileAnd w gs _ _ _ _ _ _ _ _ b =>
       .whileAnd w (gs.map canon) [] ⟨[], 0⟩ 1 0 [] 0 (1, []) noSB (nf b)
+  | .whileLog w gs _ _ _ _ _ _ _ b =>
+      match gs with
+      | [g] => .while w (canon g) [] ⟨[], 0⟩ 1 0 [] 0 (1, []) noSB (nf b)
+      | _ => .whileAnd w (gs.map canon) [] ⟨[], 0⟩ 1 0 [] 0 (1, []) noSB (nf b)
   | .weaken _ _ _ _ _ c => nf c
   | .dead _ c => nf c
   | .call w f inst _ _ _ => .call w f (inst.map canon) [] [] []

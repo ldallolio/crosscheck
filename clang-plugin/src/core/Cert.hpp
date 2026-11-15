@@ -79,6 +79,10 @@ Lin toLin(const PExp& g);      ///< the test `g <= 0` as a constraint
 Lin negLin(const PExp& g);     ///< its negation over the integers: `1 - g <= 0`
 Lin subst(const Lin& e, std::size_t x, const PExp& a);  ///< `e[a/x]`
 Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra);  ///< `pot - gamma_j + extra <= 0`
+Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*pot - gamma_j <= 0` (Lean `ghostMul`)
+/// floor(log_b n) (Lean `ilog`) and the iterations of a logarithmic loop (Lean `logIters`).
+std::uint64_t ilog(std::uint64_t b, std::uint64_t n);
+std::uint64_t logIters(std::uint64_t b, std::int64_t k);
 
 // --- reasoning (rational; results are checked by the Lean checker) -----------
 /// Is the conjunction satisfiable over the rationals? "Unknown" counts as yes.
@@ -104,7 +108,7 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
@@ -113,7 +117,7 @@ struct Node {
   SB b1, b2;                    // Seq, Ite: bounds of the parts; While: Wb in b1
   Assn inv;                     // While
   PExp pot;                     // While
-  std::uint64_t d = 1;          // While
+  std::uint64_t d = 1;          // While; WhileLog: the base b
   std::int64_t k = 0;           // While: constant part of the entry bound
   std::vector<std::uint64_t> kl; // While: symbolic part of the entry bound (may be empty)
   std::size_t j = 0;            // While

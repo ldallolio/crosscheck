@@ -139,6 +139,13 @@ flowchart LR
    differential test against Rust. Open: slice iterators, `loop`/`break`, structs, a
    `stable_mir` driver.
 
+7. **Logarithmic potentials** (part of S3), chosen after steps 1-6 because halving loops
+   were the largest measured blocker on CMSIS-DSP. **Done 2026-11-15**: checker node
+   `whileLog` with `logloop_sound` (reduced to the logic's loop rule), analyser and
+   generator (constant entry bound, no early exits); a generator bug on `x >>= k` fixed.
+8. **Growing logarithmic loops** (a counter multiplied towards a limit, `len <<= 1`), then
+   **lexicographic potentials** (the rest of S3).
+
 Each step should end, as the previous ones did, with re-run figures, must-be-rejected
 tests, Lean proofs for every new checker rule, and the papers, READMEs and guide updated
 together.

@@ -535,6 +535,81 @@ INSTANTIATE_TEST_SUITE_P(
                           "CROSSCHECK_REALTIME int f(int n) { if (n < 0) return 0; return cnt(n); }"}),
     [](const ::testing::TestParamInfo<ContextRejectCase>& info) { return std::string(info.param.name); });
 
+// --- logarithmic potentials (Lean logloop_sound) -----------------------------------
+
+TEST(Loops, LogarithmicHalving) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 1000) int n) {
+      int k = 0;
+      while (n > 0) { n >>= 1; k++; }
+      return k;
+    }
+    CROSSCHECK_REALTIME int g(CROSSCHECK_RANGE(1, 1000) int n) {
+      int k = 0;
+      while (n > 1) { n = n / 4; k++; }
+      return k;
+    })");
+  ASSERT_TRUE(fn(r, "f").ok);
+  EXPECT_EQ(fn(r, "f").loops[0].bound, 10u);  // floor(log2 1000) + 1
+  EXPECT_EQ(fn(r, "f").loops[0].potential, "log2(n)");
+  ASSERT_TRUE(fn(r, "g").ok);
+  EXPECT_EQ(fn(r, "g").loops[0].bound, 5u);   // floor(log4 1000) + 1
+}
+
+// Must be rejected: on one path the variable is not divided, so only the linear bound holds.
+TEST(Unsound, LogOnlyOnSomePaths) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 1000) int n, int c) {
+      int k = 0;
+      while (n > 0) { if (c > k) n >>= 1; else n = n - 1; k++; }
+      return k;
+    })");
+  ASSERT_TRUE(fn(r, "f").bounded);
+  EXPECT_GE(fn(r, "f").loops[0].bound, 1000u);
+}
+
+// Must be rejected: a path multiplies the variable again (the loop may not terminate).
+TEST(Unsound, LogUndoneByAnotherPath) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(2, 1000) int n, int c) {
+      int k = 0;
+      while (n > 1) { n >>= 1; if (c > 0) n = n * 3; k++; }
+      return k;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: n / 2 rounds towards zero, so a negative n is not a potential >= 1.
+TEST(Unsound, LogNeedsAPositivePotential) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(-1000, 1000) int n) {
+      int k = 0;
+      while (n != 0) { n = n / 2; k++; }
+      return k;
+    })");
+  if (fn(r, "f").bounded) EXPECT_GE(fn(r, "f").loops[0].bound, 10u);
+}
+
+// The certificate of a halving loop: a whileLog node, and the facts of `n >>= 1` stated
+// over a copy of the old value (they used to mention the new n twice).
+TEST(Certificates, LogarithmicLoop) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 1000) int n) {
+      int k = 0;
+      while (n > 0) { n >>= 1; k++; }
+      return k;
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.ok);
+  EXPECT_EQ(f.certificate, "emitted");
+  ASSERT_FALSE(r.certificates.empty());
+  EXPECT_NE(r.certificates.back().find("\"whileLog\""), std::string::npos);
+  EXPECT_NE(r.certificates.back().find("?old"), std::string::npos);
+}
+
 // --- certificates (docs/certificate-format.md) ------------------------------------
 
 TEST(Certificates, EmittedWithTheSameBound) {

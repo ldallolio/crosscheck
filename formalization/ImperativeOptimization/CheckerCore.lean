@@ -211,6 +211,12 @@ inductive ACmd where
       of a conjunction is not a conjunction). -/
   | whileAnd (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int)
       (kl : List Nat) (j : Nat) (posCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
+  /-- `while (gs₁ ≤ 0 ∧ … ∧ gsₙ ≤ 0) body` with a **logarithmic** potential: the test
+      implies `pot ≥ 1`, each iteration divides the potential by at least `b ≥ 2`
+      (`b·pot` after the body is at most `pot` before it), and `pot ≤ k` on entry, so the
+      body runs at most `⌊log_b k⌋ + 1` times. The body bound `Wb` must be constant. -/
+  | whileLog (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (b : Nat) (k : Int)
+      (j : Nat) (posCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
   /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
       follows by the given Farkas certificates. -/
   | weaken (P' : List Lin) (preCerts : List (Nat × List Nat)) (B' : SB) (Q' : List Lin)
@@ -236,6 +242,28 @@ structure FunCert where
   mods : List Nat
   body : Option ACmd
 
+/-- `⌊log_b n⌋` with at most `fuel` divisions. -/
+def ilogF : Nat → Nat → Nat → Nat
+  | 0, _, _ => 0
+  | fuel + 1, b, n => if 1 < b ∧ b ≤ n then ilogF fuel b (n / b) + 1 else 0
+
+/-- `⌊log_b n⌋` (0 for `n < b` or `b ≤ 1`); structural, so that `decide` evaluates it. -/
+def ilog (b n : Nat) : Nat := ilogF n b n
+
+/-- The number of iterations of a logarithmic loop whose potential is at most `k`. -/
+def logIters (b : Nat) (k : Int) : Nat := if k ≤ 0 then 0 else ilog b k.toNat + 1
+
+/-- `b·pot - γⱼ ≤ 0`: the potential after an iteration, times `b`, is at most its value
+    before (the logical variable `j`). -/
+def ghostMul (pot : PExp) (j : Nat) (b : Nat) : Lin :=
+  ⟨vsmul b pot.sv, vsmul (-1) (unit j), b * pot.c⟩
+
+/-- What is known after a logarithmic loop: the negated test if there is one test. -/
+def logExit (gs : List PExp) (inv : List Lin) : List Lin :=
+  match gs with
+  | [g] => g.negLin :: inv
+  | _ => inv
+
 /-- `pot - γⱼ + extra ≤ 0`, where `γⱼ` is the logical variable `j`. -/
 def ghost (pot : PExp) (j : Nat) (extra : Int) : Lin :=
   ⟨pot.sv, vsmul (-1) (unit j), pot.c + extra⟩
@@ -254,6 +282,7 @@ def writes (fs : List FunCert) : ACmd → List Nat
   | .ite _ _ _ _ c₁ c₂ => writes fs c₁ ++ writes fs c₂
   | .while _ _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileAnd _ _ _ _ _ _ _ _ _ _ body => writes fs body
+  | .whileLog _ _ _ _ _ _ _ _ _ body => writes fs body
   | .weaken _ _ _ _ _ c => writes fs c
   | .dead _ c => writes fs c
   | .call _ f _ _ _ _ => match fs[f]? with
@@ -294,6 +323,14 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
       check fs (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghost pot j d :: inv) &&
       loopBoundOk w d k kl Wb B
+  | .whileLog w gs inv pot b k j posCert Wb body, B, Q =>
+      decide (1 < b) &&
+      decide (P = entryLin pot k [] :: inv) &&
+      decide (Q = logExit gs inv) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) &&
+      entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩ posCert &&
+      check fs (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghostMul pot j b :: inv) &&
+      SB.le (SB.const (logIters b k * (w + Wb.c) + w)) B
   | .weaken P' preCerts B' Q' postCerts c, B, Q =>
       entailsAll P P' preCerts && check fs P' c B' Q' && SB.le B' B &&
         entailsAll Q' Q postCerts

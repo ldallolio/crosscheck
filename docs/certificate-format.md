@@ -75,6 +75,7 @@ postcondition. Everything is integer data:
 | `ite w g B₁ B₂ c₁ c₂` | test `g ≤ 0`, two bounds | `c₁` accepted from `g ≤ 0 :: P`, `c₂` from `1 − g ≤ 0 :: P`, `B = w + max B₁ B₂` |
 | `while w g inv pot d k kl j posCert Wb body` | invariant, potential `pot/d`, entry bound `K = k + Σ kl[i]·γᵢ` (`kl` optional), logical variable `j`, certificate of `pot ≥ d`, body bound | `d ≥ 1`; `P = (pot − K ≤ 0) :: inv`; `Q = (1 − g ≤ 0) :: inv`; `γⱼ` neither in `inv` nor in `Wb`; `posCert` proves `d − pot ≤ 0` from `g :: inv`; body accepted from `(pot − γⱼ ≤ 0) :: g :: inv` to `(pot + d − γⱼ ≤ 0) :: inv` with bound `Wb`; either `kl = 0` and `B ≥ ⌊k/d⌋·(w + Wb) + w`, or `Wb` constant, `B.c ≥ w`, `(w+Wb)·k ≤ d·(B.c − w)` and `(w+Wb)·kl ≤ d·B.co` (`loopBoundOk`) |
 | `whileAnd w gs inv pot d k j posCert Wb body` | as `while`, with a list of tests `gs` (the loop runs while every `g ≤ 0`) | as `while` with `g :: inv` replaced by `gs ++ inv` (each `g` as the constraint `g ≤ 0`), except `Q = inv`: the negation of a conjunction is not an assertion |
+| `whileLog w gs inv pot b k j posCert Wb body` | tests `gs`, invariant, potential `pot`, base `b`, constant entry bound `k`, logical variable `j`, certificate of `pot ≥ 1`, constant body bound | `b ≥ 2`; `P = (pot − k ≤ 0) :: inv`; `Q = (1 − g ≤ 0) :: inv` if `gs = [g]`, else `inv`; `γⱼ` not in `inv`; `Wb` constant; `posCert` proves `1 − pot ≤ 0` from `gs ++ inv`; body accepted from `(pot − γⱼ ≤ 0) :: gs ++ inv` to `(b·pot − γⱼ ≤ 0) :: inv`; `B ≥ N·(w + Wb) + w` with `N = 0` if `k ≤ 0`, else `⌊log_b k⌋ + 1` (`logIters`; soundness `logloop_sound`, paper `thm:checker-soundness`) |
 | `call w f inst preCerts ubs ubCerts` | callee index `f` (an earlier function), expressions `inst[j]` for the callee's `γⱼ`, certificates of its precondition, symbolic bounds `ubs[j]` of `inst[j]` in the caller's `γ` with their certificates | `preCerts` prove the callee's `pre` with `γⱼ := inst[j]` from `P`; `ubCerts` prove `inst[j] ≤ ubs[j]`; `len(callee.co) ≤ len(ubs) ≤ len(inst)`; `B ≥ w + callee.c + Σ callee.co[j]·ubs[j]`; `Q` = the constraints of `P` that do not mention the callee's `mods` |
 | `weaken P' preCerts B' Q' postCerts c` | inner triple and certificates | `P ⊢ P'` and `Q' ⊢ Q` constraint by constraint, `B' ≤ B`, `c` accepted for the inner triple |
 | `dead cert c` | certificate | `P ⊢ 1 ≤ 0` |
@@ -87,6 +88,7 @@ worked example; use it as the first test.
 JSON field names: `skip`; `assign {w, x, a}`; `havoc {w, x}`; `seq {c1, mid, B1, B2, c2}`;
 `havocC {w, x, cs}`; `ite {w, g, B1, B2, c1, c2}`; `while {w, g, inv, pot, d, k, j, posCert, Wb, body}`;
 `whileAnd {w, gs, inv, pot, d, k, j, posCert, Wb, body}` (both with an optional `kl`);
+`whileLog {w, gs, inv, pot, b, k, j, posCert, Wb, body}`;
 `call {w, f, inst, preCerts, ubs, ubCerts}`; bounds `B1`, `B2`, `Wb`, `B`, `bound`, `ubs[j]` are
 symbolic bounds;
 `weaken {P, preCerts, B, Q, postCerts, c}`; `dead {cert, c}`; a Farkas certificate is

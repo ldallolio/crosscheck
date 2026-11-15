@@ -789,6 +789,36 @@ What the AI did for 38 (design choices are the AI's):
   `rejected_*` not bounded. The translation is not verified.
 - Paper II paragraph "Rust"; docs. **Author to check** (§3, item 27).
 
+39. "proceed with the next step"
+40. "proceed with the next step" (sent again while step 7 was being measured)
+
+What the AI did for 39 (step 7, chosen by the AI after steps 1-6: logarithmic potentials,
+the largest measured blocker on CMSIS-DSP; the user then asked for the next step, which the
+AI started after committing this one):
+- Lean: checker node `whileLog` (`CheckerCore`: `ilog` by structural recursion so that
+  `decide` evaluates it, `logIters`, `ghostMul`, `logExit`), soundness case of `check_sound`
+  via `logloop_sound`, which applies the logic's loop rule to the potential
+  `⌊log_b pot⌋ + 1` (no new rule of the logic); `ilog_eq` relates `ilog` to mathlib's
+  `Nat.log`; examples `logCert_checks`, `logCert_rejected`, `logCert_base1_rejected`,
+  `logCert_cost`; mini-C normal form and `nf_equiv` case; 270 theorems.
+- Plugin: logarithmic potentials in the analyser (a variable at least 1 at every iteration
+  and divided by the largest base 64..2 on every path; kept when better than the linear
+  bound), certificate generator for `whileLog` (constant entry bound, no early exits).
+  **A generator bug found and fixed**: for `x >>= k` / `x /= c` the `havocC` facts mentioned
+  the new `x` on both sides (the certificate's program was then not the C function; the
+  checker accepted it because it checks the certificate's program); the old value is now
+  copied first. Tests: `Loops.LogarithmicHalving`, must-be-rejected
+  `Unsound.LogOnlyOnSomePaths`, `LogUndoneByAnotherPath`, `LogNeedsAPositivePotential`,
+  `Certificates.LogarithmicLoop`, `tests/certificates/logarithmic.cpp`; 158 tests.
+- Results: TACLeBench kernels: tables unchanged (`fft`'s bit-reversal loop 11 instead of
+  1023, its flow fact is 10); observed counts: no bound below, geometric mean bound/observed
+  1.85 (every call) and 1.03 (in context), were 1.92 and 1.06. CMSIS-DSP, sequential/app and
+  TPDB: see the next commit. A stale count in the TACLeBench README (23 loops bounded only
+  by CrossCheck, 24 since step 4) was corrected.
+- Papers: Paper I `def:certificate`, checker description and proof of
+  `thm:checker-soundness`, `prop:lex-log` status, scope, future work, Table `tab:lean`;
+  Paper II limitations and the observed-count figures. **Author to check** (§3, item 28).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -935,3 +965,7 @@ is whether each Lean statement says what the paper says, and everything outside 
     semantic choices (checked arithmetic as non-overflowing C, assertions as early
     returns, `usize` as 64 bits) and that Paper II states that bounds cover the executions
     that do not panic and that the translation is unverified and tied to rustc 1.100.0.
+28. **Logarithmic loops.** Read the logarithmic case of the proof of `thm:checker-soundness`
+    against `logloop_sound` and `logPot_step` in `Checker.lean`, and the `whileLog` case of
+    `check` in `CheckerCore.lean`; note the generator bug on `x >>= k` found during this step
+    (certificates emitted before it may describe a different program for such statements).

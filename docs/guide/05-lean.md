@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 20 modules, about 4,950 lines, 260 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 20 modules, about 5,200 lines, 270 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model

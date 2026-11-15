@@ -1619,7 +1619,7 @@
         "above": 2,
         "ratios": [
           1.0,
-          102.3,
+          1.1,
           1.998046875,
           1.0,
           1.0,
@@ -1639,7 +1639,7 @@
         "above": 2,
         "ratios": [
           1.0,
-          102.3,
+          1.1,
           1.998046875,
           1.0,
           1.0,
@@ -2537,15 +2537,15 @@
     "loops": 5,
     "functions": 17,
     "crosscheck": {
-      "bounded": 1,
-      "equal": 1,
+      "bounded": 2,
+      "equal": 2,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
     },
     "crosscheck_ctx": {
-      "bounded": 2,
-      "equal": 2,
+      "bounded": 3,
+      "equal": 3,
       "looser": 0,
       "tighter": 0,
       "type_range": 0
@@ -2566,7 +2566,7 @@
     },
     "both_loops": 1,
     "overlap": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -2574,17 +2574,17 @@
     },
     "overlap_orange": {
       "cc_only": 0,
-      "other_only": 1,
+      "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
-      "same": 1
+      "same": 2
     },
     "overlap_ctx_orange": {
       "cc_only": 1,
-      "other_only": 1,
+      "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
-      "same": 1
+      "same": 2
     },
     "observed": {
       "31": 4,
@@ -2594,22 +2594,24 @@
     "vs_observed": {
       "crosscheck": {
         "reached": 3,
-        "bounded": 1,
+        "bounded": 2,
         "below": 0,
-        "equal": 1,
+        "equal": 2,
         "above": 0,
         "ratios": [
+          1.0,
           1.0
         ],
         "below_at": []
       },
       "crosscheck_ctx": {
         "reached": 3,
-        "bounded": 2,
+        "bounded": 3,
         "below": 0,
-        "equal": 2,
+        "equal": 3,
         "above": 0,
         "ratios": [
+          1.0,
           1.0,
           1.0
         ],
@@ -2653,16 +2655,16 @@
       }
     },
     "main": {
-      "crosscheck": "none",
+      "crosscheck": "const",
       "koat": "none",
       "cofloco": "none",
       "infer": "const"
     },
     "funcs": {
       "crosscheck": {
-        "const": 11,
+        "const": 13,
         "symbolic": 0,
-        "none": 6
+        "none": 4
       },
       "koat": {
         "const": 11,

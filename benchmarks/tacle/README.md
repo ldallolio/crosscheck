@@ -252,10 +252,10 @@ are never called, which Clang does not emit, so ScalarEvolution never sees them)
 CrossCheck's bounds for every call and ScalarEvolution's are both obtained from one
 function at a time. 103 loops are bounded by both; there the bounds agree on 99 and
 CrossCheck's is smaller on 4 (loops left by `break`, which must be counted once more
-from LLVM's backedge-taken count). 23 loops are bounded only by CrossCheck: 18 in
+from LLVM's backedge-taken count). 24 loops are bounded only by CrossCheck: 18 in
 `ludcmp` and `minver` (where ScalarEvolution has only the type range, or nothing), two
 whose guard combines the counter with another condition (`x && i < 64`,
-`m >= 2 && j >= m`), two in `sha` and one empty loop. 10 are bounded only by ScalarEvolution: the 9 loops with
+`m >= 2 && j >= m`), two in `sha`, one in `isqrt` and one empty loop. 10 are bounded only by ScalarEvolution: the 9 loops with
 floating-point counters, which it evaluates exhaustively because start, step and
 limit are constants, and one doubling loop in `fft`.
 
@@ -272,7 +272,7 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 | below the observed count | **0** | **0** | **0** | 1 | 2 |
 | equal to it | 101 | 130 | 107 | 127 | 198 |
 | above it | 26 | 8 | 6 | 3 | 8 |
-| bound / observed: median, geometric mean, max | 1.00, 1.92, 166.7 | 1.00, 1.06, 102.3 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
+| bound / observed: median, geometric mean, max | 1.00, 1.85, 166.7 | 1.00, 1.03, 3.5 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
 
 (Ratios are over the loops with a nonzero count.)
 

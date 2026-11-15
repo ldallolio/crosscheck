@@ -464,6 +464,8 @@ def ACmd.toCmd : ACmd → Cmd ℕ Env
   | .while w g _ _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
   | .whileAnd w gs _ _ _ _ _ _ _ _ body =>
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
+  | .whileLog w gs _ _ _ _ _ _ _ body =>
+      Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
   | .call w f _ _ _ _ => Cmd.call w f
@@ -580,6 +582,156 @@ theorem loop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G
   · intro s hs
     have h2 : (pot.eval s : ℚ) ≤ ((k + dot (kl.map Int.ofNat) ρ : ℤ) : ℚ) := by exact_mod_cast hs
     exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+
+/-! ### Logarithmic loops -/
+
+theorem ilogF_eq (b : ℕ) : ∀ fuel n, n ≤ fuel → ilogF fuel b n = Nat.log b n := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro n hn
+    have : n = 0 := by omega
+    subst this; simp [ilogF]
+  | succ f ih =>
+    intro n hn
+    simp only [ilogF]
+    split
+    · next h =>
+      have hlt : n / b < n := Nat.div_lt_self (by omega) h.1
+      rw [ih (n / b) (by omega), Nat.log_div_base]
+      have := Nat.log_pos h.1 h.2
+      omega
+    · next h =>
+      symm
+      rw [Nat.log_eq_zero_iff]
+      omega
+
+theorem ilog_eq (b n : ℕ) : ilog b n = Nat.log b n := ilogF_eq b n n (le_refl _)
+
+/-- The potential that a logarithmic loop decreases by one per iteration: `0` if
+    `pot ≤ 0`, else `⌊log_b pot⌋ + 1`. -/
+def logPot (b : ℕ) (x : ℤ) : ℕ := if x ≤ 0 then 0 else Nat.log b x.toNat + 1
+
+theorem logPot_step {b : ℕ} (hb : 1 < b) {x y : ℤ} (hx : 1 ≤ x) (hy : (b : ℤ) * y ≤ x) :
+    logPot b y + 1 ≤ logPot b x := by
+  have hx0 : ¬ x ≤ 0 := by omega
+  simp only [logPot, hx0, if_false]
+  split_ifs with hy0
+  · omega
+  · have hy1 : 1 ≤ y := by omega
+    have hby : (b : ℤ) ≤ x := by
+      have : (b : ℤ) * 1 ≤ (b : ℤ) * y := mul_le_mul_of_nonneg_left hy1 (by positivity)
+      linarith
+    have hle : y.toNat ≤ x.toNat / b := by
+      rw [Nat.le_div_iff_mul_le (by omega)]
+      have e1 : ((y.toNat : ℕ) : ℤ) = y := Int.toNat_of_nonneg (by omega)
+      have e2 : ((x.toNat : ℕ) : ℤ) = x := Int.toNat_of_nonneg (by omega)
+      have : ((y.toNat * b : ℕ) : ℤ) ≤ ((x.toNat : ℕ) : ℤ) := by
+        push_cast; rw [e1, e2]; linarith
+      exact_mod_cast this
+    have h1 := Nat.log_mono_right (b := b) hle
+    rw [Nat.log_div_base] at h1
+    have hbx : b ≤ x.toNat := by omega
+    have := Nat.log_pos hb hbx
+    omega
+
+theorem logPot_le {b : ℕ} {x k : ℤ} (h : x ≤ k) : logPot b x ≤ logIters b k := by
+  unfold logPot logIters
+  split
+  · exact Nat.zero_le _
+  · rw [if_neg (by omega), ilog_eq]
+    have := Nat.log_mono_right (b := b) (show x.toNat ≤ k.toNat by omega)
+    omega
+
+theorem ghostMul_eval (pot : PExp) (j b : ℕ) (ρ s : Env) :
+    (ghostMul pot j b).eval ρ s = b * pot.eval s - ρ j := by
+  simp only [ghostMul, Lin.eval, PExp.eval, dot_vsmul, dot_unit]; ring
+
+/-- The loop rule of `whileLog`, from `valid_while` with the potential `logPot b pot`. -/
+theorem logloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {b : ℕ} {k : ℤ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hb : 1 < b) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hWc : Wb.co.all (· = 0) = true)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩ posCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) ρ') body (Wb.eval ρ')
+        (holds (ghostMul pot j b :: inv) ρ') ∧
+      ∀ s t n, holds (ghost pot j 0 :: (G ++ inv)) ρ' s → Exec Φ body s t n →
+        ∀ x, x ∉ M → t x = s x)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (entryLin pot k [] :: inv) ρ) (Cmd.while w test body)
+        (logIters b k * (w + Wb.c) + w) (holds Qe ρ) ∧
+      ∀ s t n, holds (entryLin pot k [] :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
+        ∀ x, x ∉ M → t x = s x := by
+  have hWeval : ∀ ρ', Wb.eval ρ' = Wb.c := by
+    intro ρ'
+    simp only [SB.eval, dotN_zero hWc, add_zero]
+  have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
+    intro s hA hB e he
+    rcases List.mem_append.mp he with h | h
+    · exact hA e h
+    · exact hB e h
+  have hGinv : (G ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_append, Bool.and_eq_true]; exact ⟨hGj, hinv⟩
+  have body_at : ∀ s, holds inv ρ s → test s = true →
+      Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s))) body
+        Wb.c (holds (ghostMul pot j b :: inv) (Function.update ρ j (pot.eval s))) ∧
+      holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s)) s := by
+    intro s hI hbt
+    refine ⟨?_, ?_⟩
+    · have := (hbody (Function.update ρ j (pot.eval s))).1
+      rwa [hWeval] at this
+    · rw [holds_cons, ghost_eval, holds_update_logical hGinv]
+      exact ⟨by simp, happ s (hG s hbt) hI⟩
+  have pos : ∀ s, holds inv ρ s → test s = true → 1 ≤ pot.eval s := by
+    intro s hI hbt
+    have := entails1_sound hpos (ρ := ρ) (s := s) (happ s (hG s hbt) hI)
+    simp only [Lin.eval, dot, dot_vsmul] at this
+    simp only [PExp.eval]; linarith
+  have key := valid_while (Φ := Φ) (I := holds inv ρ) (C := fun s => pot.eval s ≤ k)
+    (w := w) (b := test) (c := body) (Wb := Wb.c)
+    (fun s => ((logPot b (pot.eval s) : ℕ) : ℚ)) ((logIters b k : ℕ) : ℚ) ?_ ?_ ?_
+  · rw [Nat.floor_natCast] at key
+    refine ⟨?_, ?_⟩
+    · refine valid_conseq ?_ key (le_refl _) ?_
+      · intro s hP
+        rw [holds_cons, entryLin_eval] at hP
+        have h1 := hP.1
+        simp only [List.map_nil, dot, add_zero] at h1
+        exact ⟨hP.2, by linarith⟩
+      · rintro t ⟨hI, hbt⟩; exact hQ t hI hbt
+    · intro s t n hP he
+      rw [holds_cons] at hP
+      refine while_frame (I := holds inv ρ) (fun s' hI hbt t' n' e => ?_) hP.2 he
+      obtain ⟨hv, hpre⟩ := body_at s' hI hbt
+      have ht := (hv s' hpre).2 t' n' e
+      rw [holds_cons, holds_update_logical hinv] at ht
+      exact ⟨ht.2, (hbody _).2 s' t' n' hpre e⟩
+  · intro v s hs
+    obtain ⟨hI, hbt, hv⟩ := hs
+    obtain ⟨H, hpre⟩ := body_at s hI hbt
+    refine ⟨(H s hpre).1, fun t n he => ?_⟩
+    have ht := (H s hpre).2 t n he
+    rw [holds_cons, ghostMul_eval, holds_update_logical hinv] at ht
+    refine ⟨ht.2, ?_⟩
+    have h1 : (b : ℤ) * pot.eval t ≤ pot.eval s := by
+      have := ht.1; rw [Function.update_self] at this; linarith
+    have h2 := logPot_step hb (pos s hI hbt) h1
+    rw [← hv]
+    have : ((logPot b (pot.eval t) : ℕ) : ℚ) + 1 ≤ ((logPot b (pot.eval s) : ℕ) : ℚ) := by
+      exact_mod_cast h2
+    linarith
+  · intro s hI hbt
+    have h1 := pos s hI hbt
+    have : 1 ≤ logPot b (pot.eval s) := by
+      unfold logPot; rw [if_neg (by omega)]; omega
+    show (1 : ℚ) ≤ ((logPot b (pot.eval s) : ℕ) : ℚ)
+    exact_mod_cast this
+  · intro s hs
+    show ((logPot b (pot.eval s) : ℕ) : ℚ) ≤ ((logIters b k : ℕ) : ℚ)
+    exact_mod_cast logPot_le (b := b) hs
 
 /-- **Soundness of the checker.** If every function that calls may refer to meets its
     specification (`hfs`), a certificate accepted by `check` proves its triple: for
@@ -720,6 +872,32 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
         rw [PExp.toLin_eval]
         exact hs g hg)
       hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
+  | whileLog w gs inv pot b k j posCert Wb body ih =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hpos⟩, hbody⟩, hB⟩ := h
+    have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
+      simp [List.all_map, PExp.toLin, coeff]
+    have H := logloop_sound (Φ := Φ) (w := w) (test := fun s => gs.all (fun e => decide (e.eval s ≤ 0)))
+      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (k := k) ρ hb hinv hWc
+      (fun s hs e he => by
+        simp only [List.all_eq_true, decide_eq_true_eq] at hs
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        rw [PExp.toLin_eval]
+        exact hs g hg)
+      hGj hpos (fun ρ' => ih _ _ _ hbody ρ')
+      (Qe := logExit gs inv)
+      (fun t hI hbt => by
+        unfold logExit
+        split
+        · next g =>
+          rw [holds_cons, PExp.negLin_eval]
+          simp at hbt
+          exact ⟨by omega, hI⟩
+        · exact hI)
+    exact ⟨valid_conseq (fun s hs => hs) H.1 (by
+        have := SB.le_eval hB ρ
+        simpa [SB.eval, SB.const, dotN] using this) (fun _ h => h), H.2⟩
   | weaken P' preCerts B' Q' postCerts c ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true] at h
@@ -816,6 +994,41 @@ theorem program_sound (fs : List FunCert) (h : checkProgram fs = true) (Φ : ℕ
       rw [hbody i F b hF hb]
       exact ⟨fun ρ => (H ρ).1, fun ρ s t n hs he x hx =>
         (H ρ).2 s t n hs he x (fun hw => hx (by simpa using hmods x hw))⟩
+
+/-! ### An example logarithmic loop -/
+
+/-- `while (n >= 1) n := 0` read as a logarithmic loop: `n ≤ 1000` on entry, base 2, so
+    at most `⌊log₂ 1000⌋ + 1 = 10` iterations, bound `10·(1 + 1) + 1 = 21`. The body proves
+    `2·n ≤ γ₀` after it from `n ≤ γ₀`, `n ≥ 1` before it. -/
+def logCert : ACmd :=
+  .whileLog 1 [⟨[-1], 1⟩] [] ⟨[1], 0⟩ 2 1000 0 (1, [1]) (SB.const 1)
+    (.weaken [⟨[0], [-1], 1⟩, ⟨[0], [], 0⟩] [(1, [1, 1]), (1, [0, 0])] (SB.const 1)
+      [⟨[], [-1], 1⟩, ⟨[1], [], 0⟩] [(1, [1, 2])]
+      (.assign 1 0 ⟨[], 0⟩))
+
+theorem logCert_checks :
+    check [] [⟨[1], [], -1000⟩] logCert (SB.const 21) [⟨[1], [], 0⟩] = true := by decide
+
+/-- With the bound 20, one less than `10·2 + 1`, the certificate is rejected. -/
+theorem logCert_rejected :
+    check [] [⟨[1], [], -1000⟩] logCert (SB.const 20) [⟨[1], [], 0⟩] = false := by decide
+
+/-- A base of 1 is rejected (no division). -/
+theorem logCert_base1_rejected :
+    check [] [⟨[1], [], -1000⟩]
+      (.whileLog 1 [⟨[-1], 1⟩] [] ⟨[1], 0⟩ 1 1000 0 (1, [1]) (SB.const 1) (.assign 1 0 ⟨[], 0⟩))
+      (SB.const 100000) [⟨[1], [], 0⟩] = false := by decide
+
+/-- What the accepted certificate gives, for every procedure environment. -/
+theorem logCert_cost (Φ : ℕ → Cmd ℕ Env) {s : Env} (hs : s 0 ≤ 1000) {n : ℕ}
+    (hp : Pre Φ logCert.toCmd s n) : n ≤ 21 := by
+  have := certified_cost_le logCert_checks Φ (ρ := fun _ => 0) (s := s) (by
+    intro e he
+    simp only [List.mem_singleton] at he
+    subst he
+    simp [Lin.eval, dot]
+    omega) hp
+  simpa [SB.eval, SB.const, dotN] using this
 
 /-! ### An example certificate -/
 

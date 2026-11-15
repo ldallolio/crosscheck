@@ -71,7 +71,7 @@ limitation, it says so.
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
   (`check_sound`), validation against mini-C (`validated_sound`), response times under interrupts (`response_time_bound`), Graham's
-  fork-join bound (`greedy_bound`), the examples. 260 theorems, no `sorry`, three standard axioms.
+  fork-join bound (`greedy_bound`), logarithmic loops in the checker (`logloop_sound`), the examples. 270 theorems, no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
   translation from C/C++ (to certificates, or to mini-C for validated ones); the plugin.

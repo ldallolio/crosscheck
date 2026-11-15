@@ -58,7 +58,7 @@ flowchart TB
 |---|---|---|
 | Example programs (`tab:plugin`) | 13 functions bounded, 3 programs rejected as intended; 10 of 15 bounded functions (helpers included) certified | `benchmarks/README.md` |
 | TACLeBench, 220 loops (`tab:tacle`) | for every call: 126 bounded, 100 = flow fact; in context: 137 bounded, 128 = flow fact | `benchmarks/tacle/README.md` |
-| Observed loop counts (208 loops run) | no bound of CrossCheck below an observed count; geometric mean bound/observed: 1.93 (every call), 1.06 (in context) | `compare_tools.py` |
+| Observed loop counts (208 loops run) | no bound of CrossCheck below an observed count; geometric mean bound/observed: 1.85 (every call), 1.03 (in context) | `compare_tools.py` |
 | Certificates on TACLeBench | 156 of 158 bounded functions, all accepted; 9 entry functions (142 before early exits, `switch`, `&&` and unsigned) | `run_tacle.py --certificates` |
 | ScalarEvolution (LLVM) | 113 loops; identical to ours on 99 of 103 common loops | `tab:tools` |
 | oRange (OTAWA) | 131 loops; identical to our in-context bounds on all 113 common loops; one bound below the observed count (`filterbank`) | `tab:tools` |
