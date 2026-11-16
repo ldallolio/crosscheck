@@ -68,7 +68,8 @@ limitation, it says so.
   abstract units, and exports the loop bounds for aiT and OTAWA. For one predictable core,
   the Cortex-M0 (no cache, fixed timings), `benchmarks/cycles` turns them into cycle bounds
   of the compiled code, checked against an interpreter's cycle counts; the timing table is
-  taken from Arm's manual and not checked on hardware.
+  compared row by row with Table 3-1 of Arm's manual (`test_m0.py`) and not checked on
+  hardware.
 - **"Why the timing schema and not IPET?"** Structured code and compositionality. It
   ignores infeasible paths — although certificates do exclude some (`__kernel_cosf`).
 - **"Evaluation?"** TACLeBench kernels without annotations: in context, 141 of 220 loops
@@ -122,7 +123,13 @@ limitation, it says so.
 
 Most code, proofs and text were written by an AI assistant at the author's request; every
 prompt is in `AI_USAGE.md`; the papers carry `\authortodo` marks wherever the author must
-verify, and must not be submitted while one remains.
+verify, and must not be submitted while one remains. On 2026-11-16 the assistant did the
+checks that a script or a document could settle (definitions against Lean, the Cortex-M0
+timing table, the loop instrumentation, parts of 14 cited papers; `AI_USAGE.md`, prompt 45
+and section 3, item 33). The marks that remain: the two statements of responsibility,
+the papers that could not be obtained (Nielson 1987, Necula 1997, Joseph and Pandya 1986
+and a few of Paper II), the descriptions of KoAT2, CoFloCo and oRange, and the fairness
+of the TPDB harness.
 
 ## 8. Known weak points, ranked
 

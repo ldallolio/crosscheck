@@ -198,7 +198,7 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 5,700 lines, 284 theorems, 21 modules, no `sorry`, only the standard axioms. Table
+- About 5,800 lines, 288 theorems, 21 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas

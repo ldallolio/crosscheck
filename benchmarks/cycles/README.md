@@ -33,12 +33,14 @@ For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.
    function that calls one has no static bound, so it is never compared.
 
 Timings (`m0.cycles`): 1 cycle for data processing, 2 for loads and stores, `1+N` for
-`LDM`/`STM`/`PUSH`/`POP`, `4+N` for `POP` with the PC (counting the PC, which is
-conservative), 3 for `B` and a taken conditional branch, 1 for one not taken, 4 for `BL`,
+`LDM`/`STM`/`PUSH`/`POP`, `4+N` for `POP` with the PC (N counts the PC, as in the manual), 3 for `B` and a taken conditional branch, 1 for one not taken, 4 for `BL`,
 3 for `BX`, `MULS` 32 (small multiplier; `--mul-cycles 1` for the fast one).
 
-**What is trusted**: the timing table (from the instruction summary of the Arm Cortex-M0
-Technical Reference Manual, not checked here against hardware); that a binary loop
+**What is trusted**: the timing table (the instruction summary of the Arm Cortex-M0
+Technical Reference Manual, revision r0p0, Arm DDI 0432C, Table 3-1: `test_m0.py` holds
+the table, 87 rows, and compares `m0.cycles` with it; `SVC`, `BKPT`, `WFE`, `WFI`, `CPS`
+and the 32-bit system instructions stop the decoder, so a function that contains one gets
+no bound; not checked here against hardware); that a binary loop
 iterates at most as often as the source loop it is matched with (checked on the runs,
 not proved); zero-wait-state memory, no interrupts (see `CROSSCHECK_INTERRUPT` for those).
 The interpreter counts cycles with the same table, so the check validates the path

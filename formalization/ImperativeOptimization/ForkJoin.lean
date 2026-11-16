@@ -94,14 +94,39 @@ theorem forkjoin_bound {p : ℕ} {ws bs : List ℕ} {L : Fin p → ℕ} (h : Gre
   have h2 : p * maxL ws ≤ p * maxL bs := Nat.mul_le_mul_left _ (maxL_mono hle)
   omega
 
-/-- The span is a lower bound on any schedule's makespan, and `work/p` is too: Graham's
-    bound is within a factor 2 of the optimum. -/
+/-- For the loads of a greedy schedule, `work ≤ p · makespan` (for every schedule, and for
+    the span: `makespan_lower`). -/
 theorem load_lower {p : ℕ} {ws : List ℕ} {L : Fin p → ℕ} (h : Greedy p ws L) :
     ws.sum ≤ p * Finset.univ.sup L := by
   rw [← (greedy_bound h).1]
   have := Finset.sum_le_card_nsmul Finset.univ L (Finset.univ.sup L)
     (fun i hi => Finset.le_sup hi)
   simpa [Finset.card_univ, Fintype.card_fin] using this
+
+/-- The load of processor `i` when task `j` (of cost `w j`) runs on processor `a j`. -/
+def loadOf {p n : ℕ} (w : Fin n → ℕ) (a : Fin n → Fin p) (i : Fin p) : ℕ :=
+  ∑ j ∈ Finset.univ.filter (fun j => a j = i), w j
+
+/-- **Lower bounds for every schedule.** Whatever the assignment `a` of the tasks to the
+    `p` processors, the makespan (the largest load) is at least `work / p` and at least
+    the cost of every task (so at least the span). Graham's bound is thus within a factor
+    two of the best schedule. -/
+theorem makespan_lower {p n : ℕ} (w : Fin n → ℕ) (a : Fin n → Fin p) :
+    (∑ j, w j ≤ p * Finset.univ.sup (loadOf w a)) ∧
+    ∀ j, w j ≤ Finset.univ.sup (loadOf w a) := by
+  constructor
+  · calc ∑ j, w j = ∑ i, loadOf w a i := by
+          unfold loadOf
+          exact (Finset.sum_fiberwise Finset.univ a w).symm
+      _ ≤ ∑ _i : Fin p, Finset.univ.sup (loadOf w a) :=
+          Finset.sum_le_sum (fun i _ => Finset.le_sup (f := loadOf w a) (Finset.mem_univ i))
+      _ = p * Finset.univ.sup (loadOf w a) := by simp
+  · intro j
+    have h1 : w j ≤ loadOf w a (a j) := by
+      unfold loadOf
+      exact Finset.single_le_sum (f := w) (fun _ _ => Nat.zero_le _)
+        (Finset.mem_filter.mpr ⟨Finset.mem_univ j, rfl⟩)
+    exact h1.trans (Finset.le_sup (f := loadOf w a) (Finset.mem_univ (a j)))
 
 /-- Example: tasks of costs 4, 3, 3, 2 on 2 processors (scheduled 2, 3, 3, 4): loads 7 and
     5; the bound gives `2·7 ≤ 12 + 2·4`. -/

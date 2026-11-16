@@ -4,7 +4,8 @@
 
 * `decode`: the ARMv6-M Thumb instruction set (16-bit instructions and BL);
 * `cycles`: the instruction timings of the Cortex-M0 (zero-wait-state memory), from the
-  instruction summary of the Arm Cortex-M0 Technical Reference Manual; a conditional
+  instruction summary of the Arm Cortex-M0 Technical Reference Manual (revision r0p0, Arm
+  DDI 0432C, Table 3-1; `test_m0.py` holds the table and compares); a conditional
   branch costs 3 cycles if taken and 1 if not, MULS `MUL_CYCLES` (32 for the small
   multiplier, the conservative choice; 1 for the fast one);
 * `load`: a minimal linker for one relocatable ELF object (R_ARM_ABS32, R_ARM_THM_CALL,
@@ -118,8 +119,9 @@ def decode(mem, addr):
             if opc == 2:
                 return Insn(addr, 2, "undef", kind="stop")
             return Insn(addr, 2, ("rev", "rev16", "", "revsh")[opc], (rd, rn))
-        if h >> 8 == 0b10111111 and h & 0xF == 0:
+        if h in (0xBF00, 0xBF10, 0xBF40):  # NOP, YIELD (executes as NOP), SEV: 1 cycle
             return Insn(addr, 2, "nop")
+        # WFE and WFI (2 cycles plus the time spent waiting) have no cycle bound: stop.
         return Insn(addr, 2, "misc", kind="stop")
     if h >> 12 == 0b1100:
         l = (h >> 11) & 1
@@ -155,7 +157,8 @@ def cycles(i, taken=True):
     if op in ("push", "stm", "ldm"):
         return 1 + i.nregs
     if op == "pop":
-        return 4 + i.nregs if 15 in i.a[0] else 1 + i.nregs  # conservative: N counts the PC
+        # 4 + N with the PC, where N counts the PC (note c of Table 3-1 of the manual)
+        return 4 + i.nregs if 15 in i.a[0] else 1 + i.nregs
     if op.startswith("ldr") or op.startswith("str"):
         return 2
     return 1

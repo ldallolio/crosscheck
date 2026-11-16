@@ -801,6 +801,71 @@ What the AI did for 38 (design choices are the AI's):
 Give me any advice about how to proceed : how to make this project really useful for a big company such as Safran, Dassault, Thales, Airbus or others ? What would you do now ?"
 
 44. "Write your advices into docs/proposals.md then go on with step 9 and follow up with all your advices, one by one, without stopping to ask anymore until all you can think of has been done."
+45. "I am building otawa right now and I will find some time later for reviews. There are some authortodo tasks that you should be able to complete yourself, please check them since my time is very limited and I am busy reviewing the guide and the paper. Proceed improving the paper, lean and implementations while otawa builds"
+
+What the AI did for 45 (Claude Fable 5.2, 2026-11-16). The `\authortodo` marks of both
+papers were taken one by one. A mark was removed only where its check could be done by a
+script, by a comparison with a document that was obtained and read, or by a line-by-line
+comparison of a definition with the Lean source; the checks are the AI's, not the
+author's, and section 3 below says for each item what was done and what is left. Nothing
+in the papers says that the author verified anything.
+- **Paper I against Lean** (three marks). `def:certificate`, `def:program-certificate` and
+  the description of the checker were compared with `ACmd`, `check`, `checkProgram`,
+  `FunSpec`, `check_sound` and `program_sound`; `def:minic`, `lem:nf-equiv` and
+  `thm:validated` with `MStmt`, `lower`, `nf`, `validate`, `nf_equiv`, `validated_sound`;
+  `def:interrupt-model`, `thm:response-time` and `prop:graham` with `Interrupts.lean` and
+  `ForkJoin.lean`. Differences found:
+  - **Lean was weaker than the paper in one place**: `Handlers.rel` was a `Finset`, so an
+    admissible schedule could contain only finitely many handler activations (a periodic
+    interrupt that never stops was excluded, although the theorem only looks at the first
+    `R` slots). `rel` is now a `Set`, `before rel t` is the finite set of activations
+    released before `t`, the proofs are adapted, and `perRun_admissible` /
+    `perRun_completes` give an example with a handler activated forever.
+  - The paper said that `W/p` and `S` are lower bounds for every schedule; Lean proved it
+    for greedy schedules only. `ForkJoin.makespan_lower` now proves it for every assignment
+    of tasks to processors.
+  - Paper text made precise, with no change of meaning intended: `floor(k/d)` read as 0
+    for negative `k` (the checker uses `toNat`); logical variables of a callee without an
+    expression are 0; the bound of an argument is proved in the form `a <= u + sum u_i
+    gamma_i`; in mini-C, an operand without affine form gives an unknown value, a scratch
+    variable may be named in any case and must differ from the dedicated variables,
+    unsigned parameter stores in calls, the cases where the lowering is undefined, and the
+    normal form of logarithmic loops.
+  288 theorems; `formalization.yaml`, Table `tab:lean`, the guide and `CLAUDE.md` updated.
+- **Cited papers** (parts of five marks). Open copies of 14 papers that had not been read
+  were found by web search (queries contained titles and authors only) and read in part:
+  `gulwani2009speed`, `carbonneaux2015compositional`, `li1995ilp`, `nipkow2002hoare`,
+  `blumofe1999scheduling`, `pnueli1998translation`, `necula2000translation`,
+  `audsley1993applying`, `graham1966bounds`, `cerqueira2016prosa`, `kirchner2015framac`,
+  and more of `blazy2013formal`, `maroneze2014formally`, `sinn2014complexity`.
+  `references/README.md` says which passages. One correction: SPEED
+  (`gulwani2009speed`) uses counters and invariants and presents itself as an alternative
+  to ranking functions; Paper I no longer cites it for ranking functions. Two sentences
+  made more precise (the greedy-scheduling theorem of Blumofe and Leiserson; RTL and
+  Clight in Paper II). Not obtained: `nielson1987hoare`, `necula1997proof`,
+  `joseph1986finding`, `albert2011closed` and others listed in `references/README.md`;
+  the marks were narrowed to these.
+- **Cortex-M0 timing table** (one mark). Table 3-1 of the Arm Cortex-M0 Technical
+  Reference Manual (r0p0, DDI 0432C, from Arm's public documentation service) was read in
+  full and written into `benchmarks/cycles/test_m0.py` (87 rows, encodings checked against
+  the assembler); `m0.cycles` agrees. One defect fixed: `WFE` and `WFI` were decoded as
+  `NOP` (1 cycle); they now stop the decoder. New bibliography entry `armCortexM0trm`
+  (a manual, not on Crossref).
+- **Unbounded loops of the kernels** (one mark). `benchmarks/tacle/classify_unbounded.py`
+  classifies the 87 loops by the analyser's stated cause (55 / 27 / 5); the sentence of
+  Paper II and the README (which still said 94 loops) now give these counts. The split of
+  the 27 into 17 and 10 is the AI's reading of the sources.
+- **Tool comparison** (one mark). `benchmarks/tacle/test_measure_loops.py` tests the loop
+  instrumentation on 13 loops with known counts (in CI). The `filterbank` case was
+  confirmed from three sources (flow fact 2, observed 2, oRange's stored answer 1).
+  Infer's documentation was fetched and confirms "We do not handle recursion"; the
+  sentence "not designed as a sound upper bound" was an interpretation and was reworded.
+- **TPDB** (part of one mark). The five potentials "checked by hand" are now certificates
+  accepted by the Lean checker (run for these five programs); the sentence says so.
+  `benchmarks/tpdb/results/tpdb.json` was stale (2026-11-13) and was regenerated.
+- Left in the papers: the two statements of responsibility; five reading marks for the
+  papers not obtained; one mark on the descriptions of KoAT2, CoFloCo and oRange; one on
+  the fairness of the TPDB harness.
 
 What the AI did for 44 (Claude Fable 5.2): the advice of prompt 43 was written into
 `docs/proposals.md` section 6, with an order of steps 9 to 18; the steps are described
@@ -1145,8 +1210,19 @@ is whether each Lean statement says what the paper says, and everything outside 
     statement); check that the TPDB harness of the symbolic mode (inputs read before the
     first loop become parameters) is a fair reading of the benchmark; check the reference
     `kirchner2015framac`.
-32. **TPDB programs bounded only by CrossCheck.** Paper II says that five potentials
-    were "checked by hand": the check was done by the AI (reasoning written in the session,
-    not a proof): `1000 - y` (`Ex2.13`), `1000 - x` (`Ex3.01`), `q + z/2 + 500`
-    (`LeikeHeizmann-Ex7`), `x + y + 1000` (`PlusSwap`, `t30`). Redo it, or reword the
-    sentence.
+32. **TPDB programs bounded only by CrossCheck.** Done on 2026-11-16: the five
+    potentials are in certificates accepted by the Lean checker, and Paper II says so.
+33. **Checks made by the AI on 2026-11-16 (prompt 45).** Each of these replaced an
+    `\authortodo`; they are checks by the AI, listed so that you can sample them:
+    - items 19, 23, 24, 25 (definitions of Paper I against Lean): the comparison is
+      described in section 1 under prompt 45; read the three precisions added to
+      `def:certificate` / `def:program-certificate` and the four added to `def:minic`, and
+      the new `Handlers.rel : Set` and `makespan_lower`;
+    - item 26 (Cortex-M0 timings): done against Table 3-1 of the manual; only the decision
+      on loop matching by debug lines is left;
+    - items 10 and 12 (classification of unbounded loops, loop instrumentation): done by
+      scripts; the decision whether to add a run with minimal annotations is left to you;
+    - item 13: decide whether to report the `filterbank` case to the authors of oRange
+      before publication;
+    - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
+      papers not obtained keep an `\authortodo`.

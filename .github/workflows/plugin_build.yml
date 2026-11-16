@@ -94,7 +94,10 @@ jobs:
       # Also runs every kernel instrumented, and fails if a CrossCheck loop bound is
       # below a loop count observed on the kernel's input.
       - name: TACLeBench, comparison with LLVM ScalarEvolution and observed loop counts
-        run: python3 benchmarks/tacle/compare_tools.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt --check
+        run: |
+          python3 benchmarks/tacle/test_measure_loops.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt
+          python3 benchmarks/tacle/compare_tools.py --clang=/usr/lib/llvm-18/bin/clang --opt=/usr/lib/llvm-18/bin/opt --check
+          python3 benchmarks/tacle/classify_unbounded.py
 
       # Rust front-end: MIR text is version-specific, so the toolchain is pinned.
       - name: Rust front-end (differential test of the MIR-to-C translation)

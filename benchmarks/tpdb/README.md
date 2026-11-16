@@ -84,8 +84,9 @@ Reading the results:
   nondeterministic value in a loop and are not bounded by the two tools:
   `ChenFlurMukhopadhyay-SAS2012-Ex2.13`, `Ex3.01`, `LeikeHeizmann-TACAS2014-Ex7`, `PlusSwap`
   and `C4B_examples/t30`. Their potentials (`1000 - y`, `1000 - x`, `q + z/2 + 500`,
-  `x + y + 1000` twice) were checked by hand: each decreases by 1 per iteration and is
-  at least 1 under the loop test, using the ranges of the variables as invariants.
+  `x + y + 1000` twice) are in certificates that the Lean checker accepts (run on 2026-11-16 for these five):
+  each decreases by 1 per iteration and is at least 1 under the loop test, using the
+  ranges of the variables as invariants.
 - **History.** The first run of this comparison gave 141 programs in the ranged mode.
   Keeping the facts of each `break` path at a loop exit, joining intervals where paths
   merge, and recognising `x = x + 1` as an increment (for invariant candidates) added

@@ -97,7 +97,7 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 | Validation against the source | the function exported as mini-C (`MiniC.cpp`), compared with the certificate's program by the checker (`thm:validated`) | the exporter; no signed overflow, no aliasing of tracked variables |
 | Rust | `rustc` MIR (text, rustc 1.100.0) translated to C, then the same pipeline | the translation (tested differentially) |
 | Interrupts | `CROSSCHECK_INTERRUPT(T)`: response time from certified bounds (`response_time_bound`, checked by `rtaHolds`) | the period `T`; one cost unit = one time slot |
-| Cycles on a predictable processor | timing schema on the Cortex-M0 binary, loop bounds from the source loops | the timing table; the matching of binary to source loops (checked on runs) |
+| Cycles on a predictable processor | timing schema on the Cortex-M0 binary, loop bounds from the source loops | the timing table (compared row by row with Table 3-1 of Arm's manual by `test_m0.py`, not with hardware); the matching of binary to source loops (checked on runs) |
 | Stack on the same binaries | high-water mark on the binary's control-flow graph (`prop:stack`, Lean `Stack`) | the decoder; no interrupt frames counted |
 | Tests against executions | random loop programs (bounds, exported ACSL annotations, mini-C export) and mutated certificates | nothing: these are tests |
 | Bounds without ranges (in "Complexity benchmarks") | option `symbolic`: potentials only; the bound in the parameters is the certificate's | nothing new: the checker decides |

@@ -208,21 +208,26 @@ flow fact, 114 of them bounded by both.)
   `sha` loops and one `bitcount` loop whose flow facts hold for the built-in input only.
 - **Smaller than the pragma in context (2 loops).** `quicksort_init` (above) and a
   `sha` loop bounded by 8 where the flow fact says 16; the run observes 8.
-- **No bound (94 loops for every call, 83 in context).** By inspection of the sources,
-  in decreasing order of frequency:
-  - the bound is a struct field or a global, or a parameter with no range known at the
-    call either (most of `pm`, `md5`, `sha`), which annotations (`CROSSCHECK_RANGE` /
-    `CROSSCHECK_REQUIRE`) would supply; calling contexts supply the parameters of
-    `lms`, `minver` and part of `md5`;
-  - floating-point loop counters (`fir2dim` declares them `register float`; `cosf`,
-    `cubic`, `deg2rad`, `rad2deg`, one loop of `pm`), which the analyser does not model;
-  - `volatile` counters or bounds (`insertsort`, `fac`), and counters or bounds held
-    in global variables, which the analyser does not track (`filterbank`, `bitcount`,
-    `isqrt`);
-  - loops whose bound is not affine in the program variables: halving or doubling
-    (`binarysearch`, `fft`), `i * i <= n` (`prime`), loops driven by data
-    (insertion sort, partitioning in `quicksort`, string comparison, bit
-    normalisation in the soft-float library), and `while (1)` with `break`.
+- **No bound (87 loops for every call, 78 in context).** `classify_unbounded.py` reads
+  the reports of the last run and classifies these loops by the cause that the analyser
+  states in its diagnostic (a hint computed where the loop starts, not a proof that no
+  bound exists); `--list` prints every loop:
+  - **55: a variable of the test has no known range where the loop starts**: a parameter
+    with no range known at the call either, a global, a struct field or a value read
+    from memory (most of `pm`, `md5`, `sha`; the loops of `lms`, `minver` and part of
+    `md5` are bounded in context); annotations (`CROSSCHECK_RANGE` /
+    `CROSSCHECK_REQUIRE`) would supply these ranges. The guard `i * i <= n` of `prime`
+    and the bit normalisation of the soft-float library (`(ix & 0x00800000) == 0`) are
+    in this class too, although a range would not be enough for them;
+  - **27: the test does not depend on a tracked integer variable**. By reading the
+    sources: 17 have a floating-point or `volatile` counter (`fir2dim` declares its
+    counters `register float`; `cosf`, `cubic`, `deg2rad`, `rad2deg`, one loop of `pm`,
+    one of `insertsort`), which the analyser does not model; 10 are driven by data
+    (partitioning in `quicksort`, string comparison, a pointer comparison in `pm`,
+    `while (1)` left by `break` in `md5` and `minver`);
+  - **5: the variables of the test are bounded but no potential is found**: a limit held
+    in a `volatile` global (`fac`) or in a `float` (`fft_exp2f`), a test combined with
+    `&` (`filterbank`, 2 loops), insertion sort.
 - **Recursion.** `recursion` (Fibonacci) and `fac` are rejected because the recursive
   argument has no range; `recursion` has no loops, so it does not appear in the totals.
 - The 9 kernels with a `_main` bound are bounded with **no annotation and no
@@ -278,6 +283,9 @@ the loop's `for.body` / `while.body` / `do.body` block increments it) and runs t
 kernel on its built-in input. This gives, for every loop, the largest number of
 body executions in one entry of the loop. 208 of the 220 loops are reached (the
 others are in code the input does not execute, e.g. 6 loops of `pm`).
+`test_measure_loops.py` runs the instrumentation on a program whose 13 counts are known
+by construction (`do` loops, `break`, `continue`, a loop entered several times, nested
+loops, recursion, a body that never runs, `while (n-- > 0)`); it is run in CI.
 
 | loops reached (208) | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange | flow fact |
 |---|---:|---:|---:|---:|---:|
@@ -341,7 +349,8 @@ Reading this table:
   callee whose loop bound is a parameter (e.g. in `lms`) gets the
   bound from its call site. CrossCheck does the same through calling contexts (it now
   bounds `lms_main`), but the function-level counts here are its bounds for every call.
-  But its cost analysis is not designed as a sound upper bound: its documentation
+  But its results are not upper bounds in every case: its documentation
+  (https://fbinfer.com/docs/checker-cost, section "Limitations", read 2026-11-16)
   says "We do not handle recursion", and it reports constant costs for the
   recursive `recursion_fib` (13) and `fac_fac` (10), so its result for the
   `recursion` kernel is wrong. It also relies on array accesses being in bounds

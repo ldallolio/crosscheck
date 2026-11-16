@@ -28,15 +28,15 @@ reading (`AI_USAGE.md`, section 3).
 | Key | Status | Source of the copy | What was read and checked |
 |---|---|---|---|
 | `agmai2026responsible` | book or web page |  |  |
-| `albert2011closed` | no open-access copy found |  |  |
+| `albert2011closed` | not obtained (2026-11-16: the publisher's copy is not open; the related tool paper of COSTA was not used) |  | Not read. Cited with `floresmontoya2014cofloco` for cost relations solved into closed forms, which is what its title and abstract page state. |
 | `alias2010multi` | downloaded | open access (Semantic Scholar) | Title page read. Multi-dimensional rankings and complexity bounds of flowchart programs. |
 | `baccelli1992synchronization` | book or web page |  |  |
 | `bardin2008fast` | no open-access copy found |  |  |
 | `benamram2014ranking` | downloaded | arXiv | Abstract read. Confirms: existence of a linear ranking function is PTIME over the rationals and coNP-complete over the integers. |
 | `bonenfant2012ffx` | downloaded (2026-11-14) | TU Wien (author copy) | Sections 3 and 4 read. FFX grammar: root and context elements, location attributes (source file + line, address, label), `<loop>` with `maxcount` = maximal number of iterations per loop entry and `totalcount`; tools ignore unknown tags. Data checked on Crossref (DOI 10.1145/2392987.2392999). Used for the FFX exporter. |
-| `blazy2013formal` | downloaded | HAL (Inria) | Abstract read. Confirms: loop bound estimation verified in Coq, integrated into CompCert. |
+| `blazy2013formal` | downloaded | HAL (Inria) | Abstract and the passages on contributions and architecture read (2026-11-16). Confirms: loop bound estimation verified in Coq, integrated into CompCert; the analyses operate on CompCert's RTL intermediate language (program slicing, value analysis, bound calculation). |
 | `brockschmidt2016analyzing` | downloaded | open access (Semantic Scholar) | Abstract read. Alternating runtime and size bounds for integer programs; tool KoAT. |
-| `carbonneaux2015compositional` | no open-access copy found |  |  |
+| `carbonneaux2015compositional` | read 2026-11-16 (not kept) | Yale FLINT group (authors' copy) | Abstract, the start of the introduction and the passages on Clight and Coq read. Potential method of amortized analysis for C programs (tool C4B), rules for a subset of Clight (CompCert's first intermediate language), proof certificates from the derivation rules, soundness proved in Coq with respect to a cost semantics. Confirms 'certified resource bounds for C programs' and 'potential-based amortized analysis'. |
 | `clangeffects` | book or web page |  |  |
 | `colon2001synthesis` | downloaded | open access (Semantic Scholar) | Abstract read. Synthesis of linear ranking functions (deductive, linear constraints). |
 | `cormen2009introduction` | book or web page |  |  |
@@ -52,7 +52,7 @@ reading (`AI_USAGE.md`, section 3).
 | `frohn2020calculus` | downloaded | arXiv | Abstract read. A calculus combining loop acceleration techniques modularly. |
 | `giesl2019termcomp` | downloaded | open access (Semantic Scholar) | Skimmed. Confirms the competition has categories for C programs and C programs restricted to integers. |
 | `gueneau2018fistful` | downloaded | open access (Semantic Scholar) | Abstract and contributions read. Confirms: Coq, separation logic with time credits, asymptotic (O) bounds. |
-| `gulwani2009speed` | no open-access copy found |  |  |
+| `gulwani2009speed` | read 2026-11-16 (not kept) | Microsoft Research (authors' copy) | Abstract and the passages on counters and on ranking functions read. Symbolic bounds from counter instrumentation and linear invariant generation; the paper presents this as an alternative to synthesizing ranking functions. **Correction made:** Paper I cited it among works that derive bounds from ranking functions; it is now cited for counters and invariants only. |
 | `gustafsson2010malardalen` | downloaded | DROPS (Dagstuhl, open access) | Skimmed. Describes the Mälardalen WCET benchmark suite. |
 | `haslbeck2018hoare` | downloaded | publisher (Springer, open access) | Sections 1-3.1 and 5 read. Three logics (Nielson style, potentials after Carbonneaux et al., separation logic with time credits) for the deterministic language IMP, in Isabelle/HOL; sound and complete; verified VCGs; a valid triple asserts termination within the bound. The comparison in subsec:cost-logic was rewritten from this reading. |
 | `heckmann2013ait` | downloaded (2026-11-14) | AbsInt web site | Section 4 read (user annotations): `loop "R" + n loops [begin\|end] max j;` (n-th loop of routine R, counted from 1, in the executable), source annotations `/* ai: loop here max j; */`. Undated; PDF metadata 2013. Used for the AIS exporter. |
@@ -63,10 +63,10 @@ reading (`AI_USAGE.md`, section 3).
 | `kincaid2019closed` | no open-access copy found |  |  |
 | `lattner2004llvm` | downloaded | LLVM project page | Skimmed. Describes the LLVM framework; it does not describe ScalarEvolution, which the paper uses as a tool and cites LLVM for. |
 | `leroy2009coinductive` | downloaded | arXiv | Abstract read. Coinductive big-step semantics describing diverging evaluations. |
-| `li1995ilp` | no open-access copy found |  |  |
+| `li1995ilp` | read 2026-11-16 (not kept) | UCI archive of DAC papers | Abstract and the start of the introduction read. Bounds on running time by considering all paths implicitly with integer linear programming (tool cinderella, Intel i960). Confirms the citations for IPET. |
 | `lommen2022automatic` | downloaded | publisher (Springer, open access) | Abstract read. Runtime bounds for triangular weakly non-linear loops, in KoAT. |
 | `manna1974mathematical` | book or web page |  |  |
-| `maroneze2014formally` | downloaded | open access (Semantic Scholar) | Abstract read. Confirms: formally verified WCET estimation tool integrated into CompCert (loop bounds + IPET). |
+| `maroneze2014formally` | downloaded | open access (Semantic Scholar) | Abstract and the passages on RTL, assembly and IPET read (2026-11-16). Confirms: formally verified WCET estimation integrated into CompCert, loop bound estimation on RTL transported to assembly, IPET at assembly level. |
 | `mathlib2020` | downloaded | arXiv | Abstract read. |
 | `matiyasevich1970enumerable` | no open-access copy found |  |  |
 | `nielson1987hoare` | no open-access copy found |  |  |
@@ -76,24 +76,39 @@ reading (`AI_USAGE.md`, section 3).
 | `sarif2023` | web page (2026-11-14) | OASIS | Title and editors read; the JSON schema (`sarif-2.1/schema/sarif-schema-2.1.0.json` of the OASIS repository) is used by the tests. |
 | `schrijver1986theory` | book or web page |  |  |
 | `shaw1989reasoning` | no open-access copy found |  |  |
-| `sinn2014complexity` | downloaded | arXiv | Abstract read. Bound analysis with amortisation via lexicographic ranking functions on vector addition systems. |
+| `sinn2014complexity` | downloaded | arXiv | Abstract and the start of the introduction read (2026-11-16). Bound analysis with amortisation via lexicographic ranking functions on vector addition systems; the tool is called Loopus in the paper. |
 | `wegbreit1975mechanical` | no open-access copy found |  |  |
 | `wilhelm2008worst` | no open-access copy found |  |  |
 | `winskel1993formal` | book or web page |  |  |
+| `armCortexM0trm` | read 2026-11-16 (not kept) | Arm documentation service (public) | Section 3.3, Table 3-1 (instruction summary with cycle counts) read in full and encoded as a test (`benchmarks/cycles/test_m0.py`). Not on Crossref (a manual). |
+| `audsley1993applying` | read 2026-11-16 (not kept) | course copy (Univ. of Padua) | Abstract, the start of the introduction, the passages that mention Joseph and Pandya and the reference list read. Exact schedulability analysis for static-priority pre-emptive dispatching, with blocking and release jitter; it attributes the response-time equation, in a different form, to Joseph and Pandya (its reference 6: M. Joseph and P. Pandya, Computer Journal 29(5), 1986, pp. 390-395, which confirms both authors of `joseph1986finding`). |
+| `blumofe1999scheduling` | read 2026-11-16 (not kept) | course copy (UT Austin) | Abstract and the passage stating Theorem 1 read. Theorem 1 (greedy-scheduling theorem): any greedy P-processor schedule of a computation with work T1 and critical-path length T-infinity takes at most T1/P + T-infinity; the paper presents it as an adaptation of theorems of Brent (1974) and Graham (1966, 1969). Paper I now says so. |
+| `cerqueira2016prosa` | read 2026-11-16 (not kept) | MPI-SWS (authors' copy) | Abstract and the passages on goals and the case study read. Prosa: a Coq foundation for mechanized schedulability analyses, with a case study on multiprocessor response-time analysis. Confirms 'a mechanized theory of response-time analysis, far more general'. |
+| `graham1966bounds` | read 2026-11-16 (not kept) | Internet Archive scan of the Bell System Technical Journal | Abstract and the description of the system read (OCR of a scan). Identical processors, tasks with a partial order, a priority list scanned by a free processor; bounds on the ratio of finishing times. Paper I states its proposition 'after Graham', for independent tasks. |
+| `joseph1986finding` | not obtained |  | Not read. Its authors and its role (the response-time equation of fixed-priority scheduling) are confirmed by `audsley1993applying`, which was read. |
+| `kirchner2015framac` | read 2026-11-16 (not kept) | HAL (CEA) | Abstract and the passage on ACSL loop invariants read. Confirms the citation for Frama-C and ACSL in Paper II. |
+| `necula1997proof` | not obtained |  | Not read (the author's page no longer serves it). Cited for the principle of proof-carrying code only. |
+| `necula2000translation` | read 2026-11-16 (not kept) | UC Berkeley (author's copy) | Abstract and the start of the introduction read. A translation validation infrastructure for GCC that compares the intermediate form before and after each pass. Confirms the citation. |
+| `nipkow2002hoare` | read 2026-11-16 (not kept) | TU Munich (author's copy) | Abstract, the start of the introduction and the rules for total correctness read. Sound and complete Hoare logics for recursive procedures with unbounded nondeterminism, in Isabelle/HOL; the rule for total correctness of a recursive call uses a well-founded relation and an assumption on the calls. Confirms 'the usual rule for recursive procedures' for rule (9). |
+| `pnueli1998translation` | read 2026-11-16 (not kept) | publisher (Springer, free to read) | Abstract and the start of the introduction read. Introduces translation validation: each run of the translator is followed by a validation of its output against its input. Confirms the citation. |
 
 ## Not read
 
-`nielson1987hoare` (the origin of Hoare logics for running time) could not be obtained;
-what the paper says about it rests on its description in `haslbeck2018hoare`, and the
-paper carries an `\authortodo` for it. The other entries without a copy were not read
-either: `cousot1977abstract`, `podelski2004transition`, `podelski2004complete`,
-`wilhelm2008worst`, `li1995ilp`, `wegbreit1975mechanical`, `floyd1967assigning`,
-`gulwani2009speed`, `albert2011closed`, `hoffmann2012multivariate`,
-`carbonneaux2015compositional`, `bardin2008fast`, `shaw1989reasoning`,
-`puschner1989calculating`, `kincaid2019closed`, `kahn1987natural`, `demichiel2008orange`,
-`floresmontoya2014cofloco`, `matiyasevich1970enumerable`, and the books.
+Updated 2026-11-16, after a second attempt to obtain the papers on which the text relies
+(the files of that attempt were read and not kept).
 
-`kirchner2015framac` (added 2026-11-16, cited in Paper II for ACSL and Frama-C): not read;
-its title, authors, journal, volume, pages and year were checked on Crossref
-(DOI 10.1007/s00165-014-0326-7). Cited from the assistant's general knowledge of what
-Frama-C and ACSL are: **the author must check that the citation is the appropriate one**.
+`nielson1987hoare` (the origin of Hoare logics for running time) could not be obtained;
+what Paper I says about it rests on its description in `haslbeck2018hoare`, and the paper
+carries an `\authortodo` for it. Also not obtained and not read, each with an
+`\authortodo` in the paper that relies on it: `necula1997proof`, `joseph1986finding`
+(Paper I), `albert2011closed`, `hoffmann2012multivariate`, `wilhelm2008worst`,
+`shaw1989reasoning`, `puschner1989calculating`, `demichiel2008orange`,
+`floresmontoya2014cofloco` (Paper II). The other entries without a copy were not read
+either and are cited for well-known results: `cousot1977abstract`,
+`podelski2004transition`, `podelski2004complete`, `wegbreit1975mechanical`,
+`floyd1967assigning`, `bardin2008fast`, `kincaid2019closed`, `kahn1987natural`,
+`matiyasevich1970enumerable`, and the books.
+
+A reading by the AI assistant does not replace the author's: the notes say which
+passages were read (mostly abstracts and the passages found by searching the text for the
+claim to check, not whole papers), and the sentences that cite each paper are short enough to compare.

@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 21 modules, about 5,700 lines, 284 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 21 modules, about 5,800 lines, 288 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -123,8 +123,8 @@ flowchart LR
 | `MiniCCore` | 275 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt` (incl. `divStore`, `assignU`, `call`, each lowered to existing checker programs: `divFacts`, `divOf`, `storeArg`); **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |
 | `MiniC` | 285 | `CImp`/`CEquiv` (same executions and prefixes), congruences, `seq_assoc`, `nf_equiv`, **`validated_sound`** (accepted program + validated body ⇒ the source meets the bound); examples `countCert_validated`, `countCert_not_validated` |
 | `ResponseCore` | 50 | no mathlib: `rtaHolds C hs R` (`C + Σ cₖ⌈R/Tₖ⌉ ≤ R`), `rtaSearch` (the iteration); used by the checker program |
-| `Interrupts` | 260 | schedule model `Admissible`, `sporadic_count`, `handler_demand`, **`response_time_bound`**, `rtaHolds_sound`; example schedule `oneRun_admissible` |
-| `ForkJoin` | 120 | greedy (list) scheduling `Greedy`, **`greedy_bound`** (Graham: `p·L ≤ W + p·S`), `forkjoin_bound` (with certified task bounds), `load_lower` |
+| `Interrupts` | 290 | schedule model `Admissible` (the activations of a handler are a set, possibly infinite; `before` takes those released before a slot), `sporadic_count`, `handler_demand`, **`response_time_bound`**, `rtaHolds_sound`; example schedules `oneRun_admissible`, `perRun_admissible` (a handler activated every 5 slots forever) |
+| `ForkJoin` | 140 | greedy (list) scheduling `Greedy`, **`greedy_bound`** (Graham: `p·L ≤ W + p·S`), `forkjoin_bound` (with certified task bounds), `makespan_lower` (for every assignment of tasks to processors, the makespan is at least `W/p` and at least every task) |
 | `Stack` | 150 | stack depth as a high-water mark: activation trees `ActTree`, `highWater`, **`highWater_le_of_bound`** (the composition rule of `benchmarks/cycles/stack.py`), `highWater_le_depth` (from a recursion depth) |
 | `Examples` | 270 | the paper's four examples |
 
