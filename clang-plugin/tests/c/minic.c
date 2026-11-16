@@ -85,12 +85,124 @@ int no_alias(int *out) {
   return i;
 }
 
-/* a return inside a loop (not in the fragment of the exporter yet) */
-int no_return(int n) {
+/* early exits: break, continue and return inside while and for loops are written with
+   the flag variables of the certificate (?break<depth>, ?continue<depth>, ?return): a
+   jump stores 1 into its flag, the loop test also requires the break and return flags to
+   be 0, the increment of a for loop runs only if they are, and what follows a loop that
+   may return runs only if it did not */
+int ok_return_in_loop(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 50);
   for (int i = 0; i < n; i++)
     if (i > 20) return i;
   return 0;
+}
+int ok_break(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 100);
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    if (i >= 40) break;
+    k++;
+  }
+  return k;
+}
+int ok_break_while(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 100);
+  int k = 0;
+  while (n > 0) {
+    n--;
+    if (k >= 7) break;
+    k++;
+  }
+  return k;
+}
+int ok_continue(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 30);
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    if (i < 3) continue;
+    k++;
+  }
+  return k;
+}
+/* a break of the inner loop only, then statements of the outer body */
+int ok_break_nested(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 10);
+  int s = 0;
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < 8; j++) {
+      if (j > i) break;
+      s++;
+    }
+    s++;
+  }
+  return s;
+}
+/* a return in an inner loop leaves both loops; statements follow each loop */
+int ok_return_nested(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 10);
+  int s = 0;
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < 4; j++) {
+      if (s > 20) return s;
+      s++;
+    }
+    s++;
+  }
+  s = s + 1;
+  return s;
+}
+/* two loops of the same depth, one after the other: the same flag, cleared by each */
+int ok_break_twice(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  int k = 0;
+  for (int i = 0; i < n; i++) { if (i == 5) break; k++; }
+  for (int i = 0; i < n; i++) { if (i == 9) break; k++; }
+  return k;
+}
+/* break, continue and return in one loop */
+int ok_all_exits(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 40);
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    if (i == 2) continue;
+    if (i == 30) break;
+    if (k > 25) return -1;
+    k++;
+  }
+  return k;
+}
+/* a loop without a test, left by break: not in the fragment (a certificate uses another
+   kind of loop for a flag alone) */
+int no_loop_without_test(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  int k = 0;
+  for (int i = 0;; i++) {
+    if (i >= n) break;
+    k++;
+  }
+  return k;
+}
+/* do loops and switch are not in the fragment */
+int no_do_break(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  int k = 0;
+  do {
+    if (k >= n) break;
+    k++;
+  } while (k < 20);
+  return k;
+}
+int no_switch_in_loop(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    switch (i) {
+      case 1: k += 2; break;
+      case 2: continue;
+      default: k++;
+    }
+  }
+  return k;
 }
 
 /* returns in conditionals outside loops: the rest of the body goes into the branches */

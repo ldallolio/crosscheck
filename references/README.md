@@ -92,6 +92,10 @@ reading (`AI_USAGE.md`, section 3).
 | `nipkow2002hoare` | read 2026-11-16 (not kept) | TU Munich (author's copy) | Abstract, the start of the introduction and the rules for total correctness read. Sound and complete Hoare logics for recursive procedures with unbounded nondeterminism, in Isabelle/HOL; the rule for total correctness of a recursive call uses a well-founded relation and an assumption on the calls. Confirms 'the usual rule for recursive procedures' for rule (9). |
 | `pnueli1998translation` | read 2026-11-16 (not kept) | publisher (Springer, free to read) | Abstract and the start of the introduction read. Introduces translation validation: each run of the translator is followed by a validation of its output against its input. Confirms the citation. |
 
+`ballabriga2010otawa` (added 2026-11-16, cited in Paper II for the OTAWA tool, which was
+run): not read; title, authors, series, pages and year checked on Crossref
+(DOI 10.1007/978-3-642-16256-5_6). `armCortexM0trm` is a manual without a DOI.
+
 ## Not read
 
 Updated 2026-11-16, after a second attempt to obtain the papers on which the text relies

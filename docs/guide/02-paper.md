@@ -178,6 +178,10 @@ flowchart LR
   | a store into an unsigned variable | `assignU` | `x := e` if `0 ≤ e ≤ hi`, else `x := ?` |
   | `f(a₁, …)` | `call`, `storeArg` | stores of the arguments into the callee's parameter variables, then the checker's `call` node |
 
+  Mini-C has no jumps. The tool writes `break`, `continue` and `return` inside loops with
+  flag variables in the mini-C above (guide part 4); Paper I says that this rewriting is
+  part of the trusted description.
+
 - `lem:nf-equiv` (`nf_equiv`): `c` and `nf c` have the same executions and prefixes, same
   costs (associativity, units, congruences; induction on derivations for loops).
 - `thm:validated` (`validated_sound`): accepted program + validated body ⇒ the bound holds

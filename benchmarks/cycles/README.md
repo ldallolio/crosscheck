@@ -86,6 +86,44 @@ loop's instructions, gave `matrix1_main` 100 iterations instead of 10 (an instru
 the loop's preheader inherits the line of another loop) and a bound 105 times the observed
 cycles; trying the lines of the back-edge branches first gives 1.31.
 
+## OTAWA on the same binaries (2026-11-16)
+
+`run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)
+(Ballabriga, Cassé, Rochange, Sainrat, SEUS 2010; version 2.3.0 here), which is not part
+of this repository: build its image yourself (`docker build . --target otawa-dev -t
+otawa:dev` in its project). The script runs it without network.
+
+```bash
+python3 benchmarks/cycles/run_otawa.py --lld PATH/TO/ld.lld --check \
+    --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13   # on the author's machine
+#   --lld: any LLVM linker for Arm; a Rust toolchain has one (`rust-lld`)
+```
+
+Each kernel is linked into an executable (no library: the soft-float functions stay
+undefined, and the functions that call them have no bound, as above). For every function
+with a bound of the timing schema, the bounds of its loops are written as FFX flow facts
+on the headers of the binary loops, by label and offset (`<loop label="f" offset="0x16"
+maxcount="N+1"/>`: a source bound `N` counts executions of the body, OTAWA's `maxcount`
+executions of the header per entry of the loop), and `owcet -s trivial -p stages=1`
+computes a bound by IPET, in executed instructions (no Cortex-M0 description was written
+for OTAWA, so this is not a cycle bound). The program is then run by `m0.py`.
+
+| | |
+|---|---:|
+| functions given to OTAWA (those with a cycle bound above) | 107 |
+| ... for which OTAWA computes a bound | 107 (6 entry functions `main`) |
+| flow facts | 199 |
+| calls completed by the runs and compared | 11, **no bound below the executed instructions** |
+| bound / executed, geometric mean (largest) | 2.36 (756: `fft_bit_reduct`, product of nested bounds) |
+| OTAWA's bound at most the timing schema's (same unit) | 52 functions; above for 55 |
+
+OTAWA's bound is above the schema's where a loop header gets one more execution than the
+body and the schema counts only the exit path for it. **Why label and offset**: the FFX
+that the plugin exports designates a loop by source file and line; on these `-O1`
+binaries OTAWA could not place such facts (inlined callees, rotated loops: "no limit for
+the loop at ..."), so the matching of binary loops to source loops is done by `wcet.py`,
+as for the cycle bounds. That matching is checked on runs, not proved.
+
 ## Stack bounds (2026-11-16)
 
 `stack.py` bounds the stack of every function of the same binaries: the largest depth of

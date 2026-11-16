@@ -95,7 +95,7 @@ flowchart LR
    `benchmarks/tacle/README.md`).
 2. **Flow-fact export and CI/SARIF** (I1, I2): immediate industrial value, no theory.
    **Done 2026-11-14**: FFX, AIS, AIS2, SARIF, cost diff; FFX values equal oRange's on 114
-   TACLeBench loops. Open: loading the files into OTAWA and aiT on compiled code.
+   TACLeBench loops. Loaded into OTAWA on 2026-11-16 (step 17 below), after placement on the binary loops; aiT: open.
 3. **Modular symbolic certificates + library contracts** (S2, I4): the main scientific and
    industrial step; closes the TPDB gap and makes real code bases tractable. **Done in the
    checker and the generator (2026-11-14)**: symbolic bounds `SB`, `call` nodes against
@@ -212,7 +212,7 @@ hard problem is hardware timing, which CrossCheck does not address. The value is
 | 14 | Stack-depth bounds (high-water mark: a new resource in the theory), checked against the Cortex-M0 runs | T + E | **done 2026-11-16**: Lean `Stack` (`highWater_le_of_bound`, `highWater_le_depth`), `benchmarks/cycles/stack.py`; 143 of 267 kernel functions, 24 calls compared, no violation. Open: recursion from a depth bound, frames adjusted by a register |
 | 15 | ACSL export of invariants and variants | E | **done 2026-11-16** (`scripts/acsl_export.py`), tested as run-time checks on random programs; **not run through Frama-C** (not installed here) |
 | 16 | Qualification-kit skeleton for the checker | E | **done 2026-11-16** (`docs/qualification/`): 9 requirements with evidence, traceability checked in CI; not reviewed by a specialist |
-| 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | **not done**: OTAWA's sources are public (`statinf-otawa/otawa-project`, with a Dockerfile), but fetching and building them was not permitted in the AI session of 2026-11-16; the author can run `git clone --recurse-submodules https://github.com/statinf-otawa/otawa-project && docker build . -t otawa:local` and the work can resume from there. ROSACE, PapaBench and cFS were not fetched either |
+| 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | **done in part (2026-11-16)**: OTAWA 2.3 (image built by the author) computes an IPET bound for all 107 functions that have a cycle bound, from 199 flow facts placed on the binary loops by `benchmarks/cycles/run_otawa.py` (label + offset; the source-line FFX is not placed by OTAWA on `-O1` code), one unit per instruction; 11 executed calls compared, no bound below an execution. Open: a Cortex-M0 description for OTAWA (cycles instead of instructions), source-line flow facts that survive optimisation, aiT. ROSACE, PapaBench and cFS were not fetched |
 | 18 | Recursion in the checker (rule 9); amortised bounds for nested loops | T | **not done**. Recursion: low industrial priority (MISRA C forbids it), a full Lean development (soundness by induction on the rank for program certificates). Amortisation: needs a potential-based logic (cost bounded by a difference of potentials), a new theory step; the measured need is the `fft` nest (cycle bound 970 times the run) and triangular loops (`bsort`, 2.49) |
 
 The author's own verification items (`AI_USAGE.md` section 3) remain what blocks the arXiv

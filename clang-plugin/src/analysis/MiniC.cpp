@@ -436,15 +436,95 @@ class Exporter {
     return {s};
   }
 
-  /// A statement list of the function's body, outside loops. `return` ends the
-  /// function: what follows it is not run; a conditional or block that contains a
-  /// `return` takes the rest of the list into its branches.
+  // -- early exits ---------------------------------------------------------------------
+  //
+  // Mini-C has no jumps. `break`, `continue` and `return` inside a `while` or `for` loop
+  // are written with flag variables, in the usual way:
+  //
+  //   * a jump is a store of 1 into its flag (`break`, `continue`: of weight `branch`;
+  //     `return`: the cost of the return, then the store, of weight 0), and nothing of
+  //     the statement list follows it; a conditional or block that contains a jump of the
+  //     enclosing loop takes the rest of the list into its branches, so that the rest
+  //     runs only on the paths that do not jump;
+  //   * a loop that contains a `break` or a `return` clears those flags (weight 0), and
+  //     its test is the conjunction of the C test and `flag <= 0` for each of them; the
+  //     increment of a `for` runs only if they are 0 (`continue` does run it); the
+  //     `continue` flag is cleared at the start of every iteration;
+  //   * the statements that follow a loop containing a `return` run only if the `return`
+  //     flag is 0, and the flag is cleared before such a loop.
+  //
+  // After a jump the loop test is evaluated once more than in C, where control leaves at
+  // once: the description costs at least as much as the C function. Tests have no side
+  // effects (`pure`), so this changes no value.
+  //
+  // The flags are variables of the certificate, found by name (`Inputs::flag`); they are
+  // not variables of the source.
+
+  struct Loop {
+    std::optional<std::size_t> brk, cnt;
+  };
+  std::vector<Loop> loops_;  ///< the loops around the statement being translated
+
+  /// `break` / `continue` of the construct `s` is a child of (not those of a nested loop).
+  static void jumps(const Stmt* s, bool inLoop, bool& brk, bool& cnt) {
+    if (!s) return;
+    if (isa<BreakStmt>(s)) { if (!inLoop) brk = true; return; }
+    if (isa<ContinueStmt>(s)) { if (!inLoop) cnt = true; return; }
+    if (isa<LambdaExpr>(s)) return;
+    if (isa<SwitchStmt>(s)) return;  // refused where it is translated
+    bool loop = isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<CXXForRangeStmt>(s);
+    for (const Stmt* c : s->children()) jumps(c, inLoop || loop, brk, cnt);
+  }
+  static bool isLoop(const Stmt* s) {
+    return isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<CXXForRangeStmt>(s) ||
+           isa<SwitchStmt>(s);
+  }
+  /// Does `s` leave the list it is in (a `return`, or a jump of the enclosing loop)?
+  static bool endsList(const Stmt* s) {
+    if (isLoop(s)) return false;  // loops handle their own jumps
+    if (hasReturn(s)) return true;
+    bool b = false, c = false;
+    jumps(s, false, b, c);
+    return b || c;
+  }
+
+  std::size_t flag(const std::string& name) const {
+    std::optional<std::size_t> f = in_.flag ? in_.flag(name) : std::nullopt;
+    if (!f) throw Refused{"an early exit without a flag variable in the certificate (" + name + ")"};
+    if (*f < 2) throw Refused{"internal: a flag variable that is reserved"};
+    for (const auto& [v, i] : *in_.vars)
+      if (i == *f) throw Refused{"internal: a flag variable that is a variable of the source"};
+    return *f;
+  }
+  static std::string lit(std::int64_t k) { return "{\"e\":\"lit\",\"k\":" + num(k) + "}"; }
+  /// The test `flag <= 0`.
+  static std::string clear(std::size_t f) {
+    return "{\"c\":\"cmp\",\"op\":\"<=\",\"a\":{\"e\":\"var\",\"x\":" + unum(f) + "},\"b\":" + lit(0) + "}";
+  }
+  /// `if (flag <= 0) a` (a test of weight 0: it is not code of the source).
+  static std::string unless(std::size_t f, const std::string& a) {
+    return "{\"s\":\"if\",\"w\":0,\"c\":" + clear(f) + ",\"a\":" + a + ",\"b\":" + skip() + "}";
+  }
+
+  /// A statement list. A jump ends it: what follows is not run; a conditional or block
+  /// that contains a jump takes the rest of the list into its branches.
   std::string block(const std::vector<const Stmt*>& l, std::size_t from = 0) {
     if (from >= l.size()) return skip();
     const Stmt* st = l[from];
-    if (const auto* rs = dyn_cast<ReturnStmt>(st)) return ret(rs);
+    if (isa<BreakStmt>(st)) {
+      if (loops_.empty() || !loops_.back().brk) throw Refused{"a break outside a loop"};
+      return assign(in_.branch, *loops_.back().brk, lit(1));
+    }
+    if (isa<ContinueStmt>(st)) {
+      if (loops_.empty() || !loops_.back().cnt) throw Refused{"a continue outside a loop"};
+      return assign(in_.branch, *loops_.back().cnt, lit(1));
+    }
+    if (const auto* rs = dyn_cast<ReturnStmt>(st)) {
+      if (loops_.empty()) return ret(rs);
+      return seq({ret(rs), assign(0, flag("?return"), lit(1))});
+    }
     std::vector<const Stmt*> rest(l.begin() + static_cast<std::ptrdiff_t>(from) + 1, l.end());
-    if (hasReturn(st)) {
+    if (endsList(st)) {
       if (const auto* cs = dyn_cast<CompoundStmt>(st)) {
         std::vector<const Stmt*> m(cs->body_begin(), cs->body_end());
         m.insert(m.end(), rest.begin(), rest.end());
@@ -461,17 +541,67 @@ class Exporter {
         e.insert(e.end(), rest.begin(), rest.end());
         return ifStmt(is, block(t), block(e));
       }
-      throw Refused{"a return inside a loop or a switch"};
+      throw Refused{"a jump in a statement that is not a conditional or a block"};
+    }
+    if (isLoop(st) && hasReturn(st)) {
+      // A loop that may return: the flag is cleared first, and the rest of the list runs
+      // only if the loop did not return.
+      std::size_t r = flag("?return");
+      std::vector<std::string> ss{assign(0, r, lit(0)), stmt(st)};
+      if (!rest.empty()) ss.push_back(unless(r, block(l, from + 1)));
+      return seq(ss);
     }
     return seq({stmt(st), block(l, from + 1)});
   }
 
-  /// A statement list inside a loop (no `return`).
+  /// The statement list of a branch or of a loop body.
   std::string list(const Stmt* s) {
     if (!s) return skip();
-    if (hasReturn(s)) throw Refused{"a return inside a loop"};
+    return block(flatten(s));
+  }
+
+  /// A `while` or `for` loop. Without early exits it is the mini-C loop of the same
+  /// form. With a `break` or a `return` in its body, see "early exits" above; a `for`
+  /// loop is then written as its initialisation followed by a `while` loop whose body
+  /// ends with the increment (which is what a mini-C `for` means).
+  std::string loop(bool isFor, const Stmt* init, const Expr* test, const Expr* inc, const Stmt* body) {
+    if (test) pure(test, "a loop test");
+    bool b = false, c = false;
+    jumps(body, false, b, c);
+    bool rets = hasReturn(body);
+    std::size_t depth = loops_.size();
+    Loop lp;
+    if (b) lp.brk = flag("?break" + std::to_string(depth));
+    if (c) lp.cnt = flag("?continue" + std::to_string(depth));
+    std::vector<std::size_t> exits;
+    if (lp.brk) exits.push_back(*lp.brk);
+    if (rets) exits.push_back(flag("?return"));
+    std::string i = init ? stmt(init) : skip();
+    std::string u = inc ? effect(inc, in_.costOf(inc)) : skip();
+    loops_.push_back(lp);
+    std::string bd = list(body);
+    loops_.pop_back();
+    if (exits.empty() && !lp.cnt) {
+      if (!isFor) return "{\"s\":\"while\"," + loopTest(test, {}) + ",\"body\":" + bd + "}";
+      return "{\"s\":\"for\",\"init\":" + i + "," + loopTest(test, {}) + ",\"inc\":" + u + ",\"body\":" + bd + "}";
+    }
+    std::vector<std::string> cs0;
+    if (test) conjuncts(test, cs0);
+    // A loop with one test is a `while` node of the checker and a loop with several a
+    // `whileAnd` node; the two are not identified by the normal form, and a certificate
+    // uses `whileAnd` for a flag alone. Refused, so that no source is written.
+    if (cs0.empty()) throw Refused{"a loop without a test, left by an early exit"};
     std::vector<std::string> ss;
-    for (const Stmt* t : flatten(s)) ss.push_back(stmt(t));
+    if (init) ss.push_back(i);
+    for (std::size_t f : exits) ss.push_back(assign(0, f, lit(0)));
+    std::vector<std::string> bs;
+    if (lp.cnt) bs.push_back(assign(0, *lp.cnt, lit(0)));
+    bs.push_back(bd);
+    if (inc) {
+      for (std::size_t f : exits) u = unless(f, u);
+      bs.push_back(u);
+    }
+    ss.push_back("{\"s\":\"while\"," + loopTest(test, exits) + ",\"body\":" + seq(bs) + "}");
     return seq(ss);
   }
 
@@ -691,22 +821,17 @@ class Exporter {
 
   std::string stmt(const Stmt* st) {
     if (const auto* cs = dyn_cast<CompoundStmt>(st)) return list(cs);
-    if (isa<ReturnStmt>(st)) throw Refused{"a return inside a loop"};
+    if (isa<ReturnStmt>(st) || isa<BreakStmt>(st) || isa<ContinueStmt>(st)) return block({st});
     if (isa<NullStmt>(st)) return skip();
     if (const auto* ds = dyn_cast<DeclStmt>(st)) return decl(ds);
     if (const auto* is = dyn_cast<IfStmt>(st)) return ifStmt(is, list(is->getThen()), list(is->getElse()));
     if (const auto* ws = dyn_cast<WhileStmt>(st)) {
       if (ws->getConditionVariable()) throw Refused{"condition variable"};
-      pure(ws->getCond(), "a loop test");
-      return "{\"s\":\"while\"," + loopTest(ws->getCond()) + ",\"body\":" + list(ws->getBody()) + "}";
+      return loop(false, nullptr, ws->getCond(), nullptr, ws->getBody());
     }
     if (const auto* fs = dyn_cast<ForStmt>(st)) {
       if (fs->getConditionVariable()) throw Refused{"condition variable"};
-      if (fs->getCond()) pure(fs->getCond(), "a loop test");
-      std::string init = fs->getInit() ? stmt(fs->getInit()) : skip();
-      std::string inc = fs->getInc() ? effect(fs->getInc(), in_.costOf(fs->getInc())) : skip();
-      return "{\"s\":\"for\",\"init\":" + init + "," + loopTest(fs->getCond()) + ",\"inc\":" + inc +
-             ",\"body\":" + list(fs->getBody()) + "}";
+      return loop(true, fs->getInit(), fs->getCond(), fs->getInc(), fs->getBody());
     }
     if (const auto* as = dyn_cast<AttributedStmt>(st)) return stmt(as->getSubStmt());
     if (const auto* e = dyn_cast<Expr>(st)) {
@@ -716,7 +841,9 @@ class Exporter {
     throw Refused{std::string("statement not in the fragment (") + st->getStmtClassName() + ")"};
   }
 
-  std::string loopTest(const Expr* c) const {
+  /// The weight and the conjuncts of a loop test, followed by `flag <= 0` for each of
+  /// the flags `exits`.
+  std::string loopTest(const Expr* c, const std::vector<std::size_t>& exits) const {
     std::vector<std::string> cs;
     if (c) conjuncts(c, cs);
     // Mini-C gives no meaning to a loop whose test has an unknown part (Lean `lower`
@@ -724,6 +851,7 @@ class Exporter {
     for (const std::string& x : cs)
       if (x.find("\"other\"") != std::string::npos)
         throw Refused{"a loop test that is not a conjunction of comparisons of tracked values"};
+    for (std::size_t f : exits) cs.push_back(clear(f));
     std::string s = "\"w\":" + unum(c ? in_.costOf(c) + in_.branch : 0) + ",\"cs\":[";
     for (std::size_t i = 0; i < cs.size(); ++i) s += (i ? "," : "") + cs[i];
     return s + "]";

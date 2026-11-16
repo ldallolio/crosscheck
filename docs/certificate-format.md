@@ -165,11 +165,33 @@ other statement is `cost`; signed `+`, `-`, `*`, unary `-` and value-preserving
 conversions are exact (signed overflow is undefined behaviour, assumed absent);
 compound `+=`/`-=` and `++`/`--` are exact only when converting the result back to the
 variable's type preserves values. `return` ends the function: outside loops, the rest
-of the body moves into the branches of a conditional that contains one. Refused (no
-source, reason in `source_refused`): calls, `return` in a loop, `break`, `continue`,
-`switch`, `goto`, `do`; tracked variables that are unsigned, global, static, volatile or
-whose address is taken; assignments of `>>`, `/`, `%`, `&` or of reads of constant
-tables (the generator describes these by facts, `havocC`, which mini-C does not have yet).
+of the body moves into the branches of a conditional that contains one. Quotients,
+shifts, remainders and masks by a constant are `div` statements, stores into
+`unsigned int` or wider variables are `assignU`, calls of functions with an entry in the
+file are `call` (see the grammar above).
+
+**Early exits.** Mini-C has no jumps: `break`, `continue` and `return` inside `while`
+and `for` loops are written with the flag variables of the certificate, which the
+exporter finds by name (`?break<d>` and `?continue<d>` for a loop at nesting depth `d`,
+0 for a loop inside no other loop; `?return`): a jump is `flag = 1` (weight: a branch for
+`break` and `continue`; 0 after the cost of a `return`), and nothing of its statement
+list follows it; a conditional or block that contains a jump takes the rest of the list
+into its branches; a loop with a `break` or a `return` clears those flags first, has
+`flag <= 0` as further conjuncts of its test, and runs the increment of a `for` under
+`if (flag <= 0)` (weight 0); the `continue` flag is cleared at the start of each
+iteration; what follows a loop that may return runs under `if (?return <= 0)`. This
+rewriting is done by the exporter, so it is trusted for validated certificates; it is
+tested on random programs (`tests/fuzz_bounds.py` runs the mini-C source and the
+compiled C side by side). After a jump the description evaluates the loop test once
+more than C does, so it costs at least as much. The generator uses one flag variable per
+name, so that a loop lowered twice (a list copied into both branches of a conditional)
+has the same flags.
+
+Refused (no source, reason in `source_refused`): calls in tests, indirect calls, calls
+of functions without an entry; loops without a test that are left by a jump; `switch`,
+`goto`, `do`; tracked variables that are global, static, volatile, of a narrow unsigned
+type, or whose address is taken; divisions and shifts outside the modelled forms; reads
+of constant tables.
 
 ## How the plugin produces certificates
 

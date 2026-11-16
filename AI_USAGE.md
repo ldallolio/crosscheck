@@ -863,6 +863,25 @@ in the papers says that the author verified anything.
 - **TPDB** (part of one mark). The five potentials "checked by hand" are now certificates
   accepted by the Lean checker (run for these five programs); the sentence says so.
   `benchmarks/tpdb/results/tpdb.json` was stale (2026-11-13) and was regenerated.
+- **Early exits in the mini-C export** (the "improve" part of the prompt). `break`,
+  `continue` and `return` inside `while` and `for` loops are now exported, written with
+  the certificate's flag variables in the existing mini-C (no change to Lean, `lower` or
+  `validate`): the rewriting is in `MiniC.cpp` (`Exporter::block`, `loop`) and is trusted
+  for validated certificates; Paper I and Paper II say so, and that the description
+  evaluates the loop test once more than C after a jump. The generator now keeps one
+  flag variable per name (`CertCtx::flagVar`), named by loop nesting depth. Tests:
+  eight `ok_*` and three `no_*` functions in `tests/c/minic.c`; the random generator now
+  puts `break` into exportable functions (40 files: 61 mini-C sources run against the
+  compiled C, no mismatch, no bound below a run). Result on the kernels: 144 of 161
+  validated (143), 137 with all callees (134); certificates unchanged (161 of 165). The
+  earlier reason "`return` or `break` inside a loop (6)" was mostly `switch` (5).
+- **OTAWA** (the author built its Docker image during the session and said so; the AI ran
+  it with `--network none`). `benchmarks/cycles/run_otawa.py`: the kernels linked for the
+  Cortex-M0 with `rust-lld`, CrossCheck's bounds as FFX flow facts on the binary loop
+  headers (label and offset, `maxcount` = bound + 1), `owcet` with the `trivial` script at
+  one unit per instruction. 107 functions bounded by OTAWA, 11 executed calls compared,
+  no violation. Finding: the source-line FFX that the plugin exports is not placed by
+  OTAWA on `-O1` code. New reference `ballabriga2010otawa` (Crossref-checked, not read).
 - Left in the papers: the two statements of responsibility; five reading marks for the
   papers not obtained; one mark on the descriptions of KoAT2, CoFloCo and oRange; one on
   the fairness of the TPDB harness.
@@ -1226,3 +1245,11 @@ is whether each Lean statement says what the paper says, and everything outside 
       before publication;
     - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
       papers not obtained keep an `\authortodo`.
+34. **Early exits in mini-C and OTAWA (prompt 45).** Read `Exporter::block` and
+    `Exporter::loop` in `MiniC.cpp` (the flag rewriting is now trusted for validated
+    certificates) and decide whether you accept that a description may cost one loop test
+    more than the C code after a jump; read the paragraph "A WCET analyzer on the same
+    binaries" of Paper II and `run_otawa.py`: the reading of OTAWA's `maxcount` (header
+    executions per loop entry) is the AI's, from OTAWA's behaviour and general knowledge,
+    not from its documentation; the unit is instructions, not cycles; check the reference
+    `ballabriga2010otawa`.

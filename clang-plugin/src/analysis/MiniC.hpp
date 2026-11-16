@@ -41,6 +41,11 @@ struct Inputs {
   /// variable of `vars`: nothing else about them is trusted, and a wrong choice makes
   /// validation fail.
   std::map<const clang::Expr*, std::size_t> scratch;
+  /// Flag variables of the certificate for early exits of this function's loops, by name:
+  /// `?break<d>` and `?continue<d>` for a loop at nesting depth `d` (0 for a loop that is
+  /// in no other loop), `?return` for a `return` inside a loop. As for `scratch`, only the
+  /// index is used, after checking that it is not a variable of `vars`.
+  std::function<std::optional<std::size_t>(const std::string&)> flag;
   /// The layout of the certificate file for a called function (none: it has no entry of
   /// its own, the exporter refuses the call). Only this layout is used; whether the
   /// certificate's program really calls it there is what validation checks.
@@ -57,7 +62,10 @@ struct Inputs {
 /// construct it does not model exactly is either an unknown value (`other`: reads of
 /// memory and of untracked variables, non-affine or possibly-wrapping arithmetic,
 /// narrowing conversions), a statement that only costs (stores to memory or to untracked
-/// variables), or a refusal (calls, jumps, unsigned or aliased tracked variables, ...).
+/// variables), or a refusal (indirect calls, `goto`, `switch`, `do` loops, aliased tracked
+/// variables, ...). `break`, `continue` and `return` inside `while` and `for` loops are
+/// written with flag variables (see `Exporter::block` in MiniC.cpp): mini-C itself has no
+/// jumps, so this rewriting is part of what is trusted.
 /// Signed arithmetic is exact: signed overflow is undefined behaviour, assumed absent.
 struct Result {
   std::optional<std::string> json;

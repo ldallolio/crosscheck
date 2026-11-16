@@ -81,7 +81,7 @@ class Gen:
         r = self.rng
         self.signed = r.random() < 0.75
         # Nearly half of the signed functions stay inside the mini-C fragment (no
-        # disequality, no break, few inputs), so that the export is compared with the C.
+        # disequality, few inputs), so that the export is compared with the C.
         self.plain = self.signed and r.random() < 0.45
         self.T = "I" if self.signed else "U"
         self.name = f"f{idx}"
@@ -154,7 +154,8 @@ class Gen:
                 self.emit(f"{ind}{self.update()}")
             elif k < 0.8:
                 self.emit(f"{ind}if ({self.cond()}) {{ {self.update()} }} else {{ {self.update()} }}")
-            elif k < 0.9 and not self.plain:
+            elif k < 0.9:
+                # also in the plain functions: the export writes `break` with a flag
                 self.emit(f"{ind}if ({self.cond()}) break;")
             elif depth < 2 and self.nloops < 7:
                 self.loop(depth + 1, ind)

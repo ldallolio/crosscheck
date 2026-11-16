@@ -65,7 +65,8 @@ limitation, it says so.
 ## 4. WCET and real-time
 
 - **"Is this a WCET tool?"** Not in general. It gives loop bounds and path costs in
-  abstract units, and exports the loop bounds for aiT and OTAWA. For one predictable core,
+  abstract units, and exports the loop bounds for aiT and OTAWA (OTAWA computes bounds
+  for the 107 bounded functions of the Cortex-M0 binaries from them: `run_otawa.py`). For one predictable core,
   the Cortex-M0 (no cache, fixed timings), `benchmarks/cycles` turns them into cycle bounds
   of the compiled code, checked against an interpreter's cycle counts; the timing table is
   compared row by row with Table 3-1 of Arm's manual (`test_m0.py`) and not checked on

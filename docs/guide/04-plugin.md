@@ -202,7 +202,26 @@ one table:
 | any other statement without calls | `cost w` |
 | `if`, `while`, `for` (tests `< <= > >=`, `!`, `&&` in loops) | the same |
 | `return` outside loops | `cost`; the rest of the body goes into the branches |
-| calls, `break`, `continue`, `switch`, `do`, unsigned/global/aliased tracked variables, `/ % >> &`, tables | refused (`source_refused`) |
+| `x = y / c`, `% c`, `& c`, `>> k`; stores into `unsigned`; calls of functions of the file | `div`, `assignU`, `call` |
+| `break`, `continue`, `return` inside `while` / `for` | no mini-C statement: written with the certificate's flag variables (below) |
+| calls in tests, `switch`, `do`, `goto`, loops without a test, global/static/aliased tracked variables, tables | refused (`source_refused`) |
+
+Early exits, on `for (i = 0; i < n; i++) { if (c) break; k++; }` (flag `?break0`,
+found by name; weights in brackets):
+
+```
+i = 0;  ?break0 = 0 [0];
+while (i < n && ?break0 <= 0) {
+  if (c) ?break0 = 1 [branch]; else k++;        // the rest of the list moves into the else
+  if (?break0 <= 0) [0] i++;                    // the increment, unless the loop was left
+}
+```
+
+`continue` sets `?continue<d>` (cleared at the start of each iteration; the increment
+still runs); `return` pays its cost, sets `?return`, and what follows the loop runs under
+`if (?return <= 0)`. This rewriting is trusted (the exporter does it, not Lean), costs one
+loop test more than C after a jump, and is compared with executions of the C by
+`fuzz_bounds.py`.
 
 With `minic`, dead branches are lowered for real (`deadCode`), loops in them with the
 potential 0, so that the dead node contains the source's code.

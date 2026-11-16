@@ -3178,6 +3178,7 @@ struct Analyzer::CertCtx {
   std::size_t choice = 0;  ///< the variable of nondeterministic tests
   std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
   std::size_t depth = 0;   ///< loop nesting: index of the logical variable
+  std::size_t depthBase = 0;  ///< `depth` outside every loop (the number of parameters' variables)
   int inDead = 0;          ///< lowering code that is not reached (inside a dead node)
   std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
   /// Fields read through pointer parameters of the function being certified (variables
@@ -3218,6 +3219,18 @@ struct Analyzer::CertCtx {
   std::size_t freshVar(const std::string& name) {
     names.push_back(name);
     return names.size() - 1;
+  }
+  /// Flag variables of early exits, by name (`?break<depth>`, `?continue<depth>`,
+  /// `?return`, with the prefix of an inlined callee): one variable per name, also when a
+  /// loop is lowered several times (a statement list copied into both branches of a
+  /// conditional, a retry with another potential) and for loops of the same depth that
+  /// follow each other (each loop clears its flags before it starts). The mini-C exporter
+  /// finds them by these names.
+  std::map<std::string, std::size_t> flagIdx;
+  std::size_t flagVar(const std::string& name) {
+    auto it = flagIdx.find(name);
+    if (it != flagIdx.end()) return it->second;
+    return flagIdx[name] = freshVar(name);
   }
   std::string fail;
   std::map<const Expr*, std::size_t> oldVar;  ///< scratch variable of `x = x / c`, by operand
@@ -3960,7 +3973,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::ve
   // Loops and switches that contain a `return` (or a `continue` of an enclosing loop,
   // for a switch) set a flag; the rest of the list runs only if it is not set.
   bool escRet = hasReturn(st);
-  if (escRet && cc.ret == CertCtx::none) cc.ret = cc.freshVar(cc.prefix + "?return");
+  if (escRet && cc.ret == CertCtx::none) cc.ret = cc.flagVar(cc.prefix + "?return");
   std::size_t escCnt = CertCtx::none;
   if (isa<SwitchStmt>(st) && jumpsOf(st).cnt)
     for (auto it = cc.exits.rbegin(); it != cc.exits.rend(); ++it)
@@ -4249,9 +4262,12 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   bool rets = hasReturn(body);
   CertCtx::Exit ex;
   ex.loop = true;
-  if (js.brk) ex.brk = cc.freshVar(cc.prefix + "?break" + std::to_string(j));
-  if (js.cnt) ex.cnt = cc.freshVar(cc.prefix + "?continue" + std::to_string(j));
-  if (rets && cc.ret == CertCtx::none) cc.ret = cc.freshVar(cc.prefix + "?return");
+  // Named by the nesting depth of the loop (0: in no other loop), which the mini-C
+  // exporter computes from the syntax.
+  const std::string nest = std::to_string(j - cc.depthBase);
+  if (js.brk) ex.brk = cc.flagVar(cc.prefix + "?break" + nest);
+  if (js.cnt) ex.cnt = cc.flagVar(cc.prefix + "?continue" + nest);
+  if (rets && cc.ret == CertCtx::none) cc.ret = cc.flagVar(cc.prefix + "?return");
   std::size_t choiceVar = nondet ? cc.freshVar(cc.prefix + "?test" + std::to_string(j)) : CertCtx::none;
   std::vector<std::size_t> exitFlags;
   if (ex.brk != CertCtx::none) exitFlags.push_back(ex.brk);
@@ -5134,6 +5150,7 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   }
   cc.gammas = info.ghostVars.size() + info.extraGhosts.size();
   cc.depth = cc.gammas;
+  cc.depthBase = cc.gammas;
   std::map<SymId, std::size_t> paramIndex;
   for (unsigned i = 0; i < def->getNumParams(); ++i)
     if (i < fc.summary.paramSyms.size() && fc.summary.paramSyms[i])
@@ -5215,6 +5232,11 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     in.ret = w_.ret;
     in.isRequire = [](const Stmt* st) { return asMarker(st, "require") != nullptr; };
     in.scratch = cc.oldVar;
+    in.flag = [&cc](const std::string& name) -> std::optional<std::size_t> {
+      auto it = cc.flagIdx.find(name);
+      if (it == cc.flagIdx.end()) return std::nullopt;
+      return it->second;
+    };
     in.callee = [this](const FunctionDecl* fd) -> std::optional<minic::CalleeInfo> {
       const CertFunInfo* ci = nullptr;
       const FunctionDecl* d = nullptr;

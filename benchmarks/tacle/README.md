@@ -113,15 +113,18 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
-Kernels (2026-11-16, 161 of 165 certified, all accepted): **143 certificates
+Kernels (2026-11-16, 161 of 165 certified, all accepted): **144 certificates
 validated, none failing validation** (93 before mini-C had quotients, remainders, shifts,
-masks, unsigned stores and calls; 134 are validated together with every function they
-call); 35 of them contain loops (58 of the 83 loops of the
+masks, unsigned stores and calls; 143 before `break`, `continue` and `return` inside
+loops were exported with flag variables; 137 are validated together with every function
+they call); 36 of them contain loops (60 of the 83 loops of the
 certified programs), 8 are entry functions `<kernel>_main` (`binarysearch`, `bsort`, `complex_updates`,
-`countnegative`, `iir`, `jfdctint`, `matrix1`, `st`; all but `bsort` and `st` with all
+`countnegative`, `iir`, `jfdctint`, `matrix1`, `st`; all but `st` with all
 their callees); many of the others are small (initialisations, `*_return`). Refused by
-the exporter: global or static tracked variables (6), `return` or `break` inside a loop
-(6), calls of functions without an entry in the certificate file (4), calls in tests (2).
+the exporter: global or static tracked variables (6), `switch` (5; the earlier count
+"`return` or `break` inside a loop (6)" hid them: only one of these functions,
+`bsort_BubbleSort`, had a jump outside a `switch`), calls of functions without an entry
+in the certificate file (4), calls in tests (2).
 
 Sequential and application programs (`--category sequential --category app`): tables
 unchanged (231 of 263 certified, all accepted); **170 validated, none failing** (2026-11-16; 113 before mini-C had division, unsigned

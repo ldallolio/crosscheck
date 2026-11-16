@@ -337,9 +337,11 @@ certificate's program (without annotations); it prints `VALIDATED f` when they a
 Then the bound holds for the mini-C program (`MiniC.validated_sound`): the generator is
 no longer trusted, the exporter is. The exporter is short and meant to be read: reads of
 untracked variables and of memory are unknown values, writes to them only cost, signed
-arithmetic is exact (no overflow, an assumption), and it refuses what it cannot model:
-calls, jumps other than `return` outside loops, unsigned, global, static or
-address-taken tracked variables, and the division/shift/mask/table forms. The ctest
+arithmetic is exact (no overflow, an assumption), `break`, `continue` and `return` inside
+`while` and `for` loops are written with flag variables (mini-C has no jumps; this
+rewriting is part of what is trusted), and it refuses what it cannot model: calls in
+tests, `switch`, `goto`, `do` loops, loops without a test, global, static, narrow
+unsigned or address-taken tracked variables, and table reads. The ctest
 `minic_sources_validated` runs `tests/c/minic.c`: functions `ok_*` must be validated, no
 function `no_*` may be. The list of what is refused is in
 [`docs/certificate-format.md`](../docs/certificate-format.md#mini-c-sources-validation-against-the-source).

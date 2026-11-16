@@ -101,12 +101,17 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 | Stack on the same binaries | high-water mark on the binary's control-flow graph (`prop:stack`, Lean `Stack`) | the decoder; no interrupt frames counted |
 | Tests against executions | random loop programs (bounds, exported ACSL annotations, mini-C export) and mutated certificates | nothing: these are tests |
 | Bounds without ranges (in "Complexity benchmarks") | option `symbolic`: potentials only; the bound in the parameters is the certificate's | nothing new: the checker decides |
-| Exports | FFX / AIS flow facts, SARIF, ACSL annotations, project report | ACSL and flow facts not yet consumed by Frama-C, OTAWA or aiT |
+| Exports | FFX / AIS flow facts, SARIF, ACSL annotations, project report | ACSL not yet given to Frama-C, flow facts not to aiT; OTAWA: see below |
 
 **Exports (paragraph "Exports")**: loop bounds as FFX (OTAWA; `source` + `line`,
 `maxcount`) or AIS/AIS2 (aiT; routine linker name + loop number, in source order: a
 caveat), SARIF for code scanning, a cost diff for CI. On TACLeBench our FFX equals oRange's
-on 115 loops. Not yet loaded into OTAWA or aiT.
+on 115 loops.
+
+**OTAWA on the binaries (paragraph "A WCET analyzer on the same binaries")**: OTAWA 2.3 (image built by the author) computes an IPET bound for all 107 functions that have a cycle bound, from 199 flow facts placed on the binary loops by `benchmarks/cycles/run_otawa.py` (label + offset; the source-line FFX is not placed by OTAWA on `-O1` code), one unit per instruction; 11 executed calls compared, no bound below an execution. What it shows: the bounds
+are usable by an IPET tool, and our loop matching agrees with OTAWA's view of the binary.
+What it does not: cycles (no Cortex-M0 description was written for OTAWA), and source-line
+flow facts on optimised code. Not loaded into aiT.
 
 **Related work (Paper II, `sec:related`)**: bound analysers (SPEED, Loopus, KoAT, CoFloCo,
 COSTA, C4B), WCET flow analysis (IPET, oRange), verified and certified bounds (Blazy,
