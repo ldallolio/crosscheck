@@ -182,7 +182,7 @@ int no_loop_without_test(int n) {
   }
   return k;
 }
-/* do loops and switch are not in the fragment */
+/* do loops are not in the fragment */
 int no_do_break(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
   int k = 0;
@@ -192,7 +192,22 @@ int no_do_break(int n) {
   } while (k < 20);
   return k;
 }
-int no_switch_in_loop(int n) {
+/* switch: the cost of the test, then each case group under an unknown test (the value is
+   not compared with the labels); break ends its group; fall-through is the next group */
+int ok_switch(int x) {
+  CROSSCHECK_REQUIRE(x >= 0 && x <= 9);
+  int k = 0;
+  switch (x) {
+    case 0: k = 1; break;
+    case 1:
+    case 2: k = 2;
+    case 3: k = k + 3; break;
+    default: k = 7;
+  }
+  return k;
+}
+/* in a loop: continue is the loop's, break the switch's; statements follow the switch */
+int ok_switch_in_loop(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
   int k = 0;
   for (int i = 0; i < n; i++) {
@@ -201,6 +216,29 @@ int no_switch_in_loop(int n) {
       case 2: continue;
       default: k++;
     }
+    k++;
+  }
+  return k;
+}
+/* return inside a switch, and a loop inside a case */
+int ok_switch_return(int x) {
+  CROSSCHECK_REQUIRE(x >= 0 && x <= 9);
+  int k = 0;
+  switch (x) {
+    case 0: return 5;
+    case 1: for (int i = 0; i < 4; i++) { if (i == x) break; k++; } break;
+    default: if (x > 5) return 6; k = 3;
+  }
+  k = k + 1;
+  return k;
+}
+/* a case label inside a nested statement (Duff's device): refused */
+int no_switch_nested_label(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 3);
+  int k = 0;
+  switch (n) {
+    case 0: if (k == 0) { case 1: k++; }
+    default: k++;
   }
   return k;
 }

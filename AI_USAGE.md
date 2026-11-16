@@ -875,6 +875,12 @@ in the papers says that the author verified anything.
   compiled C, no mismatch, no bound below a run). Result on the kernels: 144 of 161
   validated (143), 137 with all callees (134); certificates unchanged (161 of 165). The
   earlier reason "`return` or `break` inside a loop (6)" was mostly `switch` (5).
+- **`switch` in the mini-C export.** A `switch` is exported as the cost of its test
+  followed by each case group under an unknown test (`Exporter::switchStmt`), which is
+  how the generator already lowered it; the description has every execution of the C
+  statement and more (the value is not compared with the labels). Tests `ok_switch`,
+  `ok_switch_in_loop`, `ok_switch_return`, `no_switch_nested_label`. Kernels: 147 of 161
+  validated, 140 with all callees, none failing.
 - **OTAWA** (the author built its Docker image during the session and said so; the AI ran
   it with `--network none`). `benchmarks/cycles/run_otawa.py`: the kernels linked for the
   Cortex-M0 with `rust-lld`, CrossCheck's bounds as FFX flow facts on the binary loop
@@ -1245,10 +1251,12 @@ is whether each Lean statement says what the paper says, and everything outside 
       before publication;
     - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
       papers not obtained keep an `\authortodo`.
-34. **Early exits in mini-C and OTAWA (prompt 45).** Read `Exporter::block` and
-    `Exporter::loop` in `MiniC.cpp` (the flag rewriting is now trusted for validated
-    certificates) and decide whether you accept that a description may cost one loop test
-    more than the C code after a jump; read the paragraph "A WCET analyzer on the same
+34. **Early exits and `switch` in mini-C, and OTAWA (prompt 45).** Read `Exporter::block`,
+    `Exporter::loop` and `Exporter::switchStmt` in `MiniC.cpp` (the flag rewriting and the
+    description of a `switch` are now trusted for validated certificates) and decide
+    whether you accept that a description may cost one loop test more than the C code
+    after a jump, and that "validated" may be said of a function whose `switch` is
+    described with unknown tests; read the paragraph "A WCET analyzer on the same
     binaries" of Paper II and `run_otawa.py`: the reading of OTAWA's `maxcount` (header
     executions per loop entry) is the AI's, from OTAWA's behaviour and general knowledge,
     not from its documentation; the unit is instructions, not cycles; check the reference

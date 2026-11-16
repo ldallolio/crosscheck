@@ -204,7 +204,8 @@ one table:
 | `return` outside loops | `cost`; the rest of the body goes into the branches |
 | `x = y / c`, `% c`, `& c`, `>> k`; stores into `unsigned`; calls of functions of the file | `div`, `assignU`, `call` |
 | `break`, `continue`, `return` inside `while` / `for` | no mini-C statement: written with the certificate's flag variables (below) |
-| calls in tests, `switch`, `do`, `goto`, loops without a test, global/static/aliased tracked variables, tables | refused (`source_refused`) |
+| `switch` | the cost of the test, then `if (other) group` for each case group (an over-approximation: the value is not compared with the labels) |
+| calls in tests, `do`, `goto`, loops without a test, global/static/aliased tracked variables, tables | refused (`source_refused`) |
 
 Early exits, on `for (i = 0; i < n; i++) { if (c) break; k++; }` (flag `?break0`,
 found by name; weights in brackets):

@@ -62,10 +62,11 @@ struct Inputs {
 /// construct it does not model exactly is either an unknown value (`other`: reads of
 /// memory and of untracked variables, non-affine or possibly-wrapping arithmetic,
 /// narrowing conversions), a statement that only costs (stores to memory or to untracked
-/// variables), or a refusal (indirect calls, `goto`, `switch`, `do` loops, aliased tracked
+/// variables), or a refusal (indirect calls, `goto`, `do` loops, aliased tracked
 /// variables, ...). `break`, `continue` and `return` inside `while` and `for` loops are
-/// written with flag variables (see `Exporter::block` in MiniC.cpp): mini-C itself has no
-/// jumps, so this rewriting is part of what is trusted.
+/// written with flag variables (see `Exporter::block` in MiniC.cpp), and a `switch` as its
+/// case groups under unknown tests (`Exporter::switchStmt`): mini-C itself has neither, so
+/// this rewriting is part of what is trusted.
 /// Signed arithmetic is exact: signed overflow is undefined behaviour, assumed absent.
 struct Result {
   std::optional<std::string> json;

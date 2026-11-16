@@ -461,19 +461,32 @@ class Exporter {
   // not variables of the source.
 
   struct Loop {
+    bool isSwitch = false;
     std::optional<std::size_t> brk, cnt;
   };
-  std::vector<Loop> loops_;  ///< the loops around the statement being translated
+  std::vector<Loop> loops_;  ///< the loops and switches around the statement being translated
+  std::size_t loopDepth() const {
+    std::size_t d = 0;
+    for (const Loop& l : loops_) d += !l.isSwitch;
+    return d;
+  }
+  const Loop* enclosingLoop() const {
+    for (auto it = loops_.rbegin(); it != loops_.rend(); ++it)
+      if (!it->isSwitch) return &*it;
+    return nullptr;
+  }
 
   /// `break` / `continue` of the construct `s` is a child of (not those of a nested loop).
-  static void jumps(const Stmt* s, bool inLoop, bool& brk, bool& cnt) {
+  /// A `break` inside a nested `switch` belongs to that switch; a `continue` there
+  /// belongs to the loop.
+  static void jumps(const Stmt* s, bool inLoop, bool& brk, bool& cnt, bool inSwitch = false) {
     if (!s) return;
-    if (isa<BreakStmt>(s)) { if (!inLoop) brk = true; return; }
+    if (isa<BreakStmt>(s)) { if (!inLoop && !inSwitch) brk = true; return; }
     if (isa<ContinueStmt>(s)) { if (!inLoop) cnt = true; return; }
     if (isa<LambdaExpr>(s)) return;
-    if (isa<SwitchStmt>(s)) return;  // refused where it is translated
     bool loop = isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<CXXForRangeStmt>(s);
-    for (const Stmt* c : s->children()) jumps(c, inLoop || loop, brk, cnt);
+    bool sw = isa<SwitchStmt>(s);
+    for (const Stmt* c : s->children()) jumps(c, inLoop || loop, brk, cnt, inSwitch || sw);
   }
   static bool isLoop(const Stmt* s) {
     return isa<ForStmt>(s) || isa<WhileStmt>(s) || isa<DoStmt>(s) || isa<CXXForRangeStmt>(s) ||
@@ -512,15 +525,18 @@ class Exporter {
     if (from >= l.size()) return skip();
     const Stmt* st = l[from];
     if (isa<BreakStmt>(st)) {
-      if (loops_.empty() || !loops_.back().brk) throw Refused{"a break outside a loop"};
+      if (loops_.empty()) throw Refused{"a break outside a loop or switch"};
+      if (loops_.back().isSwitch) return cost(in_.branch);  // ends the case group
+      if (!loops_.back().brk) throw Refused{"internal: a break without a flag"};
       return assign(in_.branch, *loops_.back().brk, lit(1));
     }
     if (isa<ContinueStmt>(st)) {
-      if (loops_.empty() || !loops_.back().cnt) throw Refused{"a continue outside a loop"};
-      return assign(in_.branch, *loops_.back().cnt, lit(1));
+      const Loop* lp = enclosingLoop();
+      if (!lp || !lp->cnt) throw Refused{"a continue outside a loop"};
+      return assign(in_.branch, *lp->cnt, lit(1));
     }
     if (const auto* rs = dyn_cast<ReturnStmt>(st)) {
-      if (loops_.empty()) return ret(rs);
+      if (loops_.empty()) return ret(rs);  // outside loops and switches
       return seq({ret(rs), assign(0, flag("?return"), lit(1))});
     }
     std::vector<const Stmt*> rest(l.begin() + static_cast<std::ptrdiff_t>(from) + 1, l.end());
@@ -543,12 +559,34 @@ class Exporter {
       }
       throw Refused{"a jump in a statement that is not a conditional or a block"};
     }
-    if (isLoop(st) && hasReturn(st)) {
-      // A loop that may return: the flag is cleared first, and the rest of the list runs
-      // only if the loop did not return.
-      std::size_t r = flag("?return");
-      std::vector<std::string> ss{assign(0, r, lit(0)), stmt(st)};
-      if (!rest.empty()) ss.push_back(unless(r, block(l, from + 1)));
+    // A loop or switch that may return: the flag is cleared first, and the rest of the
+    // list runs only if it did not return. A switch that contains a `continue` of the
+    // enclosing loop: the rest of the list runs only if that flag is 0.
+    bool escRet = isLoop(st) && hasReturn(st);
+    std::optional<std::size_t> escCnt;
+    if (isa<SwitchStmt>(st)) {
+      bool b = false, c = false;
+      jumps(st, false, b, c);
+      if (c) {
+        const Loop* lp = enclosingLoop();
+        if (!lp || !lp->cnt) throw Refused{"a continue outside a loop"};
+        escCnt = lp->cnt;
+      }
+    }
+    if (escRet || escCnt) {
+      std::vector<std::string> ss;
+      std::optional<std::size_t> r;
+      if (escRet) {
+        r = flag("?return");
+        ss.push_back(assign(0, *r, lit(0)));
+      }
+      ss.push_back(stmt(st));
+      if (!rest.empty()) {
+        std::string tail = block(l, from + 1);
+        if (escCnt) tail = unless(*escCnt, tail);
+        if (r) tail = unless(*r, tail);
+        ss.push_back(tail);
+      }
       return seq(ss);
     }
     return seq({stmt(st), block(l, from + 1)});
@@ -560,6 +598,52 @@ class Exporter {
     return block(flatten(s));
   }
 
+  /// A `switch`. Mini-C has no such statement, and the value tested is not compared with
+  /// the labels: the description is the cost of the test, followed by each case group
+  /// (the statements from one label to the next) under an unknown test of weight 0. Every
+  /// execution of the C statement is one of these (the groups from the label that is
+  /// entered up to a `break`), and the description has more. A `break` ends its group
+  /// (weight: a branch); `return` and `continue` use the flags above. Statements before
+  /// the first label are not reachable. Labels inside nested statements are refused.
+  std::string switchStmt(const SwitchStmt* ss) {
+    if (ss->getInit() || ss->getConditionVariable())
+      throw Refused{"switch with an initialiser or a condition variable"};
+    pure(ss->getCond(), "a test");
+    const auto* body = dyn_cast<CompoundStmt>(ss->getBody());
+    if (!body) throw Refused{"switch without a block"};
+    std::vector<std::vector<const Stmt*>> groups;
+    for (const Stmt* st : body->body()) {
+      if (const auto* sw = dyn_cast<SwitchCase>(st)) {
+        const Stmt* sub = sw->getSubStmt();
+        while (const auto* inner = dyn_cast_or_null<SwitchCase>(sub)) sub = inner->getSubStmt();
+        groups.push_back({});
+        if (sub) groups.back().push_back(sub);
+      } else if (!groups.empty()) {
+        groups.back().push_back(st);
+      }
+    }
+    struct CaseScan : RecursiveASTVisitor<CaseScan> {
+      bool nested = false;
+      bool TraverseSwitchStmt(SwitchStmt*) { return true; }
+      bool VisitCaseStmt(CaseStmt*) { nested = true; return false; }
+      bool VisitDefaultStmt(DefaultStmt*) { nested = true; return false; }
+    };
+    for (const auto& g : groups)
+      for (const Stmt* st : g) {
+        CaseScan cs;
+        cs.TraverseStmt(const_cast<Stmt*>(st));
+        if (cs.nested) throw Refused{"a case label inside a nested statement"};
+      }
+    std::vector<std::string> out{cost(in_.costOf(ss->getCond()) + in_.branch)};
+    Loop sw;
+    sw.isSwitch = true;
+    loops_.push_back(sw);
+    for (const auto& g : groups)
+      out.push_back("{\"s\":\"if\",\"w\":0,\"c\":{\"c\":\"other\"},\"a\":" + block(g) + ",\"b\":" + skip() + "}");
+    loops_.pop_back();
+    return seq(out);
+  }
+
   /// A `while` or `for` loop. Without early exits it is the mini-C loop of the same
   /// form. With a `break` or a `return` in its body, see "early exits" above; a `for`
   /// loop is then written as its initialisation followed by a `while` loop whose body
@@ -569,7 +653,7 @@ class Exporter {
     bool b = false, c = false;
     jumps(body, false, b, c);
     bool rets = hasReturn(body);
-    std::size_t depth = loops_.size();
+    std::size_t depth = loopDepth();
     Loop lp;
     if (b) lp.brk = flag("?break" + std::to_string(depth));
     if (c) lp.cnt = flag("?continue" + std::to_string(depth));
@@ -833,6 +917,7 @@ class Exporter {
       if (fs->getConditionVariable()) throw Refused{"condition variable"};
       return loop(true, fs->getInit(), fs->getCond(), fs->getInc(), fs->getBody());
     }
+    if (const auto* sw = dyn_cast<SwitchStmt>(st)) return switchStmt(sw);
     if (const auto* as = dyn_cast<AttributedStmt>(st)) return stmt(as->getSubStmt());
     if (const auto* e = dyn_cast<Expr>(st)) {
       if (in_.isRequire && in_.isRequire(e)) return skip();

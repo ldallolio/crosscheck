@@ -187,9 +187,19 @@ more than C does, so it costs at least as much. The generator uses one flag vari
 name, so that a loop lowered twice (a list copied into both branches of a conditional)
 has the same flags.
 
+**`switch`.** Mini-C has no such statement and the tested value is not compared with
+the labels: a `switch` is the cost of its test followed by each case group (the
+statements from one label to the next) under an unknown test of weight 0, `if (other)
+group`. Every execution of the C statement is one of these (the groups from the label
+entered up to a `break`); the description has more of them, so it is an
+over-approximation, like every unknown test. A `break` ends its group (weight: a
+branch); `return` and `continue` use the flags above, and what follows a `switch` that
+contains one of them runs under a test of the flag. Labels inside nested statements are
+refused.
+
 Refused (no source, reason in `source_refused`): calls in tests, indirect calls, calls
-of functions without an entry; loops without a test that are left by a jump; `switch`,
-`goto`, `do`; tracked variables that are global, static, volatile, of a narrow unsigned
+of functions without an entry; loops without a test that are left by a jump; `goto`,
+`do`; tracked variables that are global, static, volatile, of a narrow unsigned
 type, or whose address is taken; divisions and shifts outside the modelled forms; reads
 of constant tables.
 

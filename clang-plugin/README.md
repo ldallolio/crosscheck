@@ -339,8 +339,8 @@ no longer trusted, the exporter is. The exporter is short and meant to be read: 
 untracked variables and of memory are unknown values, writes to them only cost, signed
 arithmetic is exact (no overflow, an assumption), `break`, `continue` and `return` inside
 `while` and `for` loops are written with flag variables (mini-C has no jumps; this
-rewriting is part of what is trusted), and it refuses what it cannot model: calls in
-tests, `switch`, `goto`, `do` loops, loops without a test, global, static, narrow
+rewriting is part of what is trusted), a `switch` is its case groups, each under an
+unknown test, and it refuses what it cannot model: calls in tests, `goto`, `do` loops, loops without a test, global, static, narrow
 unsigned or address-taken tracked variables, and table reads. The ctest
 `minic_sources_validated` runs `tests/c/minic.c`: functions `ok_*` must be validated, no
 function `no_*` may be. The list of what is refused is in
