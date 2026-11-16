@@ -23,6 +23,7 @@ import ImperativeOptimization.ForkJoin
 import ImperativeOptimization.FixedPoint
 import ImperativeOptimization.OperationalSemantics
 import ImperativeOptimization.Examples
+import ImperativeOptimization.Stack
 
 /-!
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification

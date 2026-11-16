@@ -50,26 +50,27 @@ analysis and the loop matching, not the table.
 so that its loop is bounded by CrossCheck and its cycles are counted; floating point
 (software on the M0) has no code here and blocks the functions that use it.
 
-## Results (2026-11-15)
+## Results (2026-11-16)
 
 29 kernels compiled; 28 return 0 when run (`fft` returns 1: it converts negative floats to
 `unsigned long`, undefined behaviour in C, which Arm's conversion saturates and x86's wraps;
 it is listed in `EXPECTED_FAILURE`). 156 s in total.
 
-- **104 of the 267 kernel functions** receive a cycle bound (`runtime.c` not counted).
-- **5 entry functions** (`main`) are bounded:
+- **107 of the 267 kernel functions** receive a cycle bound (`runtime.c` not counted).
+- **6 entry functions** (`main`) are bounded:
 
 | Kernel | Bound (cycles) | Observed | Bound / observed |
 |---|---:|---:|---:|
+| binarysearch | 32,686 | 24,241 | 1.35 |
 | bsort | 369,779 | 148,668 | 2.49 |
 | countnegative | 449,615 | 327,923 | 1.37 |
 | isqrt | 1,005,075 | 689,071 | 1.46 |
 | jfdctint | 75,652 | 60,911 | 1.24 |
 | matrix1 | 63,722 | 48,548 | 1.31 |
 
-- **Checks**: 10 calls of bounded functions (the others are inlined at `-O1`) and 43 binary
-  loops were compared with the run: **no violation**; over 9 of the calls, bound/observed is
-  between 1.02 and 2.49. The tenth, a function of `fft` bounded since logarithmic potentials
+- **Checks**: 11 calls of bounded functions (the others are inlined at `-O1`) and 45 binary
+  loops were compared with the run: **no violation**; over 10 of the calls, bound/observed is
+  between 1.02 and 2.49. The eleventh, a function of `fft` bounded since logarithmic potentials
   (2026-11-15), has a bound 970 times its observed cycles: its three nested loops are
   bounded by the product of their bounds, while at each outer iteration the count of one
   inner loop doubles and that of the other halves. `bsort`'s factor comes from its triangular nested loops, bounded
@@ -82,3 +83,48 @@ Matching rule: the first version, which took the largest bound among all lines o
 loop's instructions, gave `matrix1_main` 100 iterations instead of 10 (an instruction of
 the loop's preheader inherits the line of another loop) and a bound 105 times the observed
 cycles; trying the lines of the back-edge branches first gives 1.31.
+
+## Stack bounds (2026-11-16)
+
+`stack.py` bounds the stack of every function of the same binaries: the largest depth of
+the stack pointer below its value at entry, callees included. The depth is computed on the
+control-flow graph (`push`, `pop`, `sub sp`, `add sp`); it must have one value at every
+instruction and be 0 at every return. The rule over calls is a maximum, not a sum:
+`stack(f) = max(own depth, depth at a call + stack(callee))` (Lean:
+`Stack.highWater_le_of_bound`, Paper I `prop:stack`). No loop bound is needed, so more
+functions get a stack bound than a cycle bound. `run_cycles.py` computes them and checks
+each against the run: for every activation, the stack pointer at entry minus the lowest
+value seen until it returns (`--check` fails on a violation).
+
+| | |
+|---|---:|
+| functions with a stack bound | **143 of 267** |
+| entry functions (`main`) with a stack bound | 10 of 29 |
+| calls compared with the run | 24, **no violation** |
+| of which the bound equals the observed stack | 19 |
+
+| Kernel | Stack bound of `main` (bytes) | Observed |
+|---|---:|---:|
+| binarysearch | 56 | 56 |
+| bsort | 28 | 28 |
+| countnegative | 64 | 64 |
+| fac | 24 | 24 |
+| insertsort | 32 | 32 |
+| isqrt | 52 | 52 |
+| jfdctint | 104 | 104 |
+| matrix1 | 36 | 36 |
+| md5 | 584 | 552 |
+| prime | 56 | 56 |
+
+(`fac` is recursive in the source; at `-O1` the compiler turns its recursion into a loop.)
+
+No bound, by cause (124 functions): a call to a software floating-point helper, which the
+interpreter provides in Python, without code (82); a call to such a function (29); the
+stack pointer written by `add sp, r` or `mov sp, r` (large frames: 9); recursion in the
+binary (4: `bitonic`, `quicksort`, `recursion`). A recursive function could be bounded
+from a recursion depth (`Stack.highWater_le_depth`); this is not implemented.
+
+What the bound covers: the stack of the program's own code. Not counted: exception frames
+(8 words per interrupt taken on this processor), and anything a real run-time library
+would add. The decoder and the control-flow graph are those of the cycle analysis, and
+the check is against the same interpreter: it tests the path analysis, not the decoder.

@@ -68,6 +68,7 @@ std::string Report::toJson() const {
     }
     out += "]";
     out += ",\n      \"requires\": " + strings(f.requires_);
+    if (f.symbolic) out += ",\n      \"symbolic\": true";
     out += ",\n      \"recursion\": ";
     if (f.recursion) {
       out += "{\"activations\": " + std::to_string(f.recursion->activations) +

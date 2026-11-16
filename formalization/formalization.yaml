@@ -99,6 +99,9 @@ statements:
   - paper_labels: [prop:lex-log]
     module: ImperativeOptimization.Certificate
     lean: [lex_potential, lex_ranking_bound, log_ranking_bound]
+  - paper_labels: [def:activation-tree, prop:stack]
+    module: ImperativeOptimization.Stack
+    lean: [ActTree, highWater_le_of_bound, highWater_le_depth]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

@@ -72,6 +72,12 @@ struct Options {
   /// (src/analysis/MiniC.hpp), which the checker validates against the certificate's
   /// program; dead code in certificates then contains the program's real statements.
   bool minic = false;
+  /// A loop that has a ranking potential but no numeric bound (its inputs have no
+  /// range) is not an error: the function is reported as "symbolic", without a numeric
+  /// bound, and with `certificates` a bound in its parameters is generated for the
+  /// checker. For measuring programs without annotations; a real-time function still
+  /// needs a numeric bound to be accepted (`ok` stays false).
+  bool symbolic = false;
   /// Cost of entering and leaving an interrupt handler, added to each activation's bound
   /// (trusted, listed as an assumption).
   std::uint64_t interruptOverhead = 0;
@@ -81,6 +87,7 @@ struct Options {
   bool parse(const std::string& arg) {
     if (arg == "all") { analyzeAll = true; return true; }
     if (arg == "minic") { minic = true; return true; }
+    if (arg == "symbolic") { symbolic = true; return true; }
     auto eq = arg.find('=');
     if (eq == std::string::npos) return false;
     std::string key = arg.substr(0, eq), value = arg.substr(eq + 1);

@@ -10,16 +10,16 @@
     "loops": 2,
     "functions": 7,
     "crosscheck": {
-      "bounded": 1,
+      "bounded": 2,
       "equal": 1,
-      "looser": 0,
+      "looser": 1,
       "tighter": 0,
       "type_range": 0
     },
     "crosscheck_ctx": {
-      "bounded": 1,
+      "bounded": 2,
       "equal": 1,
-      "looser": 0,
+      "looser": 1,
       "tighter": 0,
       "type_range": 0
     },
@@ -39,7 +39,7 @@
     },
     "both_loops": 1,
     "overlap": {
-      "cc_only": 0,
+      "cc_only": 1,
       "other_only": 0,
       "cc_tighter": 0,
       "other_tighter": 0,
@@ -47,16 +47,16 @@
     },
     "overlap_orange": {
       "cc_only": 0,
-      "other_only": 1,
+      "other_only": 0,
       "cc_tighter": 0,
-      "other_tighter": 0,
+      "other_tighter": 1,
       "same": 1
     },
     "overlap_ctx_orange": {
       "cc_only": 0,
-      "other_only": 1,
+      "other_only": 0,
       "cc_tighter": 0,
-      "other_tighter": 0,
+      "other_tighter": 1,
       "same": 1
     },
     "observed": {
@@ -66,23 +66,25 @@
     "vs_observed": {
       "crosscheck": {
         "reached": 2,
-        "bounded": 1,
+        "bounded": 2,
         "below": 0,
         "equal": 1,
-        "above": 0,
+        "above": 1,
         "ratios": [
-          1.0
+          1.0,
+          7.25
         ],
         "below_at": []
       },
       "crosscheck_ctx": {
         "reached": 2,
-        "bounded": 1,
+        "bounded": 2,
         "below": 0,
         "equal": 1,
-        "above": 0,
+        "above": 1,
         "ratios": [
-          1.0
+          1.0,
+          7.25
         ],
         "below_at": []
       },
@@ -123,16 +125,16 @@
       }
     },
     "main": {
-      "crosscheck": "none",
+      "crosscheck": "const",
       "koat": "none",
       "cofloco": "none",
       "infer": "const"
     },
     "funcs": {
       "crosscheck": {
-        "const": 4,
+        "const": 7,
         "symbolic": 0,
-        "none": 3
+        "none": 0
       },
       "koat": {
         "const": 4,

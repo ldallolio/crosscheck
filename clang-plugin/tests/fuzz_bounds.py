@@ -80,7 +80,7 @@ class Gen:
     def function(self, idx):
         r = self.rng
         self.signed = r.random() < 0.75
-        # A third of the signed functions stay inside the mini-C fragment (no division, no
+        # Nearly half of the signed functions stay inside the mini-C fragment (no
         # disequality, no break, few inputs), so that the export is compared with the C.
         self.plain = self.signed and r.random() < 0.45
         self.T = "I" if self.signed else "U"
@@ -127,8 +127,8 @@ class Gen:
         v = v or r.choice(self.vars)
         k = r.random()
         chk = f" CHK({v})" if self.signed else ""
-        if self.plain and 0.45 <= k < 0.62:
-            k = 0.1
+        if self.plain and 0.55 <= k < 0.62:
+            k = 0.5  # (a signed shift is written as a division below anyway)
         if k < 0.25:
             return f"{v} += {r.choice([1, 1, 1, 2, 3])};{chk}"
         if k < 0.45:
@@ -168,8 +168,6 @@ class Gen:
         w = r.choice([x for x in self.vars if x != v] or [v])
         chk = f" CHK({v})" if self.signed else ""
         shape = r.random()
-        if self.plain and 0.32 <= shape < 0.44:
-            shape = 0.6
         if shape < 0.18:    # counter up to a limit
             head = f"for ({v} = {r.choice(['0', '1', w])}; {v} {r.choice(['<', '<='] if self.plain else ['<', '<=', '!='])} {self.operand()}; {v} += {r.choice([1, 1, 2, 3])})"
             tail = None
@@ -185,7 +183,7 @@ class Gen:
         elif shape < 0.66:  # inner counter reset
             head = f"while ({v} {r.choice(['<', '>'])} {self.operand()})"
             up = r.choice([f"{w} += 1;", f"{w} -= 1;"])
-            adv = r.choice([f"{v} += 1;", f"{v} -= 1;"] + ([] if self.plain else [f"{v} = {v} / 2;"]))
+            adv = r.choice([f"{v} += 1;", f"{v} -= 1;", f"{v} = {v} / 2;"])
             tail = f"if ({w} {r.choice(['<', '>'])} {self.operand()}) {{ {up} }} else {{ {w} = {self.operand()}; {adv} }}"
         else:               # arbitrary
             head = f"while ({self.cond()})"
@@ -316,6 +314,21 @@ class MiniC:
             if v > 2**31 - 1 or v < -2**31:
                 raise Overflow()
             st[s["x"]] = v
+        elif k == "assignU":
+            # In range: the value; otherwise C wraps and mini-C says nothing.
+            v = self.exp(s["e"], st)
+            if not 0 <= v <= s["hi"]:
+                raise Unknown()
+            st[s["x"]] = v
+        elif k == "div":
+            # The C value is one of the values mini-C allows (`divFacts`) when y >= 0;
+            # for a negative y mini-C says nothing of a quotient or a remainder.
+            y, c = self.exp(s["y"], st), s["c"]
+            if y < 0:
+                raise Unknown()
+            if "old" in s:
+                st[s["old"]] = y
+            st[s["x"]] = y // c if s["op"] == "div" else y % c if s["op"] == "rem" else y & c
         elif k == "seq":
             for c in s["ss"]:
                 self.stmt(c, st)
@@ -496,7 +509,7 @@ def main():
             # The mini-C export, interpreted, against the compiled C: same loop counts on
             # the same inputs (functions whose inputs the harness enumerates in full).
             doc = json.load(open(certs))
-            ranges = {name: rg for name, rg, _, signed in g.funcs if signed}
+            ranges = {name: rg for name, rg, _, signed in g.funcs}
             for prog in doc.get("programs", []):
                 for fn in prog["functions"]:
                     if "source" not in fn or fn["name"] not in ranges or fn["name"] not in observed:

@@ -43,11 +43,31 @@ int ok_down(int n) {
   return steps;
 }
 
-/* unsigned counter: unsigned arithmetic wraps, the exporter refuses */
-unsigned no_unsigned(void) {
+/* unsigned counters: each store keeps its value only if it is in the variable's range
+   (mini-C `assignU`); the checker proves the wrapping branches dead */
+unsigned ok_unsigned(void) {
   unsigned s = 0;
   for (unsigned i = 0; i < 10u; i++) s = s + i;
   return s;
+}
+unsigned ok_unsigned_down(unsigned n) {
+  CROSSCHECK_REQUIRE(n <= 1000u);
+  unsigned k = 0;
+  while (n > 0u) { n -= 1u; k++; }
+  return k;
+}
+unsigned ok_unsigned_halve(unsigned n) {
+  CROSSCHECK_REQUIRE(n <= 4096u);
+  unsigned k = 0;
+  while (n > 1u) { n >>= 1; k++; }
+  return k;
+}
+
+/* a narrow unsigned counter is promoted to int: c + 1 is converted back, refused */
+int no_unsigned_char(void) {
+  int k = 0;
+  for (unsigned char c = 0; c < 10; c++) k++;
+  return k;
 }
 
 /* a narrow counter: c + 1 is converted back to signed char, which may wrap in general */
@@ -83,12 +103,49 @@ int ok_early(int x) {
   return k + 1;
 }
 
-/* a division: the generator describes n / 2 by facts, the exporter does not (yet) */
-int no_halve(int n) {
+/* a division stored in its operand: mini-C `div` with a scratch variable for the old value */
+int ok_halve(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 1000);
   int k = 0;
   while (n > 0) { n = n / 2; k++; }
   return k;
+}
+
+/* compound forms: n /= 10 and n >>= 1 (a shift is the quotient by 2^k) */
+int ok_digits(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 99999);
+  int d = 0;
+  while (n > 0) { n /= 10; d++; }
+  return d;
+}
+int ok_shift(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 4096);
+  int k = 0;
+  while (n > 1) { n >>= 1; k++; }
+  return k;
+}
+
+/* quotient, remainder and mask of another variable, as loop limits */
+int ok_quarter(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 400);
+  int q = n / 4, s = 0;
+  for (int i = 0; i < q; i++) s++;
+  return s;
+}
+int ok_remainder_mask(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 1000);
+  int r = n % 8, m = n & 15, s = 0;
+  for (int i = 0; i < r; i++) s++;
+  for (int j = 0; j < m; j++) s++;
+  return s;
+}
+
+/* the result of n % 8u is unsigned: storing it into an int is a conversion, refused */
+int no_unsigned_remainder(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 1000);
+  int r = n % 8u, s = 0;
+  for (int i = 0; i < r; i++) s++;
+  return s;
 }
 
 /* a counter doubled up to a limit (whileGrow); x << 1 is 2 * x in mini-C (signed) */
@@ -106,4 +163,39 @@ int no_loop_test_ne(int n) {
   int i = 0, k = 0;
   while (i != n && i <= n) { i++; k++; }
   return k;
+}
+
+/* calls: the arguments are stored into the callee's parameter variables, then the callee
+   of the certificate file runs (mini-C `call`); the value of the call is unknown */
+int ok_callee(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 100);
+  int s = 0;
+  for (int i = 0; i < n; i++) s++;
+  return s;
+}
+int ok_call(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 50);
+  int a = ok_callee(n);
+  ok_callee(n + 1);
+  a = a + ok_callee(2 * n);
+  return a;
+}
+int ok_call_in_loop(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 10);
+  int s = 0;
+  for (int i = 0; i < n; i++) s += ok_callee(i);
+  return s;
+}
+/* a call in a loop test is not in the fragment */
+int no_call_in_test(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 10);
+  int s = 0;
+  while (ok_callee(n) > 200) s++;
+  return s;
+}
+
+/* a call in the returned value */
+int ok_call_in_return(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 50);
+  return ok_callee(n) + 1;
 }

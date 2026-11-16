@@ -92,3 +92,8 @@ either: `cousot1977abstract`, `podelski2004transition`, `podelski2004complete`,
 `carbonneaux2015compositional`, `bardin2008fast`, `shaw1989reasoning`,
 `puschner1989calculating`, `kincaid2019closed`, `kahn1987natural`, `demichiel2008orange`,
 `floresmontoya2014cofloco`, `matiyasevich1970enumerable`, and the books.
+
+`kirchner2015framac` (added 2026-11-16, cited in Paper II for ACSL and Frama-C): not read;
+its title, authors, journal, volume, pages and year were checked on Crossref
+(DOI 10.1007/s00165-014-0326-7). Cited from the assistant's general knowledge of what
+Frama-C and ACSL are: **the author must check that the citation is the appropriate one**.

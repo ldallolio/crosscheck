@@ -60,7 +60,8 @@ class Exporter {
         if (!v || !ex->tracked(v)) return true;
         if (!v->hasLocalStorage() || v->getDeclContext() != def) bad = "a tracked global or static variable";
         else if (v->getType().isVolatileQualified()) bad = "a volatile tracked variable";
-        else if (!signedNonBool(v->getType())) bad = "a tracked variable that is not a signed integer";
+        else if (!signedNonBool(v->getType()) && !ex->uwidth(v->getType()))
+          bad = "a tracked variable that is neither a signed integer nor unsigned int or wider";
         else if (v->getType()->isReferenceType()) bad = "a reference";
         return true;
       }
@@ -89,6 +90,25 @@ class Exporter {
            !t->isEnumeralType();
   }
 
+  /// The width of `t` if it is `unsigned int`, `unsigned long` or `unsigned long long`
+  /// (the unsigned types that the integer promotions leave alone): the unsigned variables
+  /// of the fragment.
+  std::optional<unsigned> uwidth(QualType t) const {
+    if (t.isNull()) return std::nullopt;
+    const auto* bt = t.getCanonicalType()->getAs<BuiltinType>();
+    if (!bt) return std::nullopt;
+    switch (bt->getKind()) {
+      case BuiltinType::UInt: case BuiltinType::ULong: case BuiltinType::ULongLong:
+        return static_cast<unsigned>(ctx_.getIntWidth(t));
+      default: return std::nullopt;
+    }
+  }
+  /// The largest value the certificate's program lets an unsigned variable of this width
+  /// receive from an affine expression: 2^width - 1, and 2^62 for 64 bits.
+  static std::int64_t uhi(unsigned width) {
+    return width >= 63 ? (std::int64_t{1} << 62) : ((std::int64_t{1} << width) - 1);
+  }
+
   /// `t` is not changed by the integer promotions (so `x + 1` is computed in `x`'s type).
   bool unpromoted(QualType t) const { return !ctx_.isPromotableIntegerType(t); }
 
@@ -110,6 +130,7 @@ class Exporter {
   /// (unevaluated operands, e.g. of `sizeof`, are skipped).
   struct Effects {
     bool calls = false, writes = false;
+    bool opaque = false;  ///< constructor calls, statement expressions, inline assembly
   };
   Effects effects(const Stmt* s) const {
     struct V : RecursiveASTVisitor<V> {
@@ -117,9 +138,9 @@ class Exporter {
       Effects e;
       bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr*) { return true; }
       bool VisitCallExpr(CallExpr*) { e.calls = true; return true; }
-      bool VisitCXXConstructExpr(CXXConstructExpr*) { e.calls = true; return true; }
-      bool VisitStmtExpr(StmtExpr*) { e.calls = true; return true; }
-      bool VisitGCCAsmStmt(GCCAsmStmt*) { e.calls = true; return true; }
+      bool VisitCXXConstructExpr(CXXConstructExpr*) { e.calls = e.opaque = true; return true; }
+      bool VisitStmtExpr(StmtExpr*) { e.calls = e.opaque = true; return true; }
+      bool VisitGCCAsmStmt(GCCAsmStmt*) { e.calls = e.opaque = true; return true; }
       void target(const Expr* t) {
         if (const auto* d = dyn_cast<DeclRefExpr>(t->IgnoreParenImpCasts()))
           if (const auto* v = dyn_cast<VarDecl>(d->getDecl()); v && ex->tracked(v)) e.writes = true;
@@ -138,9 +159,12 @@ class Exporter {
     return vis.e;
   }
 
+  /// True while the calls of the expression being exported have been written as `call`
+  /// statements before it: the expression's own value is then unknown where it uses them.
+  mutable bool callsDone_ = false;
   void pure(const Expr* e, const char* what) const {
     Effects f = effects(e);
-    if (f.calls) throw Refused{std::string("a call in ") + what};
+    if (f.calls && !(callsDone_ && !f.opaque)) throw Refused{std::string("a call in ") + what};
     if (f.writes) throw Refused{std::string("an assignment in ") + what};
   }
 
@@ -225,6 +249,55 @@ class Exporter {
     return other();
   }
 
+  /// The value of `e` modulo 2^width, as an expression over ℤ whose value is congruent to
+  /// it: sums, differences, products and negations are computed in ℤ, which is correct
+  /// modulo 2^width as long as no intermediate result is truncated to fewer than `width`
+  /// bits (an unsigned type narrower than `width`, or a conversion to one). Signed
+  /// subexpressions are exact (no overflow) and their conversion to unsigned is the
+  /// reduction. Used only for a store into an unsigned variable (`assignU`), which keeps
+  /// the value only if it lies in the variable's range.
+  std::string expMod(const Expr* e, unsigned width) const {
+    if (std::optional<std::int64_t> k = constant(e)) return "{\"e\":\"lit\",\"k\":" + num(*k) + "}";
+    e = e->IgnoreParens();
+    if (const auto* ce = dyn_cast<ImplicitCastExpr>(e)) {
+      CastKind k = ce->getCastKind();
+      QualType to = ce->getType(), from = ce->getSubExpr()->getType();
+      if (k == CK_LValueToRValue || k == CK_NoOp) return expMod(ce->getSubExpr(), width);
+      if (k == CK_IntegralCast && from->isIntegerType() && to->isIntegerType() && !from->isBooleanType() &&
+          !to->isBooleanType() &&
+          (preserves(from, to) || (to->isUnsignedIntegerType() && ctx_.getIntWidth(to) >= width)))
+        return expMod(ce->getSubExpr(), width);
+      return other();
+    }
+    if (const auto* d = dyn_cast<DeclRefExpr>(e)) {
+      if (const auto* v = dyn_cast<VarDecl>(d->getDecl()))
+        if (std::optional<std::size_t> x = tracked(v)) return "{\"e\":\"var\",\"x\":" + unum(*x) + "}";
+      return other();
+    }
+    QualType t = e->getType();
+    if (!t->isIntegerType() || t->isBooleanType() || t->isEnumeralType()) return other();
+    if (t->isUnsignedIntegerType() && ctx_.getIntWidth(t) < width) return other();
+    if (const auto* u = dyn_cast<UnaryOperator>(e)) {
+      if (u->getOpcode() == UO_Minus) return "{\"e\":\"neg\",\"a\":" + expMod(u->getSubExpr(), width) + "}";
+      if (u->getOpcode() == UO_Plus) return expMod(u->getSubExpr(), width);
+      return other();
+    }
+    if (const auto* b = dyn_cast<BinaryOperator>(e)) {
+      if (b->getOpcode() == BO_Shl) {
+        // x << k is x * 2^k modulo the width of its type (k below that width, else undefined)
+        std::optional<std::int64_t> k = constant(b->getRHS());
+        if (!k || *k < 0 || *k >= 62 || *k >= static_cast<std::int64_t>(ctx_.getIntWidth(t))) return other();
+        return "{\"e\":\"mul\",\"a\":" + expMod(b->getLHS(), width) + ",\"b\":{\"e\":\"lit\",\"k\":" +
+               num(std::int64_t{1} << *k) + "}}";
+      }
+      const char* op = b->getOpcode() == BO_Add ? "add" : b->getOpcode() == BO_Sub ? "sub" : b->getOpcode() == BO_Mul ? "mul" : nullptr;
+      if (!op) return other();
+      return std::string("{\"e\":\"") + op + "\",\"a\":" + expMod(b->getLHS(), width) + ",\"b\":" +
+             expMod(b->getRHS(), width) + "}";
+    }
+    return other();
+  }
+
   /// A test, as the truth of a comparison, its negation, or `other`.
   std::string cond(const Expr* e) const {
     e = e->IgnoreParenImpCasts();
@@ -270,6 +343,63 @@ class Exporter {
   static std::string assign(std::uint64_t w, std::size_t x, const std::string& e) {
     return "{\"s\":\"assign\",\"w\":" + unum(w) + ",\"x\":" + unum(x) + ",\"e\":" + e + "}";
   }
+  /// `x = y OP c` for OP in `/`, `>>`, `%`, `&` and a constant `c` (Lean `divStore`): a
+  /// value described by facts. No value: not of a form the fragment models exactly, the
+  /// caller refuses. The conditions are checked here, on the C types:
+  /// - `c >= 0`; a divisor is positive; a shift count is below 62 (it becomes a quotient);
+  /// - the result of the operation, of type `rt`, is stored into `x` without change of
+  ///   value (`preserves(rt, xt)`): the facts are about the result, not about a converted
+  ///   value;
+  /// - the operand `y` is a value the fragment gives exactly (`exp`), else `x` is unknown.
+  /// The facts for a quotient or a remainder are stated for `y >= 0` only, so conversions
+  /// of a negative `y` to an unsigned computation type do not matter.
+  std::optional<std::string> divStore(std::uint64_t w, std::size_t x, QualType xt, const Expr* y,
+                                      BinaryOperatorKind op, const Expr* rhs, QualType rt) const {
+    std::optional<std::int64_t> c = constant(rhs);
+    if (op == BO_And && !c) {  // the mask may be on the left
+      std::swap(y, rhs);
+      c = constant(rhs);
+    }
+    if (!c || *c < 0 || !preserves(rt, xt)) return std::nullopt;
+    const char* name = nullptr;
+    std::int64_t k = *c;
+    switch (op) {
+      case BO_Div: name = "div"; if (k < 1) return std::nullopt; break;
+      case BO_Rem: name = "rem"; if (k < 1) return std::nullopt; break;
+      case BO_Shr: name = "div"; if (k >= 62) return std::nullopt; k = std::int64_t{1} << k; break;
+      case BO_And: name = "and"; break;
+      default: return std::nullopt;
+    }
+    std::string ys = exp(y);
+    if (ys.find("\"other\"") != std::string::npos) return assign(w, x, other());
+    std::string s = std::string("{\"s\":\"div\",\"w\":") + unum(w) + ",\"x\":" + unum(x) + ",\"op\":\"" +
+                    name + "\",\"y\":" + ys + ",\"c\":" + num(k);
+    if (ys.find("{\"e\":\"var\",\"x\":" + unum(x) + "}") != std::string::npos) {
+      // y mentions x: its old value goes to a scratch variable first.
+      auto sc = in_.scratch.find(y);
+      if (sc == in_.scratch.end()) throw Refused{"a division of a variable by a constant, stored in itself, without a scratch variable"};
+      std::size_t t = sc->second;
+      for (const auto& [v, i] : *in_.vars)
+        if (i == t) throw Refused{"internal: a scratch variable that is a variable of the source"};
+      if (t < 2) throw Refused{"internal: a scratch variable that is reserved"};
+      s += ",\"old\":" + unum(t);
+    }
+    return s + "}";
+  }
+  /// The operation and operands if `e` is `y OP c` with OP in `/`, `>>`, `%`, `&`.
+  static const BinaryOperator* divisionLike(const Expr* e) {
+    const auto* b = dyn_cast<BinaryOperator>(e->IgnoreParenImpCasts());
+    if (!b) return nullptr;
+    switch (b->getOpcode()) {
+      case BO_Shr: case BO_Div: case BO_Rem: case BO_And: return b;
+      default: return nullptr;
+    }
+  }
+  /// A store into an unsigned variable of `width` bits (Lean `assignU`).
+  static std::string assignU(std::uint64_t w, std::size_t x, unsigned width, const std::string& e) {
+    return "{\"s\":\"assignU\",\"w\":" + unum(w) + ",\"x\":" + unum(x) + ",\"hi\":" + num(uhi(width)) +
+           ",\"e\":" + e + "}";
+  }
   static std::string seq(const std::vector<std::string>& ss) {
     std::string s = "{\"s\":\"seq\",\"ss\":[";
     for (std::size_t i = 0; i < ss.size(); ++i) s += (i ? "," : "") + ss[i];
@@ -278,8 +408,17 @@ class Exporter {
 
   std::string ret(const ReturnStmt* rs) const {
     const Expr* v = rs->getRetValue();
-    if (v) pure(v, "a return value");
-    return cost((v ? in_.costOf(v) : 0) + in_.ret);
+    std::string c = cost((v ? in_.costOf(v) : 0) + in_.ret);
+    if (!v) return c;
+    Effects f = effects(v);
+    if (f.calls && !f.opaque && !f.writes) {  // the calls first, then the return
+      std::vector<std::string> ss;
+      callStmts(v, ss);
+      ss.push_back(c);
+      return seq(ss);
+    }
+    pure(v, "a return value");
+    return c;
   }
 
   static bool hasReturn(const Stmt* s) {
@@ -350,13 +489,80 @@ class Exporter {
   }
 
   /// An expression evaluated for its effect, of weight `w`.
+  /// The calls of `e` that are not inside another call, in source order, each as a
+  /// `call` statement (Lean `MStmt.call`) preceded by those of its arguments: the
+  /// arguments are stored into the variables of the callee's tracked integer parameters,
+  /// exactly (`exp`, or `expMod` for an unsigned parameter) or as unknown values.
+  void callStmts(const Expr* e, std::vector<std::string>& out) const {
+    struct OC : RecursiveASTVisitor<OC> {
+      std::vector<const CallExpr*> calls;
+      bool TraverseCallExpr(CallExpr* c) { calls.push_back(c); return true; }
+      bool TraverseCXXMemberCallExpr(CXXMemberCallExpr* c) { calls.push_back(c); return true; }
+      bool TraverseCXXOperatorCallExpr(CXXOperatorCallExpr* c) { calls.push_back(c); return true; }
+      bool TraverseUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr*) { return true; }
+      bool TraverseLambdaExpr(LambdaExpr*) { return true; }
+    } oc;
+    oc.TraverseStmt(const_cast<Expr*>(e));
+    for (const CallExpr* c : oc.calls) {
+      const FunctionDecl* fd = c->getDirectCallee();
+      if (!fd) throw Refused{"an indirect call"};
+      if (isa<CXXMemberCallExpr>(c) || isa<CXXOperatorCallExpr>(c)) throw Refused{"a call of a member function"};
+      std::optional<CalleeInfo> ci = in_.callee ? in_.callee(fd) : std::nullopt;
+      if (!ci) throw Refused{"a call of a function without an entry in the certificate file"};
+      if (!ci->plain) throw Refused{"a call of a function whose summary has more logical variables than parameters"};
+      for (const Expr* a : c->arguments()) {
+        Effects f = effects(a);
+        if (f.writes) throw Refused{"an assignment in an argument"};
+        if (f.opaque) throw Refused{"a call"};
+        if (f.calls) callStmts(a, out);
+      }
+      std::string s = "{\"s\":\"call\",\"f\":" + unum(ci->index) + ",\"args\":[";
+      bool first = true;
+      for (const auto& [p, x] : ci->params) {
+        unsigned i = p->getFunctionScopeIndex();
+        if (i >= c->getNumArgs()) throw Refused{"a call with fewer arguments than parameters"};
+        const Expr* a = c->getArg(i);
+        QualType pt = p->getType();
+        s += first ? "" : ",";
+        first = false;
+        s += "{\"x\":" + unum(x);
+        if (std::optional<unsigned> uw = uwidth(pt))
+          s += ",\"hi\":" + num(uhi(*uw)) + ",\"e\":" + expMod(a, *uw) + "}";
+        else if (signedNonBool(pt) && preserves(a->getType(), pt))
+          s += ",\"e\":" + exp(a) + "}";
+        else
+          s += ",\"e\":" + other() + "}";
+      }
+      out.push_back(s + "]}");
+    }
+  }
+
   std::string effect(const Expr* e, std::uint64_t w) {
     const Expr* x = e->IgnoreParenImpCasts();
     if (const auto* co = dyn_cast<BinaryOperator>(x); co && co->getOpcode() == BO_Comma)
       return seq({effect(co->getLHS(), in_.costOf(co->getLHS())),
                   effect(co->getRHS(), in_.costOf(co->getRHS()))});
     Effects f = effects(e);
-    if (f.calls) throw Refused{"a call"};
+    if (f.opaque) throw Refused{"a call"};
+    if (f.calls) {
+      // The calls first, then the expression itself, whose value is unknown where it
+      // uses their results; its weight (the cost model's, calls included) is unchanged.
+      std::vector<std::string> ss;
+      callStmts(e, ss);
+      callsDone_ = true;
+      try {
+        ss.push_back(effectOf(e, x, f, w));
+      } catch (...) {
+        callsDone_ = false;
+        throw;
+      }
+      callsDone_ = false;
+      return seq(ss);
+    }
+    return effectOf(e, x, f, w);
+  }
+
+  std::string effectOf(const Expr* e, const Expr* x, const Effects& f, std::uint64_t w) {
     if (!f.writes) return cost(w);  // stores to memory or untracked variables only
     if (const auto* b = dyn_cast<BinaryOperator>(x); b && b->isAssignmentOp()) {
       std::optional<std::size_t> t = targetOf(b->getLHS());
@@ -364,13 +570,50 @@ class Exporter {
       pure(b->getRHS(), "the right-hand side of an assignment");
       QualType xt = b->getLHS()->getType();
       if (b->getOpcode() == BO_Assign) {
-        if (describedByFacts(b->getRHS())) throw Refused{"a division, shift, remainder, mask or table read (not in the fragment yet)"};
+        if (const BinaryOperator* d = divisionLike(b->getRHS())) {
+          if (auto s = divStore(w, *t, xt, d->getLHS(), d->getOpcode(), d->getRHS(), d->getType())) return *s;
+          throw Refused{"a division, shift, remainder or mask outside the forms of the fragment"};
+        }
+        if (describedByFacts(b->getRHS())) throw Refused{"a table read (not in the fragment yet)"};
+        if (std::optional<unsigned> uw = uwidth(xt)) return assignU(w, *t, *uw, expMod(b->getRHS(), *uw));
         return assign(w, *t, exp(b->getRHS()));
       }
       switch (b->getOpcode()) {
-        case BO_DivAssign: case BO_RemAssign: case BO_ShrAssign: case BO_AndAssign:
-          throw Refused{"a division, shift, remainder or mask (not in the fragment yet)"};
+        case BO_DivAssign: case BO_RemAssign: case BO_ShrAssign: case BO_AndAssign: {
+          // x op= c is x = (T) (x op c): the result type of the operation is the
+          // computation result type.
+          const auto* cao = cast<CompoundAssignOperator>(b);
+          BinaryOperatorKind op = b->getOpcode() == BO_DivAssign   ? BO_Div
+                                  : b->getOpcode() == BO_RemAssign ? BO_Rem
+                                  : b->getOpcode() == BO_ShrAssign ? BO_Shr
+                                                                   : BO_And;
+          if (auto s = divStore(w, *t, xt, b->getLHS(), op, b->getRHS(), cao->getComputationResultType()))
+            return *s;
+          throw Refused{"a division, shift, remainder or mask outside the forms of the fragment"};
+        }
         default: break;
+      }
+      if (std::optional<unsigned> uw = uwidth(xt)) {
+        // An unsigned x: x op= e is (x op e) modulo 2^width when the computation is not
+        // done in a narrower type; the store keeps the value only if it is in range.
+        const auto* cu = cast<CompoundAssignOperator>(b);
+        QualType ct = cu->getComputationResultType();
+        std::string self = "{\"e\":\"var\",\"x\":" + unum(*t) + "}";
+        bool wide = ct->isIntegerType() && !ct->isBooleanType() &&
+                    (ct->isUnsignedIntegerType() ? ctx_.getIntWidth(ct) >= *uw : preserves(xt, ct));
+        const char* op = b->getOpcode() == BO_AddAssign   ? "add"
+                         : b->getOpcode() == BO_SubAssign ? "sub"
+                         : b->getOpcode() == BO_MulAssign ? "mul"
+                                                          : nullptr;
+        if (wide && b->getOpcode() == BO_ShlAssign) {
+          std::optional<std::int64_t> k = constant(b->getRHS());
+          if (k && *k >= 0 && *k < 62 && *k < static_cast<std::int64_t>(ctx_.getIntWidth(ct)))
+            return assignU(w, *t, *uw, "{\"e\":\"mul\",\"a\":" + self + ",\"b\":{\"e\":\"lit\",\"k\":" +
+                                          num(std::int64_t{1} << *k) + "}}");
+        }
+        if (!wide || !op) return assign(w, *t, other());
+        return assignU(w, *t, *uw, std::string("{\"e\":\"") + op + "\",\"a\":" + self + ",\"b\":" +
+                                      expMod(b->getRHS(), *uw) + "}");
       }
       const auto* ca = cast<CompoundAssignOperator>(b);
       // x op= e is x = (T) (x op e), computed in the computation type: exact only if
@@ -398,6 +641,9 @@ class Exporter {
       QualType xt = u->getSubExpr()->getType();
       if (!unpromoted(xt)) return assign(w, *t, other());  // x + 1 converted back: may wrap
       std::string self = "{\"e\":\"var\",\"x\":" + unum(*t) + "}";
+      if (std::optional<unsigned> uw = uwidth(xt))
+        return assignU(w, *t, *uw, std::string("{\"e\":\"") + (u->isIncrementOp() ? "add" : "sub") +
+                                      "\",\"a\":" + self + ",\"b\":{\"e\":\"lit\",\"k\":1}}");
       return assign(w, *t, std::string("{\"e\":\"") + (u->isIncrementOp() ? "add" : "sub") + "\",\"a\":" +
                                self + ",\"b\":{\"e\":\"lit\",\"k\":1}}");
     }
@@ -410,13 +656,31 @@ class Exporter {
       const auto* vd = dyn_cast<VarDecl>(d);
       if (!vd) continue;
       const Expr* init = vd->getInit();
-      if (init) pure(init, "an initialiser");
+      bool withCalls = false;
+      if (init) {
+        Effects f = effects(init);
+        if (f.calls && !f.opaque && !f.writes) {  // the calls first (Lean `MStmt.call`)
+          callStmts(init, ss);
+          withCalls = true;
+        } else {
+          pure(init, "an initialiser");
+        }
+      }
+      (void)withCalls;
       std::uint64_t w = (init ? in_.costOf(init) : 0) +
                         (init && vd->getType()->isIntegralOrEnumerationType() ? in_.assign : 0);
       if (std::optional<std::size_t> x = tracked(vd)) {
-        if (init && describedByFacts(init))
-          throw Refused{"a division, shift, remainder, mask or table read (not in the fragment yet)"};
-        ss.push_back(assign(w, *x, init ? exp(init) : other()));
+        if (const BinaryOperator* d = init ? divisionLike(init) : nullptr) {
+          auto s = divStore(w, *x, vd->getType(), d->getLHS(), d->getOpcode(), d->getRHS(), d->getType());
+          if (!s) throw Refused{"a division, shift, remainder or mask outside the forms of the fragment"};
+          ss.push_back(*s);
+          continue;
+        }
+        if (init && describedByFacts(init)) throw Refused{"a table read (not in the fragment yet)"};
+        if (std::optional<unsigned> uw = init ? uwidth(vd->getType()) : std::nullopt)
+          ss.push_back(assignU(w, *x, *uw, expMod(init, *uw)));
+        else
+          ss.push_back(assign(w, *x, init ? exp(init) : other()));
       }
       else
         ss.push_back(cost(w));

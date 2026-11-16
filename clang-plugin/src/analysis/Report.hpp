@@ -50,6 +50,10 @@ struct FunctionReport {
   unsigned line = 0;
   bool ok = false;          ///< profile respected, bound derived, deadline met
   bool bounded = false;     ///< a finite cost bound was derived
+  /// Option `symbolic`: every loop has a ranking potential but some have no numeric
+  /// bound; the cost is bounded by a function of the inputs (see `certificateSummary`
+  /// when a certificate was emitted), not by a number.
+  bool symbolic = false;
   std::uint64_t wcet = 0;   ///< worst-case cost bound in abstract units (if bounded)
   std::optional<std::uint64_t> deadline;
   std::vector<LoopReport> loops;

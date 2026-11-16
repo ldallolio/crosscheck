@@ -835,6 +835,15 @@ below as they are done.
   fixes: 960 random functions, 873 bounded loops, 1.29 million runs, no bound below an
   executed count, 238 certificates accepted; 1,898 mutants of 14 accepted programs, 1,853
   rejected, 45 accepted, none with a run above its bound.
+  Final campaign, with the binary that has division and unsigned stores in mini-C: 960
+  functions, 1,632 loops, 863 bounded, 1.23 million runs, no violation; 2,114 exported
+  invariants and 832 variants executed without a failure; 143 mini-C exports compared with
+  the compiled C, no mismatch; 2,029 mutants of 15 accepted programs, 1,983 rejected, 46
+  accepted, none with a run above its bound. That campaign found three functions exported
+  but not validated (the exporter was less precise than the generator on `x <<= k` for an
+  unsigned `x`, and gave scratch variables to statements in source order where the
+  generator's order differs): both corrected (scratch variables are now keyed by
+  statement).
 - **Step 13.** The unbounded-loop error names a likely cause;
   `clang-plugin/scripts/crosscheck_project.py` (compilation database, `project.json`,
   `index.html`, baseline).
@@ -842,6 +851,43 @@ below as they are done.
   `clang-plugin/scripts/acsl_export.py`. Frama-C is not installed on this machine: the
   export was **not** run through it; the annotations are executed as run-time checks in
   `fuzz_bounds.py` (and a falsified annotation is detected).
+- **Step 11, mini-C (partly).** Statement `divStore` in `MiniCCore.lean` (quotient,
+  remainder and mask by a constant; a shift is a quotient), with `divFacts`, `divOf` and
+  its case of `lower`; no proof changed (the lowering produces existing programs of the
+  checker). Reader in `CheckerMain.lean`; exporter (`MiniC.cpp`, own type checks; a
+  scratch variable for `x = x / c`, taken from the certificate after checking that it is
+  not a variable of the source); the generator now uses one scratch variable per
+  statement. Tests `ok_halve`, `ok_digits`, `ok_shift`, `ok_quarter`,
+  `ok_remainder_mask`, `no_unsigned_remainder`; the random-program test interprets the
+  new statement. Then stores into unsigned variables (`assignU`: the value if it is in
+  the variable's range, unknown otherwise; exporter function `expMod`), tests
+  `ok_unsigned`, `ok_unsigned_down`, `ok_unsigned_halve`, `no_unsigned_char`. Kernels: 105
+  of 161 certificates validated (were 93), none failing. Then calls (`call`: stores of the
+  arguments into the callee's parameter variables, then the checker's call node; also in
+  initialisers and return values), tests `ok_call`, `ok_call_in_loop`,
+  `ok_call_in_return`, `no_call_in_test`: 143 of 161 kernel certificates validated, 134
+  of them together with every function they call, none failing. The random-program test
+  has no calls between functions, so the call statement is tested only by `tests/c/minic.c`
+  and the benchmarks.
+- **Step 12, bounds without ranges.** Option `symbolic`: `synthesizeRanking(...,
+  unbounded)` (no constant entry bound, small coefficients preferred); a loop with such a
+  potential is not an error, its numeric cost is infinite, the function is reported
+  `symbolic` and not `ok`; the certificate generator then derives a bound affine in the
+  parameters, with logical variables for `x`, `-x` and `x - y` (up to three parameters),
+  which the unchanged checker accepts or not. Tests `Symbolic.*`,
+  `Unsound.SymbolicModeStillNeedsAPotential`. TPDB runner: a third mode without ranges,
+  in which a value read from the nondeterministic input function before the first loop of
+  the entry function becomes a parameter (a harness, described in the README).
+- **Step 14, stack.** Lean `Stack.lean` (activation trees, `highWater_le_of_bound`,
+  `highWater_le_depth`; 284 theorems, 21 modules), Paper I `subsec:stack`;
+  `benchmarks/cycles/stack.py` and its check in `run_cycles.py`. 143 of 267 kernel
+  functions, 24 calls compared with the emulated runs, no violation, 19 exact.
+- **Step 17 (OTAWA) not done**: the command that would clone and build OTAWA in a
+  container was refused by the session's permission policy; nothing was fetched except
+  the list of repositories and the project's README. **Step 18 not done** (recursion in
+  the checker, amortised bounds): reasons in `docs/proposals.md` section 6.4.
+- A reference was added, `kirchner2015framac` (Frama-C), from the model's memory; its
+  bibliographic data were checked on Crossref; it was not read.
 - **Step 16.** `docs/qualification/` (requirements, traceability script, requirement
   tests, README). Written from the model's general knowledge of DO-330 and ISO 26262;
   it claims no compliance. **Author to check** (section 3, item 30).
@@ -1078,3 +1124,20 @@ is whether each Lean statement says what the paper says, and everything outside 
     (the AI added one); have `docs/qualification/README.md` read by someone who knows
     DO-330 before showing it to an industrial partner; run `acsl_export.py` output through
     Frama-C/WP on one example before claiming that the export is usable.
+31. **Steps 11, 12, 14.** Read `divFacts` and the `divStore` case of `lower` in
+    `MiniCCore.lean` against the added item of Definition `def:minic`, and decide whether
+    the facts stated for a mask and a remainder are what you want mini-C to mean; read the
+    `assignU` case and `expMod` in `MiniC.cpp` (the claim that sums, differences and
+    products computed over the integers agree modulo 2^width with C's unsigned arithmetic
+    when no intermediate result is truncated to fewer bits); read the `call` case of
+    `lower` and `callStmts` in `MiniC.cpp`, and decide whether "validated" should be
+    reported only for functions whose callees are validated too; read
+    `Stack.lean` against `prop:stack` (in particular the off-by-one of the depth
+    statement); check that the TPDB harness of the symbolic mode (inputs read before the
+    first loop become parameters) is a fair reading of the benchmark; check the reference
+    `kirchner2015framac`.
+32. **TPDB programs bounded only by CrossCheck.** Paper II says that five potentials
+    were "checked by hand": the check was done by the AI (reasoning written in the session,
+    not a proof): `1000 - y` (`Ex2.13`), `1000 - x` (`Ex3.01`), `q + z/2 + 500`
+    (`LeikeHeizmann-Ex7`), `x + y + 1000` (`PlusSwap`, `t30`). Redo it, or reword the
+    sentence.

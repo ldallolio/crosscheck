@@ -767,6 +767,85 @@ TEST(Certificates, LexicographicLoop) {
   EXPECT_NE(r.certificates.back().find("\"while\""), std::string::npos);
 }
 
+// Option `symbolic`: without input ranges, a loop with a ranking potential is not an
+// error; the function has no numeric bound (it is not accepted as real-time), and the
+// certificate carries a bound in the parameters.
+TEST(Symbolic, BoundInTheParametersWithoutRanges) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  ASSERT_TRUE(o.parse("symbolic"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int count(int n) { int s = 0; for (int i = 0; i < n; ++i) s++; return s; }
+    CROSSCHECK_REALTIME int caller(int n) { return count(n) + count(n + 3); }
+    CROSSCHECK_REALTIME int nested(int n, int m) {
+      int s = 0;
+      for (int i = 0; i < n; ++i) for (int j = 0; j < m; ++j) s++;
+      return s;
+    })", o);
+  for (const char* name : {"count", "caller"}) {
+    const FunctionReport& f = fn(r, name);
+    EXPECT_FALSE(f.ok) << name;        // no numeric bound: not accepted
+    EXPECT_FALSE(f.bounded) << name;
+    EXPECT_TRUE(f.symbolic) << name;
+    EXPECT_EQ(f.certificate, "emitted") << name;
+    EXPECT_NE(f.certificateSummary.find("max(0,n)"), std::string::npos) << name;
+    EXPECT_TRUE(f.errors.empty()) << name;
+  }
+  // A product of two parameters is not an affine summary: symbolic, but no certificate.
+  EXPECT_TRUE(fn(r, "nested").symbolic);
+  EXPECT_NE(fn(r, "nested").certificate, "emitted");
+}
+
+// Bounds that decrease in a parameter or depend on a difference of two: the certificate
+// has logical variables for -a and n - m as well.
+TEST(Symbolic, BoundsInNegatedParametersAndDifferences) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  ASSERT_TRUE(o.parse("symbolic"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int upto30(int a) { int s = 0; while (a < 30) { a++; s++; } return s; }
+    CROSSCHECK_REALTIME int gap(int n, int m) { int s = 0; while (m < n) { m++; s++; } return s; }
+    CROSSCHECK_REALTIME int callgap(int n) { return gap(n, 5) + upto30(n); })", o);
+  EXPECT_EQ(fn(r, "upto30").certificate, "emitted");
+  EXPECT_NE(fn(r, "upto30").certificateSummary.find("max(0,-a)"), std::string::npos);
+  EXPECT_EQ(fn(r, "gap").certificate, "emitted");
+  EXPECT_NE(fn(r, "gap").certificateSummary.find("max(0,n-m)"), std::string::npos);
+  EXPECT_EQ(fn(r, "callgap").certificate, "emitted");
+}
+
+// Without the option nothing changes: the loop is an error.
+TEST(Symbolic, OffByDefault) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int count(int n) { int s = 0; for (int i = 0; i < n; ++i) s++; return s; })");
+  EXPECT_FALSE(fn(r, "count").ok);
+  EXPECT_FALSE(fn(r, "count").symbolic);
+  EXPECT_FALSE(fn(r, "count").errors.empty());
+}
+
+// Must be rejected also in symbolic mode: loops without a ranking potential.
+TEST(Unsound, SymbolicModeStillNeedsAPotential) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  ASSERT_TRUE(o.parse("symbolic"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int forever(int n) { int s = 0; while (n != 0) s++; return s; }
+    CROSSCHECK_REALTIME int stalls(int n, int c) {
+      int s = 0, i = 0;
+      while (i < n) { if (c > 0) i++; s++; }
+      return s;
+    }
+    CROSSCHECK_REALTIME int grows(int n) { int s = 0; for (int i = 0; i < n; ++i) { n++; s++; } return s; })", o);
+  for (const char* name : {"forever", "stalls", "grows"}) {
+    EXPECT_FALSE(fn(r, name).symbolic) << name;
+    EXPECT_FALSE(fn(r, name).bounded) << name;
+    EXPECT_NE(fn(r, name).certificate, "emitted") << name;
+    EXPECT_FALSE(fn(r, name).errors.empty()) << name;
+  }
+}
+
 // --- certificates (docs/certificate-format.md) ------------------------------------
 
 TEST(Certificates, EmittedWithTheSameBound) {

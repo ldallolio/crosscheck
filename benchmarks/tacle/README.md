@@ -44,7 +44,7 @@ function a bound, and one more loop is bounded in context.
 
 | Kernel | Loops | Derived | = max | > max | < max | No bound | Not reached | `_main` bound | In context: derived | = max | > max | < max |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| binarysearch | 2 | 1 | 1 | 0 | 0 | 1 | 0 | — | 1 | 1 | 0 | 0 |
+| binarysearch | 2 | 2 | 1 | 1 | 0 | 0 | 0 | 386 | 2 | 1 | 1 | 0 |
 | bitcount | 4 | 2 | 1 | 1 | 0 | 2 | 0 | — | 2 | 1 | 1 | 0 |
 | bitonic | 3 | 2 | 2 | 0 | 0 | 1 | 0 | — | 2 | 2 | 0 | 0 |
 | bsort | 4 | 4 | 4 | 0 | 0 | 0 | 0 | 240 702 | 4 | 4 | 0 | 0 |
@@ -73,7 +73,7 @@ function a bound, and one more loop is bounded in context.
 | recursion | 0 | 0 | 0 | 0 | 0 | 0 | 0 | — | 0 | 0 | 0 | 0 |
 | sha | 17 | 10 | 6 | 4 | 0 | 7 | 0 | — | 11 | 6 | 4 | 1 |
 | st | 5 | 5 | 5 | 0 | 0 | 0 | 0 | 65 074 | 5 | 5 | 0 | 0 |
-| **Total** | **220** | **132** | **105** | **26** | **1** | **88** | **0** | **11 kernels** | **141** | **131** | **8** | **2** |
+| **Total** | **220** | **133** | **105** | **27** | **1** | **87** | **0** | **12 kernels** | **142** | **131** | **9** | **2** |
 
 ## Certificates
 
@@ -84,7 +84,7 @@ checker on them and fails if one is rejected.
 
 On 2026-11-14, after early exits, `switch`, `&&` tests and unsigned variables were added
 to the generator: **156 of the 158 bounded functions** get a certificate, **all accepted
-by the checker** (before: 142; 158 of 160 with logarithmic potentials on 2026-11-15, then 158 of 162 with growing logarithmic loops and exact unsigned division: `fft_bit_reduct` and `fft_main` are bounded but not certified, the generator's invariant does not show their logarithmic potential positive; `fft_main` brings the bounded entry functions to 11). The entry functions `<kernel>_main` of 9 kernels are
+by the checker** (before: 142; 158 of 160 with logarithmic potentials on 2026-11-15, then 158 of 162 with growing logarithmic loops and exact unsigned division: `fft_bit_reduct` and `fft_main` are bounded but not certified, the generator's invariant does not show their logarithmic potential positive; `fft_main` brings the bounded entry functions to 11; since the retry with more candidate invariants of 2026-11-16, 161 of 165: the loop of `binarysearch` is bounded, linearly (29, flow fact 4), and `binarysearch_main` is the twelfth bounded entry function). The entry functions `<kernel>_main` of 9 kernels are
 certified. 141 certified bounds equal the plugin's bound; 12 are smaller (9:
 `__kernel_cosf` and its callers, in four kernels: the forward assertions show that an
 expensive branch cannot follow an earlier test; 3 in `bsort`: the iteration that leaves
@@ -113,12 +113,15 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
-Kernels: the tables are unchanged (158 of 162 certified, all accepted); **93 certificates
-validated, none failing validation**; 26 of them contain loops (42 of the 82 loops of the
-certified programs), 3 are entry functions (`complex_updates_main`, `iir_main`,
-`matrix1_main`); many of the others are small (initialisations, `*_return`). Refused by
-the exporter: calls (31), division, shift, mask and table forms (19), unsigned tracked
-variables (8), global or static tracked variables (6), `break` (1).
+Kernels (2026-11-16, 161 of 165 certified, all accepted): **143 certificates
+validated, none failing validation** (93 before mini-C had quotients, remainders, shifts,
+masks, unsigned stores and calls; 134 are validated together with every function they
+call); 35 of them contain loops (58 of the 83 loops of the
+certified programs), 8 are entry functions `<kernel>_main` (`binarysearch`, `bsort`, `complex_updates`,
+`countnegative`, `iir`, `jfdctint`, `matrix1`, `st`; all but `bsort` and `st` with all
+their callees); many of the others are small (initialisations, `*_return`). Refused by
+the exporter: global or static tracked variables (6), `return` or `break` inside a loop
+(6), calls of functions without an entry in the certificate file (4), calls in tests (2).
 
 Sequential and application programs (`--category sequential --category app`): tables
 unchanged (231 of 263 certified, all accepted); **113 validated, none failing**, including
@@ -139,8 +142,8 @@ concatenation), without annotations, 572 loops with a flow fact:
 
 | | Derived | = flow fact | > flow fact | < flow fact | No bound | Not reached |
 |---|---|---|---|---|---|---|
-| for every call | 274 | 258 | 7 | 9 | 288 | 10 |
-| in context | 329 | 304 | 15 | 10 | | |
+| for every call | 275 | 258 | 8 | 9 | 287 | 10 |
+| in context | 330 | 304 | 16 | 10 | | |
 
 (2026-11-14, before globals, fields, tables and C integer tests: 263 / 252 / 7 / 4 for
 every call, 317 / 297 / 15 / 5 in context.)
@@ -157,7 +160,7 @@ every call, 317 / 297 / 15 / 5 in context.)
   `cjpeg_wrbmp`, the grayscale branch of `write_colormap` is not taken by the program's
   two calls (`cMap = 1`): bound 0 in context. Observed counts were not measured for these
   programs (`measure_loops.py` covers the kernels).
-- **No bound** (298 loops for every call): mostly loops over data read from memory,
+- **No bound** (297 loops for every call): mostly loops over data read from memory,
   global or `struct` counters, pointers and floating-point values, which the analysis
   does not track (see `docs/proposals.md` §4).
 - **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
@@ -179,8 +182,8 @@ python3 benchmarks/tacle/compare_ffx.py DIR                             # vs res
 
 Both FFX files are read the same way (every `<loop>` with `source`, `line` and a numeric
 `maxcount`; for oRange the maximum over its calling contexts). On the 29 kernels:
-**115 loops bounded in both files, all 115 equal**; 29 only in CrossCheck's, 17 only in
-oRange's. (These are all loops of the files; `tab:tools` counts the 220 loops that have a
+**116 loops bounded in both files, 115 equal** (the loop of `binarysearch`: 29 against
+oRange's 5); 29 only in CrossCheck's, 16 only in oRange's. (These are all loops of the files; `tab:tools` counts the 220 loops that have a
 flow fact, 114 of them bounded by both.)
 
 ## Reading the results
@@ -244,16 +247,16 @@ are never called, which Clang does not emit, so ScalarEvolution never sees them)
 
 | | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange |
 |---|---:|---:|---:|---:|
-| bounded | 132 | 141 | 113 (+46 type range only) | 131 |
+| bounded | 133 | 142 | 113 (+46 type range only) | 131 |
 | equal to the flow fact | 105 | 131 | 108 | 127 |
-| larger | 26 | 8 | 5 | 3 |
+| larger | 27 | 9 | 5 | 3 |
 | smaller | 1 (loose flow fact) | 2 (loose flow facts) | 0 | 1 (wrong bound, see below) |
 
 CrossCheck's bounds for every call and ScalarEvolution's are both obtained from one
 function at a time. 104 loops are bounded by both; there the bounds agree on 99,
 CrossCheck's is smaller on 4 (loops left by `break`, which must be counted once more
 from LLVM's backedge-taken count) and ScalarEvolution's is smaller by one on the doubling
-loop of `fft` (10, exact, against the logarithmic bound 11). 28 loops are bounded only by CrossCheck: 18 in
+loop of `fft` (10, exact, against the logarithmic bound 11). 29 loops are bounded only by CrossCheck (one more since 2026-11-16: the loop of `binarysearch`): 18 in
 `ludcmp` and `minver` (where ScalarEvolution has only the type range, or nothing), two
 whose guard combines the counter with another condition (`x && i < 64`,
 `m >= 2 && j >= m`), two in `sha`, one in `isqrt`, one empty loop, and four bounded since exact unsigned
@@ -270,11 +273,11 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 
 | loops reached (208) | CrossCheck, every call | CrossCheck, in context | ScalarEvolution | oRange | flow fact |
 |---|---:|---:|---:|---:|---:|
-| bounded | 130 | 141 | 113 | 131 | 208 |
+| bounded | 131 | 142 | 113 | 131 | 208 |
 | below the observed count | **0** | **0** | **0** | 1 | 2 |
 | equal to it | 103 | 132 | 107 | 127 | 198 |
-| above it | 27 | 9 | 6 | 3 | 8 |
-| bound / observed: median, geometric mean, max | 1.00, 1.83, 166.7 | 1.00, 1.03, 3.5 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
+| above it | 28 | 10 | 6 | 3 | 8 |
+| bound / observed: median, geometric mean, max | 1.00, 1.85, 166.7 | 1.00, 1.04, 7.2 | 1.00, 1.02, 3.5 | 1.00, 1.00, 1.2 | 1.00, 1.01, 2.5 |
 
 (Ratios are over the loops with a nonzero count.)
 
@@ -302,12 +305,13 @@ others are in code the input does not execute, e.g. 6 loops of `pm`).
 **oRange** analyses the whole program from `main`, propagating the values of the
 built-in input: its bounds are bounds for the program as given, like the flow facts,
 and it agrees with them on 127 of its 131 loops. The comparable CrossCheck bounds are
-those in context. Compared loop by loop: 114 loops are bounded by both, with
-**identical bounds on all 114** (against CrossCheck's bounds for every call: 87
-identical, oRange tighter on 18, in `ludcmp` and `minver`). 17 loops are bounded only
+those in context. Compared loop by loop: 115 loops are bounded by both, with
+**identical bounds on 114** (the exception: `binarysearch`, oRange 5, CrossCheck 29, the flow
+fact 4) (against CrossCheck's bounds for every call: 87
+identical, oRange tighter on 18, in `ludcmp` and `minver`). 16 loops are bounded only
 by oRange: 12 with floating-point counters (`cosf`, `deg2rad`, `rad2deg`, `pm`, 8 in
 `fir2dim`), loops on a global or `volatile` counter (`insertsort`, and the
-wrong `filterbank` bound), and `binarysearch`, `fft`, `insertsort` (data-dependent or
+wrong `filterbank` bound), and `fft`, `insertsort` (data-dependent or
 halving). 27 are bounded only by CrossCheck: 10 in kernels where oRange gives no
 result, 6 with a guard `i < sizeof( a )` (`fir2dim`, `iir`), 4 in `fft`, 5 in `sha`,
 1 in `isqrt` and 1 in `md5` (oRange reports `NOCOMP`). oRange gave no result on 5 kernels: `bitonic`, `quicksort` and
@@ -319,9 +323,9 @@ finish in 600 s. It took 251 s on `pm` and at most 7 s on the others.
 
 | | CrossCheck | KoAT2 | CoFloCo | Infer |
 |---|---:|---:|---:|---:|
-| entry functions with a numeric bound | 11 | 5 | 8 | 14 |
+| entry functions with a numeric bound | 12 | 5 | 8 | 14 |
 | entry functions with a symbolic bound | 0 | 5 | 0 | 2 |
-| functions with a numeric / symbolic bound | 162 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
+| functions with a numeric / symbolic bound | 165 / 0 | 119 / 23 | 128 / 11 | 190 / 14 |
 
 Reading this table:
 

@@ -103,8 +103,12 @@ int main(int argc, const char** argv) {
   if (!options.sarifPath.empty() && !write(options.sarifPath, crosscheck::toSarif(combined, options))) return 2;
   if (summary)
     for (const auto& f : combined.functions)
-      llvm::outs() << (f.ok ? "OK   " : "FAIL ") << f.name << ": "
-                   << (f.bounded ? std::to_string(f.wcet) + " units" : std::string("no bound"))
+      llvm::outs() << (f.ok ? "OK   " : f.symbolic ? "SYMB " : "FAIL ") << f.name << ": "
+                   << (f.bounded    ? std::to_string(f.wcet) + " units"
+                       : f.symbolic ? "no numeric bound; " + (f.certificateSummary.empty()
+                                                                  ? std::string("potentials found for every loop")
+                                                                  : "certified " + f.certificateSummary + " units")
+                                    : std::string("no bound"))
                    << (f.responseTime ? ", response time " + std::to_string(*f.responseTime) +
                                             " under interrupts"
                                       : std::string())

@@ -73,11 +73,17 @@ struct RankingResult {
   std::vector<Rational> weights;  ///< w_j
   Rational offset;                ///< c0
   std::uint64_t bound = 0;        ///< floor(K): maximal number of steps
+  /// True when no constant bounds the potential on entry (`unbounded` synthesis): the
+  /// potential still decreases and is at least 1 before a step, so the number of steps is
+  /// at most its value on entry, a function of the inputs; `bound` is then meaningless.
+  bool symbolic = false;
 };
 
 /// Returns no value when no affine potential with a finite bound is found.
+/// With `unbounded`, the potential is not required to have a constant bound on entry;
+/// the sum of the absolute values of its coefficients is minimised instead.
 std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
-                                               const RankingProblem& problem);
+                                               const RankingProblem& problem, bool unbounded = false);
 
 /// A *size potential* problem for a recursive function.
 ///

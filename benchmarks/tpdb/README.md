@@ -46,39 +46,51 @@ Programs whose entry function gets a bound:
 | Family | Programs | CrossCheck as is | CrossCheck, inputs in [-1000, 1000] | KoAT2 | CoFloCo |
 |---|---:|---:|---:|---:|---:|
 | Benamram_2025 | 14 | 0 | 0 | 8 | 0 |
-| Flores-Montoya_2017 | 458 | 10 | 166 | 254 | 246 |
+| Flores-Montoya_2017 | 458 | 11 | 202 | 254 | 246 |
 | Lommen_22 | 20 | 0 | 1 | 1 | 1 |
 | Lommen_23 | 15 | 0 | 1 | 6 | 1 |
 | Lommen_24 | 20 | 0 | 0 | 1 | 0 |
 | Sinn_2016 | 26 | 0 | 3 | 18 | 16 |
-| **Total** | **553** | **10** | **171** | **288** | **264** |
+| **Total** | **553** | **11** | **207** | **288** | **264** |
 
 (2026-11-13: 165 with ranges; then one more in `Sinn_2016`; five more in
-`Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15.)
+`Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15;
+36 more on 2026-11-16, since the search for a potential is repeated with more candidate
+invariants (`docs/proposals.md`, step 9). One program, `sipmamergesort2`, exceeded the 120 s
+limit in both modes in that run, on a machine shared with other work; it had no bound before.)
 
 KoAT2 or CoFloCo bound 305 programs. CrossCheck with ranges against them:
 
 | | KoAT2 or CoFloCo: bound | no bound |
 |---|---:|---:|
-| CrossCheck (ranges): bound | 164 | 7 |
-| no bound | 141 | 241 |
+| CrossCheck (ranges): bound | 190 | 17 |
+| no bound | 115 | 231 |
 
 Reading the results:
 
-- **As is**, CrossCheck bounds only the 10 programs whose loops have constant bounds:
-  it has no symbolic bounds.
-- **The 7 programs bounded only by CrossCheck.** Six (`CookSeeZuleger-TACAS2013-Fig1`,
-  `Fig7a`, `Fig7b`, `Nyala-2lex`, `PastaC9`, `PodelskiRybalchenko-TACAS2011-Fig4`)
+- **As is**, the analysis bounds only the 11 programs whose loops have constant bounds
+  (for bounds in the parameters without ranges, see the last section).
+- **The 17 programs bounded only by CrossCheck.** Eleven (`CookSeeZuleger-TACAS2013-Fig1`,
+  `Fig7a`, `Fig7b`, `Nyala-2lex`, `PastaC9`, `PodelskiRybalchenko-TACAS2011-Fig4`, and since
+  2026-11-16 `ChenFlurMukhopadhyay-SAS2012-Ex2.22`, `Ex3.09`, `NonTermination2`, `aaron3`,
+  `realheapsort`)
   assign a nondeterministic value to a variable inside the loop: they terminate, but
   their cost has no bound in terms of the inputs, so KoAT2 and CoFloCo are right to
   report none; CrossCheck bounds them only because the harness also restricts those
-  values. The seventh, `Sinn_2016/CPU2006_ApplyBndRobin` (four nested loops), is
-  bounded for the given ranges; KoAT2 and CoFloCo timed out on it.
+  values. `NonTermination2` does not terminate for unbounded inputs; with
+  the nondeterministic value in [-1000, 1000] it does (a variable at least doubles at every
+  iteration). `Sinn_2016/CPU2006_ApplyBndRobin` (four nested loops) is
+  bounded for the given ranges; KoAT2 and CoFloCo timed out on it. Five have no
+  nondeterministic value in a loop and are not bounded by the two tools:
+  `ChenFlurMukhopadhyay-SAS2012-Ex2.13`, `Ex3.01`, `LeikeHeizmann-TACAS2014-Ex7`, `PlusSwap`
+  and `C4B_examples/t30`. Their potentials (`1000 - y`, `1000 - x`, `q + z/2 + 500`,
+  `x + y + 1000` twice) were checked by hand: each decreases by 1 per iteration and is
+  at least 1 under the loop test, using the ranges of the variables as invariants.
 - **History.** The first run of this comparison gave 141 programs in the ranged mode.
   Keeping the facts of each `break` path at a loop exit, joining intervals where paths
   merge, and recognising `x = x + 1` as an increment (for invariant candidates) added
   24 programs and lost none; all 24 are also bounded by KoAT2 or CoFloCo.
-- **The 147 programs bounded by KoAT2 or CoFloCo and not by CrossCheck.** Almost all of
+- **The 115 programs bounded by KoAT2 or CoFloCo and not by CrossCheck** (147 when the sample below was drawn). Almost all of
   CrossCheck's failures in this mode are "cannot derive an iteration bound" (the
   others: unstructured control flow in 3, a missing definition in 1, and the 2 programs
   that do not compile as C++). A sample of ten was drawn (`random.seed(1)`) from the
@@ -110,9 +122,49 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **130 of the 171 bounded entry functions are
-certified, all accepted by the checker**: 97 with a *summary* affine in their parameters
-(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 33 with a constant bound,
-41 not certified. For 67 of the 97, KoAT2 also reports a linear bound. The harness's
-`CROSSCHECK_COST(1)` declarations become assumed contracts (39 entries). The analysis still
+In the second mode (inputs in [-K, K]), **156 of the 207 bounded entry functions are
+certified, all accepted by the checker**: 114 with a *summary* affine in their parameters
+(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 42 with a constant bound,
+51 not certified. For 77 of the 114, KoAT2 also reports a linear bound. The harness's
+`CROSSCHECK_COST(1)` declarations become assumed contracts (46 entries). The analysis still
 needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.
+
+## Without input ranges: certified bounds in the parameters (2026-11-16)
+
+```bash
+python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
+    --checker=formalization/.lake/build/bin/crosscheck-check --symbolic [--only-symbolic]
+```
+
+A third mode, with the tool's option `symbolic`: no range is added. A loop needs only a
+ranking potential; the analysis gives no numeric bound, and the certificate generator
+derives a bound that is affine in the parameters (in `max(0, x)`, `max(0, -x)` and
+`max(0, x - y)` of the integer parameters), which the checker accepts or not. The harness
+of this mode does two things to a file: undefined functions get a unit cost (as in the
+bounded mode), and, in the entry function, **a value read from an undefined function
+before the first loop becomes a parameter** (`x = nondet();` is replaced by `x = in_k;`,
+and `main` is renamed `main_`). The competition's tools treat these values as inputs of
+the program as well; a certified bound can only mention parameters. Values read inside or
+after a loop stay unknown.
+
+| Entry functions (553 programs) | |
+|---|---:|
+| certificate accepted, bound in the parameters | **87** |
+| certificate accepted, constant bound | 14 |
+| potentials for every loop, no certificate | 135 |
+| a loop without a potential, or another error | 316 |
+| timeout | 1 |
+
+- All 101 certificates are accepted by the checker: these bounds hold **for all inputs**,
+  with no annotation and no assumption on ranges (signed overflow is assumed absent, as
+  everywhere). All 101 programs are also bounded by KoAT2 or CoFloCo; on the 87 with a
+  bound in the parameters KoAT2 answers `O(n)` for 84 and `O(1)` for 3 (there our bound
+  is looser than necessary).
+- Before the two changes that followed the first run of this mode the count was 59 (45 +
+  14): logical variables for `-x` and `x - y` (a loop `while (a < 30)` costs
+  `max(0, -a)`), and nondeterministic inputs as parameters.
+- No certificate, of the 135: a product of two symbolic quantities, as in nested loops
+  both bounded by parameters (47: certified bounds are affine); a potential with no
+  bound of that form on entry (36); a loop test with a call or an assignment (28); the
+  generator's invariants too weak (16); `do` loops and labels (6); other (2).
+- KoAT2 or CoFloCo bound 305 programs: 204 of them have no certificate here.

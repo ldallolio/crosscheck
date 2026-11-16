@@ -168,7 +168,7 @@ them**.
 
 | Weak point | Why it matters | Remedy (step) |
 |---|---|---|
-| 93 of 158 kernel certificates are validated against the source | for the others the unverified generator is trusted | mini-C with calls, unsigned variables, division (11) |
+| 93 of 158 kernel certificates are validated against the source (since step 11: 143 of 161) | for the others the unverified generator is trusted | mini-C with calls, unsigned variables, division (11) |
 | the link from mini-C to C is informal | last unproved step of the chain | run mini-C (its Lean semantics, executable) and the compiled C on random inputs (10); long term, CompCert Clight |
 | soundness evidence is one fixed input per kernel | none for sequential/app and CMSIS-DSP | random loop programs run against their bounds; mutated certificates must be rejected (10) |
 | the analyser needs numeric input ranges | TPDB as is: 10 programs, KoAT2 288 | parametric analyser (12) |
@@ -206,14 +206,14 @@ hard problem is hardware timing, which CrossCheck does not address. The value is
 |---|---|---|---|
 | 9 | Lexicographic potentials: checker node, proof by the loop rule, analyser, generator, must-be-rejected tests | T | **done 2026-11-16**, without a new checker node: with a constant inner bound the pair is an affine potential (`lex_potential`); the analyser retries with more candidate invariants and hands them to the generator. Binary search bounded (linearly). Not covered: a symbolic inner bound (a product) |
 | 10 | Soundness tests: random loop programs run against their bounds; mutated certificates rejected; mini-C interpreter against compiled C | E | **done 2026-11-16**: `fuzz_bounds.py`, `mutate_certificates.py`; two defects found and fixed (a loop whose body never completes reported with 0 executions; a mini-C source written for an inexpressible loop test) |
-| 11 | Mini-C extended (unsigned, division/shift/mask, calls), in the order of the measured refusals | T | |
-| 12 | Parametric analyser: bounds affine in the parameters without input ranges; TPDB as is | T + E | |
+| 11 | Mini-C extended (unsigned, division/shift/mask, calls), in the order of the measured refusals | T | **partly done 2026-11-16**: quotient, remainder, shift and mask by a constant (`divStore`), stores into unsigned variables (`assignU`), calls (`call`); kernels validated 93 -> 143 of 161 (134 with all their callees). Open: tracked globals (6), `return` or `break` in loops (6), calls in tests (2), callees without an entry of their own (4) |
+| 12 | Parametric analyser: bounds affine in the parameters without input ranges; TPDB as is | T + E | **done 2026-11-16** as option `symbolic`: potentials without a numeric entry bound, the bound in the parameters is the certificate's (logical variables also for `-x` and `x - y`). The analyser's own costs stay numeric. Open: products of parameters (polynomial bounds in the checker) |
 | 13 | Explanations for unbounded loops (which annotation would fix it); whole-project driver on `compile_commands.json` | E | **done 2026-11-16**: cause in the error message; `scripts/crosscheck_project.py` |
-| 14 | Stack-depth bounds (high-water mark: a new resource in the theory), checked against the Cortex-M0 runs | T + E | |
+| 14 | Stack-depth bounds (high-water mark: a new resource in the theory), checked against the Cortex-M0 runs | T + E | **done 2026-11-16**: Lean `Stack` (`highWater_le_of_bound`, `highWater_le_depth`), `benchmarks/cycles/stack.py`; 143 of 267 kernel functions, 24 calls compared, no violation. Open: recursion from a depth bound, frames adjusted by a register |
 | 15 | ACSL export of invariants and variants | E | **done 2026-11-16** (`scripts/acsl_export.py`), tested as run-time checks on random programs; **not run through Frama-C** (not installed here) |
 | 16 | Qualification-kit skeleton for the checker | E | **done 2026-11-16** (`docs/qualification/`): 9 requirements with evidence, traceability checked in CI; not reviewed by a specialist |
-| 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | needs tools and sources from the network |
-| 18 | Recursion in the checker (rule 9); amortised bounds for nested loops | T | |
+| 17 | End-to-end OTAWA run with our flow facts; a recognised benchmark | E | **not done**: OTAWA's sources are public (`statinf-otawa/otawa-project`, with a Dockerfile), but fetching and building them was not permitted in the AI session of 2026-11-16; the author can run `git clone --recurse-submodules https://github.com/statinf-otawa/otawa-project && docker build . -t otawa:local` and the work can resume from there. ROSACE, PapaBench and cFS were not fetched either |
+| 18 | Recursion in the checker (rule 9); amortised bounds for nested loops | T | **not done**. Recursion: low industrial priority (MISRA C forbids it), a full Lean development (soundness by induction on the rank for program certificates). Amortisation: needs a potential-based logic (cost bounded by a difference of potentials), a new theory step; the measured need is the `fft` nest (cycle bound 970 times the run) and triangular loops (`bsort`, 2.49) |
 
 The author's own verification items (`AI_USAGE.md` section 3) remain what blocks the arXiv
 submission; no step above replaces them.

@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 20 modules, about 5,450 lines, 280 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 21 modules, about 5,650 lines, 284 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -125,6 +125,7 @@ flowchart LR
 | `ResponseCore` | 50 | no mathlib: `rtaHolds C hs R` (`C + Σ cₖ⌈R/Tₖ⌉ ≤ R`), `rtaSearch` (the iteration); used by the checker program |
 | `Interrupts` | 260 | schedule model `Admissible`, `sporadic_count`, `handler_demand`, **`response_time_bound`**, `rtaHolds_sound`; example schedule `oneRun_admissible` |
 | `ForkJoin` | 120 | greedy (list) scheduling `Greedy`, **`greedy_bound`** (Graham: `p·L ≤ W + p·S`), `forkjoin_bound` (with certified task bounds), `load_lower` |
+| `Stack` | 150 | stack depth as a high-water mark: activation trees `ActTree`, `highWater`, **`highWater_le_of_bound`** (the composition rule of `benchmarks/cycles/stack.py`), `highWater_le_depth` (from a recursion depth) |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

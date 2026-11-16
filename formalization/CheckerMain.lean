@@ -194,6 +194,30 @@ partial def parseMStmt (j : Json) : Except String MStmt := do
   | "skip" => pure .skip
   | "assign" => pure (.assign (← getNat j "w") (← getNat j "x") (← parseMExp (← field j "e")))
   | "cost" => pure (.cost (← getNat j "w"))
+  | "call" =>
+    let args ← parseArr j "args" (fun a => do
+      let hi ← match a.getObjVal? "hi" with
+        | .ok v => match v.getInt? with
+          | .ok n => pure (some n)
+          | .error e => throw e
+        | .error _ => pure none
+      pure ((← getNat a "x"), hi, (← parseMExp (← field a "e"))))
+    pure (.call (← getNat j "f") args)
+  | "assignU" =>
+    pure (.assignU (← getNat j "w") (← getNat j "x") (← getInt j "hi") (← parseMExp (← field j "e")))
+  | "div" =>
+    let op ← match ← strField j "op" with
+      | "div" => pure DivOp.div
+      | "rem" => pure DivOp.rem
+      | "and" => pure DivOp.and
+      | o => throw s!"unknown operation '{o}'"
+    let old ← match j.getObjVal? "old" with
+      | .ok v => match v.getNat? with
+        | .ok n => pure (some n)
+        | .error e => throw e
+      | .error _ => pure none
+    pure (.divStore (← getNat j "w") (← getNat j "x") op (← parseMExp (← field j "y"))
+      (← getInt j "c") old)
   | "seq" =>
     let ss ← parseArr j "ss" parseMStmt
     pure (ss.foldr (fun a b => match b with

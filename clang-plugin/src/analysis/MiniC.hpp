@@ -12,8 +12,20 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace crosscheck::minic {
+
+/// Where a function is in the certificate file: its number, and the variables of its
+/// tracked integer parameters (the others are not listed). `plain` is false when its
+/// certificate has logical variables other than those of its parameters (option
+/// `symbolic`), which a mini-C call does not describe.
+struct CalleeInfo {
+  std::size_t index = 0;
+  std::vector<std::pair<const clang::ParmVarDecl*, std::size_t>> params;
+  bool plain = true;
+};
 
 /// What the exporter needs from the analysis: the variable numbering of the program
 /// certificate (any injective numbering of non-aliased integer locals and parameters),
@@ -23,6 +35,16 @@ struct Inputs {
   const std::map<const clang::VarDecl*, std::size_t>* vars = nullptr;
   std::function<std::uint64_t(const clang::Expr*)> costOf;  ///< the cost model
   std::uint64_t assign = 1, branch = 1, ret = 1;            ///< weights of the cost model
+  /// Scratch variables of the certificate for this function: for a statement of the form
+  /// `x = x / c`, keyed by its operand expression, the variable that receives the old
+  /// value of `x`. The exporter uses an index only after checking that it is not a
+  /// variable of `vars`: nothing else about them is trusted, and a wrong choice makes
+  /// validation fail.
+  std::map<const clang::Expr*, std::size_t> scratch;
+  /// The layout of the certificate file for a called function (none: it has no entry of
+  /// its own, the exporter refuses the call). Only this layout is used; whether the
+  /// certificate's program really calls it there is what validation checks.
+  std::function<std::optional<CalleeInfo>(const clang::FunctionDecl*)> callee;
   /// `CROSSCHECK_REQUIRE(...)` markers (no code; their content is the precondition).
   std::function<bool(const clang::Stmt*)> isRequire;
 };

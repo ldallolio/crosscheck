@@ -26,6 +26,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "benchmarks/tacle"))
 import m0  # noqa: E402
 import wcet  # noqa: E402
+import stack as stackbound  # noqa: E402
 import run_tacle  # noqa: E402
 
 import shutil
@@ -81,6 +82,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
     lines = wcet.line_table(str(objdump), str(obj), f"{kernel.name}.m0.c")
     an = wcet.Analysis(img, lines, bounds)
     static = {n: an.function(n) for n in sorted(img.funcs)}
+    sa = stackbound.StackAnalysis(img)
+    sbound = {n: sa.function(n) for n in sorted(img.funcs)}
     # run, with the checks
     entry = {a: n for n, (a, _) in img.funcs.items()}
     bodies = {}
@@ -93,14 +96,25 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
     stack, observed = [], {}
     viol = []
     mach = m0.Machine(img)
+    # Stack: for each activation, the stack pointer at its entry and the lowest value seen
+    # until it returns (its callees included).
+    frames, sobserved = [], {}
 
     def hook(i, before, nxt):
+        sp = mach.r[13]
+        if frames and sp < frames[-1][1]:
+            frames[-1][1] = sp
         if i is not None and i.kind == "call":
             stack.append((entry.get(i.target), mach.cyc, i.addr + 4))
+            frames.append([sp, sp])
         elif stack and nxt == stack[-1][2] and (i is None or i.kind == "ret"):
             fn, start, _ = stack.pop()
+            at_entry, low = frames.pop()
+            if frames and low < frames[-1][1]:
+                frames[-1][1] = low
             if fn is not None:
                 observed[fn] = max(observed.get(fn, 0), mach.cyc - start)
+                sobserved[fn] = max(sobserved.get(fn, 0), at_entry - low)
         if nxt in bodies and i is not None:
             body, N, fn = bodies[nxt]
             if i.addr in body:
@@ -113,12 +127,18 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
 
     mach.on_insn = hook
     t0 = time.monotonic()
+    frames.append([img.stack_top, img.stack_top])
     try:
         ret = mach.call("main", max_cycles=2 * 10**9)
         run_error = None
     except m0.Stop as e:
         ret, run_error = None, str(e)
     observed["main"] = mach.cyc
+    sobserved["main"] = frames[0][0] - min(f[1] for f in frames)
+    sviol = [f"{fn}: observed {s} bytes of stack > bound {sbound[fn]}"
+             for fn, s in sobserved.items() if sbound.get(fn) is not None and s > sbound[fn]]
+    scompared = [fn for fn in sobserved if sbound.get(fn) is not None and not fn.startswith("__aeabi")]
+    sown = {n: v for n, v in sbound.items() if not n.startswith("__aeabi")}
     for fn, c in observed.items():
         if static.get(fn) is not None and c > static[fn]:
             viol.append(f"{fn}: observed {c} cycles > bound {static[fn]}")
@@ -133,6 +153,12 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
                 ratio_main=(static["main"] / mach.cyc) if static.get("main") and ret is not None and mach.cyc else None,
                 max_ratio=max(ratios) if ratios else None, min_ratio=min(ratios) if ratios else None,
                 why={n: an.why[n] for n in an.why if n in static and static[n] is None},
+                stack_bounded=sum(v is not None for v in sown.values()),
+                stack_main_bound=sbound.get("main"), stack_main_observed=sobserved.get("main"),
+                stack_compared=len(scompared),
+                stack_exact=sum(1 for fn in scompared if sobserved[fn] == sbound[fn]),
+                stack_violations=sviol,
+                stack_why={n: sa.why[n] for n in sa.why if n in sown},
                 seconds=round(time.monotonic() - t0, 1))
 
 
@@ -170,19 +196,29 @@ def main():
               + (f" run_error={r['run_error']}" if r['run_error'] else ""), file=sys.stderr)
         for v in r["violations"]:
             print("   VIOLATION " + v, file=sys.stderr)
+        print(f"{'':16s} stack: bounded={r['stack_bounded']} main_bound={r['stack_main_bound']} "
+              f"observed={r['stack_main_observed']} compared={r['stack_compared']} exact={r['stack_exact']} "
+              f"violations={len(r['stack_violations'])}", file=sys.stderr)
+        for v in r["stack_violations"]:
+            print("   STACK VIOLATION " + v, file=sys.stderr)
     ok = [r for r in rows if "error" not in r]
     tot = dict(kernels=len(rows), compiled=len(ok), ran=sum(r["returned"] == 0 for r in ok),
                functions=sum(r["functions"] for r in ok), bounded=sum(r["bounded"] for r in ok),
                main_bounded=sum(r["main_bound"] is not None for r in ok),
                compared=sum(r["compared"] for r in ok), loops=sum(r["loops_checked"] for r in ok),
-               violations=sum(len(r["violations"]) for r in ok))
+               violations=sum(len(r["violations"]) for r in ok),
+               stack_bounded=sum(r["stack_bounded"] for r in ok),
+               stack_main_bounded=sum(r["stack_main_bound"] is not None for r in ok),
+               stack_compared=sum(r["stack_compared"] for r in ok),
+               stack_exact=sum(r["stack_exact"] for r in ok),
+               stack_violations=sum(len(r["stack_violations"]) for r in ok))
     print(json.dumps(tot), file=sys.stderr)
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(dict(total=tot, kernels=rows), indent=2) + "\n")
     wrong = [r["kernel"] for r in ok if r["returned"] != 0 and r["kernel"] not in EXPECTED_FAILURE]
     if wrong:
         print("wrong result or run error: " + ", ".join(wrong), file=sys.stderr)
-    if a.check and (tot["violations"] or wrong):
+    if a.check and (tot["violations"] or tot["stack_violations"] or wrong):
         sys.exit("cycle check failed")
 
 

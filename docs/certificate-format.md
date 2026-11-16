@@ -121,6 +121,9 @@ gives the reason (the checker ignores it).
 
 ```
 stmt  ::= {"s":"skip"} | {"s":"assign","w":W,"x":X,"e":exp} | {"s":"cost","w":W}
+        | {"s":"div","w":W,"x":X,"op":"div"|"rem"|"and","y":exp,"c":C[,"old":T]}
+        | {"s":"assignU","w":W,"x":X,"hi":H,"e":exp}
+        | {"s":"call","f":F,"args":[{"x":X,"e":exp[,"hi":H]}...]}
         | {"s":"seq","ss":[stmt...]} | {"s":"if","w":W,"c":cond,"a":stmt,"b":stmt}
         | {"s":"while","w":W,"cs":[cond...],"body":stmt}
         | {"s":"for","init":stmt,"w":W,"cs":[cond...],"inc":stmt,"body":stmt}
@@ -129,6 +132,25 @@ exp   ::= {"e":"var","x":X} | {"e":"lit","k":K} | {"e":"add"|"sub"|"mul","a":exp
 cond  ::= {"c":"cmp","op":"<"|"<="|">"|">=","a":exp,"b":exp} | {"c":"not","a":cond}
         | {"c":"other"}
 ```
+
+`div` is `x = y op c` for a constant `c` (a right shift by `k` is written as `div` by
+`2^k`): `x` receives an unknown value constrained by the facts of Lean `divFacts` (for
+`y >= 0`: `c*x <= y <= c*x + c - 1`, or `0 <= x <= c - 1` and `x <= y`, or `0 <= x <= c`
+and `x <= y`; for a negative `y` nothing, except `0 <= x <= c` for a mask). When `y`
+mentions `x`, `old` names a scratch variable that first receives `y`; the exporter takes
+it from the certificate's variables after checking that it is not a variable of the
+source.
+
+`assignU` is a store into an unsigned variable (`unsigned int` or wider) whose largest
+value is `hi`: `x` receives the value of `e`, computed over the integers, if it lies in
+`[0, hi]`, and an unknown value otherwise (where C wraps). `hi` is `2^width - 1`, and
+`2^62` for 64-bit variables.
+
+`call` is a call of function number `F` of the same program: each listed argument is
+stored into the variable `X` of the callee's parameter (an unsigned store when `hi` is
+given), at no cost, then the callee's program runs. Only the callee's tracked integer
+parameters are listed; the value of the call is unknown to the caller. The cost of
+evaluating the call belongs to the statement that follows.
 
 `w` are the weights of the cost model; `x` index the program's `variables`; `other` is an
 unknown value (an unknown test, in a conditional, is a nondeterministic choice; in a loop

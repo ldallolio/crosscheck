@@ -392,6 +392,9 @@ struct LoopPotential;
 
 struct Summary {
   bool ok = true;
+  /// Option `symbolic`: no error, but some loop has a potential without a numeric bound
+  /// (the cost is then infinite as a number).
+  bool symbolic = false;
   /// For certificates: the loops' potentials, the tracked variables, and the
   /// analysis used for each call (filled when the analysis ends).
   std::shared_ptr<const std::map<const Stmt*, struct LoopPotential>> potentials;
@@ -449,6 +452,7 @@ struct FnCtx {
   std::vector<RecSite> recSites;
   bool recImprecise = false;          ///< self-call lists are not path-exact
   unsigned speculative = 0;
+  bool symbolicLoops = false;  ///< a loop (or a callee) bounded by a potential only
   std::size_t errorCount = 0;  ///< errors reported so far (not in trial runs)
   unsigned loopDepth = 0;
   std::map<const Stmt*, LoopReport> loops;
@@ -938,6 +942,11 @@ class Analyzer {
     std::size_t index = 0;
     std::vector<std::size_t> ghostVars;
     std::vector<const ParmVarDecl*> ghostParams;
+    /// Option `symbolic`: further logical variables, after those of the parameters, each
+    /// equal at entry to an affine expression of the parameters (`-x`, `x - y`), so that a
+    /// bound can decrease in a parameter or depend on a difference; with their names.
+    std::vector<cert::PExp> extraGhosts;
+    std::vector<std::string> extraNames;
   };
   std::optional<CertPiece> certCallNode(CertCtx& cc, const CertFunInfo& ci,
                                         const std::vector<const Expr*>& args, const cert::Assn& pre);
@@ -1684,6 +1693,7 @@ Cost Analyzer::functionCost(const FunctionDecl* fd, SourceLocation loc, const Ca
     // Copy what is needed: analysing callees may rehash the cache.
     const Summary& sm = analyzeFunction(def, context);
     bool ok = sm.ok;
+    if (sm.symbolic && !stack_.empty() && !cur().speculative) cur().symbolicLoops = true;
     Sat wcet = sm.wcet;
     std::string reason = sm.reason;
     std::vector<std::string> assumptions = sm.assumptions;
@@ -2227,7 +2237,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   std::optional<std::uint64_t> user = annotated ? annotated : loopBoundMarker(body);
   std::vector<std::string> names;
   for (const VarDecl* v : slots) names.push_back(v->getNameAsString());
-  std::optional<RankingResult> rank;
+  std::optional<RankingResult> rank, symRank;
   struct LogPot { std::size_t slot; std::uint64_t base, iters; std::int64_t cap = 0; };
   std::optional<LogPot> logp, growp;
   auto search = [&] {
@@ -2249,6 +2259,8 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     problem.steps.push_back(std::move(step));
   }
   rank = synthesizeRanking(syms_, problem);
+  symRank.reset();
+  if (!rank && opts_.symbolic) symRank = synthesizeRanking(syms_, problem, true);
 
   // Logarithmic potential (Lean `logloop_sound`): a variable v with v >= 1 at the start of
   // every iteration and b*v' <= v on every path back to the head; then at most
@@ -2380,9 +2392,11 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
         Iteration again = runIteration(candidates);
         --fc.speculative;
         Iteration first = std::move(it);
+        std::optional<RankingResult> symFirst = symRank;
         it = std::move(again);
         search();
-        if (rank || logp || growp) {
+        if (!rank && !logp && !growp && !(symRank && !symFirst)) symRank = symFirst;
+        if (rank || logp || growp || (symRank && !symFirst)) {
           // Costs of calls are not computed in a run that records nothing: keep those
           // of the first run, which do not depend on the invariants.
           it.test = first.test;
@@ -2431,6 +2445,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   LoopReport lr;
   locate(lr, loc);
   std::uint64_t k = 0;
+  bool symbolicLoop = false;
   bool useLog = logp && (!rank || logp->iters < rank->bound) && (!user || logp->iters <= *user);
   if (useGrow) {
     k = growp->iters;
@@ -2460,6 +2475,18 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
       fc.potentials[loop] = std::move(lp);
     }
     lr.potential = potentialString(*rank, names);
+  } else if (symRank && !user) {
+    // Option `symbolic`: a potential that decreases and is at least 1 before a step, with
+    // no constant bound on entry. No number of iterations is claimed here: the certificate
+    // generator derives a bound in the parameters from the potential, for the checker.
+    symbolicLoop = true;
+    if (!fc.speculative) {
+      LoopPotential lp{slots, *symRank};
+      lp.invs = invForms;
+      fc.potentials[loop] = std::move(lp);
+      fc.symbolicLoops = true;
+    }
+    lr.potential = potentialString(*symRank, names);
   } else if (user) {
     k = *user;
     assume("loop at line " + std::to_string(lr.line) + " runs at most " + std::to_string(k) +
@@ -2599,7 +2626,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
 
   // K complete iterations, the final failing test, and possibly one partial
   // iteration that leaves the loop early.
-  Cost total = seq(times(Sat::of(k), seq(seq(it.test, it.body), it.inc)), it.test);
+  Cost total = seq(times(symbolicLoop ? Sat::infinite() : Sat::of(k), seq(seq(it.test, it.body), it.inc)), it.test);
   if (early) total = seq(total, it.body);
   return seq(pre, total);
 }
@@ -3087,8 +3114,12 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
     }
     total = nodes * cost.units;
   }
-  if (total.inf && fc.summary.ok)
+  // Option `symbolic`: potentials for every loop, no numeric bound, no other error.
+  const bool symbolicOnly = total.inf && fc.summary.ok && fc.symbolicLoops;
+  if (total.inf && fc.summary.ok && !symbolicOnly)
     error(def->getLocation(), "the cost bound of '" + rep.name + "' is not finite");
+  fc.summary.symbolic = symbolicOnly;
+  rep.symbolic = symbolicOnly;
 
   if (!fc.summary.requires_.empty())
     assume("preconditions of '" + rep.name + "' hold at its external call sites");
@@ -3100,9 +3131,9 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   std::sort(rep.loops.begin(), rep.loops.end(),
             [](const LoopReport& a, const LoopReport& b) { return a.line < b.line; });
   rep.assumptions = fc.summary.assumptions;
-  rep.ok = fc.summary.ok;
+  rep.ok = fc.summary.ok && !symbolicOnly;
   if (opts_.certificates && context.empty()) {
-    if (!rep.ok || !rep.bounded) {
+    if ((!rep.ok || !rep.bounded) && !symbolicOnly) {
       rep.certificate = "no certificate: the function is not bounded";
     } else {
       std::string reason, summary;
@@ -3189,6 +3220,8 @@ struct Analyzer::CertCtx {
     return names.size() - 1;
   }
   std::string fail;
+  std::map<const Expr*, std::size_t> oldVar;  ///< scratch variable of `x = x / c`, by operand
+  std::vector<std::size_t> oldOrder;          ///< these variables, in order of creation
   std::size_t temp() const { return names.size(); }  ///< scratch variable for eliminations
   /// Variables of unsigned type, with their width in bits.
   std::map<std::size_t, unsigned> uwidth;
@@ -3646,7 +3679,16 @@ std::optional<Analyzer::CertPiece> Analyzer::certStoreDivision(
   // `x = x >> k`, `x /= c`: the facts relate the new x to the old value, which is first
   // copied into a fresh variable (the facts would otherwise mention the new x twice).
   if (cert::coeff(y->sv, x) != 0) {
-    std::size_t old = cc.freshVar(cc.prefix + "?old" + std::to_string(cc.names.size()));
+    // One scratch variable per statement, also when a loop body is generated several
+    // times (invariant search): the mini-C exporter numbers them in source order.
+    auto known = cc.oldVar.find(lhs);
+    std::size_t old;
+    if (known != cc.oldVar.end()) {
+      old = known->second;
+    } else {
+      old = cc.oldVar[lhs] = cc.freshVar(cc.prefix + "?old" + std::to_string(cc.names.size()));
+      cc.oldOrder.push_back(old);
+    }
     std::optional<CertPiece> cp = certAssign(cc, 0, old, *y, pre);
     if (!cp) return std::nullopt;
     PExp yo{cert::unitVec(old), 0};
@@ -4614,6 +4656,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certCallNode(CertCtx& cc, const Cer
   }
   std::vector<PExp> inst;
   for (std::size_t x : ci.ghostVars) inst.push_back(PExp{cert::unitVec(x), 0});
+  for (const PExp& e : ci.extraGhosts) inst.push_back(e);
   Assn goals;
   for (const Lin& e : F.pre) goals.push_back(instLin(e, inst));
   std::optional<std::vector<Farkas>> pcs = cert::farkasAll(acc.post, goals);
@@ -5070,7 +5113,26 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     pre.push_back(Lin{cert::unitVec(it->second), cert::vsmul(-1, cert::unitVec(g)), 0});
     pre.push_back(Lin{cert::vsmul(-1, cert::unitVec(it->second)), cert::unitVec(g), 0});
   }
-  cc.gammas = info.ghostVars.size();
+  if (opts_.symbolic) {
+    // gamma = -x for each parameter, and gamma = x - y for each pair of up to three.
+    auto ghost = [&](const PExp& e, const std::string& name) {
+      std::size_t g = info.ghostVars.size() + info.extraGhosts.size();
+      info.extraGhosts.push_back(e);
+      info.extraNames.push_back(name);
+      pre.push_back(Lin{e.sv, cert::vsmul(-1, cert::unitVec(g)), e.c});
+      pre.push_back(Lin{cert::vsmul(-1, e.sv), cert::unitVec(g), -e.c});
+    };
+    const std::size_t n = info.ghostVars.size();
+    for (std::size_t i = 0; i < n; ++i)
+      ghost(PExp{cert::vsmul(-1, cert::unitVec(info.ghostVars[i])), 0}, "-" + info.ghostParams[i]->getNameAsString());
+    if (n <= 3)
+      for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t j = 0; j < n; ++j)
+          if (i != j)
+            ghost(PExp{cert::vadd(cert::unitVec(info.ghostVars[i]), cert::vsmul(-1, cert::unitVec(info.ghostVars[j]))), 0},
+                  info.ghostParams[i]->getNameAsString() + "-" + info.ghostParams[j]->getNameAsString());
+  }
+  cc.gammas = info.ghostVars.size() + info.extraGhosts.size();
   cc.depth = cc.gammas;
   std::map<SymId, std::size_t> paramIndex;
   for (unsigned i = 0; i < def->getNumParams(); ++i)
@@ -5112,8 +5174,11 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     }
   }
   pre = cert::normalize(pre);
-  for (std::size_t x : info.ghostVars) {
-    std::optional<std::int64_t> hi = cert::upperBound(pre, PExp{cert::unitVec(x), 0});
+  std::vector<PExp> ghostExprs;
+  for (std::size_t x : info.ghostVars) ghostExprs.push_back(PExp{cert::unitVec(x), 0});
+  for (const PExp& e : info.extraGhosts) ghostExprs.push_back(e);
+  for (const PExp& ge : ghostExprs) {
+    std::optional<std::int64_t> hi = cert::upperBound(pre, ge);
     cc.gammaHi.push_back(hi ? std::optional<std::uint64_t>(static_cast<std::uint64_t>(std::max<std::int64_t>(0, *hi)))
                             : std::nullopt);
   }
@@ -5149,6 +5214,21 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     in.branch = w_.branch;
     in.ret = w_.ret;
     in.isRequire = [](const Stmt* st) { return asMarker(st, "require") != nullptr; };
+    in.scratch = cc.oldVar;
+    in.callee = [this](const FunctionDecl* fd) -> std::optional<minic::CalleeInfo> {
+      const CertFunInfo* ci = nullptr;
+      const FunctionDecl* d = nullptr;
+      if (auto it = certContractOf_.find(fd->getCanonicalDecl()); it != certContractOf_.end())
+        ci = &it->second;
+      else if (fd->hasBody(d) && d)
+        if (auto it2 = certFunOf_.find(d->getCanonicalDecl()); it2 != certFunOf_.end()) ci = &it2->second;
+      if (!ci) return std::nullopt;
+      minic::CalleeInfo r;
+      r.index = ci->index;
+      for (std::size_t g = 0; g < ci->ghostVars.size(); ++g) r.params.push_back({ci->ghostParams[g], ci->ghostVars[g]});
+      r.plain = ci->extraGhosts.empty();
+      return r;
+    };
     minic::Result r = minic::exportFunction(def, ctx_, in);
     fj.source = r.json;
     fj.sourceRefused = r.reason;
@@ -5160,11 +5240,12 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   std::vector<std::string> gnames;
   std::vector<std::uint64_t> at;
   numeric = bound.c;
-  for (std::size_t g = 0; g < info.ghostParams.size(); ++g) {
-    gnames.push_back(info.ghostParams[g]->getNameAsString());
+  for (std::size_t g = 0; g < ghostExprs.size(); ++g) {
+    gnames.push_back(g < info.ghostParams.size() ? info.ghostParams[g]->getNameAsString()
+                                                  : info.extraNames[g - info.ghostParams.size()]);
     std::uint64_t v = 0;
     if (g < bound.co.size() && bound.co[g]) {
-      std::optional<std::int64_t> hi = cert::upperBound(pre, PExp{cert::unitVec(info.ghostVars[g]), 0});
+      std::optional<std::int64_t> hi = cert::upperBound(pre, ghostExprs[g]);
       if (!hi) numeric.reset();
       else v = static_cast<std::uint64_t>(std::max<std::int64_t>(0, *hi));
     }

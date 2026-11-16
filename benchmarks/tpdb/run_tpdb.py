@@ -88,8 +88,38 @@ def entry_function(text):
     return (roots or defs or [None])[-1]
 
 
-def harness(text):
-    """The `bounded` mode: ranges on int parameters and nondeterministic values."""
+def inputs_as_parameters(text, externs):
+    """The `symbolic` mode: in the entry function, a value read from an undefined function
+    (a nondeterministic input) before the first loop becomes a parameter, `x = nondet();`
+    being replaced by `x = in_k;`. The competition's tools treat these values as inputs
+    of the program too; a certified bound can only mention parameters. Values read inside
+    or after a loop are left as they are. `main` is renamed `main_` (it gets parameters)."""
+    entry = entry_function(text)
+    if not externs or entry is None:
+        return text
+    for m in FUNC_DEF.finditer(text):
+        if m.group(2) == entry and m.group(4) == "{":
+            break
+    else:
+        return text
+    loop = re.compile(r"\b(while|for|do)\b").search(text, m.end())
+    end = loop.start() if loop else len(text)
+    k = [0]
+    def sub(a):
+        k[0] += 1
+        return f"{a.group(1)}in_{k[0]};"
+    head = re.sub(r"(=\s*)(?:%s)\s*\(\s*\)\s*;" % "|".join(map(re.escape, externs)), sub, text[m.end():end])
+    if not k[0]:
+        return text
+    old = m.group(3).strip()
+    ps = ([] if old in ("", "void") else [old]) + [f"int in_{i}" for i in range(1, k[0] + 1)]
+    name = "main_" if entry == "main" else entry
+    return text[:m.start()] + f"{m.group(1)}{name}({', '.join(ps)}){m.group(4)}" + head + text[end:]
+
+
+def harness(text, ranges=True):
+    """The `bounded` mode: ranges on int parameters and nondeterministic values. Without
+    `ranges` (the `symbolic` mode): only the unit cost of the undefined functions."""
     text = strip_comments(text)
     defs = set(definitions(text))
     externs = [n for n in PROTO.findall(text) if n not in defs]
@@ -97,15 +127,17 @@ def harness(text):
         ps = []
         for p in m.group(3).split(","):
             q = p.strip()
-            if re.fullmatch(r"(?:signed\s+)?int\s+[A-Za-z_]\w*", q):
+            if ranges and re.fullmatch(r"(?:signed\s+)?int\s+[A-Za-z_]\w*", q):
                 q = f"CROSSCHECK_RANGE(-{K}, {K}) {q}"
             ps.append(q)
         return f"{m.group(1)}{m.group(2)}({', '.join(ps)}){m.group(4)}"
+    if not ranges:
+        text = inputs_as_parameters(text, externs)
     out = FUNC_DEF.sub(lambda m: params(m) if m.group(2) not in KEYWORDS else m.group(0), text)
     # functions declared but not defined (nondeterministic values): unit cost, and a
     # range on every variable assigned from one of them
     out = PROTO.sub(lambda m: "CROSSCHECK_COST(1) " + m.group(0).lstrip() if m.group(1) in externs else m.group(0), out)
-    if externs:
+    if externs and ranges:
         assign = re.compile(r"(\b(?:int\s+)?([A-Za-z_]\w*)\s*=\s*(?:%s)\s*\(\s*\)\s*;)" % "|".join(map(re.escape, externs)))
         out = assign.sub(lambda m: f"{m.group(1)} CROSSCHECK_ASSUME(-{K} <= {m.group(2)} && {m.group(2)} <= {K});", out)
     return "#include <crosscheck/attributes.hpp>\n" + out
@@ -117,10 +149,12 @@ def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None, minic=Fals
     if mode == "as-is":
         src, args = path, ["-x", "c", "-std=gnu11", "-w"]
     else:
-        src = work / f"{stem}.bounded.cpp"
-        src.write_text(harness(path.read_text(errors="replace")))
+        src = work / f"{stem}.{mode}.cpp"
+        src.write_text(harness(path.read_text(errors="replace"), ranges=(mode == "bounded")))
         args = ["-x", "c++", "-std=c++20", "-w", f"-I{ROOT / 'clang-plugin/include'}"]
     certs = [f"--opt=certificates={certdir / (stem + '.json')}"] if certdir and mode == "bounded" else []
+    if mode == "symbolic":  # no ranges: potentials only, and a bound in the parameters for the checker
+        certs = ["--opt=symbolic", f"--opt=certificates={certdir / 'symbolic' / (stem + '.json')}"]
     if certs and minic:  # mini-C sources, validated by the checker
         certs.append("--opt=minic")
     try:
@@ -131,6 +165,13 @@ def run_crosscheck(tool, path, mode, work, extra, stem, certdir=None, minic=Fals
     if not report.exists():
         return {}
     out = {f["name"]: bool(f["ok"]) for f in json.loads(report.read_text())["functions"]}
+    out["__symbolic__"] = {f["name"] for f in json.loads(report.read_text())["functions"] if f.get("symbolic")}
+    if mode == "symbolic" and "main_" in out:  # renamed by inputs_as_parameters
+        out["main"] = out["main_"]
+        if "main_" in out["__certs__"]:
+            out["__certs__"]["main"] = out["__certs__"]["main_"]
+        if "main_" in out["__symbolic__"]:
+            out["__symbolic__"].add("main")
     # certificates: per function, "symbolic" (a summary in the parameters), "constant" or absent
     out["__certs__"] = {f["name"]: ("symbolic" if "max(" in (f.get("certificate_summary") or "") else "constant")
                         for f in json.loads(report.read_text())["functions"] if f.get("certificate") == "emitted"}
@@ -174,6 +215,10 @@ def main():
     ap.add_argument("--certificates", help="emit certificates (inputs-in-range mode) into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check them (needs --certificates)")
     ap.add_argument("--minic", action="store_true", help="also export mini-C sources and validate the certificates")
+    ap.add_argument("--only-symbolic", action="store_true", help="with --symbolic: skip the two other modes")
+    ap.add_argument("--symbolic", action="store_true",
+                    help="a third mode, without input ranges: option `symbolic` of the tool, and certificates "
+                         "with a bound in the parameters (needs --certificates; with --checker they are checked)")
     a = ap.parse_args()
     base = fetch(pathlib.Path(a.cache))
     files = sorted(base.rglob("*.c"))
@@ -193,11 +238,21 @@ def main():
         if certdir:
             certdir.mkdir(parents=True, exist_ok=True)
         for mode in ("as-is", "bounded"):
+            if a.only_symbolic:
+                row[f"crosscheck_{mode}"] = "none"
+                continue
             r = run_crosscheck(a.tool, f, mode, pathlib.Path(a.cache) / "work", a.extra_arg, key, certdir, a.minic)
             row[f"crosscheck_{mode}"] = "timeout" if "__timeout__" in r else (
                 "bound" if r.get(entry) else "none")
             if mode == "bounded" and certdir:
                 row["certificate"] = r.get("__certs__", {}).get(entry)
+        if a.symbolic and certdir:
+            (certdir / "symbolic").mkdir(parents=True, exist_ok=True)
+            r = run_crosscheck(a.tool, f, "symbolic", pathlib.Path(a.cache) / "work", a.extra_arg, key, certdir)
+            cert = r.get("__certs__", {}).get(entry)
+            # certified for all inputs: a constant bound, or a summary in the parameters
+            row["crosscheck_symbolic"] = ("timeout" if "__timeout__" in r else cert if cert else
+                                          "potentials only" if entry in r.get("__symbolic__", ()) else "none")
         row["koat"] = koat_answer(res / "koat2" / f"{key}.tsv", entry)
         row["cofloco"] = cofloco_answer(res / "cofloco" / f"{key}.tsv", entry)
         rows.append(row)
@@ -214,6 +269,26 @@ def main():
     both = collections.Counter((r["crosscheck_bounded"] == "bound",
                                 r["koat"] not in (None, "none") or r["cofloco"] not in (None, "none")) for r in rows)
     print("\nbounded-mode CrossCheck vs (KoAT2 or CoFloCo):", dict(both))
+    if a.symbolic and a.certificates:
+        c = collections.Counter(r.get("crosscheck_symbolic") for r in rows)
+        print(f"\nwithout input ranges (option symbolic), entry functions: {c.get('symbolic', 0)} with a "
+              f"certificate whose bound is in the parameters, {c.get('constant', 0)} with a constant "
+              f"certified bound, {c.get('potentials only', 0)} with potentials for every loop but no "
+              f"certificate, {c.get('none', 0)} without, {c.get('timeout', 0)} timeouts")
+        byfam = collections.Counter(r["family"] for r in rows if r.get("crosscheck_symbolic") in ("symbolic", "constant"))
+        print("  by family:", dict(sorted(byfam.items())))
+        other = collections.Counter((r.get("crosscheck_symbolic") in ("symbolic", "constant"),
+                                     r["koat"] not in (None, "none") or r["cofloco"] not in (None, "none")) for r in rows)
+        print("  certified without ranges vs (KoAT2 or CoFloCo):", dict(other))
+        lin = collections.Counter((r["koat"] or "none") for r in rows if r.get("crosscheck_symbolic") == "symbolic")
+        print("  KoAT2's answers on those with a summary in the parameters:", dict(lin.most_common()))
+        if a.checker:
+            sfiles = sorted(str(p) for p in (pathlib.Path(a.certificates) / "symbolic").glob("*.json"))
+            proc = subprocess.run([a.checker, *sfiles], capture_output=True, text=True)
+            lines = proc.stdout.splitlines()
+            print(f"  checker: {sum(l.startswith('ACCEPTED') for l in lines)} functions accepted, "
+                  f"{sum(l.startswith('REJECTED') or (l.startswith('PROGRAM') and 'REJECTED' in l) for l in lines)} "
+                  f"rejected (exit {proc.returncode})")
     if a.certificates:
         c = collections.Counter(r.get("certificate") for r in rows if r["crosscheck_bounded"] == "bound")
         print(f"certificates of bounded entry functions: {c.get('symbolic', 0)} with a summary in the "

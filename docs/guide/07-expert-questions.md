@@ -35,7 +35,7 @@ limitation, it says so.
 - **"What is new compared with SPEED, KoAT, Loopus, COSTA, C4B?"** Not the bounds: affine
   potentials by Farkas are standard. New: certificates checked by a Lean-verified checker,
   and the evaluation against executions. On TPDB, KoAT2 and CoFloCo are clearly stronger
-  (288 and 264 programs, against 171 with input ranges): say so first.
+  (288 and 264 programs, against 207 with input ranges, or 101 certified for all inputs without ranges): say so first.
 - **"Which ranking functions?"** Affine, rational, per loop, synthesised by LP; and
   logarithmic ones on a single variable, decreasing (`n >>= 1`, `n /= 10`) or growing to a
   limit (`len <<= 1`), in the plugin and as checker nodes (`whileLog`, `whileGrow`, proved
@@ -48,10 +48,10 @@ limitation, it says so.
   (`ranking_bound_floor`); incomplete for integer-only arguments (Ben-Amram & Genaim).
 - **"How do you know the analyser is sound, since it is not verified?"** We don't prove
   it; we test it against executions: benchmark runs, and random loop programs
-  (`fuzz_bounds.py`: no violation in 960 functions and 1.29 million runs after a first
-  defect was fixed). Certified bounds don't depend on it; the checker executable is tested
-  with mutated certificates (1,898 mutants: 1,853 rejected, the other 45 still true on
-  executions).
+  (`fuzz_bounds.py`: in the last campaign, no violation in 960 functions, 863 bounded
+  loops and 1.23 million runs, after a first defect was fixed). Certified bounds don't
+  depend on it; the checker executable is tested with mutated certificates (2,029
+  mutants: 1,983 rejected, the other 46 still true on executions).
 - **"Invariants?"** Houdini over simple candidates, each proved inductive by Z3; when no
   potential is found, a second set (branch tests as they are and relaxed by one, hulls of
   assigned constants, pairs left equal). In certificates they are hints, proved again for
@@ -129,8 +129,10 @@ verify, and must not be submitted while one remains.
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
    For the functions whose certificate is validated against their mini-C export, the
    generator is out of the trusted base, the exporter (syntactic) is in it.
-2. **Coverage**: 171 of 553 TPDB programs (with input ranges) vs 288 for KoAT2. Certificates give summaries
-   affine in the parameters, but the analyser still needs numeric ranges to bound a loop.
+2. **Coverage**: 207 of 553 TPDB programs with input ranges (101 certified for all inputs without) vs 288 for KoAT2. Certificates give summaries
+   affine in the parameters; since option `symbolic` the analyser can propose potentials
+   without ranges and the certificate carries the parametric bound, but only for bounds
+   affine in the parameters (no products).
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
 4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a

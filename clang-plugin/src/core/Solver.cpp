@@ -202,7 +202,7 @@ std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Cons
 }
 
 std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
-                                               const RankingProblem& problem) {
+                                               const RankingProblem& problem, bool unbounded) {
   const std::size_t n = problem.slots;
   RankingResult zero;
   zero.weights.assign(n, Rational{});
@@ -265,9 +265,22 @@ std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
     // Bound: sum_j w_j * entry_j + c0 - K <= 0, with K >= 0 minimal.
     std::vector<TargetTerm> bounding;
     for (std::size_t j = 0; j < n; ++j) bounding.push_back(TargetTerm{w[j], problem.entry[j]});
-    addFarkas(ctx, opt, entryFacts, bounding, c0 - bound, fresh);
-    opt.add(bound >= 0);
-    opt.minimize(bound);
+    if (!unbounded) {
+      addFarkas(ctx, opt, entryFacts, bounding, c0 - bound, fresh);
+      opt.add(bound >= 0);
+      opt.minimize(bound);
+    } else {
+      // No constant bound on entry is asked for; a small potential is preferred.
+      z3::expr size = realConst(ctx, 0);
+      for (std::size_t j = 0; j <= n; ++j) {
+        z3::expr a = ctx.real_const(("a" + std::to_string(j)).c_str());
+        const z3::expr& x = j < n ? w[j] : c0;
+        opt.add(a >= x && a >= -x);
+        size = size + a;
+      }
+      opt.add(bound == 0);
+      opt.minimize(size);
+    }
 
     if (opt.check() != z3::sat) return std::nullopt;
     z3::model m = opt.get_model();
@@ -283,6 +296,7 @@ std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
     if (!off || !k || k->den <= 0 || k->num < 0) return std::nullopt;
     result.offset = *off;
     result.bound = static_cast<std::uint64_t>(k->num / k->den);  // floor, K >= 0
+    result.symbolic = unbounded;
     return result;
   } catch (const z3::exception&) {
     return std::nullopt;

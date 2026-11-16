@@ -52,12 +52,33 @@ inductive MCond where
   | other
   deriving Repr, DecidableEq
 
+/-- The operations whose result is described by facts, not by an affine value: quotient
+    and remainder by a positive constant, mask by a non-negative constant. (A right shift
+    by `k` is written as the quotient by `2^k`.) -/
+inductive DivOp where
+  | div | rem | and
+  deriving Repr, DecidableEq
+
 /-- Statements. `assign w x e` writes the tracked variable `x` (an unknown value if `e` is
     not affine); `cost w` is a statement that writes no tracked variable; the tests of
-    `ite`, `while` and `for` cost `w`. A loop test is a conjunction. -/
+    `ite`, `while` and `for` cost `w`. A loop test is a conjunction.
+    `divStore w x op y c old` is `x = y op c` for a constant `c`: `x` receives a value of
+    which only facts are known (see `divOf`). When `y` mentions `x` (`x = x / c`), `old`
+    names a scratch variable, not a variable of the source, that first receives `y`. -/
 inductive MStmt where
   | skip
   | assign (w x : Nat) (e : MExp)
+  | divStore (w x : Nat) (op : DivOp) (y : MExp) (c : Int) (old : Option Nat)
+  /-- A store into an unsigned variable whose largest value is `hi`: `x` receives the
+      value of `e` if it lies in `[0, hi]`, and an unknown value otherwise (C reduces it
+      modulo `hi + 1`; mini-C does not say to what). -/
+  | assignU (w x : Nat) (hi : Int) (e : MExp)
+  /-- A call of the function number `f` of the program: each argument `(x, hi, e)` is
+      first stored (at no cost: the cost of evaluating the call is that of the statement
+      around it) into the variable `x` of the callee's parameter, as an unsigned store when
+      `hi` is given; then the callee runs. Parameters that are not tracked integers are not
+      listed. The callee is the program of function `f` in the certificate file. -/
+  | call (f : Nat) (args : List (Nat × Option Int × MExp))
   | cost (w : Nat)
   | seq (a b : MStmt)
   | ite (w : Nat) (c : MCond) (a b : MStmt)
@@ -113,6 +134,47 @@ def loopOf (w : Nat) (gs : List PExp) (body : ACmd) : ACmd :=
 /-- `a ; b` without annotations. -/
 def seqOf (a b : ACmd) : ACmd := .seq a [] noSB noSB b
 
+/-- `k·a - b + cst`. -/
+def linComb (a : PExp) (k : Int) (b : PExp) (cst : Int) : PExp :=
+  ⟨vadd (vsmul k a.sv) (vsmul (-1) b.sv), k * a.c - b.c + cst⟩
+
+/-- What is known of `x = y op c`: the facts that hold when `y ≥ 0`, and those that hold
+    for every `y`. For `y ≥ 0`: `c·x ≤ y ≤ c·x + c - 1` (quotient), `0 ≤ x ≤ c - 1` and
+    `x ≤ y` (remainder), `0 ≤ x ≤ c` and `x ≤ y` (mask). For a negative `y` nothing is
+    said of a quotient or a remainder (C rounds towards zero, and a shift of a negative
+    value is implementation-defined); a mask by `c ≥ 0` always lies in `[0, c]`. -/
+def divFacts (op : DivOp) (x : Nat) (y : PExp) (c : Int) : List PExp × List PExp :=
+  let xv : PExp := ⟨unit x, 0⟩
+  match op with
+  | .div => ([linComb xv c y 0, linComb y 1 ⟨vsmul c xv.sv, 0⟩ (-(c - 1))], [])
+  | .rem => ([⟨vsmul (-1) xv.sv, 0⟩, ⟨xv.sv, -(c - 1)⟩, linComb xv 1 y 0], [])
+  | .and => ([⟨vsmul (-1) xv.sv, 0⟩, ⟨xv.sv, -c⟩, linComb xv 1 y 0],
+             [⟨vsmul (-1) xv.sv, 0⟩, ⟨xv.sv, -c⟩])
+
+/-- `x := ?` such that the constraints `cs` hold (no constraint: any value). -/
+def storeOf (w x : Nat) (cs : List PExp) : ACmd :=
+  match cs with
+  | [] => .havoc w x
+  | _ => .havocC w x cs
+
+/-- `x = y op c` for an affine `y` that does not mention `x`: a test of `y ≥ 0` (of weight
+    0: it is not code of the source) selecting the facts. -/
+def divOf (w x : Nat) (op : DivOp) (y : PExp) (c : Int) : ACmd :=
+  let f := divFacts op x y c
+  .ite 0 ⟨vsmul (-1) y.sv, -y.c⟩ noSB noSB (storeOf w x f.1) (storeOf w x f.2)
+
+/-- The store of one argument of a call into the callee's parameter variable. -/
+def storeArg : Nat × Option Int × MExp → ACmd
+  | (x, none, e) => match e.affine with
+      | some a => .assign 0 x a
+      | none => .havoc 0 x
+  | (x, some hi, e) => match e.affine with
+      | some a =>
+          .ite 0 ⟨a.sv, a.c - hi⟩ noSB noSB
+            (.ite 0 (pscale (-1) a) noSB noSB (.assign 0 x a) (.havoc 0 x))
+            (.havoc 0 x)
+      | none => .havoc 0 x
+
 /-- **The semantics of mini-C**, as a program of the checker. `none`: not in the fragment
     (a loop test that is not a conjunction of comparisons). A `for` loop is its
     initialisation followed by a `while` loop whose body is the body and the increment. -/
@@ -121,6 +183,24 @@ def lower : MStmt → Option ACmd
   | .assign w x e => some (match e.affine with
       | some a => .assign w x a
       | none => .havoc w x)
+  | .assignU w x hi e => some (match e.affine with
+      | some a =>
+          .ite 0 ⟨a.sv, a.c - hi⟩ noSB noSB
+            (.ite 0 (pscale (-1) a) noSB noSB (.assign w x a) (.havoc w x))
+            (.havoc w x)
+      | none => .havoc w x)
+  | .call f args =>
+      some (args.foldr (fun a acc => seqOf (storeArg a) acc)
+        (.call 0 f (args.map (fun a => ⟨unit a.1, 0⟩)) [] [] []))
+  | .divStore w x op y c old =>
+      if (op = .and ∧ c < 0) ∨ (op ≠ .and ∧ c < 1) then none
+      else match y.affine with
+        | none => some (.havoc w x)
+        | some a => match old with
+          | none => if coeff a.sv x = 0 then some (divOf w x op a c) else none
+          | some t =>
+              if t = x ∨ t = choiceVar ∨ t = costVar then none
+              else some (seqOf (.assign 0 t a) (divOf w x op ⟨unit t, 0⟩ c))
   | .cost w => some (.havoc w costVar)
   | .seq a b => do
       let la ← lower a

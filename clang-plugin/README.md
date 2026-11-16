@@ -415,6 +415,24 @@ A GitHub Actions job for a project that uses the tool:
   with: { sarif_file: sarif }
 ```
 
+## Bounds in the parameters, without ranges (`symbolic`)
+
+By default a loop whose inputs have no range is an error: a real-time function needs a
+number. With `--opt=symbolic` (plugin: `-fplugin-arg-crosscheck-symbolic`) such a loop is
+accepted if it has a ranking potential, which needs no range. The function then has no
+numeric bound (`ok` stays false, the summary line says `SYMB`), and with `certificates`
+the generator derives a bound that is affine in the parameters, which the checker proves
+for all inputs:
+
+```
+SYMB count: no numeric bound; certified 5 + 6*max(0,n) units
+```
+
+Nothing new is trusted: the analysis only proposes the potential; the bound is the
+checker's. A product of two parameters (nested loops both bounded by parameters) has
+potentials but no certificate, since certified bounds are affine. The mode is meant for
+measuring unannotated code and for library functions whose callers supply the ranges.
+
 ## Whole projects, ACSL, and explanations
 
 **A project.** `scripts/crosscheck_project.py --tool crosscheck-tool -p BUILD --out OUT
