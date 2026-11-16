@@ -247,7 +247,7 @@ def main():
             for f in files:
                 for prog in json.loads(pathlib.Path(f).read_text())["programs"]:
                     for fn in prog["functions"]:
-                        if "body" in fn and "source" not in fn:
+                        if "body" in fn and "source" not in fn and "jsource" not in fn:
                             refused[fn.get("source_refused", "?")] += 1
             total["validated"], total["not_validated"] = val, notval
             total["source_refused"] = sum(refused.values())

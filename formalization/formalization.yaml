@@ -88,6 +88,10 @@ statements:
     note: "validation of a certificate against its mini-C source (translation validation); MiniCCore has the definitions (no mathlib), MiniC the proofs"
     module: ImperativeOptimization.MiniC
     lean: [MStmt, MExp, MCond, lower, nf, app, validate, CEquiv, nf_equiv, app_equiv, seq_assoc, seq_skip_left, seq_skip_right, CImp.while, dot_trim, equiv_of_nf_eq, validate_lower, validated_sound, countCert_validated, countCert_not_validated]
+  - paper_labels: [def:minic-jumps, thm:validated-jumps]
+    note: "mini-C with break, continue, return, switch and do loops: direct semantics with outcomes (JExec), elimination of the jumps with flag variables computed by the checker (tr, elim, validateJ; MiniCJumpCore, no mathlib), simulation proved (sim), quietness of called functions checked syntactically (quietCmd)"
+    module: ImperativeOptimization.MiniCJump
+    lean: [JStmt, Outcome, JExec, MExec, MPre, CondStep, LoopTest, tr, trL, elim, validateJ, quietCmd, Quiet, Agree, exec_transfer, pre_transfer, lower_quiet, quiet_of_quietB, outcome_esc, foldl_unless, chain_skip, chain_drop, tr_loop_inv, tr_switch_inv, loop_main, sim, JExecD, desugar, desugar_exec, loop_step, tr_desugar, tr_okDo, desugar_ghosts, validatedJ_sound, breakSrc_elim, breakSrc_flag_clash]
   - paper_labels: [def:interrupt-model, lem:sporadic, thm:response-time]
     note: "response time of a computation under sporadic interrupt handlers (the set of activations of a handler may be infinite); the executable check is in ResponseCore (no mathlib)"
     module: ImperativeOptimization.Interrupts

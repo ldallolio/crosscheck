@@ -117,6 +117,27 @@ for OTAWA, so this is not a cycle bound). The program is then run by `m0.py`.
 | bound / executed, geometric mean (largest) | 2.36 (756: `fft_bit_reduct`, product of nested bounds) |
 | OTAWA's bound at most the timing schema's (same unit) | 52 functions; above for 55 |
 
+**In cycles** (`--timing m0`): `otawa/m0time.cpp`, compiled against OTAWA in the same image
+by the script, loads the ELF with OTAWA's ARM loader, builds OTAWA's control-flow graphs,
+sets the time of each basic block to the sum of the Cortex-M0 cycles of its instructions
+(`<kernel>.times`, written from the timing table of `m0.py`, Table 3-1 of the manual; a
+conditional branch counted as taken, OTAWA's edge times not used) and requires OTAWA's
+IPET WCET. The Cortex-M0 has no cache and fixed instruction times, so no pipeline model is
+needed. Shared with the timing schema: the table and the loop bounds; not shared: the
+graphs and the computation of the bound.
+
+```bash
+python3 benchmarks/cycles/run_otawa.py --lld PATH/TO/ld.lld --timing m0 --check \
+    --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
+```
+
+| | |
+|---|---:|
+| functions bounded by OTAWA, in cycles | 107 of 107 |
+| calls compared | 11, **no bound below the executed cycles** |
+| bound / executed, geometric mean (largest) | 2.74 (1,054: `fft_bit_reduct`) |
+| OTAWA's bound / timing schema's | never below; equal for 52, larger for 55 (median 1.005, largest 1.29: `matrix1` `main`) |
+
 OTAWA's bound is above the schema's where a loop header gets one more execution than the
 body and the schema counts only the exit path for it. **Why label and offset**: the FFX
 that the plugin exports designates a loop by source file and line; on these `-O1`

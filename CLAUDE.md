@@ -15,16 +15,16 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 21 modules, 288 theorems. |
-| `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 37 pages). No measurements. |
-| `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, OTAWA on the binaries, related tools, TPDB; 22 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 23 modules, 413 theorems. |
+| `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 39 pages). No measurements. |
+| `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, OTAWA on the binaries, related tools, TPDB; 23 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
 | `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 173 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`; with `minic`, also each function as mini-C, validated by the checker against the certificate), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
-| `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. `classify_unbounded.py` classifies the loops without a bound by the analyser's stated cause (the counts are quoted in Paper II and the README); `test_measure_loops.py` tests the loop instrumentation on known counts (CI). |
+| `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels, compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. `classify_unbounded.py` classifies the loops without a bound by the analyser's stated cause (the counts are quoted in Paper II and the README); `test_measure_loops.py` tests the loop instrumentation on known counts (CI). `run_annotated.py`: the run with minimal annotations (trusted `CROSSCHECK_LOOP_BOUND` from the flow facts on the loops that keep `main` unbounded, checked against observed counts). |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
 | `benchmarks/cmsis/` | `run_cmsis.py`: fetches CMSIS-DSP (Arm, Apache-2.0) and CMSIS 6 Core at pinned revisions into `.cache/` (gitignored), analyses every source file for a Cortex-M4 target (freestanding stubs generated), as is and with input ranges + group context + illustrative `memset`/`memcpy` contracts; classifies blockers. Results in its `README.md` and Paper II paragraph "An embedded library". |
-| `benchmarks/cycles/run_otawa.py` | The same binaries given to OTAWA (not in the repository: the author's Docker image `otawa:dev`, run without network; linker `--lld`, e.g. `rust-lld`): CrossCheck's bounds as FFX flow facts on the binary loop headers (label + offset, `maxcount` = bound + 1), IPET bound in instructions for the 107 bounded functions, compared with emulated runs. Paper II paragraph "A WCET analyzer on the same binaries". |
+| `benchmarks/cycles/run_otawa.py` | The same binaries given to OTAWA (not in the repository: the author's Docker image `otawa:dev`, run without network; linker `--lld`, e.g. `rust-lld`): CrossCheck's bounds as FFX flow facts on the binary loop headers (label + offset, `maxcount` = bound + 1), IPET bound for the 107 bounded functions, in instructions or, with `--timing m0`, in Cortex-M0 cycles (`otawa/m0time.cpp`, compiled against OTAWA in the image: block times from the timing table of `m0.py`), compared with emulated runs. Paper II paragraph "A WCET analyzer on the same binaries". |
 | `benchmarks/cycles/stack.py` | Stack bounds of the same Cortex-M0 binaries (high-water mark on the control-flow graph; Lean `Stack`), checked by `run_cycles.py` against the lowest stack pointer of every emulated call. |
 | `benchmarks/cycles/` | `run_cycles.py`: cycle bounds of the TACLeBench kernels compiled for a Cortex-M0 (`-O1`), from CrossCheck's source loop bounds: `wcet.py` (CFG of the binary, loops matched to source loops by debug lines, timing schema), `m0.py` (ARMv6-M decoder, Cortex-M0 timing table, ELF loader, an interpreter written for this purpose; no external package); every bound is checked against the cycles of a run (`--check`). Results in its `README.md` and Paper II. |
 | `frontends/rust/` | Rust front-end: `mir2c.py` translates `rustc --emit=mir` text (pinned to rustc 1.100.0; the format changes between releases) into C for the analyser; `crosscheck_rust.py` runs translation, analysis and checker; `tests/test_rust.py` is a differential test (Rust vs generated C on random inputs) plus must-be-unbounded functions (`rejected_*` in `examples/kernels.rs`). See its `README.md`. |
@@ -81,7 +81,7 @@ Everything lives in `namespace ImperativeOptimization` (examples in `…Examples
 Import graph: `State`, `Trace`, `Tree` import mathlib only; `Dominance`, `FixedPoint` → `Trace`;
 `OperationalSemantics` → `Trace`, `Tree`; `WhileLoop` → `State`, `FixedPoint`, `OperationalSemantics`;
 `Ranking` → `WhileLoop`; `Recursion` → `OperationalSemantics`; `Certificate` → `WhileLoop`; `Arity` and `Language` import mathlib only; `Checker` → `Language`;
-`CheckerCore` (no mathlib) is imported by `Checker`, `MiniCCore` (no mathlib) and `CheckerMain`; `MiniC` → `Checker`, `MiniCCore`;
+`CheckerCore` (no mathlib) is imported by `Checker`, `MiniCCore` (no mathlib) and `CheckerMain`; `MiniC` → `Checker`, `MiniCCore`; `MiniCJumpCore` (no mathlib) → `MiniCCore`; `MiniCJump` → `MiniC`, `MiniCJumpCore`;
 `ResponseCore` (no mathlib) → `Interrupts`, `CheckerMain`; `ForkJoin` and `Stack` import mathlib only;
 `Examples` → `Ranking`, `Recursion`.
 `ImperativeOptimization.lean` is the root that imports all modules — add new modules there.
@@ -104,6 +104,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 | `Checker` | Concrete linear instance: `PExp`, `Lin` (constraints over program and logical variables), Farkas certificates `entails1`, symbolic bounds `SB` (`c + Σ co_j max(0,γ_j)`), annotated programs `ACmd` (incl. `whileAnd`, `whileLog`/`whileGrow` (logarithmic potentials, decreasing or growing: `logloop_sound`, `growloop_sound`) and `call`), program certificates `FunCert` (a body, or none = assumed contract), executable **`check`** / **`checkProgram`**, **`check_sound`** (triple + frame, given the callees' `FunSpec`), **`program_sound`**, `loopBoundOk_sound`; examples `countCert_checks`, `countSym_checks` (symbolic), `exProgram_checks` / `exMain_cost` (a call), all by `decide`. This is the certificate format the plugin emits (`docs/certificate-format.md`, version 2) |
 | `ResponseCore`, `Interrupts`, `ForkJoin` | Concurrency (Paper I `subsec:concurrency`): schedule model `Admissible` (activation sets may be infinite), `sporadic_count`, **`response_time_bound`**, executable `rtaHolds` (no mathlib, in `CheckerMain`: `"responses"` claims) with `rtaHolds_sound`; greedy scheduling `Greedy`, **`greedy_bound`** (Graham), `forkjoin_bound`, `makespan_lower` (lower bounds for every schedule). Assumes one cost unit = one time slot and no handler activation pending at the start |
 | `Stack` | Stack depth as a high-water mark (Paper I `subsec:stack`): activation trees `ActTree`/`ActForest`, `highWater`, **`highWater_le_of_bound`** (composition rule: `own f ≤ B f`, `d + B g ≤ B f` at call sites), `highWater_le_depth` (`(depth + 1) · F`). Applied to Cortex-M0 binaries by `benchmarks/cycles/stack.py`; the machine model is not formalized |
+| `MiniCJumpCore`, `MiniCJump` | Mini-C with `break`/`continue`/`return`/`switch` (`JStmt`), its direct semantics with outcomes (`JExec`), the elimination of jumps with flag variables computed by the checker (`tr`, `elim`, `validateJ`, in `CheckerMain`), quietness of called functions (`quietCmd`), **`sim`** (simulation), **`validatedJ_sound`** |
 | `MiniCCore`, `MiniC` | Validation against the source (translation validation, Paper I `subsec:validation`): mini-C `MExp`/`MCond`/`MStmt`, **`lower`** (its meaning, as an `ACmd` without annotations), normal form `nf`, **`validate`** (`nf c = nf (lower s)`, executable, in `CheckerMain`); `CEquiv` (same `Exec`/`Pre`), congruences, `seq_assoc`, **`nf_equiv`**, **`validated_sound`**; examples `countCert_validated`, `countCert_not_validated`. The plugin's exporter is `clang-plugin/src/analysis/MiniC.cpp` |
 | `Examples` | Paper examples with minimality, big-step agreement and ranking/depth certificates |
 
@@ -130,10 +131,11 @@ Paper content that is **not** mechanized (the paper says so explicitly; keep tha
   interrupts, the busy-period argument that removes "no activation pending at the start", and
   "one cost unit = one time slot" (a property of the target); lexicographic potentials with a symbolic inner bound (with a constant one the pair is an affine potential, `lex_potential`, certified by the ordinary loop node); lexicographic/logarithmic potentials as rules of the logic
   (they are theorems on runs; the logarithmic ones are checker cases); recursion in the checker (calls go to earlier functions
-  only; rule 9 of the logic is not a checker case); tracked globals and `do` loops in mini-C (early exits and `switch` have no mini-C statement: the exporter writes `break`/`continue`/`return` inside loops with flag variables and a `switch` as its case groups under unknown tests, a trusted rewriting; in: quotient, remainder and mask by a constant, `divStore`; stores into unsigned variables, `assignU`; calls of functions of the same certificate file, `call`); quadratic or polynomial symbolic bounds
+  only; rule 9 of the logic is not a checker case); `do` loops whose body has a `break` or `continue` of its own, in mini-C (in: `do` loops otherwise, `JStmt.doLoop` desugared, `desugar_exec`; quotient, remainder and mask by a constant, `divStore`; stores into unsigned variables, `assignU`; calls of functions of the same certificate file, `call`; tracked globals, as ordinary variables, assuming no other code writes them during the function; `break`/`continue`/`return` and `switch` in `MiniCJump`: direct semantics `JExec`, elimination `elim` proved by `sim`/`validatedJ_sound`, assuming for contracts that they do not touch the ghost variables); quadratic or polynomial symbolic bounds
   (bounds are affine in the parameters). Conjunctive loop tests (`whileAnd`), calls with
   summaries and assumed contracts are in the checker; `break`/`continue`/`return` and
-  `switch` are lowered by the plugin with flags and choice variables.
+  `switch` are lowered by the plugin with flags and choice variables, and the checker
+  eliminates them in the mini-C source in the same way (`MiniC.elim`, proved).
 `Dominance` still contains the `≼_O` preorder and `Trace` the subsequence order; the paper no
 longer uses them (removed in the Nov 2026 simplification) — do not reintroduce them in the paper.
 
@@ -216,11 +218,13 @@ expressions over immutable symbols + linear facts) → Z3 via Farkas (`src/core/
     that the checker compares syntactically must be built with the replicas in `Cert.cpp`;
   - mini-C export (`MiniC.cpp`, trusted for validated certificates): keep it syntactic and
     independent of the generator and of analysis results; anything it cannot model exactly
-    is `other`, `cost` or a refusal, never a guess; early exits are written with the
-    certificate's flag variables, found by name (`?break<depth>`, `?continue<depth>`,
-    `?return`; the generator keeps one variable per name: `CertCtx::flagVar`); a new construct needs an `ok_`/`no_`
-    pair in `tests/c/minic.c`; never make `validate` accept more without extending
-    `nf_equiv`/`validated_sound`;
+    is `other`, `cost` or a refusal, never a guess; jumps and `switch` are exported as
+    they are (`MiniC.JStmt`, key `jsource`), with the certificate's ghost variables found
+    by name (`?break<depth>`, `?continue<depth>`, `?case<switch depth>`, `?return`; the
+    generator keeps one variable per name: `CertCtx::flagVar`); the checker eliminates
+    them (`MiniC.elim`); a new construct needs an `ok_`/`no_` pair in `tests/c/minic.c`;
+    never make `validate`/`validateJ` accept more without extending
+    `nf_equiv`/`validated_sound`/`sim`;
   - option `symbolic`: a loop bounded by a potential only never gets a numeric bound from the
     analyser (its cost is infinite as a number and the function's `ok` stays false); the bound
     in the parameters exists only as a certificate accepted by the checker;
@@ -263,8 +267,8 @@ Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
 ## Current focus
 1. Pre-submission: resolve every open item of `AI_USAGE.md` (author verification, references,
    archived artifact, remaining `\authortodo`).
-2. Plugin evaluation: TACLeBench kernels and sequential/app categories done (unannotated);
-   next a run with minimal annotations (done: observed loop counts, LLVM ScalarEvolution,
+2. Plugin evaluation: TACLeBench kernels and sequential/app categories done (unannotated),
+   and a run with minimal annotations on the kernels (done: observed loop counts, LLVM ScalarEvolution,
    KoAT2, CoFloCo, Infer, oRange, TPDB C complexity programs).
 3. Roadmap agreed with the author (aims: industrial value and scientific result). The theory
    phase is done (Nov 2026): cost logic with procedures, recursion and assumed contracts

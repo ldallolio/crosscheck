@@ -349,3 +349,36 @@ int ok_call_in_return(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 50);
   return ok_callee(n) + 1;
 }
+
+/* Tracked globals: variables of the program certificate. */
+int g_limit;
+int ok_global(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 50);
+  int s = 0;
+  g_limit = n;
+  for (int i = 0; i < g_limit; i++) s++;
+  return s;
+}
+void ok_set_limit(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  g_limit = n;
+}
+/* A static local: its initialisation runs once, not at every call. */
+int no_static_local(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  static int calls = 0;
+  calls = n;
+  int s = 0;
+  for (int i = 0; i < calls; i++) s++;
+  return s;
+}
+
+/* do loops: the body, then the loop (Lean JStmt.doLoop, desugared). */
+int ok_do(int n) {
+  CROSSCHECK_REQUIRE(n >= 1 && n <= 50);
+  int i = 0;
+  do {
+    i++;
+  } while (i < n);
+  return i;
+}

@@ -17,6 +17,8 @@ import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.Checker
 import ImperativeOptimization.MiniCCore
 import ImperativeOptimization.MiniC
+import ImperativeOptimization.MiniCJumpCore
+import ImperativeOptimization.MiniCJump
 import ImperativeOptimization.ResponseCore
 import ImperativeOptimization.Interrupts
 import ImperativeOptimization.ForkJoin

@@ -3978,15 +3978,18 @@ std::optional<Analyzer::CertPiece> Analyzer::certList(CertCtx& cc, const std::ve
   if (isa<SwitchStmt>(st) && jumpsOf(st).cnt)
     for (auto it = cc.exits.rbegin(); it != cc.exits.rend(); ++it)
       if (it->loop) { escCnt = it->cnt; break; }
+  // A switch clears the return flag first (a loop clears it in its prologue, with its
+  // other exit flags: Lean `MiniC.tr`).
+  const bool clearRet = escRet && isa<SwitchStmt>(st);
   CertPiece head{mk(Node{}), pre, 0};
-  if (escRet) {
+  if (clearRet) {
     std::optional<CertPiece> z = certAssign(cc, 0, cc.ret, PExp{{}, 0}, pre);
     if (!z) return std::nullopt;
     head = *z;
   }
   std::optional<CertPiece> first = certStmt(cc, st, head.post);
   if (!first) return std::nullopt;
-  if (escRet) first = seqPiece(head, *first);
+  if (clearRet) first = seqPiece(head, *first);
   if (rest.empty() && !escRet) return first;
   std::function<std::optional<CertPiece>(const Assn&)> restF = [&](const Assn& p) {
     return certList(cc, list, from + 1, p);
@@ -4110,17 +4113,22 @@ std::optional<Analyzer::CertPiece> Analyzer::certSwitch(CertCtx& cc, const Switc
       cs.TraverseStmt(const_cast<Stmt*>(st));
       if (cs.nested) return cc.failed("case label inside a nested statement"), std::nullopt;
     }
+  // The unknown test of the groups: a variable of its own per `switch` nesting depth
+  // (`?case<s>`), a ghost variable of the mini-C source (Lean `JStmt.switch`).
+  std::size_t swDepth = 0;
+  for (const CertCtx::Exit& x : cc.exits) swDepth += !x.loop;
+  const std::size_t caseVar = cc.flagVar(cc.prefix + "?case" + std::to_string(swDepth));
   cc.exits.push_back(CertCtx::Exit{});
   for (const auto& g : groups) {
-    Assn chosen = cert::eliminate(acc.post, cc.choice);
+    Assn chosen = cert::eliminate(acc.post, caseVar);
     std::optional<std::vector<Farkas>> pc = cert::farkasAll(acc.post, chosen);
     if (!pc) { cc.exits.pop_back(); return cc.failed("internal: choice"), std::nullopt; }
     Node h;
     h.kind = Node::Havoc;
-    h.x = cc.choice;
+    h.x = caseVar;
     acc = seqPiece(acc, CertPiece{weaken(chosen, *pc, 0, chosen, identityCerts(chosen), mk(h)), chosen, 0});
     std::optional<CertPiece> c = certIfThen(
-        cc, PExp{cert::unitVec(cc.choice), 0}, 0,
+        cc, PExp{cert::unitVec(caseVar), 0}, 0,
         [&](const Assn& p) { return certList(cc, g, 0, p); },
         [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; }, acc.post);
     if (!c) { cc.exits.pop_back(); return std::nullopt; }
@@ -4936,6 +4944,26 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
   if (const auto* ws = dyn_cast<WhileStmt>(st)) {
     if (ws->getConditionVariable()) return cc.failed("condition variable"), std::nullopt;
     return certLoop(cc, ws, ws->getCond(), ws->getBody(), nullptr, pre);
+  }
+  if (const auto* dw = dyn_cast<DoStmt>(st)) {
+    // `do b while (c)` as `b; while (c) b` (Lean `MiniC.JStmt.desugar`), for a body
+    // without jumps or `switch` anywhere inside (the two copies of the body would need
+    // their flags named alike).
+    struct JumpAny : RecursiveASTVisitor<JumpAny> {
+      bool any = false;
+      bool VisitBreakStmt(BreakStmt*) { any = true; return true; }
+      bool VisitContinueStmt(ContinueStmt*) { any = true; return true; }
+      bool VisitReturnStmt(ReturnStmt*) { any = true; return true; }
+      bool VisitSwitchStmt(SwitchStmt*) { any = true; return true; }
+      bool VisitGotoStmt(GotoStmt*) { any = true; return true; }
+    } ja;
+    ja.TraverseStmt(const_cast<Stmt*>(dw->getBody()));
+    if (ja.any) return cc.failed("do loop with a jump or a switch in its body"), std::nullopt;
+    std::optional<CertPiece> first = certList(cc, flatten(dw->getBody()), 0, pre);
+    if (!first) return std::nullopt;
+    std::optional<CertPiece> l = certLoop(cc, dw, dw->getCond(), dw->getBody(), nullptr, first->post);
+    if (!l) return std::nullopt;
+    return seqPiece(*first, *l);
   }
   if (const auto* fs = dyn_cast<ForStmt>(st)) {
     if (fs->getConditionVariable()) return cc.failed("condition variable"), std::nullopt;

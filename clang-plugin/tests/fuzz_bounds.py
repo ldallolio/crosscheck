@@ -353,6 +353,85 @@ class MiniC:
             raise Unknown()
 
 
+class MiniCJ(MiniC):
+    """The direct meaning of mini-C with jumps (`MiniC.JExec` in MiniCJump.lean):
+    `break`, `continue` and `return` end the statement with that outcome; a loop stops at
+    a `break` of its body, runs its increment after a normal end or a `continue`. A
+    `switch` enters an unknown group: Unknown."""
+
+    def number(self, s):
+        k = s.get("j")
+        if k is None:
+            return MiniC.number(self, s)
+        if k in ("loop", "do"):
+            s["_id"] = len(self.order)
+            self.order.append(s)
+        for key in ("a", "b", "body"):
+            if isinstance(s.get(key), dict):
+                self.number(s[key])
+        for c in s.get("js", []):
+            self.number(c)
+
+    def stmt(self, s, st):
+        k = s.get("j")
+        if k is None:
+            MiniC.stmt(self, s, st)
+            return "normal"
+        if k == "basic":
+            MiniC.stmt(self, s["s"], st)
+            return "normal"
+        if k == "seq":
+            for c in s["js"]:
+                o = self.stmt(c, st)
+                if o != "normal":
+                    return o
+            return "normal"
+        if k == "if":
+            return self.stmt(s["a"] if self.cond(s["c"], st) else s["b"], st)
+        if k == "break":
+            return "brk"
+        if k == "continue":
+            return "cont"
+        if k == "return":
+            MiniC.stmt(self, s["s"], st)
+            return "ret"
+        if k == "loop":
+            n = 0
+            while all(self.cond(c, st) for c in s["cs"]):
+                n += 1
+                if n > self.mx[s["_id"]]:
+                    self.mx[s["_id"]] = n
+                self.steps += 1 if n <= self.CAP else 0
+                if n > self.CAP or self.steps > self.STEPS:
+                    raise Cut()
+                o = self.stmt(s["body"], st)
+                if o == "brk":
+                    break
+                if o == "ret":
+                    return "ret"
+                if "inc" in s:
+                    MiniC.stmt(self, s["inc"], st)
+            return "normal"
+        if k == "do":
+            n = 0
+            while True:
+                n += 1
+                if n > self.mx[s["_id"]]:
+                    self.mx[s["_id"]] = n
+                self.steps += 1 if n <= self.CAP else 0
+                if n > self.CAP or self.steps > self.STEPS:
+                    raise Cut()
+                o = self.stmt(s["body"], st)
+                if o == "brk":
+                    break
+                if o == "ret":
+                    return "ret"
+                if not all(self.cond(c, st) for c in s["cs"]):
+                    break
+            return "normal"
+        raise Unknown()
+
+
 def minic_counts(fn, variables, ranges, seconds=3.0):
     """Counts of the mini-C source over all inputs of the ranges, as the C harness computes
     them; None if the source has unknowns on some run or the time is over."""
@@ -362,7 +441,7 @@ def minic_counts(fn, variables, ranges, seconds=3.0):
     try:
         params = [variables.index(f"{name}::p{i}") if f"{name}::p{i}" in variables else None
                   for i in range(len(ranges))]
-        m = MiniC(fn["source"])
+        m = MiniCJ(fn["jsource"]["body"]) if "jsource" in fn else MiniC(fn["source"])
     except (KeyError, TypeError):
         return None
     best = [0] * len(m.order)
@@ -513,7 +592,7 @@ def main():
             ranges = {name: rg for name, rg, _, signed in g.funcs}
             for prog in doc.get("programs", []):
                 for fn in prog["functions"]:
-                    if "source" not in fn or fn["name"] not in ranges or fn["name"] not in observed:
+                    if ("source" not in fn and "jsource" not in fn) or fn["name"] not in ranges or fn["name"] not in observed:
                         continue
                     stats["minic_sources"] += 1
                     rg = ranges[fn["name"]]

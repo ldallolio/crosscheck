@@ -113,17 +113,20 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
-Kernels (2026-11-16, 161 of 165 certified, all accepted): **147 certificates
-validated, none failing validation** (93 before mini-C had quotients, remainders, shifts,
-masks, unsigned stores and calls; 143 before `break`, `continue` and `return` inside
-loops were exported with flag variables, 144 with them, 147 with `switch` as case groups
-under unknown tests; 140 are validated together with every function they call); 36 of them contain loops (60 of the 83 loops of the
-certified programs), 8 are entry functions `<kernel>_main` (`binarysearch`, `bsort`, `complex_updates`,
-`countnegative`, `iir`, `jfdctint`, `matrix1`, `st`; all but `st` with all
-their callees); many of the others are small (initialisations, `*_return`). Refused by
-the exporter: global or static tracked variables (6), calls of functions without an entry
-in the certificate file (6), calls in tests (2). (The earlier reason "`return` or `break`
-inside a loop (6)" was a `switch` in five of the six functions.)
+Kernels (2026-11-16, 161 of 165 certified, all accepted): **152 certificates
+validated** (93 before mini-C had quotients, remainders, shifts, masks, unsigned stores and
+calls; 147 before jumps were proved in Lean and tracked globals exported; jumps,
+`switch` and `do` are now exported as they are and eliminated by the checker, `MiniC.elim`);
+146 are validated together with every function they call; 37 contain loops (61 of the
+83 loops of the certified programs), 8 are entry functions `<kernel>_main`
+(`binarysearch`, `bsort`, `complex_updates`, `countnegative`, `iir`, `jfdctint`,
+`matrix1`, `st`; all but `st` with all their callees); many of the others are small
+(initialisations, `*_return`). Refused by the exporter: calls of functions without an
+entry in the certificate file (6), calls in tests (2). **One not validated**:
+`isqrt_main`, whose second call `isqrt_usqrt(isqrt_l, ...)` has an argument (a global)
+without a bound, so the generator inlined the callee while the source has a call (the
+checker refuses it, as it should; before, the exporter refused the function for its
+global loop counter).
 
 Sequential and application programs (`--category sequential --category app`): tables
 unchanged (231 of 263 certified, all accepted); **178 validated, none failing** (2026-11-16; 170 before early exits and `switch` were
@@ -381,3 +384,25 @@ Reading this table:
 What this comparison does not show: the tools were not designed for the same
 question (WCET-style constant bounds vs. asymptotic complexity vs. cost regression
 detection), the kernels are small, and no tool was given annotations or tuned.
+
+## With minimal annotations (2026-11-16)
+
+`run_annotated.py` gives `CROSSCHECK_LOOP_BOUND(n)` (a trusted annotation, listed in the
+report's assumptions, no certificate) to the loops that the analyser reports as unbounded
+in the functions reached from `main`, with `n` the maximum of the loop's `loopbound`
+pragma, until `main` is bounded; then compares every annotated value with the loop counts
+observed on the built-in input (`measure_loops.py`).
+
+```bash
+python3 benchmarks/tacle/run_annotated.py --clang=$E/clang --opt=$E/opt \
+    --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 --json annotated.json
+```
+
+| | |
+|---|---:|
+| `main` bounded without annotations | 10 of 29 kernels |
+| with annotations | 23 of 29 (84 annotations in 18 kernels) |
+| not bounded: recursion | `bitcount`, `bitonic`, `fac`, `quicksort`, `recursion` |
+| not bounded: loops without a flow fact | `lms` (2 loops) |
+| annotated values below an observed count | 2: `md5` line 562 (256 < 257), `quicksort` line 745 (169 < 170), the `while (1)` flow facts above |
+

@@ -637,7 +637,7 @@ std::string programJson(const std::string& name, const std::vector<std::string>&
     fs += std::string(i ? ",\n" : "\n") + "{\"name\":" + str(f.name) + ",\"pre\":" + assn(f.pre) +
           ",\"bound\":" + sb(f.bound) + ",\"post\":" + assn(f.post) + ",\"mods\":" + uvec(mods) +
           (f.body ? ",\"body\":" + node(*f.body) : std::string(",\"contract\":true")) +
-          (f.source ? ",\"source\":" + *f.source : std::string()) +
+          (f.source ? ",\"jsource\":" + *f.source : std::string()) +
           (f.sourceRefused.empty() ? std::string() : ",\"source_refused\":" + str(f.sourceRefused)) + "}";
   }
   std::string rs;

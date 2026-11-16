@@ -178,9 +178,15 @@ flowchart LR
   | a store into an unsigned variable | `assignU` | `x := e` if `0 ≤ e ≤ hi`, else `x := ?` |
   | `f(a₁, …)` | `call`, `storeArg` | stores of the arguments into the callee's parameter variables, then the checker's `call` node |
 
-  Mini-C has no jumps. The tool writes `break`, `continue` and `return` inside loops with
-  flag variables in the mini-C above (guide part 4); Paper I says that this rewriting is
-  part of the trusted description.
+- `def:minic-jumps` / `thm:validated-jumps` (`MiniCJump`): mini-C with `break`,
+  `continue`, `return`, `switch` and `do`, given its own meaning (big-step, with outcomes
+  normal / break / continue / return / interrupted). The checker eliminates the jumps
+  with flag variables (`elim`, the form the generator writes); `sim` proves that every
+  direct run is matched by a run of the eliminated program that costs at least as much.
+  Hypotheses left: the ghost variables (flags, `switch` choice) are fresh and named by no
+  source statement (checked), and the earlier functions do not touch them (checked for
+  the file's functions, assumed for contracts). `do` loops whose body has no own
+  `break`/`continue` are desugared (`desugar_exec`).
 
 - `lem:nf-equiv` (`nf_equiv`): `c` and `nf c` have the same executions and prefixes, same
   costs (associativity, units, congruences; induction on derivations for loops).
@@ -202,7 +208,7 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 5,800 lines, 288 theorems, 21 modules, no `sorry`, only the standard axioms. Table
+- About 8,900 lines, 413 theorems, 23 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas

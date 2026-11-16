@@ -41,13 +41,13 @@ reading (`AI_USAGE.md`, section 3).
 | `colon2001synthesis` | downloaded | open access (Semantic Scholar) | Abstract read. Synthesis of linear ranking functions (deductive, linear constraints). |
 | `cormen2009introduction` | book or web page |  |  |
 | `cousot1977abstract` | no open-access copy found |  |  |
-| `demichiel2008orange` | no open-access copy found |  |  |
+| `demichiel2008orange` | no open-access copy found (2026-11-16: Unpaywall lists none for this paper or for the ISoLA 2010 paper on oRange) |  | Not read. Paper II cites it for oRange; the description there (structured rewriting with Calipso, whole-program or partial analysis) comes from the README of oRange's source repository, and "flow analysis and abstract interpretation" from this paper's title. |
 | `demoura2008z3` | downloaded | open access (Semantic Scholar) | Skimmed. |
 | `demoura2021lean4` | downloaded | open access (Semantic Scholar) | Skimmed. |
 | `diekert1995traces` | book or web page |  |  |
 | `falk2016taclebench` | downloaded | open access (Semantic Scholar) | Sections 1 and 3.1 read. Confirms: all benchmarks are annotated with flow facts as pragmas (loop bounds with a lower and an upper bound). Correction made: the paper called TACLeBench 'the successor of' the Mälardalen benchmarks; the article says its programs are gathered from several sources, Mälardalen (MRTC) among them. |
 | `falke2011termination` | downloaded | DROPS (Dagstuhl, open access) | Abstract and the description of the translation read. Confirms: instructions returning an integer such as `load` are abstracted to an unspecified value, floating-point results are arbitrary; modelling memory is listed as future work. Supports the paper's statement that values in memory become unknown inputs. |
-| `floresmontoya2014cofloco` | no open-access copy found |  |  |
+| `floresmontoya2014cofloco` | technical-report version downloaded (2026-11-16, TU Darmstadt server, `APLAS14techReport.pdf`, 6 pages; not compared with the LNCS version) | authors' institution | Read in full: cost equations (Def. 2), SCCs with linear recursion, chains of phases and their refinement (Sec. 3, Theorem 1), forward and backward invariants (3.2). Supports Paper II's description of CoFloCo. |
 | `floyd1967assigning` | no open-access copy found |  |  |
 | `frohn2020calculus` | downloaded | arXiv | Abstract read. A calculus combining loop acceleration techniques modularly. |
 | `giesl2019termcomp` | downloaded | open access (Semantic Scholar) | Skimmed. Confirms the competition has categories for C programs and C programs restricted to integers. |
@@ -106,8 +106,7 @@ what Paper I says about it rests on its description in `haslbeck2018hoare`, and 
 carries an `\authortodo` for it. Also not obtained and not read, each with an
 `\authortodo` in the paper that relies on it: `necula1997proof`, `joseph1986finding`
 (Paper I), `albert2011closed`, `hoffmann2012multivariate`, `wilhelm2008worst`,
-`shaw1989reasoning`, `puschner1989calculating`, `demichiel2008orange`,
-`floresmontoya2014cofloco` (Paper II). The other entries without a copy were not read
+`shaw1989reasoning`, `puschner1989calculating`, `demichiel2008orange` (Paper II). The other entries without a copy were not read
 either and are cited for well-known results: `cousot1977abstract`,
 `podelski2004transition`, `podelski2004complete`, `wegbreit1975mechanical`,
 `floyd1967assigning`, `bardin2008fast`, `kincaid2019closed`, `kahn1987natural`,

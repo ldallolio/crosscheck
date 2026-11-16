@@ -63,8 +63,9 @@ stack bounds). Always say whether a loop figure is *for every call* or *in conte
 | Example programs (`tab:plugin`) | 13 functions bounded, 3 programs rejected as intended; 11 of 15 bounded functions (helpers included) certified (the others: three recursive, one loop bounded by an annotation) | `benchmarks/README.md` |
 | TACLeBench kernels, 220 loops (`tab:tacle`) | for every call: 133 bounded, 105 = flow fact; in context: 142 bounded, 131 = flow fact; 12 of 29 entry functions bounded | `benchmarks/tacle/README.md` |
 | Observed loop counts (208 loops run) | no bound of CrossCheck below an observed count; geometric mean bound/observed: 1.85 (every call), 1.04 (in context; largest 7.2, binary search bounded linearly) | `compare_tools.py --check` |
+| Minimal annotations (`run_annotated.py`) | `main` bounded in 10 → 23 of 29 kernels with 84 trusted `LOOP_BOUND`s (from the flow facts); rest: recursion (5), loops without flow fact (`lms`); 2 annotated values one below an observed count (`while (1)` flow facts) | `benchmarks/tacle/README.md` |
 | Certificates on the kernels | 161 of 165 bounded functions, all accepted; 11 entry functions; 128 calls checked against the callee's summary | `run_tacle.py --certificates` |
-| Validation against the source | 147 of the 161 kernel certificates validated against mini-C, none failing (93 before division, unsigned stores and calls; 143 before early exits and `switch`); 140 with all their callees; 178 of 231 on sequential/app (113 before); the rest on the kernels: globals (6), callees without an entry (6), calls in tests (2). Early exits and `switch` are written by the exporter with flag variables and unknown tests: a trusted rewriting | `run_tacle.py --minic` |
+| Validation against the source | 152 of the 161 kernel certificates validated against mini-C (93 before division, unsigned stores and calls; 147 before globals); 146 with all their callees; one not validated (`isqrt_main`: the generator inlined a call the source has as a call); 178 of 231 on sequential/app (113 before); the rest on the kernels: callees without an entry (6), calls in tests (2). Jumps, `switch` and `do` are exported as they are and eliminated by the checker (`thm:validated-jumps`, proved) | `run_tacle.py --minic` |
 | ScalarEvolution (LLVM) | 113 loops; of 104 common loops, 99 identical, ours smaller by one on 4, LLVM's smaller by one on 1 (`fft` doubling loop: 10 vs 11) | `tab:tools` |
 | oRange (OTAWA) | 131 loops; identical to our in-context bounds on 114 of 115 common loops (binary search: oRange 5, ours 29, the flow fact 4); one oRange bound below the observed count (`filterbank`) | `tab:tools`, `compare_ffx.py` |
 | KoAT2 / CoFloCo | 5 / 8 entry functions numerically bounded (ours: 12); CoFloCo never looser than KoAT2 on the same programs | `tab:tools` |
@@ -73,8 +74,8 @@ stack bounds). Always say whether a loop figure is *for every call* or *in conte
 | CMSIS-DSP, 786 functions | as is 161 bounded; with assumed ranges 616 (78%), 1,044 loops (two files timed out in the last run) | `benchmarks/cmsis/README.md` |
 | Cortex-M0 stack | 143 of 267 functions (no loop bound needed); 10 entry functions, 9 equal to the observed stack; 24 calls compared, no violation | `benchmarks/cycles/README.md` |
 | Cortex-M0 cycles | 107 of 267 functions; 6 entry functions at 1.24 to 2.49 times the emulated run; 11 calls and 45 loops compared, no violation; one `fft` function 970 times (product of nested bounds) | `benchmarks/cycles/README.md` |
-| TPDB, 553 programs | analysis alone: 11 as is, 207 with input ranges (156 certified, 114 with a symbolic summary); KoAT2 288, CoFloCo 264 | `benchmarks/tpdb/README.md` |
-| TPDB without ranges (option `symbolic`) | 101 programs with a certificate valid for all inputs: 87 with a bound in the parameters (`max(0,x)`, `max(0,-x)`, `max(0,x-y)`), 14 constant; 135 more have potentials but no certificate (47: products) | `benchmarks/tpdb/README.md` |
+| TPDB, 553 programs | analysis alone: 11 as is, 207 with input ranges (159 certified, 114 with a symbolic summary); KoAT2 288, CoFloCo 264 | `benchmarks/tpdb/README.md` |
+| TPDB without ranges (option `symbolic`) | 103 programs with a certificate valid for all inputs: 89 with a bound in the parameters (`max(0,x)`, `max(0,-x)`, `max(0,x-y)`), 14 constant; 133 more have potentials but no certificate (47: products) | `benchmarks/tpdb/README.md` |
 | Rust examples | 11 of 12 functions translated, 6 bounded, 3 certified, all 3 validated; 382 differential runs, no mismatch | `frontends/rust/README.md` |
 
 Tests against executions (`fuzz_bounds.py`, `mutate_certificates.py`): see part 4,
@@ -94,7 +95,7 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 
 | Paragraph | Content | Trusted |
 |---|---|---|
-| Validation against the source | the function exported as mini-C (`MiniC.cpp`), compared with the certificate's program by the checker (`thm:validated`) | the exporter; no signed overflow, no aliasing of tracked variables |
+| Validation against the source | the function exported as mini-C with jumps (`MiniC.cpp`), jumps eliminated and compared with the certificate's program by the checker (`thm:validated`, `thm:validated-jumps`) | the exporter; no signed overflow, no aliasing of tracked variables, no other code writing tracked globals during the function; contracts do not touch the flags |
 | Rust | `rustc` MIR (text, rustc 1.100.0) translated to C, then the same pipeline | the translation (tested differentially) |
 | Interrupts | `CROSSCHECK_INTERRUPT(T)`: response time from certified bounds (`response_time_bound`, checked by `rtaHolds`) | the period `T`; one cost unit = one time slot |
 | Cycles on a predictable processor | timing schema on the Cortex-M0 binary, loop bounds from the source loops | the timing table (compared row by row with Table 3-1 of Arm's manual by `test_m0.py`, not with hardware); the matching of binary to source loops (checked on runs) |
@@ -108,9 +109,9 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 caveat), SARIF for code scanning, a cost diff for CI. On TACLeBench our FFX equals oRange's
 on 115 loops.
 
-**OTAWA on the binaries (paragraph "A WCET analyzer on the same binaries")**: OTAWA 2.3 (image built by the author) computes an IPET bound for all 107 functions that have a cycle bound, from 199 flow facts placed on the binary loops by `benchmarks/cycles/run_otawa.py` (label + offset; the source-line FFX is not placed by OTAWA on `-O1` code), one unit per instruction; 11 executed calls compared, no bound below an execution. What it shows: the bounds
+**OTAWA on the binaries (paragraph "A WCET analyzer on the same binaries")**: OTAWA 2.3 (image built by the author) computes an IPET bound for all 107 functions that have a cycle bound, from 199 flow facts placed on the binary loops by `benchmarks/cycles/run_otawa.py` (label + offset; the source-line FFX is not placed by OTAWA on `-O1` code), one unit per instruction; 11 executed calls compared, no bound below an execution. With `--timing m0` (`otawa/m0time.cpp`: block times from our Cortex-M0 table) OTAWA bounds the same 107 functions in cycles, never below our timing schema (equal for 52, at most 1.29 times), no call above its bound. What it shows: the bounds
 are usable by an IPET tool, and our loop matching agrees with OTAWA's view of the binary.
-What it does not: cycles (no Cortex-M0 description was written for OTAWA), and source-line
+What it does not: an independent timing model (the cycle table is ours), and source-line
 flow facts on optimised code. Not loaded into aiT.
 
 **Related work (Paper II, `sec:related`)**: bound analysers (SPEED, Loopus, KoAT, CoFloCo,
@@ -128,7 +129,7 @@ translation unverified.
 - Observed counts are for one input; a bound above them is not necessarily loose.
 - The other tools answer other questions (asymptotic complexity, cost regressions,
   whole-program flow facts) and were not tuned.
-- On TPDB, CrossCheck is weaker: 101 programs certified for all inputs against 288 and
+- On TPDB, CrossCheck is weaker: 103 programs certified for all inputs against 288 and
   264 bounded by KoAT2 and CoFloCo; certified bounds are affine in the parameters, and
   there are no multi-phase or disjunctive potentials. The symbolic mode's harness makes
   inputs read before the first loop parameters: say so.
@@ -141,8 +142,8 @@ translation unverified.
 
 A compiler plugin bounds loops and recursion of real-time C/C++ at compile time; callees
 are analysed in their calling contexts; for a linear fragment it emits certificates that a
-Lean-verified checker accepts (161 of 165 bounded TACLeBench kernel functions; 147 also
+Lean-verified checker accepts (161 of 165 bounded TACLeBench kernel functions; 152 also
 validated against the source). Loops get affine or logarithmic potentials. Its in-context
 loop bounds agree with oRange's on all but one common loop, and never fall below observed
-loop counts. Without annotations it certifies bounds in the parameters for 101 of 553
+loop counts. Without annotations it certifies bounds in the parameters for 103 of 553
 complexity benchmarks, where KoAT2 and CoFloCo bound 288 and 264.

@@ -170,22 +170,29 @@ shifts, remainders and masks by a constant are `div` statements, stores into
 `unsigned int` or wider variables are `assignU`, calls of functions with an entry in the
 file are `call` (see the grammar above).
 
-**Early exits.** Mini-C has no jumps: `break`, `continue` and `return` inside `while`
-and `for` loops are written with the flag variables of the certificate, which the
-exporter finds by name (`?break<d>` and `?continue<d>` for a loop at nesting depth `d`,
-0 for a loop inside no other loop; `?return`): a jump is `flag = 1` (weight: a branch for
-`break` and `continue`; 0 after the cost of a `return`), and nothing of its statement
-list follows it; a conditional or block that contains a jump takes the rest of the list
-into its branches; a loop with a `break` or a `return` clears those flags first, has
-`flag <= 0` as further conjuncts of its test, and runs the increment of a `for` under
-`if (flag <= 0)` (weight 0); the `continue` flag is cleared at the start of each
-iteration; what follows a loop that may return runs under `if (?return <= 0)`. This
-rewriting is done by the exporter, so it is trusted for validated certificates; it is
-tested on random programs (`tests/fuzz_bounds.py` runs the mini-C source and the
-compiled C side by side). After a jump the description evaluates the loop test once
-more than C does, so it costs at least as much. The generator uses one flag variable per
-name, so that a loop lowered twice (a list copied into both branches of a conditional)
-has the same flags.
+**Jumps, `switch` and `do` loops (`"jsource"`).** Since 2026-11-16 the exporter writes
+every function as `"jsource": {"ret": r, "body": J}`, a statement of mini-C with jumps
+(Lean `MiniC.JStmt`, `MiniCJumpCore.lean`):
+
+    J ::= {"j":"basic","s":S} | {"j":"seq","js":[J...]} | {"j":"if","w","c","a":J,"b":J}
+        | {"j":"loop","w","cs":[C...],"body":J,"inc":S?,"fb":n?,"fc":n?}
+        | {"j":"do","w","cs":[C...],"body":J,"fb":n?,"fc":n?}
+        | {"j":"break","w"} | {"j":"continue","w"} | {"j":"return","s":S}
+        | {"j":"switch","w","sc":n,"groups":[J...]}
+
+with `S` and `C` the mini-C statements and tests above. `fb`, `fc`, `sc` and `r` are the
+certificate's ghost variables, found by name (`?break<d>`, `?continue<d>` for a loop at
+nesting depth `d`; `?case<s>` for a `switch` at `switch` depth `s`; `?return`; `r` is an
+unused index when there is none). The checker eliminates the jumps itself
+(`MiniC.elim`): a jump stores 1 into its flag, loops test their exit flags, what follows a
+jump moves into the branches that do not jump, the statements after a construct that may
+set the return or continue flag run under `if (flag <= 0)`, each `switch` group runs
+under `?case<s> := ?; if (?case<s> <= 0)`, and a `do` loop without own `break`/`continue`
+is its body followed by the loop. It then validates as for `"source"` (`MiniC.validateJ`),
+refusing ghost variables named by the source or not fresh along a nesting path, and
+checks that no earlier function body reads or writes them (`MiniC.quietCmd`). Theorem
+`MiniC.validatedJ_sound`: the bound holds for every execution prefix of the source in
+its direct meaning (`MiniC.JExecD`). The rewriting is no longer trusted.
 
 **`switch`.** Mini-C has no such statement and the tested value is not compared with
 the labels: a `switch` is the cost of its test followed by each case group (the

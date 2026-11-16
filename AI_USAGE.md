@@ -1062,6 +1062,51 @@ AI started after committing this one):
   `thm:checker-soundness`, `prop:lex-log` status, scope, future work, Table `tab:lean`;
   Paper II limitations and the observed-count figures. **Author to check** (§3, item 28).
 
+46. "I would like to cover properly early exits and switch on lean, start the do loops and tracked globals in mini-c, the cortex-m0 timing for OTAWA and run with minimal annotations. Could you do  the descriptions of KoAT2, CoFloCo and oRange by yourself ?"
+
+What the AI did for 46 (Claude Opus 5.5, 2026-11-16).
+- **Early exits and `switch` in Lean.** New modules `MiniCJumpCore` (no mathlib; in the
+  checker program) and `MiniCJump`. `JStmt`: mini-C with `break`, `continue`, `return`,
+  `switch` and `do` loops; `JExec`/`JExecD`: their meaning, a big-step semantics with
+  outcomes (normal, break, continue, return, interrupted for prefixes); `tr`/`elim`: the
+  elimination of the jumps with flag variables, computed by the checker, in the form the
+  generator already wrote (continuation-passing: what follows a jump moves into the
+  branches that do not jump); `validateJ`. Theorem `sim` (simulation, by induction on the
+  derivation, generalised over the context of enclosing loops and `switch` statements and
+  the continuation; a second statement about the loop command is proved in the same
+  induction) and `validatedJ_sound` (every interrupted run of the source costs at most
+  the bound). The rewriting the exporter did is gone from the C++ code: the exporter now
+  writes the jumps as they are (key `jsource`), and the checker eliminates them. Lean:
+  413 theorems, 23 modules, no `sorry`, standard axioms only.
+- **A defect found while doing it.** The first statement of the theorem required every
+  procedure of the program to leave the flags alone, including the validated function
+  itself, which writes them: the hypothesis could not hold for a function with flags,
+  and the checker's executable check failed for the same reason (no function with a
+  loop jump was validated). It is now restricted to the functions numbered below the
+  validated one (the checker already requires calls to go there), with the call bound
+  carried by `Quiet` and `quietCmd` and checked on the source's calls (`callsBelow`).
+- **Generator changes**, to match the elimination: each `switch` gets a variable of its
+  own for the unknown choice of the case group (`?case<depth>`, instead of the shared
+  choice variable), and a loop no longer clears the return flag twice (its prologue does
+  it). A test checks that a source naming a ghost variable is not validated
+  (`tests/check_minic.py`, 12 mutations).
+- **`do` loops.** In Lean: `JStmt.doLoop` with rules of its own in `JExecD`; `elim`
+  accepts it when its body has no `break` or `continue` of its own, as the body followed
+  by the loop (`desugar_exec`: every run is a run of the desugared statement;
+  `tr_desugar`). Generator: a `do` loop is certified as the body followed by the loop,
+  when the body has no jump and no `switch` at all. Exporter: `do` loops exported.
+- **Tracked globals in mini-C**: accepted by the exporter as ordinary variables of the
+  certificate; static locals are still refused. Assumption: no other code writes them
+  while the function runs (stated in both papers).
+- **OTAWA with Cortex-M0 timing**: `benchmarks/cycles/otawa/m0time.cpp`, a program
+  compiled against OTAWA in the author's image (no network) that sets the time of each
+  basic block from the timing table of `m0.py`; `run_otawa.py --timing m0`.
+- **Minimal annotations**: `benchmarks/tacle/run_annotated.py`.
+- **Tool descriptions** (KoAT2, CoFloCo, oRange) rewritten in Paper II from what was
+  read: the CoFloCo paper (technical-report copy, read in full), the abstract of the
+  KoAT paper, oRange's README; the oRange paper could not be obtained and is listed with
+  the unread papers. The decision on reporting `filterbank` stays with the author.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1253,7 +1298,8 @@ is whether each Lean statement says what the paper says, and everything outside 
       before publication;
     - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
       papers not obtained keep an `\authortodo`.
-34. **Early exits and `switch` in mini-C, and OTAWA (prompt 45).** Read `Exporter::block`,
+34. **Early exits and `switch` in mini-C, and OTAWA (prompt 45).** (The rewriting is no
+    longer trusted since prompt 46: item 35.) Read `Exporter::block`,
     `Exporter::loop` and `Exporter::switchStmt` in `MiniC.cpp` (the flag rewriting and the
     description of a `switch` are now trusted for validated certificates) and decide
     whether you accept that a description may cost one loop test more than the C code
@@ -1263,3 +1309,14 @@ is whether each Lean statement says what the paper says, and everything outside 
     executions per loop entry) is the AI's, from OTAWA's behaviour and general knowledge,
     not from its documentation; the unit is instructions, not cycles; check the reference
     `ballabriga2010otawa`.
+35. **Mini-C with jumps in Lean, `do` loops, globals, OTAWA cycles, annotated run
+    (prompt 46).** Read Definition `def:minic-jumps` and Theorem `thm:validated-jumps` of
+    Paper I against `MiniCJump.lean` (`JExecD`, `tr`, `sim`, `validatedJ_sound`): is the
+    direct semantics the meaning of C's `break`, `continue`, `return`, `switch` (entry
+    group not modelled) and `do`? The hypotheses that remain: the exporter's syntactic
+    translation, contracts not touching the ghost variables, and no other code writing
+    tracked globals during a function. Read `m0time.cpp` (the block time is the sum of
+    the table's instruction times, a conditional branch counted as taken; OTAWA's edge
+    times are not used) and the paragraph on OTAWA; read `run_annotated.py` (annotation
+    values taken from the benchmark's flow facts). Check the new descriptions of KoAT2,
+    CoFloCo and oRange in Paper II against the sources listed in references/README.md.

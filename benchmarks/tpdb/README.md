@@ -123,10 +123,10 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **156 of the 207 bounded entry functions are
+In the second mode (inputs in [-K, K]), **159 of the 207 bounded entry functions are
 certified, all accepted by the checker**: 114 with a *summary* affine in their parameters
-(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 42 with a constant bound,
-51 not certified. For 77 of the 114, KoAT2 also reports a linear bound. The harness's
+(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 45 with a constant bound,
+48 not certified (156, 42 and 51 before `do` loops were certified, 2026-11-16). For 77 of the 114, KoAT2 also reports a linear bound. The harness's
 `CROSSCHECK_COST(1)` declarations become assumed contracts (46 entries). The analysis still
 needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.
 
@@ -150,22 +150,22 @@ after a loop stay unknown.
 
 | Entry functions (553 programs) | |
 |---|---:|
-| certificate accepted, bound in the parameters | **87** |
+| certificate accepted, bound in the parameters | **89** |
 | certificate accepted, constant bound | 14 |
-| potentials for every loop, no certificate | 135 |
-| a loop without a potential, or another error | 316 |
-| timeout | 1 |
+| potentials for every loop, no certificate | 133 |
+| a loop without a potential, or another error | 317 |
+| timeout | 0 |
 
-- All 101 certificates are accepted by the checker: these bounds hold **for all inputs**,
+- All 103 certificates are accepted by the checker: these bounds hold **for all inputs**,
   with no annotation and no assumption on ranges (signed overflow is assumed absent, as
-  everywhere). All 101 programs are also bounded by KoAT2 or CoFloCo; on the 87 with a
-  bound in the parameters KoAT2 answers `O(n)` for 84 and `O(1)` for 3 (there our bound
-  is looser than necessary).
+  everywhere). All 103 programs are also bounded by KoAT2 or CoFloCo; on the 89 with a
+  bound in the parameters KoAT2 answers `O(n)` for 86 and `O(1)` for 3 (there our bound
+  is looser than necessary). (101 = 87 + 14 before `do` loops were certified.)
 - Before the two changes that followed the first run of this mode the count was 59 (45 +
   14): logical variables for `-x` and `x - y` (a loop `while (a < 30)` costs
   `max(0, -a)`), and nondeterministic inputs as parameters.
-- No certificate, of the 135: a product of two symbolic quantities, as in nested loops
+- No certificate, of the 135 of the run before `do` loops were certified (133 now): a product of two symbolic quantities, as in nested loops
   both bounded by parameters (47: certified bounds are affine); a potential with no
   bound of that form on entry (36); a loop test with a call or an assignment (28); the
   generator's invariants too weak (16); `do` loops and labels (6); other (2).
-- KoAT2 or CoFloCo bound 305 programs: 204 of them have no certificate here.
+- KoAT2 or CoFloCo bound 305 programs: 202 of them have no certificate here.

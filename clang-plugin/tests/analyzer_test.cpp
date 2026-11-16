@@ -877,11 +877,26 @@ TEST(Certificates, OutsideTheFragmentSaysWhy) {
   Report r = check(R"(
     CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 10) int n) {
       int i = 0;
+      do { i++; if (i > 5) break; } while (i < n);
+      return i;
+    })", o);
+  EXPECT_TRUE(fn(r, "f").ok);
+  EXPECT_NE(fn(r, "f").certificate.find("do loop with a jump"), std::string::npos);
+}
+
+// A do loop without jumps: the body, then the loop (Lean `JStmt.desugar`).
+TEST(Certificates, DoLoopWithoutJumps) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 10) int n) {
+      int i = 0;
       do { i++; } while (i < n);
       return i;
     })", o);
   EXPECT_TRUE(fn(r, "f").ok);
-  EXPECT_NE(fn(r, "f").certificate.find("DoStmt"), std::string::npos);
+  EXPECT_EQ(fn(r, "f").certificate, "emitted");
 }
 
 // Early exits, switch and && tests are in the fragment; that the Lean checker accepts

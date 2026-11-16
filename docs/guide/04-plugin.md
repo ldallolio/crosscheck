@@ -203,9 +203,9 @@ one table:
 | `if`, `while`, `for` (tests `< <= > >=`, `!`, `&&` in loops) | the same |
 | `return` outside loops | `cost`; the rest of the body goes into the branches |
 | `x = y / c`, `% c`, `& c`, `>> k`; stores into `unsigned`; calls of functions of the file | `div`, `assignU`, `call` |
-| `break`, `continue`, `return` inside `while` / `for` | no mini-C statement: written with the certificate's flag variables (below) |
-| `switch` | the cost of the test, then `if (other) group` for each case group (an over-approximation: the value is not compared with the labels) |
-| calls in tests, `do`, `goto`, loops without a test, global/static/aliased tracked variables, tables | refused (`source_refused`) |
+| `break`, `continue`, `return`, `switch`, `do` | written as they are (`JStmt`, key `jsource`); the checker eliminates them (`MiniC.elim`, proved) |
+| tracked globals | ordinary variables of the certificate (assumed: nothing else writes them during the function) |
+| calls in tests, `goto`, static locals, volatile/aliased tracked variables, tables | refused (`source_refused`) |
 
 Early exits, on `for (i = 0; i < n; i++) { if (c) break; k++; }` (flag `?break0`,
 found by name; weights in brackets):
@@ -220,9 +220,11 @@ while (i < n && ?break0 <= 0) {
 
 `continue` sets `?continue<d>` (cleared at the start of each iteration; the increment
 still runs); `return` pays its cost, sets `?return`, and what follows the loop runs under
-`if (?return <= 0)`. This rewriting is trusted (the exporter does it, not Lean), costs one
-loop test more than C after a jump, and is compared with executions of the C by
-`fuzz_bounds.py`.
+`if (?return <= 0)`. Since prompt 46 this rewriting is done by the checker (`MiniC.elim`)
+and proved (`MiniC.sim`, `validatedJ_sound`); it costs one loop test more than C after a
+jump. A `switch` group is under `?case<d> := ?; if (?case<d> <= 0)`, one variable per
+`switch` nesting depth. `fuzz_bounds.py` interprets the exported source with its direct
+meaning (`MiniCJ`) and compares loop counts with the compiled C.
 
 With `minic`, dead branches are lowered for real (`deadCode`), loops in them with the
 potential 0, so that the dead node contains the source's code.

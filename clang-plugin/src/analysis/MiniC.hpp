@@ -41,10 +41,12 @@ struct Inputs {
   /// variable of `vars`: nothing else about them is trusted, and a wrong choice makes
   /// validation fail.
   std::map<const clang::Expr*, std::size_t> scratch;
-  /// Flag variables of the certificate for early exits of this function's loops, by name:
+  /// Ghost variables of the certificate for the jumps of this function, by name:
   /// `?break<d>` and `?continue<d>` for a loop at nesting depth `d` (0 for a loop that is
-  /// in no other loop), `?return` for a `return` inside a loop. As for `scratch`, only the
-  /// index is used, after checking that it is not a variable of `vars`.
+  /// in no other loop), `?case<s>` for a `switch` at `switch` nesting depth `s`,
+  /// `?return` for a `return` inside a loop or `switch`. As for `scratch`, only the index
+  /// is used, after checking that it is not a variable of `vars`; the checker refuses
+  /// ghost variables that are named by the source or not fresh along a nesting path.
   std::function<std::optional<std::size_t>(const std::string&)> flag;
   /// The layout of the certificate file for a called function (none: it has no entry of
   /// its own, the exporter refuses the call). Only this layout is used; whether the
@@ -54,8 +56,10 @@ struct Inputs {
   std::function<bool(const clang::Stmt*)> isRequire;
 };
 
-/// The mini-C program of `def` (JSON, the fragment `MiniC.MStmt` of the Lean
-/// formalization), or the reason why `def` is outside the fragment.
+/// The mini-C program of `def` (JSON `{"ret": r, "body": ...}`: the fragment `MiniC.JStmt`
+/// of the Lean formalization, statements with `break`, `continue`, `return` and `switch`,
+/// whose jump-free parts are `MiniC.MStmt`, and the return flag `r`), or the reason why
+/// `def` is outside the fragment.
 ///
 /// The translation is the trusted part of a validated certificate (theorem
 /// `MiniC.validated_sound`), so it is meant to be read: it is syntactic, and every
@@ -63,10 +67,9 @@ struct Inputs {
 /// memory and of untracked variables, non-affine or possibly-wrapping arithmetic,
 /// narrowing conversions), a statement that only costs (stores to memory or to untracked
 /// variables), or a refusal (indirect calls, `goto`, `do` loops, aliased tracked
-/// variables, ...). `break`, `continue` and `return` inside `while` and `for` loops are
-/// written with flag variables (see `Exporter::block` in MiniC.cpp), and a `switch` as its
-/// case groups under unknown tests (`Exporter::switchStmt`): mini-C itself has neither, so
-/// this rewriting is part of what is trusted.
+/// variables, ...). `break`, `continue`, `return` and `switch` are written as in C; their
+/// meaning (`MiniC.JExec`) and their elimination with flag variables (`MiniC.elim`) are
+/// in Lean, and the elimination is proved (`MiniC.validatedJ_sound`).
 /// Signed arithmetic is exact: signed overflow is undefined behaviour, assumed absent.
 struct Result {
   std::optional<std::string> json;

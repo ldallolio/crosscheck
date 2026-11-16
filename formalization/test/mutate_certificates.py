@@ -42,7 +42,7 @@ def int_sites(node, path, out):
             int_sites(v, path + [i], out)
     elif isinstance(node, dict):
         for k, v in node.items():
-            if k in ("source", "source_refused", "name"):
+            if k in ("source", "jsource", "source_refused", "name"):
                 continue
             int_sites(v, path + [k], out)
 
@@ -94,6 +94,7 @@ def main():
             for program in doc["programs"]:
                 for fn in program["functions"]:
                     fn.pop("source", None)  # validation is tested elsewhere
+                    fn.pop("jsource", None)
                 if not accepted(a.checker, program, tmp):
                     continue
                 for i in range(len(program["functions"])):

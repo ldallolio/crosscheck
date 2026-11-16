@@ -35,7 +35,7 @@ limitation, it says so.
 - **"What is new compared with SPEED, KoAT, Loopus, COSTA, C4B?"** Not the bounds: affine
   potentials by Farkas are standard. New: certificates checked by a Lean-verified checker,
   and the evaluation against executions. On TPDB, KoAT2 and CoFloCo are clearly stronger
-  (288 and 264 programs, against 207 with input ranges, or 101 certified for all inputs without ranges): say so first.
+  (288 and 264 programs, against 207 with input ranges, or 103 certified for all inputs without ranges): say so first.
 - **"Which ranking functions?"** Affine, rational, per loop, synthesised by LP; and
   logarithmic ones on a single variable, decreasing (`n >>= 1`, `n /= 10`) or growing to a
   limit (`len <<= 1`), in the plugin and as checker nodes (`whileLog`, `whileGrow`, proved
@@ -137,7 +137,7 @@ of the TPDB harness.
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
    For the functions whose certificate is validated against their mini-C export, the
    generator is out of the trusted base, the exporter (syntactic) is in it.
-2. **Coverage**: 207 of 553 TPDB programs with input ranges (101 certified for all inputs without) vs 288 for KoAT2. Certificates give summaries
+2. **Coverage**: 207 of 553 TPDB programs with input ranges (103 certified for all inputs without) vs 288 for KoAT2. Certificates give summaries
    affine in the parameters; since option `symbolic` the analyser can propose potentials
    without ranges and the certificate carries the parametric bound, but only for bounds
    affine in the parameters (no products).

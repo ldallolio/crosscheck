@@ -17,9 +17,15 @@ For each TACLeBench kernel:
    offset: `<loop label="f" offset="0x16" maxcount="N+1"/>`. A source bound N is a number
    of executions of the body; OTAWA's `maxcount` bounds the executions of the loop header
    per entry of the loop, which is at most N + 1 (the last one leaves the loop);
-4. OTAWA (`owcet`, script `trivial` with one time unit per instruction, so that its result
-   is a number of executed instructions) computes the WCET of `main` by IPET from these
-   flow facts alone, in a container without network;
+4. OTAWA computes the WCET of each function by IPET from these flow facts alone, in a
+   container without network, with one of two timings (`--timing`):
+   - `instructions` (default): `owcet`, script `trivial`, one time unit per instruction,
+     so that its result is a number of executed instructions;
+   - `m0`: the program `otawa/m0time.cpp`, compiled against OTAWA in the same image, which
+     gives each basic block of OTAWA's graphs the Cortex-M0 cycles of its instructions,
+     taken from the timing table of m0.py (`<kernel>.times`: function label, offset,
+     cycles; a conditional branch is charged as taken). The Cortex-M0 has no cache and
+     fixed instruction times, so a block's time is that sum; the result is in cycles;
 5. the program is run by the interpreter of m0.py, which counts the instructions of every
    call.
 
@@ -52,6 +58,29 @@ import m0  # noqa: E402
 import run_cycles  # noqa: E402
 import run_tacle  # noqa: E402
 import wcet  # noqa: E402
+
+
+def instruction_times(img):
+    """(function, address, Cortex-M0 cycles) of every instruction reachable from the entry
+    of each function, a conditional branch counted as taken (`m0.cycles`)."""
+    out = []
+    for fn, (entry, size) in sorted(img.funcs.items()):
+        seen, todo = set(), [entry]
+        while todo:
+            ad = todo.pop()
+            if ad in seen or not (entry <= ad < entry + max(size, 2)):
+                continue
+            seen.add(ad)
+            try:
+                i = m0.decode(img.mem, ad)
+            except Exception:
+                continue
+            out.append((fn, ad, m0.cycles(i, True)))
+            if i.kind in ("cond", "jump") and i.target is not None:
+                todo.append(i.target)
+            if i.kind in ("cond", "seq", "call"):
+                todo.append(ad + i.size)
+    return out
 
 
 def analyse(kernel, work, a, rt):
@@ -104,11 +133,21 @@ def analyse(kernel, work, a, rt):
     if p.returncode:
         row["status"] = "not linked: " + (p.stderr.strip().splitlines() or ["?"])[0][-120:]
         return row
-    for f in (elf, ffx):
+    files = [elf, ffx]
+    mounts = ["-v", f"{work}:/w:ro"]
+    if a.timing == "m0":
+        times = work / f"{name}.times"
+        times.write_text("".join(f"{fn} {ad - img.funcs[fn][0]} {c}\n" for fn, ad, c in instruction_times(img)))
+        files.append(times)
+        mounts += ["-v", f"{a.build}:/b:ro"]
+        run = lambda fn: f"/b/m0time /w/{elf.name} {fn} /w/{ffx.name} /w/{times.name}"
+    else:
+        run = lambda fn: f"{a.owcet_path}/owcet -s trivial -p stages=1 /w/{elf.name} {fn} -f /w/{ffx.name}"
+    for f in files:
         f.chmod(0o644)
-    loop = "; ".join(f"echo \"== {fn}\"; timeout {int(a.timeout)} {a.owcet_path}/owcet -s trivial -p stages=1 "
-                     f"/w/{elf.name} {fn} -f /w/{ffx.name} 2>&1 | grep -E \"^WCET|^ERROR\" | head -2" for fn in own)
-    p = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{work}:/w:ro", a.image,
+    loop = "; ".join(f"echo \"== {fn}\"; timeout {int(a.timeout)} {run(fn)} 2>&1 | grep -E \"^WCET|^ERROR|^no time\" | head -2"
+                     for fn in own)
+    p = subprocess.run(["docker", "run", "--rm", "--network", "none", *mounts, a.image,
                         "bash", "-c", loop], capture_output=True, text=True)
     cur = None
     for line in p.stdout.splitlines():
@@ -118,7 +157,7 @@ def analyse(kernel, work, a, rt):
         m = re.match(r"WCET\[.*\] = (\d+) cycles", line)
         if m and cur:
             row["results"][cur]["otawa"] = int(m.group(1))
-        if line.startswith("ERROR") and cur:
+        if (line.startswith("ERROR") or line.startswith("no time")) and cur:
             row["results"][cur]["error"] = line[:160]
     # the run: instructions of every completed call, by function
     entry = {ad: n for n, (ad, _) in img.funcs.items()}
@@ -158,12 +197,14 @@ def main():
     ap.add_argument("--image", default="otawa:dev")
     ap.add_argument("--owcet-path", default="/tmp/otawa-install/bin")
     ap.add_argument("--timeout", type=float, default=300)
+    ap.add_argument("--timing", choices=["instructions", "m0"], default="instructions")
     ap.add_argument("--json")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     # One unit per instruction, in the interpreter and in the timing schema, as in OTAWA's
     # `trivial` script with stages=1.
-    m0.cycles = lambda i, taken=True: 1
+    if a.timing == "instructions":
+        m0.cycles = lambda i, taken=True: 1
     src = run_tacle.fetch(pathlib.Path(a.cache), run_tacle.REV)
     work = pathlib.Path(a.cache) / "otawa"   # not `work`: other scripts write there
     work.mkdir(parents=True, exist_ok=True)
@@ -171,6 +212,18 @@ def main():
     kernels = sorted((src / "bench/kernel").iterdir())
     if a.only:
         kernels = [k for k in kernels if k.name in a.only]
+    if a.timing == "m0":
+        build = pathlib.Path(a.cache) / "otawa-build"
+        build.mkdir(parents=True, exist_ok=True)
+        build.chmod(0o777)
+        p = subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{HERE / 'otawa'}:/src:ro",
+                            "-v", f"{build}:/b", a.image, "bash", "-c",
+                            f"export PATH={a.owcet_path}:$PATH; g++ -std=c++17 -O1 $(otawa-config --cflags) "
+                            "/src/m0time.cpp -o /b/m0time $(otawa-config --libs) "
+                            f"-Wl,-rpath,{a.owcet_path}/../lib"], capture_output=True, text=True)
+        if p.returncode:
+            sys.exit("m0time does not compile:\n" + p.stdout + p.stderr)
+        a.build = build
     rt = run_cycles.runtime_bounds(a.tool, work, a.extra_arg)
     rows = []
     for k in kernels:

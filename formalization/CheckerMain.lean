@@ -6,6 +6,7 @@ Authors: Luca Dall'Olio
 import Lean.Data.Json
 import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.MiniCCore
+import ImperativeOptimization.MiniCJumpCore
 import ImperativeOptimization.ResponseCore
 
 /-!
@@ -25,7 +26,12 @@ A function may also carry its source program in mini-C (`"source"`, the fragment
 `MiniC.MStmt`); the checker then runs the verified `MiniC.validate`, and prints
 `VALIDATED` when the certificate's program is the lowering of the source (theorem
 `MiniC.validated_sound`: the bound then holds for the source program). The conversion of
-the source from JSON is trusted in the same way.
+the source from JSON is trusted in the same way. A source with early exits or `switch`
+(`"jsource"`, the fragment `MiniC.JStmt`, with its return flag) is validated by the
+verified `MiniC.validateJ`, which eliminates the jumps itself; the checker also requires
+that no function body that the function can call (those before it) reads or writes the
+source's ghost variables (`MiniC.quietCmd`), as theorem `MiniC.validatedJ_sound` does (for
+contracts this is assumed).
 
 A program may also carry response-time claims (`"responses"`): a function (the task)
 preempted by interrupt handlers (functions of the same program) with minimum inter-arrival
@@ -233,6 +239,46 @@ partial def parseMStmt (j : Json) : Except String MStmt := do
       (← parseMStmt (← field j "inc")) (← parseMStmt (← field j "body")))
   | o => throw s!"unknown statement '{o}'"
 
+
+def optNat (j : Json) (k : String) : Except String (Option Nat) :=
+  match j.getObjVal? k with
+  | .ok v => match v.getNat? with
+    | .ok n => pure (some n)
+    | .error e => throw e
+  | .error _ => pure none
+
+/-- Statements with jumps (`MiniC.JStmt`); `"seq"` takes a list `js`. -/
+partial def parseJStmt (j : Json) : Except String JStmt := do
+  match ← strField j "j" with
+  | "basic" => pure (.basic (← parseMStmt (← field j "s")))
+  | "seq" =>
+    let ss ← parseArr j "js" parseJStmt
+    match ss.reverse with
+    | [] => pure (.basic .skip)
+    | last :: rest => pure (rest.foldl (fun acc a => .seq a acc) last)
+  | "if" =>
+    pure (.ite (← getNat j "w") (← parseMCond (← field j "c")) (← parseJStmt (← field j "a"))
+      (← parseJStmt (← field j "b")))
+  | "loop" =>
+    let inc ← match j.getObjVal? "inc" with
+      | .ok v => some <$> parseMStmt v
+      | .error _ => pure none
+    pure (.loop (← getNat j "w") (← parseArr j "cs" parseMCond) (← parseJStmt (← field j "body"))
+      inc (← optNat j "fb") (← optNat j "fc"))
+  | "break" => pure (.brk (← getNat j "w"))
+  | "continue" => pure (.cont (← getNat j "w"))
+  | "return" => pure (.ret (← parseMStmt (← field j "s")))
+  | "switch" => pure (.switch (← getNat j "w") (← getNat j "sc") (← parseArr j "groups" parseJStmt))
+  | "do" =>
+    pure (.doLoop (← getNat j "w") (← parseArr j "cs" parseMCond) (← parseJStmt (← field j "body"))
+      (← optNat j "fb") (← optNat j "fc"))
+  | o => throw s!"unknown statement '{o}'"
+
+/-- A source: plain mini-C, or mini-C with jumps and its return flag. -/
+inductive Source where
+  | plain (s : MStmt)
+  | jumps (r : Nat) (j : JStmt)
+
 /-- A program certificate as read from a file: the functions (with their names, for
     the messages) and the names of the variables (for `--print`). -/
 structure Program where
@@ -240,7 +286,7 @@ structure Program where
   vars : List String
   funs : List (String × FunCert)
   /-- The mini-C source of each function, if given (same order as `funs`). -/
-  sources : List (Option MStmt)
+  sources : List (Option Source)
   /-- Response-time claims: name, task, handlers (function, min inter-arrival, overhead), R. -/
   responses : List (String × String × List (String × Nat × Nat) × Nat) := []
 
@@ -268,10 +314,12 @@ def parseCert (j : Json) : Except String Program := do
 
 /-- Version 2: a function of a program certificate; `"contract": true` and no body for an
     assumed contract. -/
-def parseSource (j : Json) : Except String (Option MStmt) :=
+def parseSource (j : Json) : Except String (Option Source) :=
   match j.getObjVal? "source" with
-  | .ok v => some <$> parseMStmt v
-  | .error _ => pure none
+  | .ok v => (some ∘ Source.plain) <$> parseMStmt v
+  | .error _ => match j.getObjVal? "jsource" with
+    | .ok v => do pure (some (.jumps (← getNat v "ret") (← parseJStmt (← field v "body"))))
+    | .error _ => pure none
 
 def parseFun (j : Json) : Except String (String × FunCert) := do
   let contract := match j.getObjValAs? Bool "contract" with
@@ -407,18 +455,34 @@ def main (args : List String) : IO UInt32 := do
             match p.sources.getD i none with
             | none => pure ()
             | some src =>
-              if validate b src then
-                IO.println s!"VALIDATED {name}: the certificate's program is the lowering of its source"
+              -- plain mini-C: `validate`; with jumps: `validateJ`, and no body of the
+              -- program touches the ghost variables (`quietCmd`)
+              let (okV, lowered, note) := match src with
+                | .plain s => (validate b s, lower s, "")
+                | .jumps r j =>
+                  let G := ghostSet r j
+                  let callable := fs.take i
+                  let quiet := callable.all fun F' => match F'.body with
+                    | some b' => quietCmd i (costVar :: G) G b'
+                    | none => true
+                  (validateJ i b r j && quiet, (elim r i j).bind lower,
+                    if j.ghosts.isEmpty then ""
+                    else if callable.any (·.body.isNone) then
+                      " (with jumps; the contracts it may call are assumed not to touch its flags)"
+                    else " (with jumps)")
+              if okV then
+                IO.println s!"VALIDATED {name}: the certificate's program is the lowering of its source{note}"
               else
                 IO.println s!"NOT VALIDATED {name}: the certificate's program is not the lowering of its source"
                 if printIt then
                   IO.println "  certificate's program (normal form):"
                   IO.print (showCmd p.vars "    " (nf b))
-                  match lower src with
+                  match lowered with
                   | some d =>
                     IO.println "  source, lowered (normal form):"
                     IO.print (showCmd p.vars "    " (nf d))
-                  | none => IO.println "  source: not in the fragment (a loop test that is not a conjunction of comparisons)"
+
+                  | none => IO.println "  source: not in the fragment (a loop test that is not a conjunction of comparisons, or jumps that cannot be eliminated)"
                 status := max status 1
         -- the decision of the verified `checkProgram` (theorem `program_sound`)
         let okP := checkProgram fs
