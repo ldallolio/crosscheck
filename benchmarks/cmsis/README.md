@@ -57,7 +57,10 @@ Remaining, with ranges and context (functions not bounded, by error):
   356 -> 363 as is), but their functions have other unbounded loops or calls, so the
   number of bounded functions is unchanged. In that run one file
   (`TransformFunctions/arm_mfcc_f32.c`, not bounded before) exceeded the time limit
-  with ranges: 631 files, 785 functions and 1234 loops were analysed in that mode;
+  with ranges: 631 files, 785 functions and 1234 loops were analysed in that mode. The run
+  of 2026-11-16 (after the repeated search for potentials, on a shared machine) gave the
+  same figures, 616 functions and 1044 loops, with a second file over the time limit
+  (`arm_rfft_fast_f32.c`, not bounded before either);
 - **calls into other groups (162)**: callees in another group, not included in the
   context (e.g. a transform calling a support function);
 - **contract arguments without an upper bound (13)**: `memset`/`memcpy` lengths computed

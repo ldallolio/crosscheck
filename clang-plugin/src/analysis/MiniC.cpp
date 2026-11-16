@@ -387,7 +387,8 @@ class Exporter {
     return s + "}";
   }
   /// The operation and operands if `e` is `y OP c` with OP in `/`, `>>`, `%`, `&`.
-  static const BinaryOperator* divisionLike(const Expr* e) {
+  const BinaryOperator* divisionLike(const Expr* e) const {
+    if (constant(e)) return nullptr;  // a constant expression is its value
     const auto* b = dyn_cast<BinaryOperator>(e->IgnoreParenImpCasts());
     if (!b) return nullptr;
     switch (b->getOpcode()) {

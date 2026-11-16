@@ -35,32 +35,47 @@ crosscheck/
 │   ├── lean-toolchain
 │   ├── formalization.yaml       # Paper statement <-> Lean theorem map
 │   ├── ImperativeOptimization.lean
-│   └── ImperativeOptimization/
-│       ├── State.lean           # Pointed state spaces & transitions
-│       ├── Trace.lean           # Trace monoid, prefix/subsequence orders, cost, minimal exiting trace
-│       ├── Tree.lean            # Computation trees, grafting, tree prefix order, tree powers
-│       ├── Dominance.lean       # Asymptotic dominance, tropical branch collapsing
-│       ├── FixedPoint.lean      # Trace valuation homomorphism
-│       ├── OperationalSemantics.lean # Recurrence systems, minimal iteration
-│       ├── WhileLoop.lean       # Big-step loop semantics = trace minimisation
-│       ├── Ranking.lean         # Ranking potentials, termination, WCET envelopes
-│       ├── Recursion.lean       # Linear & branching recursion = trace/tree minimisation
-│       ├── Certificate.lean     # Soundness of the plugin's certificates (ranking, Farkas, loop cost)
-│       ├── Arity.lean           # Call trees of arbitrary arity: depth and size-potential bounds
-│       └── Examples.lean        # Machine-checked proofs of paper examples
+│   ├── ImperativeOptimization/
+│   │   ├── State.lean           # Pointed state spaces & transitions
+│   │   ├── Trace.lean           # Trace monoid, prefix/subsequence orders, cost, minimal exiting trace
+│   │   ├── Tree.lean            # Computation trees, grafting, tree prefix order, tree powers
+│   │   ├── Dominance.lean       # Asymptotic dominance, tropical branch collapsing
+│   │   ├── FixedPoint.lean      # Trace valuation homomorphism
+│   │   ├── OperationalSemantics.lean # Recurrence systems, minimal iteration
+│   │   ├── WhileLoop.lean       # Big-step loop semantics = trace minimisation
+│   │   ├── Ranking.lean         # Ranking potentials, termination, WCET envelopes
+│   │   ├── Recursion.lean       # Linear & branching recursion = trace/tree minimisation
+│   │   ├── Certificate.lean     # Soundness of the plugin's certificates (ranking, Farkas, loop cost)
+│   │   ├── Arity.lean           # Call trees of arbitrary arity: depth and size-potential bounds
+│   │   ├── Language.lean        # Cost logic for a small language with procedures; soundness
+│   │   ├── CheckerCore.lean     # The certificate checker (no mathlib, compiled into crosscheck-check)
+│   │   ├── Checker.lean         # Its soundness: check_sound, program_sound
+│   │   ├── MiniCCore.lean, MiniC.lean   # Mini-C and validation of certificates against the source
+│   │   ├── ResponseCore.lean, Interrupts.lean, ForkJoin.lean   # Response times, greedy scheduling
+│   │   ├── Stack.lean           # Stack depth as a high-water mark
+│   │   └── Examples.lean        # Machine-checked proofs of paper examples
+│   ├── CheckerMain.lean         # The checker program (reads certificate files)
+│   └── test/                    # Certificate files, mutation test, interpreter of certificates
 ├── AI_USAGE.md                  # Record of AI assistance (AGMAI guidelines)
 ├── clang-plugin/                # Clang plugin: real-time profile + cost bounds (see its README)
 │   ├── CMakeLists.txt
 │   ├── include/crosscheck/attributes.hpp   # source annotations
-│   ├── src/core/                # affine expressions, Z3 back-end (Farkas)
-│   ├── src/analysis/            # AST walker: profile, cost, symbolic state
+│   ├── src/core/                # affine expressions, Z3 back-end (Farkas), certificates
+│   ├── src/analysis/            # AST walker: profile, cost, symbolic state, certificates, mini-C export
 │   ├── src/plugin/, src/tool/   # compiler plugin and standalone driver
-│   └── tests/                   # GoogleTest / CTest suite
+│   ├── scripts/                 # cost diff for CI, whole-project driver, ACSL export
+│   └── tests/                   # GoogleTest / CTest suite, random-program test
+├── frontends/rust/              # Rust front-end on rustc's MIR (translated to C)
 ├── benchmarks/                  # Annotated real-time example programs
-│   ├── tacle/                   # TACLeBench kernels: loop bounds vs. flow facts and other tools
-│   └── tpdb/                    # TPDB complexity programs: comparison with KoAT2 and CoFloCo
-├── docs/guide/                  # Companion guide: concepts, paper walkthrough, bibliography,
-│                                #   plugin UML, Lean tutorial and module docs, expert Q&A
+│   ├── tacle/                   # TACLeBench: loop bounds vs. flow facts, observed counts, other tools
+│   ├── tpdb/                    # TPDB complexity programs: comparison with KoAT2 and CoFloCo
+│   ├── cmsis/                   # CMSIS-DSP: coverage of an embedded library
+│   └── cycles/                  # Cortex-M0: cycle and stack bounds checked against emulated runs
+├── docs/
+│   ├── guide/                   # Companion guide: concepts, papers, plugin, Lean, bibliography, Q&A
+│   ├── certificate-format.md, contracts.md, implementation-plan.md, proposals.md
+│   └── qualification/           # Requirements of the checker with their evidence (skeleton)
+├── references/                  # What was read of each cited paper (no PDFs in the repository)
 └── README.md
 
 ````

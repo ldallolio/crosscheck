@@ -189,7 +189,17 @@ flowchart LR
 - A Lean *definition* can also be compiled and run: the checker program is the verified
   definition of `check`, compiled.
 
-## 17. Names that look similar but are not CrossCheck
+## 17. Ideas added in the last steps
+
+| Idea | In one sentence | Where |
+|---|---|---|
+| Stack depth is a high-water mark | time adds up along an execution; the stack only matters at its deepest point, so calls compose by `max(own, depth at call + callee)` and not by a sum | Paper I `subsec:stack`, `benchmarks/cycles/stack.py` |
+| Translation validation | instead of proving a translator, check each of its outputs against an independent description of the input (Pnueli et al. 1998) | mini-C, `validate` |
+| Differential and mutation testing | run two descriptions of the same thing on the same inputs and compare (random C against its bounds, mini-C against compiled C); change a certificate slightly and see whether the checker notices | `fuzz_bounds.py`, `mutate_certificates.py` |
+| Tool qualification | in certified development a tool whose output is not checked by hand needs its own evidence (DO-330): requirements, tests traced to them; small tools are cheap to qualify | `docs/qualification/` |
+| ACSL | a specification language for C written in comments (`requires`, `loop invariant`, `loop variant`), which Frama-C can prove | `scripts/acsl_export.py` |
+
+## 18. Names that look similar but are not CrossCheck
 
 | Name | What it is | Difference |
 |---|---|---|

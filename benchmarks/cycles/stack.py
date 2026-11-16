@@ -12,7 +12,8 @@ at the function's entry, over all paths, calls included:
 it, `pop` and `add sp` decrease it, and it must have one value at every instruction (the
 same along every path that reaches it) and be 0 where the function returns. A function
 is given no bound (with the reason) when this fails, when it writes the stack pointer in
-another way, jumps out of its code, is recursive, or calls a function without code (the
+another way (except `add sp, r` right after `r` was loaded with a constant), jumps out of
+its code, is recursive, or calls a function without code (the
 software floating-point helpers, which the interpreter provides in Python).
 
 Unlike a cycle bound, a stack bound needs no loop bound: a loop does not move the stack
@@ -20,6 +21,8 @@ pointer from one iteration to the next (checked: one depth per instruction). It 
 high-water mark, a maximum over paths where time is a sum (Lean: `ImperativeOptimization.
 Stack`). Interrupt frames are not counted: the runs take no interrupt.
 """
+import struct
+
 import m0
 
 
@@ -64,6 +67,7 @@ class StackAnalysis:
         entry, size = self.img.funcs[name]
         mem = self.img.mem
         depth, todo = {entry: 0}, [entry]
+        lit = {}  # address -> {register: constant known there}
         worst = own = 0
         while todo:
             a = todo.pop()
@@ -79,6 +83,10 @@ class StackAnalysis:
                 nd = d + i.a[0]
             elif i.op == "addsp":
                 nd = d - i.a[0]
+            elif i.op == "addhi" and i.a[0] == 13 and i.a[1] in lit.get(a, {}):
+                # `ldr r, =c` just before, in the same straight line: sp := sp + c
+                c = lit[a][i.a[1]]
+                nd = d - (c - (1 << 32) if c & (1 << 31) else c)
             elif i.op in ("addhi", "movhi") and i.a[0] == 13:
                 raise NoBound(f"{i.op} writes the stack pointer at {a:#x}")
             else:
@@ -100,6 +108,17 @@ class StackAnalysis:
                 succ.append(i.target)
             if i.kind in ("cond", "seq", "call"):
                 succ.append(a + i.size)
+            # Constants loaded from the literal pool, known at the next instruction when it
+            # is reached only by falling through from this one (a frame larger than
+            # `sub sp, #imm` can express is reserved by `ldr r, =-size; add sp, r`).
+            if i.kind == "seq" and len(succ) == 1:
+                known = dict(lit.get(a, {}))
+                if i.op == "ldrlit":
+                    known[i.a[0]] = struct.unpack_from("<I", mem, ((a + 4) & ~3) + i.a[1])[0]
+                elif i.op not in ("push", "pop", "subsp", "addsp", "strsp", "cmphi") and i.a and isinstance(i.a[0], int):
+                    known.pop(i.a[0], None)  # the first operand is the register written
+                if known and succ[0] not in depth:
+                    lit[succ[0]] = known
             for s in succ:
                 if s in depth:
                     if depth[s] != nd:

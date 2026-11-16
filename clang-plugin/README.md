@@ -483,6 +483,12 @@ express (the checker then refused to validate it, rightly).
   has constant bounds that are inductive: the combination is then affine. Other loops
   or recursions that terminate by a logarithmic or non-linear argument get a linear
   bound (binary search) or are rejected; state the bound with `CROSSCHECK_LOOP_BOUND`.
+- **Analysis time.** When a loop has no potential the search is repeated with more
+  candidate invariants, each round re-analysing the loop body. On the TACLeBench kernels
+  this made the whole run about 1.5 times slower; on the largest sequential program
+  (`cjpeg_transupp`, 68 loops, 30 of them without a bound) about three times (ten minutes
+  to half an hour on a loaded machine). A limit on the size of the bodies for which the
+  search is repeated would bound this cost; it is not implemented.
 - **No amortisation.** Nested loops are multiplied; a recursive function is
   charged the worst-case cost of one activation for every activation (merge sort
   is bounded by `O(n²)`).

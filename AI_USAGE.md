@@ -843,7 +843,16 @@ below as they are done.
   but not validated (the exporter was less precise than the generator on `x <<= k` for an
   unsigned `x`, and gave scratch variables to statements in source order where the
   generator's order differs): both corrected (scratch variables are now keyed by
-  statement).
+  statement). A campaign of 40 more files after the corrections (320 functions, 283
+  bounded loops, 384 thousand runs) had no failure of any kind.
+  Last measurements (2026-11-16, on a machine shared with other work): sequential/app
+  275 loops bounded for every call, 330 in context, 231 of 263 functions certified, 170
+  validated (one more exported function was not validated at first: a constant
+  expression exported as a quotient; the exporter now folds constants first); CMSIS-DSP
+  unchanged (616 functions, 1,044 loops with ranges; two files over the time limit);
+  TPDB with ranges 207 programs (171 before the retry with more invariants), 156
+  certified. Cost of the retry: the kernel run is about 1.5 times slower, the largest
+  sequential program about three times (stated in Paper II and the README).
 - **Step 13.** The unbounded-loop error names a likely cause;
   `clang-plugin/scripts/crosscheck_project.py` (compilation database, `project.json`,
   `index.html`, baseline).

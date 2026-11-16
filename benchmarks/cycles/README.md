@@ -119,9 +119,10 @@ value seen until it returns (`--check` fails on a violation).
 (`fac` is recursive in the source; at `-O1` the compiler turns its recursion into a loop.)
 
 No bound, by cause (124 functions): a call to a software floating-point helper, which the
-interpreter provides in Python, without code (82); a call to such a function (29); the
-stack pointer written by `add sp, r` or `mov sp, r` (large frames: 9); recursion in the
-binary (4: `bitonic`, `quicksort`, `recursion`). A recursive function could be bounded
+interpreter provides in Python, without code (84); a call to such a function (32); the
+stack pointer written from a register whose value is not a constant loaded just before
+(4; `ldr r, =-size; add sp, r`, the way large frames are reserved, is handled); recursion
+in the binary (4: `bitonic`, `quicksort`, `recursion`). A recursive function could be bounded
 from a recursion depth (`Stack.highWater_le_depth`); this is not implemented.
 
 What the bound covers: the stack of the program's own code. Not counted: exception frames

@@ -25,6 +25,7 @@ independent proof of the worst case, and some are not tight.
 import argparse
 import collections
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -85,7 +86,10 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
            # some programs call printf etc. without a declaration (an error since Clang 16)
            "-Wno-error=implicit-function-declaration", *extra]
     t0 = time.monotonic()
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    # CROSSCHECK_TACLE_TIMEOUT: seconds per program (default 1800; the largest programs of
+    # the sequential category need more on a loaded machine).
+    proc = subprocess.run(cmd, capture_output=True, text=True,
+                          timeout=int(os.environ.get("CROSSCHECK_TACLE_TIMEOUT", "1800")))
     seconds = time.monotonic() - t0
     if not report.exists():
         sys.exit(f"{name}: no report written\n{proc.stderr[-2000:]}")

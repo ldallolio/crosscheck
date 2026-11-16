@@ -169,6 +169,15 @@ flowchart LR
   assign, `cost(ω)`, seq, if, while with `&&`, for); its meaning **is** `lower`, a program
   of the checker without annotations. `nf` erases annotations, `weaken`/`dead` (keeping
   their code), `skip`, the nesting of sequences, trailing zeros.
+- Three statements added on 2026-11-16, each lowered to existing programs of the checker
+  (so no proof changed):
+
+  | Mini-C statement | Lean | Lowered to |
+  |---|---|---|
+  | `x = y / c`, `y % c`, `y & c`, `y >> k` | `divStore`, `divFacts`, `divOf` | `if (y ≥ 0) x := ? with facts else x := ?` (e.g. `c·x ≤ y ≤ c·x + c − 1`); a scratch variable holds the old `x` for `x = x / c` |
+  | a store into an unsigned variable | `assignU` | `x := e` if `0 ≤ e ≤ hi`, else `x := ?` |
+  | `f(a₁, …)` | `call`, `storeArg` | stores of the arguments into the callee's parameter variables, then the checker's `call` node |
+
 - `lem:nf-equiv` (`nf_equiv`): `c` and `nf c` have the same executions and prefixes, same
   costs (associativity, units, congruences; induction on derivations for loops).
 - `thm:validated` (`validated_sound`): accepted program + validated body ⇒ the bound holds
@@ -189,7 +198,7 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 5,650 lines, 284 theorems, 21 modules, no `sorry`, only the standard axioms. Table
+- About 5,700 lines, 284 theorems, 21 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas
@@ -221,6 +230,25 @@ flowchart LR
   `≤ W/p + S`; with certified task bounds (`forkjoin_bound`). Not in the plugin.
 - Hypotheses to say aloud: cost = time (needs a timing cost model, Paper II's Cortex-M0),
   no pending activation at the start (the busy-period argument is not mechanized).
+
+### Stack depth (`subsec:stack`)
+
+Cost is a sum along an execution; the stack is a **high-water mark**, a maximum.
+
+```mermaid
+flowchart TD
+  M["main: own depth 8"] -->|"call at depth 8"| G["g: own depth 16"]
+  M -->|"call at depth 4"| H["h: own depth 12"]
+  G -->|"call at depth 16"| K["k: own depth 4"]
+  M -.-> R["stack(main) = max(8, 8 + stack(g), 4 + stack(h))<br/>= max(8, 8 + 20, 4 + 12) = 28"]
+```
+
+- `def:activation-tree`: a tree of activations; each call edge carries the caller's depth.
+- `prop:stack` (1) (`highWater_le_of_bound`): any `B` with `own f ≤ B f` and
+  `d + B g ≤ B f` at every call site bounds the stack: the rule `stack.py` applies to a
+  binary. (2) (`highWater_le_depth`): frames of at most `F`, depth `n` ⇒ `(n + 1)·F`: a
+  recursion depth bound gives a stack bound.
+- Not formalised: that a machine program's runs are such trees (the processor model).
 
 ## 9. Paper I on one page
 

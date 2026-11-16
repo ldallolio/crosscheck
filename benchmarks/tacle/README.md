@@ -19,7 +19,7 @@ python3 benchmarks/tacle/run_tacle.py --markdown=out.md --latex=out.tex --json=o
 #   --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
 ```
 
-The whole run takes about one minute. The same script runs in CI
+The whole run takes about four minutes (two and a half before the search for a potential was repeated with more candidate invariants, 2026-11-16). The same script runs in CI
 (`.github/workflows/plugin_build.yml`), which uploads the JSON as a build artifact.
 
 ## Results (2026-11-15, with calling contexts, globals, fields, tables, C tests)
@@ -124,10 +124,18 @@ the exporter: global or static tracked variables (6), `return` or `break` inside
 (6), calls of functions without an entry in the certificate file (4), calls in tests (2).
 
 Sequential and application programs (`--category sequential --category app`): tables
-unchanged (231 of 263 certified, all accepted); **113 validated, none failing**, including
-`petrinet_main` and `powerwindow_controlexclusion_main`. Refused: calls (41), global or
-static tracked variables (24), division/shift/mask/table forms (25), unsigned (19),
-`return` in loops (4), `switch` (4), `continue` (1).
+unchanged (231 of 263 certified, all accepted); **170 validated, none failing** (2026-11-16; 113 before mini-C had division, unsigned
+stores and calls), including
+`petrinet_main` and `powerwindow_controlexclusion_main`. Refused: global or
+static tracked variables (25), calls of functions without an entry in the certificate file
+(8), divisions or shifts outside the modelled forms (9), `return` in loops or `switch` (7),
+`switch` (4), `break`, `continue` (2), narrow unsigned variables (3), calls in tests (3).
+One function (`gsm_enc_Weighting_filter`) was first exported and not validated: the
+constant expression `8192 >> 1` was exported as a quotient where the generator folds it;
+the exporter now folds constants first (and refuses that function for another statement).
+The slowest program, `cjpeg_transupp`, needed 2,299 s on a shared machine (614 s on
+2026-11-15, before the repeated search for potentials): set `CROSSCHECK_TACLE_TIMEOUT` above
+the default 1,800 s when the machine is loaded.
 
 ## Sequential and application programs (2026-11-15)
 

@@ -85,6 +85,14 @@ Each task ends with: tests (including must-reject cases), figures re-run
    unsigned variables (8), globals (6). Each extension of mini-C needs: the construct in
    `MStmt`, its case in `lower` matching what the generator emits, the proof cases of
    `nf_equiv` if `nf` changes, the exporter, and an `ok_`/`no_` pair in `tests/c/minic.c`.
+10. **Steps 9 to 18 of `docs/proposals.md` section 6** (2026-11-16): done: lexicographic
+    loops as affine potentials, soundness tests (random programs, mutated certificates),
+    mini-C with division, unsigned stores and calls, option `symbolic` (bounds in the
+    parameters without ranges), explanations and project driver, stack bounds, ACSL
+    export, qualification kit. Open, in order of value: an end-to-end OTAWA run (needs
+    the tool fetched and built), polynomial bounds in the checker (products of
+    parameters: 47 TPDB programs), tracked globals and early exits in mini-C, amortised
+    bounds for nested loops, recursion in the checker.
 
 ## 4. Things to keep in mind
 

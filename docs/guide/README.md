@@ -15,7 +15,8 @@ experts in semantics, static analysis, WCET analysis and formal proof.
 
 > **Status of this document.** Written by an AI assistant (Claude, models Fable 5.2 and
 > Opus 5.5, November 2026) from the repository sources, and shortened on 2026-11-14 (from
-> about 4,700 to about 1,100 lines, with 19 diagrams instead of 12). The explanations of the code and
+> about 4,700 to about 1,100 lines, with 19 diagrams instead of 12); it has grown again with
+> the later steps (about 1,500 lines and 23 diagrams on 2026-11-16). The explanations of the code and
 > of the papers are checked against the sources. Part 6 says, per reference, what was
 > actually read; read the originals before relying on a detail. See `AI_USAGE.md`.
 
