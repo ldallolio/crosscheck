@@ -177,7 +177,10 @@ Composition rules:
 | function recursing with at most `N` activations | `N · (cost of one activation)` |
 
 These are upper bounds, not exact counts: infeasible paths are not excluded and
-nested loops are multiplied without amortisation.
+nested loops are multiplied without amortisation. The certificate (not the report's
+`wcet`) of a triangular nest, whose inner loop runs from the outer counter to a constant
+limit, carries the amortised bound instead (the sum over the outer iterations, about half
+the product; Lean `triOk`, `triloop_sound`); the report's `certificate_bound` shows it.
 
 ## How bounds are derived
 
@@ -282,6 +285,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | logarithmic loops (`x >>= k`, `x /= c`: `b·v' ≤ v`, `v ≥ 1`): at most `⌊log_b K⌋ + 1` iterations, certified by `whileLog` | `log_ranking_bound` (`Certificate`), `logloop_sound` (`Checker`) |
+| triangular nests (the inner loop's entry bound is the outer potential `γⱼ`, so the outer body costs `a + c·γⱼ`): the sum over the outer iterations, about half the product, certified by `while`/`whileAnd` in the amortised form (`triOk`) | `valid_whileSum` (`Language`), `triloop_sound` (`Checker`) |
 | growing loops (`len <<= 1`: `v ≥ 1` on entry, `v' ≥ b·v`, `v ≤ K` under the test): at most `⌊log_b K⌋ + 1` iterations, certified by `whileGrow` | `growloop_sound` (`Checker`) |
 | a certificate validated against the function's mini-C source (`minic`) ⇒ its bound holds for the source program | `validated_sound`, `nf_equiv` (`MiniC`) |
 | response time under sporadic interrupt handlers | `response_time_bound`, `rtaHolds_sound` (`Interrupts`) |
@@ -492,9 +496,12 @@ express (the checker then refused to validate it, rightly).
   (`cjpeg_transupp`, 68 loops, 30 of them without a bound) about three times (ten minutes
   to half an hour on a loaded machine). A limit on the size of the bodies for which the
   search is repeated would bound this cost; it is not implemented.
-- **No amortisation.** Nested loops are multiplied; a recursive function is
+- **Little amortisation.** The analyser multiplies nested loops; a recursive function is
   charged the worst-case cost of one activation for every activation (merge sort
-  is bounded by `O(n²)`).
+  is bounded by `O(n²)`). Only certificates amortise, and only one shape: an inner loop
+  whose entry bound is the enclosing loop's potential (`j` from `i` to a constant), with a
+  constant entry bound of the enclosing loop. An inner loop from `0` to `i` keeps the
+  product bound.
 - **Calling contexts are intervals of integer arguments.** Relations between
   arguments, values of globals, and what a callee leaves in memory are not passed
   to the callee or back; recursive functions get no context. The analysis' bounds are

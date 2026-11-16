@@ -767,6 +767,40 @@ TEST(Certificates, LexicographicLoop) {
   EXPECT_NE(r.certificates.back().find("\"while\""), std::string::npos);
 }
 
+// A triangular nest: the inner loop's entry bound is the outer potential (gamma_j), so
+// the outer body costs a + c * gamma_j and the outer loop gets the amortised bound of the
+// checker (Lean `triOk`, `triloop_sound`): about half the analyser's product bound. A
+// square nest keeps the product bound, and so does `j < i` (the inner bound grows while
+// the outer potential decreases: not covered).
+TEST(Certificates, AmortisedTriangularNest) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    int a[64];
+    CROSSCHECK_REALTIME void down(void) {
+      for (int i = 0; i < 40; i++) for (int j = i; j < 40; j++) a[j] += 1;
+    }
+    CROSSCHECK_REALTIME void square(void) {
+      for (int i = 0; i < 40; i++) for (int j = 0; j < 40; j++) a[j] += 1;
+    }
+    CROSSCHECK_REALTIME void up(void) {
+      for (int i = 0; i < 40; i++) for (int j = 0; j < i; j++) a[j] += 1;
+    })", o);
+  const FunctionReport& d = fn(r, "down");
+  ASSERT_TRUE(d.ok);
+  EXPECT_EQ(d.certificate, "emitted");
+  ASSERT_TRUE(d.certificateBound.has_value());
+  EXPECT_LT(*d.certificateBound * 10, d.wcet * 6);  // below 60% of the product bound
+  for (const char* name : {"square", "up"}) {
+    const FunctionReport& f = fn(r, name);
+    ASSERT_TRUE(f.ok) << name;
+    EXPECT_EQ(f.certificate, "emitted") << name;
+    ASSERT_TRUE(f.certificateBound.has_value()) << name;
+    EXPECT_EQ(*f.certificateBound, f.wcet) << name;
+  }
+}
+
 // Option `symbolic`: without input ranges, a loop with a ranking potential is not an
 // error; the function has no numeric bound (it is not accepted as real-time), and the
 // certificate carries a bound in the parameters.

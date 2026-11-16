@@ -1116,6 +1116,47 @@ What the AI did for 46 (Claude Opus 5.5, 2026-11-16).
   KoAT paper, oRange's README; the oRange paper could not be obtained and is listed with
   the unread papers. The decision on reporting `filterbank` stays with the author.
 
+47. "Keep improving the paper, lean code, the mini C language, benchmark numbers and results, certificates to aim for scientific relevance and industrial value"
+
+What the AI did for 47 (Claude Opus 5.5, 2026-11-16).
+- **Choice.** Of the open items of `docs/proposals.md` §6.4, the AI chose amortised bounds
+  for nested loops (step 18): the measured weakness of the cost bounds is the product of
+  nested loop bounds, and an amortised rule is a new result of the theory side.
+- **Lean.** `Language.valid_whileSum` (with `whileSum_exec`, `whileSum_pre`): a derived
+  loop rule in which the cost of an iteration is a function `W` of the integer potential
+  before it; any `F` with `F X ≥ w` and `w + W v + F (X − d) ≤ F X` (for `d ≤ v ≤ X`)
+  bounds the loop from `V ≤ K` by `F K`. Checker: the loop nodes `while`/`whileAnd`
+  accept, besides the old bound condition (`loopBoundOk`, with `γⱼ` absent from the body
+  bound), an amortised one, `triOk`: constant entry bound `k`, body bound
+  `a + c·max(0, γⱼ)` and `2B ≥ triBound2 = 2((N+1)w + Na) + c(2Nk − dN(N−1))`,
+  `N = ⌊k/d⌋`; proof `triloop_sound` (closed form: `triBound2_step`, `triBound2_ge`).
+  The certificate format is unchanged (a body bound may now mention `γⱼ`). Example: the
+  tool's certificate of a 4×4 triangular nest, `triCert_checks` (bound 70 for the loop,
+  94 without amortisation), `triCert_69_rejected`, `triCert_cost`, all by `decide`.
+  Lean: 424 theorems, about 9,300 lines, standard axioms only.
+- **Generator.** An inner loop's entry bound is first sought in the logical variables of
+  the enclosing loops (`symbolicUpper` with a lower index limit), and the potential
+  suggested by the loop test is tried inside loops too; the enclosing loop builds the
+  amortised node and also lowers its body again without such bounds, and keeps the
+  smaller certified bound. Logarithmic loops lower their bodies without them (their body
+  bound must be constant). C++ replica `cert::triBound`.
+- **Tests.** Unit test `Certificates.AmortisedTriangularNest` (a `j = i..n` nest below 60%
+  of the product bound; a square nest and a `j < i` nest unchanged); certificate example
+  `tests/certificates/triangular.cpp` (four nests, accepted); mutation fixture
+  `formalization/test/certificates/triangular.json` (150 requested, 87 mutants made, all
+  rejected; unchanged certificates never exceeded by the interpreter), in ctest and CI.
+- **Results.** Kernels: certificates and validation unchanged (161 certified, 152
+  validated); 14 certified bounds below the analyser's (12 before): `ludcmp_main` 4,907 →
+  3,674, `main` of `ludcmp` 6,076 → 4,843. Sequential/app: 231 certified, 193 validated, none failing (unchanged); `susan_median`
+  1,047 → 648 (validated). 175 ctest tests pass.
+- **Not covered**, stated in both papers: an inner loop from `0` to the outer counter (its
+  bound grows as the outer potential falls; it would need a second logical variable or a
+  new node); the analyser's own bounds and the cycle bounds still multiply.
+- Papers: Paper I `prop:amortised-loop` (new), `def:certificate`, checker description and
+  proof of `thm:checker-soundness`, scope paragraph, nested-loops paragraph, Table
+  `tab:lean`; Paper II certificate generation and limitations. **Author to check** (§3,
+  item 36).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1329,3 +1370,11 @@ is whether each Lean statement says what the paper says, and everything outside 
     times are not used) and the paragraph on OTAWA; read `run_annotated.py` (annotation
     values taken from the benchmark's flow facts). Check the new descriptions of KoAT2,
     CoFloCo and oRange in Paper II against the sources listed in references/README.md.
+36. **Amortised loop rule (prompt 47).** Read Proposition `prop:amortised-loop` of Paper I
+    and its proof (the induction, the closed form and the parity argument) against
+    `Language.valid_whileSum` and `Checker.triBound2_step`/`triBound2_ge`/`triloop_sound`;
+    check that the third form of the loop condition in `def:certificate` and in the
+    checker description is `CheckerCore.triOk`. Decide whether this rule is presented as
+    new: amortised bounds for triangular nests are classical in loop-bound analysis (e.g.
+    symbolic summation of nested loop counts); the AI has not searched the literature for
+    the first appearance of this exact rule and the paper cites none for it.

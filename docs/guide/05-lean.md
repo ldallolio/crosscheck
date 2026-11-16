@@ -1,6 +1,6 @@
 # Part 5 — Lean 4: enough to read and change this repository
 
-`formalization/`: 23 modules, about 8,900 lines, 413 theorems, plus `CheckerMain.lean` (the
+`formalization/`: 23 modules, about 9,300 lines, 424 theorems, plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -121,9 +121,9 @@ flowchart LR
 | `Recursion` | 236 | linear recursion (`framedBigStep_iff`), trees (`exec_least`, `treeBigStep_iff`, `exec_size_le`) |
 | `Certificate` | 280 | relational rational potentials `ranking_bound_floor`; invariants/contexts `ranking_bound_of_context`, `call_bound_of_context`; `farkas_sound`; `while_cost_bound`; `lex_potential`, `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | 230 | trees of any arity, `callTree_size_le_geom`, `callTree_size_le_potential` |
-| `Language` | 563 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; examples `countLoop_cost`, `down_cost` |
+| `Language` | 662 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; **`valid_whileSum`** (amortised loop rule: body cost a function of the potential, Paper I `prop:amortised-loop`); examples `countLoop_cost`, `down_cost` |
 | `CheckerCore` | 388 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB`, `ACmd` (with `whileAnd`, `whileLog`, `whileGrow`, `call`), `ilog` (structural, so `decide` evaluates it), `FunCert`, **`check`**, **`checkProgram`** |
-| `Checker` | 1,340 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `logloop_sound`, `growloop_sound` (logarithmic loops via the same loop rule), `ilog_eq`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
+| `Checker` | 1,619 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `triloop_sound` (amortised form `triOk`: body bound `a + c·γⱼ`, closed form `triBound2`; example `triCert_checks`, `triCert_69_rejected`, `triCert_cost`), `logloop_sound`, `growloop_sound` (logarithmic loops via the same loop rule), `ilog_eq`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
 | `MiniCCore` | 275 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt` (incl. `divStore`, `assignU`, `call`, each lowered to existing checker programs: `divFacts`, `divOf`, `storeArg`); **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |
 | `MiniC` | 285 | `CImp`/`CEquiv` (same executions and prefixes), congruences, `seq_assoc`, `nf_equiv`, **`validated_sound`** (accepted program + validated body ⇒ the source meets the bound); examples `countCert_validated`, `countCert_not_validated` |
 | `MiniCJumpCore` | 390 | no mathlib: `JStmt` (mini-C with `break`, `continue`, `return`, `switch`, `do`), scans `hasRet`/`escB`/`escC`, frames, **`tr`** / **`elim`** (jumps eliminated with flags, continuation-passing), **`validateJ`**, `quietCmd` (called functions do not touch the ghost variables) |
@@ -153,6 +153,15 @@ variable `γⱼ` to the current potential with `Function.update ρ j (pot.eval s
 (0 if `pot ≤ 0`); the only arithmetic is `logPot_step` (`b·y ≤ x`, `1 ≤ x` ⇒
 `logPot y + 1 ≤ logPot x`, from `Nat.log_div_base` and `Nat.log_mono_right`).
 `growloop_sound` is the mirror image, with `N − ⌊log_b pot⌋` and `log_grow`.
+
+**`triloop_sound`** (`Checker`): a new derived rule, `valid_whileSum` (`Language`): if an
+iteration from `s` costs at most `W (V s)` and `V` drops by `d`, any `F` with `F X ≥ w`
+and `w + W v + F (X − d) ≤ F X` (for `d ≤ v ≤ X`) bounds the loop from `V ≤ K` by `F K`
+(induction on the execution, as `valid_while`, with `X` in place of the iteration count).
+For `W v = a + c·v` the checker uses the closed form `triBound2` (doubled, no division):
+`triBound2_step` is the step identity (`ring` once `⌊X/d⌋ = ⌊(X−d)/d⌋ + 1`), `triBound2_ge`
+the base case. In the proof `γⱼ` is set to the potential before the iteration, as in
+`loop_sound`; `SB.eval_only` reads the body bound there.
 
 ## 7. Common errors
 

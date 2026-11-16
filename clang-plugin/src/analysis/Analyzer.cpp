@@ -3181,6 +3181,9 @@ struct Analyzer::CertCtx {
   std::size_t depthBase = 0;  ///< `depth` outside every loop (the number of parameters' variables)
   int inDead = 0;          ///< lowering code that is not reached (inside a dead node)
   std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
+  /// Inner loops may take an entry bound in the logical variables of enclosing loops
+  /// (their potentials before the body), for amortised bounds (Lean `triOk`).
+  bool ghostSym = true;
   /// Fields read through pointer parameters of the function being certified (variables
   /// that the program never assigns: their value at entry).
   std::map<std::pair<const ParmVarDecl*, const FieldDecl*>, std::size_t> fieldVar;
@@ -4406,7 +4409,10 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     bodyPre.insert(bodyPre.begin(), cert::ghostLow(gpot, j));
     Assn bodyPost = inv;
     bodyPost.insert(bodyPost.begin(), cert::ghostGrow(gpot, j, base));
+    bool savedG = cc.ghostSym;
+    cc.ghostSym = false;  // the body bound must be constant
     std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
+    cc.ghostSym = savedG;
     if (!b) return std::nullopt;
     std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
     if (!qc) return cc.failed("the growth of the potential could not be certified"), std::nullopt;
@@ -4452,7 +4458,10 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     bodyPre.insert(bodyPre.begin(), cert::ghost(lpot, j, 0));
     Assn bodyPost = inv;
     bodyPost.insert(bodyPost.begin(), cert::ghostMul(lpot, j, base));
+    bool savedG = cc.ghostSym;
+    cc.ghostSym = false;  // the body bound must be constant
     std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
+    cc.ghostSym = savedG;
     if (!b) return std::nullopt;
     std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
     if (!qc) return cc.failed("the division of the potential could not be certified"), std::nullopt;
@@ -4484,8 +4493,9 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   // suggests (`1 - g` for the test `g <= 0`, e.g. `n - i` for `i < n`), whose entry bound
   // is often a function of the parameters (a summary); then the analysis' potential. The
   // checker verifies either.
+  // Also inside another loop, where its entry bound may be the enclosing potential.
   std::vector<std::pair<PExp, std::uint64_t>> potentials;
-  if (cc.gammas && nC > 0) {
+  if ((cc.gammas || (cc.ghostSym && j > cc.depthBase)) && nC > 0) {
     PExp gp{cert::vsmul(-1, gs[0].sv), 1 - gs[0].c};
     trimP(gp);
     if (!(gp.sv == pot.sv && gp.c == pot.c)) potentials.push_back({gp, 1});
@@ -4533,7 +4543,16 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     if (!posCert) { lastWhy = "the potential is not shown positive by the invariant"; continue; }
     // Entry bound: symbolic in the parameters if possible, else a constant.
     std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>> sym;
-    if (cc.gammas) {
+    // First an entry bound in the potentials of the enclosing loops only (`m - i` for an
+    // inner loop `j` from `i` to `m`): the enclosing loop may then get an amortised bound,
+    // which it compares with the bound it gets from a body lowered without this one.
+    bool ghostBound = false;
+    if (cc.ghostSym && j > cc.depthBase) {
+      sym = cert::symbolicUpper(entry, potc, cc.temp(), j, cc.depthBase);
+      if (sym && sym->second.empty()) sym.reset();
+      ghostBound = sym.has_value();
+    }
+    if (cc.gammas && !sym) {
       sym = cert::symbolicUpper(entry, potc, cc.temp(), cc.gammas);
       if (sym && sym->second.empty()) sym.reset();
     }
@@ -4546,12 +4565,60 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     bodyPost.insert(bodyPost.begin(), cert::ghost(potc, j, static_cast<std::int64_t>(d)));
     std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
     if (!b) return std::nullopt;
+    // A body bound `a + c * gamma_j` (inner loops bounded by this loop's potential): the
+    // amortised bound (Lean `triOk`), compared below with the body lowered again without
+    // such inner bounds.
+    if (j < b->bound.co.size() && b->bound.co[j] != 0) {
+      bool onlyJ = true;
+      for (std::size_t g = 0; g < b->bound.co.size(); ++g)
+        if (g != j && b->bound.co[g] != 0) onlyJ = false;
+      std::optional<std::vector<Farkas>> qt = cert::farkasAll(b->post, bodyPost);
+      std::optional<std::uint64_t> tb;
+      if (onlyJ && qt && k) tb = cert::triBound(*k, d, w, b->bound.c, b->bound.co[j]);
+      if (tb) {
+        Node wn;
+        wn.kind = single ? Node::While : Node::WhileAnd;
+        wn.w = w;
+        if (single) wn.a = gs[0];
+        else wn.gs = gs;
+        wn.inv = inv;
+        wn.pot = potc;
+        wn.d = d;
+        wn.k = *k;
+        wn.j = j;
+        wn.posCert = *posCert;
+        wn.b1 = b->bound;
+        wn.c1 = weaken(bodyPre, identityCerts(bodyPre), b->bound, b->post, *qt, b->node);
+        Assn pw = inv;
+        pw.insert(pw.begin(), Lin{potc.sv, {}, potc.c - *k});
+        Assn qw = inv;
+        if (single) qw.insert(qw.begin(), cert::negLin(gs[0]));
+        cert::SB bw(*tb);
+        if (std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw)) {
+          CertPiece tp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+          if (!best || *tb < bestValue) {
+            best = seqPiece(prolog, tp);
+            bestValue = *tb;
+          }
+        }
+      }
+      bool saved = cc.ghostSym;
+      cc.ghostSym = false;
+      b = runBody(bodyPre, bodyPost);
+      cc.ghostSym = saved;
+      if (!b) {
+        if (best) return best;
+        return std::nullopt;
+      }
+    }
     std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, bodyPost);
     if (!qc) { lastWhy = "the decrease of the potential could not be certified"; continue; }
     // A symbolic entry bound needs a constant body bound (the bound stays affine), and is
-    // used only if it is no looser than the constant one at the largest parameter values.
+    // used only if it is no looser than the constant one at the largest parameter values
+    // (a bound in the enclosing loops' potentials is always used: the enclosing loop
+    // compares the amortised bound with the one of a constant entry bound).
     bool useSym = sym && b->bound.constant();
-    if (useSym && k) {
+    if (useSym && k && !ghostBound) {
       std::vector<std::uint64_t> hi;
       for (const auto& h : cc.gammaHi) hi.push_back(h ? *h : 0);
       bool allBounded = cc.atHi(sym->first, sym->second).has_value();

@@ -314,6 +314,105 @@ theorem valid_while {I C : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
 
 end While
 
+/-! ### Loops whose body cost depends on the potential (amortised loop rule) -/
+
+section WhileSum
+
+/-- Terminating executions of a loop whose body costs at most `W (V s)` from `s`: with
+    `F X ≥ w` and `w + W v + F (X - d) ≤ F X` for `d ≤ v ≤ X`, an execution from a state
+    with `V s ≤ X` costs at most `F X`. -/
+theorem whileSum_exec {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X)
+    (hF : ∀ X v, (d : ℤ) ≤ v → v ≤ X → w + W v + F (X - d) ≤ F X)
+    {s t : S} {n : ℕ} (he : Exec Φ (Cmd.while w b c) s t n) :
+    ∀ X : ℤ, I s → V s ≤ X → n ≤ F X ∧ I t ∧ b t = false := by
+  generalize hW : Cmd.while w b c = Wc at he
+  induction he with
+  | skip => cases hW
+  | atom => cases hW
+  | seq => cases hW
+  | iteTrue => cases hW
+  | iteFalse => cases hW
+  | call => cases hW
+  | whileFalse hb =>
+    cases hW
+    intro X hI _
+    exact ⟨hF0 X, hI, hb⟩
+  | @whileTrue _ _ _ s' u' _ _ _ hb e₁ _ _ ih =>
+    cases hW
+    intro X hI hV
+    have hbody := h_body s' hI hb
+    have hpost := hbody.2 _ _ e₁
+    have hcost := hbody.1 _ (Pre.done e₁)
+    have h1 := h_pos _ hI hb
+    obtain ⟨hn, hIt, hbt⟩ := ih rfl (X - d) hpost.1 (by linarith [hpost.2])
+    refine ⟨?_, hIt, hbt⟩
+    have := hF X (V s') h1 hV
+    omega
+
+/-- The same for execution prefixes. -/
+theorem whileSum_pre {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X)
+    (hF : ∀ X v, (d : ℤ) ≤ v → v ≤ X → w + W v + F (X - d) ≤ F X)
+    {s : S} {n : ℕ} (hp : Pre Φ (Cmd.while w b c) s n) :
+    ∀ X : ℤ, I s → V s ≤ X → n ≤ F X := by
+  generalize hW : Cmd.while w b c = Wc at hp
+  induction hp with
+  | stop => intro _ _ _; exact Nat.zero_le _
+  | done he =>
+    cases hW
+    intro X hI hV
+    exact (whileSum_exec V d W F h_body h_pos hF0 hF he X hI hV).1
+  | seqLeft => cases hW
+  | seqRight => cases hW
+  | iteTrue => cases hW
+  | iteFalse => cases hW
+  | call => cases hW
+  | @whileBody _ _ _ s' _ hb p =>
+    cases hW
+    intro X hI hV
+    have hcost := (h_body s' hI hb).1 _ p
+    have := hF X (V s') (h_pos _ hI hb) hV
+    omega
+  | @whileNext _ _ _ s' u' _ _ hb e₁ _ ih =>
+    cases hW
+    intro X hI hV
+    have hbody := h_body s' hI hb
+    have hpost := hbody.2 _ _ e₁
+    have hcost := hbody.1 _ (Pre.done e₁)
+    have hn := ih rfl (X - d) hpost.1 (by linarith [hpost.2])
+    have := hF X (V s') (h_pos _ hI hb) hV
+    omega
+
+/-- **Amortised loop rule.** As `valid_while`, but the body may cost more when the
+    potential is larger: from a state where the guard holds, it costs at most `W (V s)`,
+    and it decreases the integer potential `V` by at least `d`. Any `F` with `F X ≥ w` and
+    `w + W v + F (X - d) ≤ F X` (for `d ≤ v ≤ X`) bounds the loop from `V ≤ K` by `F K`:
+    for `W v = a + c v` the bound is the sum `Σᵢ (w + a + c (K - i d)) + w` over the
+    iterations instead of their number times the largest body cost. -/
+theorem valid_whileSum {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ) (K : ℤ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X)
+    (hF : ∀ X v, (d : ℤ) ≤ v → v ≤ X → w + W v + F (X - d) ≤ F X) :
+    Valid Φ (fun s => I s ∧ V s ≤ K) (Cmd.while w b c) (F K)
+      (fun t => I t ∧ b t = false) := by
+  intro s hs
+  exact ⟨fun n hp => whileSum_pre V d W F h_body h_pos hF0 hF hp K hs.1 hs.2,
+    fun t n he => (whileSum_exec V d W F h_body h_pos hF0 hF he K hs.1 hs.2).2⟩
+
+end WhileSum
+
 /-! ### The cost logic -/
 
 /-- A set of cost triples, as a predicate. -/

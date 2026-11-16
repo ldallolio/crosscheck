@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <set>
 #include <sstream>
@@ -177,6 +178,18 @@ SB whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, const SB& wb) {
   return scale(n, SB(w) + wb) + SB(w);
 }
 
+std::optional<std::uint64_t> triBound(std::int64_t k, std::uint64_t d, std::uint64_t w,
+                                      std::uint64_t a, std::uint64_t c) {
+  // Lean `triBound2 w d a c k / 2` (the doubled value is even), with N = (k / d).toNat.
+  std::int64_t q = k >= 0 ? k / static_cast<std::int64_t>(d)
+                          : -((-k + static_cast<std::int64_t>(d) - 1) / static_cast<std::int64_t>(d));
+  __int128 N = q > 0 ? q : 0;
+  __int128 t2 = 2 * ((N + 1) * static_cast<__int128>(w) + N * static_cast<__int128>(a)) +
+                static_cast<__int128>(c) * (2 * N * k - static_cast<__int128>(d) * N * (N - 1));
+  if (t2 < 0 || t2 / 2 > static_cast<__int128>(std::numeric_limits<std::int64_t>::max())) return std::nullopt;
+  return static_cast<std::uint64_t>(t2 / 2);
+}
+
 SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint64_t d,
                  std::uint64_t w, std::uint64_t wb) {
   auto ceilDiv = [](std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); };
@@ -187,7 +200,7 @@ SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint
 }
 
 std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>>
-symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas) {
+symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas, std::size_t lo) {
   Assn q = p;
   Lin up{vadd(e.sv, vsmul(-1, unitVec(t))), {}, e.c};    // e - t <= 0
   Lin down{vadd(vsmul(-1, e.sv), unitVec(t)), {}, -e.c};  // t - e <= 0
@@ -211,7 +224,7 @@ symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas) {
     bool ok = true;
     for (std::size_t g = 0; g < l.lv.size(); ++g) {
       std::int64_t b = l.lv[g];
-      if (b != 0 && g >= gammas) { ok = false; break; }
+      if (b != 0 && (g >= gammas || g < lo)) { ok = false; break; }
       if (b > 0 || (-b) % a != 0) { ok = false; break; }
       kl.push_back(static_cast<std::uint64_t>(-b / a));
     }

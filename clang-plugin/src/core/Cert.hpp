@@ -141,6 +141,11 @@ SB whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, const SB& wb);
 /// The bound of a `while` node with a symbolic entry bound `k + kl.gamma` and a constant
 /// body bound `wb`: the least `B` with `w <= B.c`, `(w+wb)*k <= d*(B.c - w)` and
 /// `(w+wb)*kl <= d*B.co` (Lean `loopBoundOk`, second case).
+/// The bound of an amortised loop (Lean `triOk`): constant entry bound `k`, decrease `d`,
+/// test cost `w`, body bound `a + c * gamma_j` (the potential before the body):
+/// `N (w + a) + c (N k - d N (N-1)/2) + w` with `N = floor(k/d)`; none on overflow.
+std::optional<std::uint64_t> triBound(std::int64_t k, std::uint64_t d, std::uint64_t w,
+                                      std::uint64_t a, std::uint64_t c);
 SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint64_t d,
                  std::uint64_t w, std::uint64_t wb);
 
@@ -148,9 +153,10 @@ SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint
 /// Fourier-Motzkin projection on `e` (kept in the scratch variable `t`) and the logical
 /// variables. Only bounds that mention a logical variable and have integer coefficients
 /// are returned (constant bounds are found by `upperBound`).
-/// Only the logical variables below `gammas` may occur (the parameters' values).
+/// Only the logical variables from `lo` to `gammas - 1` may occur (the parameters' values,
+/// or the potentials of enclosing loops).
 std::optional<std::pair<std::int64_t, std::vector<std::uint64_t>>>
-symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas);
+symbolicUpper(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas, std::size_t lo = 0);
 /// The least `a >= 1` such that `a*e` has such a bound with integer coefficients (0: none).
 std::int64_t symbolicScale(const Assn& p, const PExp& e, std::size_t t, std::size_t gammas);
 

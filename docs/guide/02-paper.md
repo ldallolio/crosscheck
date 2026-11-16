@@ -208,7 +208,7 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 8,900 lines, 413 theorems, 23 modules, no `sorry`, only the standard axioms. Table
+- About 9,300 lines, 424 theorems, 23 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas
@@ -216,7 +216,7 @@ flowchart LR
   potentials with a symbolic inner bound (with a constant one they are affine; the
   logarithmic ones are checker cases); the translation from C/C++;
   the plugin; the busy-period argument for interrupts.
-- Limitations: cost is not time; no amortisation; affine and logarithmic potentials only;
+- Limitations: cost is not time; amortisation only for triangular nests (`prop:amortised-loop`); affine and logarithmic potentials only;
   structured control flow over scalar variables.
 
 ### Interrupts and fork-join (`subsec:concurrency`)

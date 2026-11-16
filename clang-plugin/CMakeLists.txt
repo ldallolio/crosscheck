@@ -162,6 +162,7 @@ if(BUILD_TESTING)
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/mutate_certificates.py
           ${CROSSCHECK_CHECKER}
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/program.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/triangular.json
           --mutants 150)
     endif()
   endif()

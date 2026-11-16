@@ -585,6 +585,181 @@ theorem loop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G
     have h2 : (pot.eval s : ℚ) ≤ ((k + dot (kl.map Int.ofNat) ρ : ℤ) : ℚ) := by exact_mod_cast hs
     exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
 
+/-! ### Amortised (triangular) loops -/
+
+theorem dotN_set (l : List ℕ) (j : ℕ) (f : Env) :
+    dotN l f = dotN (l.set j 0) f + ncoeff l j * (f j).toNat := by
+  induction l generalizing j f with
+  | nil => simp [dotN, ncoeff]
+  | cons a l ih =>
+    cases j with
+    | zero => simp [dotN, ncoeff, List.set]; ring
+    | succ j =>
+      have := ih j (fun i => f (i + 1))
+      simp only [dotN, ncoeff, List.set, List.getD_cons_succ] at this ⊢
+      rw [this]; ring
+
+/-- A body bound mentioning only `γⱼ`, read at `γⱼ = v`. -/
+theorem SB.eval_only {Wb : SB} {j : ℕ} (h : (Wb.co.set j 0).all (· = 0) = true) (ρ : Env) :
+    Wb.eval ρ = Wb.c + ncoeff Wb.co j * (ρ j).toNat := by
+  simp only [SB.eval]
+  rw [dotN_set Wb.co j ρ, dotN_zero h, zero_add]
+
+/-- One iteration of the doubled amortised bound: for `k ≥ d`,
+    `triBound2 k = 2 (w + a) + 2 c k + triBound2 (k - d)`. -/
+theorem triBound2_step {w d a c : ℕ} (hd : 0 < d) {X : ℤ} (hX : (d : ℤ) ≤ X) :
+    triBound2 w d a c X = 2 * ((w : ℤ) + a) + 2 * c * X + triBound2 w d a c (X - d) := by
+  have hdZ : (d : ℤ) ≠ 0 := by exact_mod_cast (Nat.pos_iff_ne_zero.mp hd)
+  have hq : X / (d : ℤ) = (X - d) / (d : ℤ) + 1 := by
+    have : X = (X - d) + 1 * (d : ℤ) := by ring
+    conv_lhs => rw [this]
+    rw [Int.add_mul_ediv_right _ _ hdZ]
+  have hM : 0 ≤ (X - d) / (d : ℤ) :=
+    Int.ediv_nonneg (by linarith) (by exact_mod_cast Nat.zero_le d)
+  have h1 : (((X / (d : ℤ)).toNat : ℕ) : ℤ) = (X - d) / (d : ℤ) + 1 := by
+    rw [hq]; exact Int.toNat_of_nonneg (by linarith)
+  have h2 : ((((X - d) / (d : ℤ)).toNat : ℕ) : ℤ) = (X - d) / (d : ℤ) :=
+    Int.toNat_of_nonneg hM
+  simp only [triBound2]
+  rw [h1, h2]
+  ring
+
+/-- The doubled amortised bound is at least `2 w`. -/
+theorem triBound2_ge {w d a c : ℕ} (hd : 0 < d) (X : ℤ) : 2 * (w : ℤ) ≤ triBound2 w d a c X := by
+  have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
+  simp only [triBound2]
+  set N : ℤ := (((X / (d : ℤ)).toNat : ℕ) : ℤ) with hN
+  have hN0 : 0 ≤ N := Int.natCast_nonneg _
+  have hNd : N * d ≤ X ∨ N = 0 := by
+    by_cases hq : 0 ≤ X / (d : ℤ)
+    · left
+      rw [hN, Int.toNat_of_nonneg hq]
+      exact Int.ediv_mul_le _ (ne_of_gt hdZ)
+    · right
+      rw [hN]; omega
+  have hc : (0 : ℤ) ≤ c := Int.natCast_nonneg _
+  have ha : (0 : ℤ) ≤ a := Int.natCast_nonneg _
+  have hw : (0 : ℤ) ≤ w := Int.natCast_nonneg _
+  have hS : 0 ≤ 2 * N * X - d * N * (N - 1) := by
+    rcases hNd with h | h
+    · have e : N * (N * d) ≤ N * X := mul_le_mul_of_nonneg_left h hN0
+      nlinarith [e, mul_nonneg (mul_nonneg hdZ.le hN0) hN0, mul_nonneg hdZ.le hN0]
+    · rw [h]; ring_nf; exact le_refl _
+  nlinarith
+
+/-- The loop case with a body bound `a + c·γⱼ` (amortised), from `valid_whileSum`. -/
+theorem triloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {d : ℕ} {k : ℤ} {kl : List ℕ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb B : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hd : 0 < d) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) ρ') body (Wb.eval ρ')
+        (holds (ghost pot j d :: inv) ρ') ∧
+      ∀ s t n, holds (ghost pot j 0 :: (G ++ inv)) ρ' s → Exec Φ body s t n →
+        ∀ x, x ∉ M → t x = s x)
+    (hB : triOk w d k kl j Wb B = true)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (entryLin pot k kl :: inv) ρ) (Cmd.while w test body) (B.eval ρ)
+        (holds Qe ρ) ∧
+      ∀ s t n, holds (entryLin pot k kl :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
+        ∀ x, x ∉ M → t x = s x := by
+  simp only [triOk, Bool.and_eq_true, decide_eq_true_eq] at hB
+  obtain ⟨⟨hkl, hWo⟩, hT⟩ := hB
+  set a := Wb.c
+  set c := ncoeff Wb.co j
+  have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
+    intro s hA hB e he
+    rcases List.mem_append.mp he with h | h
+    · exact hA e h
+    · exact hB e h
+  have hGinv : (G ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_append, Bool.and_eq_true]; exact ⟨hGj, hinv⟩
+  have body_at : ∀ s, holds inv ρ s → test s = true →
+      Valid Φ (holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s))) body
+        (a + c * (pot.eval s).toNat)
+        (holds (ghost pot j d :: inv) (Function.update ρ j (pot.eval s))) ∧
+      holds (ghost pot j 0 :: (G ++ inv)) (Function.update ρ j (pot.eval s)) s := by
+    intro s hI hb
+    refine ⟨?_, ?_⟩
+    · have := (hbody (Function.update ρ j (pot.eval s))).1
+      rwa [SB.eval_only hWo, Function.update_self] at this
+    · rw [holds_cons, ghost_eval, holds_update_logical hGinv]
+      exact ⟨by simp, happ s (hG s hb) hI⟩
+  -- the bound, halved
+  let T : ℤ → ℤ := fun X => triBound2 w d a c X / 2
+  have hT2 : ∀ X, triBound2 w d a c X = 2 * T X := by
+    intro X
+    have hev : (2 : ℤ) ∣ triBound2 w d a c X := by
+      simp only [triBound2]
+      set N : ℤ := (((X / (d : ℤ)).toNat : ℕ) : ℤ)
+      have : (2 : ℤ) ∣ N * (N - 1) := by
+        rcases Int.even_or_odd N with ⟨m, hm⟩ | ⟨m, hm⟩
+        · exact ⟨m * (N - 1), by rw [hm]; ring⟩
+        · exact ⟨N * m, by rw [hm]; ring⟩
+      obtain ⟨m, hm⟩ := this
+      exact ⟨(((X / (d : ℤ)).toNat : ℕ) + 1) * w + N * a + c * (N * X - d * m),
+        by rw [show (d : ℤ) * N * (N - 1) = d * (N * (N - 1)) by ring, hm]; ring⟩
+    simp only [T]
+    exact (Int.mul_ediv_cancel' hev).symm
+  have hTge : ∀ X, (w : ℤ) ≤ T X := by
+    intro X
+    have := triBound2_ge (w := w) (a := a) (c := c) hd X
+    rw [hT2] at this; linarith
+  have hTstep : ∀ X, (d : ℤ) ≤ X → T X = w + a + c * X + T (X - d) := by
+    intro X hX
+    have := triBound2_step (a := a) (c := c) (w := w) hd hX
+    rw [hT2, hT2] at this; linarith
+  have key := valid_whileSum (Φ := Φ) (I := holds inv ρ) (w := w) (b := test) (c := body)
+    (fun s => pot.eval s) d (fun v => a + c * v.toNat) (fun X => (T X).toNat) k ?_ ?_ ?_ ?_
+  · refine ⟨?_, ?_⟩
+    · refine valid_conseq ?_ key ?_ ?_
+      · intro s hP
+        rw [holds_cons, entryLin_eval, dot_ofNat_zero hkl] at hP
+        exact ⟨hP.2, by linarith [hP.1]⟩
+      · have h1 : T k ≤ B.c := by rw [hT2] at hT; linarith
+        have h2 : B.c ≤ B.eval ρ := by simp [SB.eval]
+        omega
+      · rintro t ⟨hI, hb⟩; exact hQ t hI hb
+    · intro s t n hP he
+      rw [holds_cons] at hP
+      refine while_frame (I := holds inv ρ) (fun s' hI hb t' n' e => ?_) hP.2 he
+      obtain ⟨hv, hpre⟩ := body_at s' hI hb
+      have ht := (hv s' hpre).2 t' n' e
+      rw [holds_cons, holds_update_logical hinv] at ht
+      exact ⟨ht.2, (hbody _).2 s' t' n' hpre e⟩
+  · intro s hI hb
+    obtain ⟨H, hpre⟩ := body_at s hI hb
+    refine ⟨fun n hn => (H s hpre).1 n hn, fun t n he => ?_⟩
+    have ht := (H s hpre).2 t n he
+    rw [holds_cons, ghost_eval, holds_update_logical hinv] at ht
+    refine ⟨ht.2, ?_⟩
+    have := ht.1
+    rw [Function.update_self] at this
+    linarith
+  · intro s hI hb
+    have := entails1_sound hpos (ρ := ρ) (s := s) (happ s (hG s hb) hI)
+    simp only [Lin.eval, dot, dot_vsmul] at this
+    simp only [PExp.eval]; linarith
+  · intro X
+    have := hTge X
+    show w ≤ (T X).toNat
+    omega
+  · intro X v hv hvX
+    have hs := hTstep X (le_trans hv hvX)
+    have h0 := hTge (X - d)
+    have hcv : (c : ℤ) * v ≤ c * X := mul_le_mul_of_nonneg_left hvX (Int.natCast_nonneg _)
+    have h1 := hTge X
+    have hvn : ((v.toNat : ℕ) : ℤ) = v := Int.toNat_of_nonneg (by omega)
+    have e1 : ((T (X - d)).toNat : ℤ) = T (X - d) := Int.toNat_of_nonneg (by omega)
+    have e2 : ((T X).toNat : ℤ) = T X := Int.toNat_of_nonneg (by omega)
+    have : ((w + (a + c * v.toNat) + (T (X - d)).toNat : ℕ) : ℤ) ≤ ((T X).toNat : ℤ) := by
+      push_cast
+      rw [hvn, e1, e2]
+      linarith
+    exact_mod_cast this
+
 /-! ### Logarithmic loops -/
 
 theorem ilogF_eq (b : ℕ) : ∀ fuel n, n ≤ fuel → ilogF fuel b n = Nat.log b n := by
@@ -993,29 +1168,40 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
   | «while» w g inv pot d k kl j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hWj⟩, hpos⟩, hbody⟩, hB⟩ := h
+    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hpos⟩, hbody⟩, hB⟩ := h
     have hGj : [g.toLin].all (fun e => decide (coeff e.lv j = 0)) = true := by
       simp [PExp.toLin, coeff]
-    exact loop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hWj
-      (fun s hb => by rw [holds_cons, PExp.toLin_eval]; exact ⟨by simpa using hb, fun e he => by cases he⟩)
-      hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB
-      (fun t hI hb => by
+    have hG : ∀ s, decide (g.eval s ≤ 0) = true → holds [g.toLin] ρ s := fun s hb => by
+      rw [holds_cons, PExp.toLin_eval]; exact ⟨by simpa using hb, fun e he => by cases he⟩
+    have hQ : ∀ t, holds inv ρ t → decide (g.eval t ≤ 0) = false → holds (g.negLin :: inv) ρ t :=
+      fun t hI hb => by
         rw [holds_cons, PExp.negLin_eval]
         have : 0 < g.eval t := by simpa using hb
-        exact ⟨by omega, hI⟩)
+        exact ⟨by omega, hI⟩
+    simp only [loopOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hB
+    rcases hB with ⟨hWj, hB⟩ | hB
+    · exact loop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hWj hG
+        hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB hQ
+    · exact triloop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hG
+        hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB hQ
   | whileAnd w gs inv pot d k kl j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hWj⟩, hpos⟩, hbody⟩, hB⟩ := h
+    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hpos⟩, hbody⟩, hB⟩ := h
     have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
       simp [List.all_map, PExp.toLin, coeff]
-    exact loop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hWj
-      (fun s hs e he => by
-        simp only [List.all_eq_true, decide_eq_true_eq] at hs
-        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
-        rw [PExp.toLin_eval]
-        exact hs g hg)
-      hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
+    have hG : ∀ s, gs.all (fun e => decide (e.eval s ≤ 0)) = true →
+        holds (gs.map PExp.toLin) ρ s := fun s hs e he => by
+      simp only [List.all_eq_true, decide_eq_true_eq] at hs
+      obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+      rw [PExp.toLin_eval]
+      exact hs g hg
+    simp only [loopOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hB
+    rcases hB with ⟨hWj, hB⟩ | hB
+    · exact loop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hWj hG
+        hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
+    · exact triloop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hG
+        hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
   | whileLog w gs inv pot b k j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
@@ -1253,6 +1439,99 @@ theorem countCert_cost (s : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 10) (n : ℕ)
   intro e he
   simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
+
+/-! ### An amortised (triangular) loop nest -/
+
+/-- The certificate the plugin emits for
+    `for (i = 0; i < 4; i++) for (j = i; j < 4; j++) {}` (variables `x₂ = i`, `x₃ = j`),
+    with the bound `b` claimed for the outer loop. The inner loop's entry bound is `γ₀`
+    (the outer potential `4 - i`), so the outer body costs `5 + 4·γ₀` and the outer loop
+    is bounded by `triOk`: `4·(2 + 5) + 4·(4·4 - 4·3/2) + 2 = 70`, where a body bound
+    that ignores `i` gives `4·(2 + 5 + 4·4) + 2 = 94`. -/
+def triCertAt (b : ℕ) : ACmd :=
+  (.weaken [] [] (SB.const (b + 1)) [⟨[0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [],
+  -4⟩] [] (.seq (.seq (.weaken [] [] (SB.const 0) [] [] (.havoc 0 2)) [] (SB.const 0) (SB.const 0)
+  (.weaken [] [] (SB.const 0) [] [] (.havoc 0 3))) [] (SB.const 0) (SB.const (b + 1)) (.seq
+  (.weaken [⟨[0, 0, 0], [], 0⟩, ⟨[0, 0, 0], [], 0⟩] [(1, []), (1, [])] (SB.const 1) [⟨[0, 0, 1],
+  [], 0⟩, ⟨[0, 0, -1], [], 0⟩] [(1, [1, 0]), (1, [0, 1])] (.assign 1 2 ⟨[], 0⟩)) [⟨[0, 0, 1], [],
+  0⟩, ⟨[0, 0, -1], [], 0⟩] (SB.const 1) (SB.const b) (.seq .skip [⟨[0, 0, 1], [], 0⟩, ⟨[0, 0, -1],
+  [], 0⟩] (SB.const 0) (SB.const b) (.weaken [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0,
+  1], [], -4⟩] [(1, [0, 1]), (1, [0, 1]), (1, [1, 0])] (SB.const b) [⟨[0, 0, -1], [], 4⟩, ⟨[0, 0,
+  -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0]), (1, [0, 1, 0]), (1, [0, 0, 1])] (.while 2
+  ⟨[0, 0, 1], -3⟩ [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] ⟨[0, 0, -1], 4⟩ 1 (4) [] 0 (1, [1, 0,
+  0]) ⟨5, [4]⟩ (.weaken [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0,
+  1], [], -4⟩] [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])] ⟨5,
+  [4]⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 5⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩,
+  ⟨[0, 0, 1], [], -5⟩, ⟨[0, 0, 1, -1], [], -1⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [0, 1, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0, 0, -1],
+  [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] (SB.const 0) ⟨3, [4]⟩
+  (.seq (.weaken [⟨[0, 0, -1, 0], [-1], 4⟩, ⟨[0, 0, 1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [], 0⟩, ⟨[0,
+  0, 1, 0], [], -4⟩, ⟨[0, 0, 0, 0], [], 0⟩, ⟨[0, 0, 0, 0], [], 0⟩] [(1, [1, 0, 0, 0]), (1, [0, 1,
+  0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0]), (1, [0, 0, 0, 0])] (SB.const 1)
+  [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0,
+  -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0]), (1,
+  [0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 1])]
+  (.assign 1 3 ⟨[0, 0, 1], 0⟩)) [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
+  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 1) ⟨2, [4]⟩ (.seq
+  .skip [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
+  ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 0) ⟨2, [4]⟩ (.weaken [⟨[0, 0, 0, -1],
+  [-1], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
+  ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0,
+  0]), (1, [0, 1, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0,
+  0, 1]), (1, [0, 0, 0, 1, 1, 0])] ⟨2, [4]⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0,
+  0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
+  [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
+  0, 0, 0, 0, 1])] (.while 2 ⟨[0, 0, 0, 1], -3⟩ [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0,
+  0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] ⟨[0, 0, 0,
+  -1], 4⟩ 1 (0) [1] 1 (1, [1, 0, 0, 0, 0, 0, 0]) (SB.const 2) (.weaken [⟨[0, 0, 0, -1], [0, -1],
+  4⟩, ⟨[0, 0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
+  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 0, -1], [0, -1], 5⟩, ⟨[0, 0, 0, 1],
+  [], -4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
+  ⟨[0, 0, 1, -1], [], 1⟩, ⟨[0, 0, 0, 1], [], -5⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0,
+  0, 0, -1], [0, -1], 4⟩, ⟨[0, 0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0,
+  0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] (SB.const
+  0) (SB.const 0) .skip) [⟨[0, 0, 0, -1], [0, -1], 4⟩, ⟨[0, 0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [-1],
+  4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0,
+  0, 0, 1], [], -4⟩] (SB.const 0) (SB.const 2) (.weaken [⟨[0, 0, 0, -1], [0, -1], 4⟩, ⟨[0, 0, 0,
+  1], [], -3⟩, ⟨[0, 0, -1, 0], [-1], 4⟩, ⟨[0, 0, 1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [], 0⟩, ⟨[0, 0,
+  1, 0], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 0, -1], [0, -1], 5⟩, ⟨[0, 0, 0, 1], [], -4⟩, ⟨[0,
+  0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1],
+  [], 1⟩, ⟨[0, 0, 0, 1], [], -5⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1])]
+  (.assign 2 3 ⟨[0, 0, 0, 1], 1⟩))))))))) [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0,
+  1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
+  [], -4⟩] ⟨3, [4]⟩ (SB.const 2) (.weaken [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0,
+  1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
+  [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
+  0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 5⟩, ⟨[0, 0, 1], [],
+  -4⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0, 0, 1], [], -5⟩, ⟨[0, 0, 1, -1], [], -1⟩, ⟨[0, 0, 0, 1], [], -4⟩]
+  [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]), (1, [0, 0,
+  0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0,
+  1])] (.assign 2 2 ⟨[0, 0, 1], 1⟩))))))))))
+
+set_option maxRecDepth 100000 in
+theorem triCert_checks : check [] [] (triCertAt 70) (SB.const 71) [] = true := by decide
+
+set_option maxRecDepth 100000 in
+/-- The amortised bound is the least the checker accepts for this nest. -/
+theorem triCert_69_rejected : check [] [] (triCertAt 69) (SB.const 70) [] = false := by decide
+
+/-- Hence the nest costs at most `71` from any state, by the checker alone. -/
+theorem triCert_cost (s : Env) (n : ℕ)
+    (hp : Pre (fun _ => Cmd.skip) (triCertAt 70).toCmd s n) : n ≤ 71 := by
+  have := certified_cost_le triCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) (by simp [holds]) hp
+  simpa using this
 
 /-! ### A constrained unknown value -/
 

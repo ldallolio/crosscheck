@@ -113,6 +113,11 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
+Certified bounds (2026-11-16): 146 of the 161 are the analyser's bound, 14 are lower
+(infeasible paths, and since the amortised loop rule, Paper I `prop:amortised-loop`, the
+triangular nest of `ludcmp_main`: 4,907 before, 3,674 now, and through it `main`: 6,076,
+now 4,843). The analyser's own bounds (the tables) do not change: it does not amortise.
+
 Kernels (2026-11-16, 161 of 165 certified, all accepted): **152 certificates
 validated** (93 before mini-C had quotients, remainders, shifts, masks, unsigned stores and
 calls; 147 before jumps were proved in Lean and tracked globals exported; jumps,
@@ -129,7 +134,9 @@ checker refuses it, as it should; before, the exporter refused the function for 
 global loop counter).
 
 Sequential and application programs (`--category sequential --category app`): tables
-unchanged (231 of 263 certified, all accepted); **193 validated, none failing** (2026-11-16;
+unchanged (231 of 263 certified, all accepted; 207 certified bounds equal to the
+analyser's, 14 lower, among them `susan_median`, a sort of 8 values in a triangular nest,
+1,047 → 648 with the amortised loop rule, validated against its source); **193 validated, none failing** (2026-11-16;
 178 before tracked globals were exported, 170 before early exits and `switch`, 113 before
 mini-C had division, unsigned stores and calls), including `adpcm_dec_main`,
 `adpcm_enc_main`, `petrinet_main` and `powerwindow_controlexclusion_main`; 188 with all

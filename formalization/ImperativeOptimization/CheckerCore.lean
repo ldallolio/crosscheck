@@ -158,6 +158,26 @@ def loopBoundOk (w d : Nat) (k : Int) (kl : List Nat) (Wb B : SB) : Bool :=
     decide (((w + Wb.c : Nat) : Int) * k ≤ (d : Int) * ((B.c : Int) - w)) &&
     nle (nsmul (w + Wb.c) kl) (nsmul d B.co))
 
+/-- **Amortised (triangular) loops**: twice the bound of a loop with a constant entry
+    bound `k` of `pot`, decrease `d`, test cost `w`, whose body costs at most `a + c·pot`
+    (`pot` read before the body). With `N = ⌊k/d⌋`, iteration `i` (from 0) starts with
+    `pot ≤ k - i·d`, so the loop costs at most
+    `N (w + a) + c (N k - d N (N - 1) / 2) + w`; doubled, so that no division is needed. -/
+def triBound2 (w d a c : Nat) (k : Int) : Int :=
+  2 * ((((k / d).toNat : Int) + 1) * w + ((k / d).toNat : Int) * a) +
+    c * (2 * ((k / d).toNat : Int) * k - d * ((k / d).toNat : Int) * (((k / d).toNat : Int) - 1))
+
+/-- The bound of a loop whose body bound `Wb = a + c·γⱼ` mentions the loop's own logical
+    variable `j` (the potential before the body) and no other: constant entry bound. -/
+def triOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
+  kl.all (· = 0) && (Wb.co.set j 0).all (· = 0) &&
+    decide (triBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
+
+/-- The bound condition of the loop nodes `while` and `whileAnd`: a body bound that does
+    not mention `γⱼ` (`loopBoundOk`), or the amortised bound (`triOk`). -/
+def loopOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
+  (decide (ncoeff Wb.co j = 0) && loopBoundOk w d k kl Wb B) || triOk w d k kl j Wb B
+
 /-- The entry constraint of a loop: `pot - k - Σ kl[j] γⱼ ≤ 0`. -/
 def entryLin (pot : PExp) (k : Int) (kl : List Nat) : Lin :=
   ⟨pot.sv, vsmul (-1) (kl.map Int.ofNat), pot.c - k⟩
@@ -329,18 +349,18 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       decide (0 < d) &&
       decide (P = entryLin pot k kl :: inv) &&
       decide (Q = g.negLin :: inv) &&
-      inv.all (fun e => decide (coeff e.lv j = 0)) && decide (ncoeff Wb.co j = 0) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) &&
       entails1 (g.toLin :: inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
       check fs (ghost pot j 0 :: g.toLin :: inv) body Wb (ghost pot j d :: inv) &&
-      loopBoundOk w d k kl Wb B
+      loopOk w d k kl j Wb B
   | .whileAnd w gs inv pot d k kl j posCert Wb body, B, Q =>
       decide (0 < d) &&
       decide (P = entryLin pot k kl :: inv) &&
       decide (Q = inv) &&
-      inv.all (fun e => decide (coeff e.lv j = 0)) && decide (ncoeff Wb.co j = 0) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) &&
       entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
       check fs (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghost pot j d :: inv) &&
-      loopBoundOk w d k kl Wb B
+      loopOk w d k kl j Wb B
   | .whileLog w gs inv pot b k j posCert Wb body, B, Q =>
       decide (1 < b) &&
       decide (P = entryLin pot k [] :: inv) &&

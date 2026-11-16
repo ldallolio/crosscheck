@@ -56,7 +56,10 @@ limitation, it says so.
   potential is found, a second set (branch tests as they are and relaxed by one, hulls of
   assigned constants, pairs left equal). In certificates they are hints, proved again for
   the checker.
-- **"Amortisation?"** None: nested loops multiply, merge sort is quadratic.
+- **"Amortisation?"** One shape, in certificates only: a triangular nest whose inner loop
+  runs from the outer counter to a constant limit gets the sum bound (Lean `triOk`,
+  `valid_whileSum`; Paper I `prop:amortised-loop`). The analyser itself multiplies; `j < i`
+  nests and merge sort are not amortised.
 - **"Is your cost logic new?"** No: Nielson 1987; Haslbeck & Nipkow mechanised three such
   logics, sound *and* complete, for deterministic IMP. Here: soundness only, but
   nondeterministic atoms, bounds on prefixes, and a loop rule shaped like the analyser's
@@ -144,7 +147,7 @@ of the TPDB harness.
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
 4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a
-   constant inner bound, no amortisation.
+   constant inner bound, amortisation only for one triangular shape in certificates.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
 
