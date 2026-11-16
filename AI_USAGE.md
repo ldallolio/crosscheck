@@ -1102,6 +1102,15 @@ What the AI did for 46 (Claude Opus 5.5, 2026-11-16).
   compiled against OTAWA in the author's image (no network) that sets the time of each
   basic block from the timing table of `m0.py`; `run_otawa.py --timing m0`.
 - **Minimal annotations**: `benchmarks/tacle/run_annotated.py`.
+- **Results** (re-measured with this build): kernels 161 of 165 certified (unchanged),
+  152 validated (147 before), 146 with all callees, one not validated (`isqrt_main`: the
+  generator inlined a call whose argument has no bound, the source has the call);
+  sequential/app 231 certified (unchanged), 193 validated (178), none failing; TPDB 159
+  certified with ranges (156) and 103 without (101: 89 in the parameters + 14), the
+  increase from `do` loops; fuzz (40 files, seed 2026): 0 violations, 61 mini-C sources
+  compared, 0 mismatches; OTAWA in cycles: 107 functions, no call above its bound, never
+  below the timing schema; minimal annotations: `main` bounded in 23 of 29 kernels (10
+  without), 84 annotations, 2 below an observed count; 174 ctest tests pass.
 - **Tool descriptions** (KoAT2, CoFloCo, oRange) rewritten in Paper II from what was
   read: the CoFloCo paper (technical-report copy, read in full), the abstract of the
   KoAT paper, oRange's README; the oRange paper could not be obtained and is listed with

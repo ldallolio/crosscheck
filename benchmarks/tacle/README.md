@@ -129,13 +129,13 @@ checker refuses it, as it should; before, the exporter refused the function for 
 global loop counter).
 
 Sequential and application programs (`--category sequential --category app`): tables
-unchanged (231 of 263 certified, all accepted); **178 validated, none failing** (2026-11-16; 170 before early exits and `switch` were
-exported, 113 before mini-C had division, unsigned stores and calls), including
-`adpcm_dec_main`, `adpcm_enc_main`, `petrinet_main` and
-`powerwindow_controlexclusion_main`. Refused (53): global or
-static tracked variables (25), calls of functions without an entry in the certificate file
-(12), divisions or shifts outside the modelled forms (9), narrow unsigned variables (3),
-calls in tests (3), a table read (1).
+unchanged (231 of 263 certified, all accepted); **193 validated, none failing** (2026-11-16;
+178 before tracked globals were exported, 170 before early exits and `switch`, 113 before
+mini-C had division, unsigned stores and calls), including `adpcm_dec_main`,
+`adpcm_enc_main`, `petrinet_main` and `powerwindow_controlexclusion_main`; 188 with all
+their callees. Refused (38): divisions or shifts outside the modelled forms (12), calls of
+functions without an entry in the certificate file (12), narrow unsigned variables (5),
+static locals (5), calls in tests (3), a table read (1).
 One function (`gsm_enc_Weighting_filter`) was first exported and not validated: the
 constant expression `8192 >> 1` was exported as a quotient where the generator folds it;
 the exporter now folds constants first (and refuses that function for another statement).
