@@ -81,7 +81,9 @@ Lin subst(const Lin& e, std::size_t x, const PExp& a);  ///< `e[a/x]`
 Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra);  ///< `pot - gamma_j + extra <= 0`
 Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*pot - gamma_j <= 0` (Lean `ghostMul`)
 Lin growEntry(const PExp& pot);                                  ///< `1 - pot <= 0` (Lean `growEntry`)
-Lin ghostLow(const PExp& pot, std::size_t j);                    ///< `gamma_j - pot <= 0` (Lean `ghostLow`)
+Lin ghostLow(const PExp& pot, std::size_t j);
+Lin upLo(const PExp& pot, std::size_t j, std::int64_t k);                       ///< `k - pot - gamma_j <= 0` (Lean `upLo`)
+Lin upHi(const PExp& pot, std::size_t j, std::int64_t k, std::int64_t extra);   ///< `pot + gamma_j - k + extra <= 0` (Lean `upHi`)                    ///< `gamma_j - pot <= 0` (Lean `ghostLow`)
 Lin ghostGrow(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*gamma_j - pot <= 0` (Lean `ghostGrow`)
 /// floor(log_b n) (Lean `ilog`) and the iterations of a logarithmic loop (Lean `logIters`).
 std::uint64_t ilog(std::uint64_t b, std::uint64_t n);
@@ -111,7 +113,7 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, WhileUp, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
@@ -146,6 +148,11 @@ SB whileBound(std::int64_t k, std::uint64_t d, std::uint64_t w, const SB& wb);
 /// `N (w + a) + c (N k - d N (N-1)/2) + w` with `N = floor(k/d)`; none on overflow.
 std::optional<std::uint64_t> triBound(std::int64_t k, std::uint64_t d, std::uint64_t w,
                                       std::uint64_t a, std::uint64_t c);
+/// The bound of an amortised loop whose iterations cost more as the potential falls (Lean
+/// `upOk`, node `whileUp`): body bound `a + c * gamma_j` with `gamma_j = k - pot` before the
+/// body: `N (w + a) + c (N k - d N (N+1)/2) + w` with `N = floor(k/d)`; none on overflow.
+std::optional<std::uint64_t> upBound(std::int64_t k, std::uint64_t d, std::uint64_t w,
+                                     std::uint64_t a, std::uint64_t c);
 SB whileBoundSym(std::int64_t k, const std::vector<std::uint64_t>& kl, std::uint64_t d,
                  std::uint64_t w, std::uint64_t wb);
 

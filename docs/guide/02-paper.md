@@ -151,6 +151,18 @@ flowchart LR
 | `whileGrow` | `pot ≥ 1` on entry, `pot ≤ K` under the test; body: `pot ≥ γ` → `pot ≥ b·γ` | `⌊log_b K⌋ + 1` | `N − ⌊log_b pot⌋` (`growloop_sound`) |
 
   The step in both proofs: `b·y ≤ x`, `x ≥ 1` give `⌊log_b y⌋ + 1 ≤ ⌊log_b x⌋` (or `y ≤ 0`).
+- **Amortised loops** (`prop:amortised-loop`): the iterations are paid one by one instead of
+  "iterations × worst body". Prior work: Healy et al. 2000 (non-rectangular nests, WCET),
+  Albert, Genaim, Masud 2011 (arithmetic sequences of iteration costs).
+
+| Shape | Checker | `γⱼ` in the body | Body bound | Bound (`N = ⌊k/d⌋`) | Logic rule |
+|---|---|---|---|---|---|
+| `for i<n: for j=i..n` | `while`/`whileAnd`, `triOk` | `≥ pot` (as usual) | `a + c·γⱼ` | `(N+1)w + Na + c(Nk − dN(N−1)/2)` | `valid_whileSum` (1): bound by the bound `X` of `pot` |
+| `for i<n: for j<i` | `whileUp`, `upOk` | `= k − pot` (what it lost) | `a + c·γⱼ` | `(N+1)w + Na + c(Nk − dN(N+1)/2)` | `valid_whileMono` (2): monotone `F` of `pot` itself |
+
+  Why two rules: with a cost that *falls* as `pot` grows, bounding the rest of the run by
+  `F(X − d)` for an upper bound `X` would need `W(v) ≤ W(X)` for `v ≤ X`, false; bounding it
+  by `F(pot after)` with `F` monotone works for any cost.
   `ilog` is defined by structural recursion (with fuel) so that `decide` can run the
   examples, and proved equal to mathlib's `Nat.log` (`ilog_eq`).
 
@@ -208,7 +220,7 @@ flowchart LR
 
 ## 8. Mechanization, scope, limitations
 
-- About 9,300 lines, 424 theorems, 23 modules, no `sorry`, only the standard axioms. Table
+- About 9,700 lines, 436 theorems, 23 modules, no `sorry`, only the standard axioms. Table
   `tab:lean` is mirrored by `formalization/formalization.yaml`.
 - **Not mechanised** (the paper lists them): general arity for the tree *order*;
   termination, not just bounds, for relations; the equation-generation rules; Farkas
@@ -216,7 +228,7 @@ flowchart LR
   potentials with a symbolic inner bound (with a constant one they are affine; the
   logarithmic ones are checker cases); the translation from C/C++;
   the plugin; the busy-period argument for interrupts.
-- Limitations: cost is not time; amortisation only for triangular nests (`prop:amortised-loop`); affine and logarithmic potentials only;
+- Limitations: cost is not time; amortisation only for triangular nests with constant entry bounds (`prop:amortised-loop`: inner loop from the outer counter to a limit, or from `0` to the outer counter); affine and logarithmic potentials only;
   structured control flow over scalar variables.
 
 ### Interrupts and fork-join (`subsec:concurrency`)

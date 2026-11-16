@@ -179,8 +179,9 @@ Composition rules:
 These are upper bounds, not exact counts: infeasible paths are not excluded and
 nested loops are multiplied without amortisation. The certificate (not the report's
 `wcet`) of a triangular nest, whose inner loop runs from the outer counter to a constant
-limit, carries the amortised bound instead (the sum over the outer iterations, about half
-the product; Lean `triOk`, `triloop_sound`); the report's `certificate_bound` shows it.
+limit or from `0` to the outer counter, carries the amortised bound instead (the sum over
+the outer iterations, about half the product; Lean `triOk`, `triloop_sound`, and node
+`whileUp`, `uploop_sound`); the report's `certificate_bound` shows it.
 
 ## How bounds are derived
 
@@ -286,6 +287,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | logarithmic loops (`x >>= k`, `x /= c`: `b·v' ≤ v`, `v ≥ 1`): at most `⌊log_b K⌋ + 1` iterations, certified by `whileLog` | `log_ranking_bound` (`Certificate`), `logloop_sound` (`Checker`) |
 | triangular nests (the inner loop's entry bound is the outer potential `γⱼ`, so the outer body costs `a + c·γⱼ`): the sum over the outer iterations, about half the product, certified by `while`/`whileAnd` in the amortised form (`triOk`) | `valid_whileSum` (`Language`), `triloop_sound` (`Checker`) |
+| triangular nests with increasing cost (an inner loop from `0` to the outer counter: in the outer body `γⱼ = k − pot`, what the outer potential has lost, so the outer body costs `a + c·γⱼ`): the sum over the outer iterations, certified by `whileUp` | `valid_whileMono` (`Language`), `uploop_sound` (`Checker`) |
 | growing loops (`len <<= 1`: `v ≥ 1` on entry, `v' ≥ b·v`, `v ≤ K` under the test): at most `⌊log_b K⌋ + 1` iterations, certified by `whileGrow` | `growloop_sound` (`Checker`) |
 | a certificate validated against the function's mini-C source (`minic`) ⇒ its bound holds for the source program | `validated_sound`, `nf_equiv` (`MiniC`) |
 | response time under sporadic interrupt handlers | `response_time_bound`, `rtaHolds_sound` (`Interrupts`) |
@@ -498,10 +500,13 @@ express (the checker then refused to validate it, rightly).
   search is repeated would bound this cost; it is not implemented.
 - **Little amortisation.** The analyser multiplies nested loops; a recursive function is
   charged the worst-case cost of one activation for every activation (merge sort
-  is bounded by `O(n²)`). Only certificates amortise, and only one shape: an inner loop
-  whose entry bound is the enclosing loop's potential (`j` from `i` to a constant), with a
-  constant entry bound of the enclosing loop. An inner loop from `0` to `i` keeps the
-  product bound.
+  is bounded by `O(n²)`). Only certificates amortise, and only two shapes: an inner loop
+  whose entry bound is the enclosing loop's potential (`j` from `i` to a constant), or what
+  that potential has lost (`j` from `0` to `i`), with a constant entry bound of the
+  enclosing loop. An outer body that contains both shapes (cost quadratic in the outer
+  counter, as in the first nest of `ludcmp_test`) or an entry bound in a parameter keeps the
+  product bound. Trying the second shape lowers each loop body that contains a loop once
+  more (the examples of `tests/certificates/triangular.cpp` take 12 s instead of 5).
 - **Calling contexts are intervals of integer arguments.** Relations between
   arguments, values of globals, and what a callee leaves in memory are not passed
   to the callee or back; recursive functions get no context. The analysis' bounds are

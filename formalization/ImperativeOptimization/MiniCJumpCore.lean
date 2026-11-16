@@ -380,6 +380,7 @@ def quietCmd (n : Nat) (G W : List Nat) : ACmd → Bool
   | .whileAnd _ gs _ _ _ _ _ _ _ _ b => gs.all (fun g => zeroOn G g.sv) && quietCmd n G W b
   | .whileLog _ gs _ _ _ _ _ _ _ b => gs.all (fun g => zeroOn G g.sv) && quietCmd n G W b
   | .whileGrow _ gs _ _ _ _ _ _ _ b => gs.all (fun g => zeroOn G g.sv) && quietCmd n G W b
+  | .whileUp _ gs _ _ _ _ _ _ _ b => gs.all (fun g => zeroOn G g.sv) && quietCmd n G W b
   | .weaken _ _ _ _ _ c => quietCmd n G W c
   | .dead _ c => quietCmd n G W c
   | .call _ f _ _ _ _ => decide (f < n)

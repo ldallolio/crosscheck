@@ -23,3 +23,20 @@ CROSSCHECK_REALTIME void three(void) {
     for (int j = i; j < 20; j++)
       for (int k = j; k < 20; k++) a[k] += 1;
 }
+// An inner loop from 0 to the outer counter: its entry bound grows while the outer
+// potential falls; certified with the node `whileUp` (Lean `upOk`, `uploop_sound`), in
+// whose body the logical variable is what the outer potential has lost (`k - pot`).
+CROSSCHECK_REALTIME void prefix(void) {
+  for (int i = 0; i < 100; i++)
+    for (int j = 0; j < i; j++) a[i] += a[j];
+}
+CROSSCHECK_REALTIME void insertion(void) {
+  for (int i = 1; i < 100; i++) {
+    int j = i;
+    while (j > 0 && a[j - 1] > a[j]) { int t = a[j]; a[j] = a[j - 1]; a[j - 1] = t; j--; }
+  }
+}
+CROSSCHECK_REALTIME void upto(void) {
+  for (int i = 0; i < 30; i++)
+    for (int j = 0; j <= i; j++) a[j] += 1;
+}

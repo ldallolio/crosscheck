@@ -56,10 +56,14 @@ limitation, it says so.
   potential is found, a second set (branch tests as they are and relaxed by one, hulls of
   assigned constants, pairs left equal). In certificates they are hints, proved again for
   the checker.
-- **"Amortisation?"** One shape, in certificates only: a triangular nest whose inner loop
-  runs from the outer counter to a constant limit gets the sum bound (Lean `triOk`,
-  `valid_whileSum`; Paper I `prop:amortised-loop`). The analyser itself multiplies; `j < i`
-  nests and merge sort are not amortised.
+- **"Amortisation?"** Two shapes, in certificates only: a triangular nest whose inner loop
+  runs from the outer counter to a constant limit (Lean `triOk`, `valid_whileSum`) or from
+  `0` to the outer counter (node `whileUp`, `valid_whileMono`) gets the sum bound (Paper I
+  `prop:amortised-loop`). The analyser itself multiplies; merge sort, entry bounds in
+  parameters and outer bodies with both shapes are not amortised. **"Is this new?"** No:
+  summation over non-rectangular nests is in Healy et al. 2000 (WCET, after Sakellariou),
+  and arithmetic sequences of iteration costs in Albert, Genaim, Masud 2011 (cost
+  analysis); what is ours is the rule in a cost logic with a verified checker case.
 - **"Is your cost logic new?"** No: Nielson 1987; Haslbeck & Nipkow mechanised three such
   logics, sound *and* complete, for deterministic IMP. Here: soundness only, but
   nondeterministic atoms, bounds on prefixes, and a loop rule shaped like the analyser's
@@ -147,7 +151,7 @@ of the TPDB harness.
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
 4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a
-   constant inner bound, amortisation only for one triangular shape in certificates.
+   constant inner bound, amortisation only for two triangular shapes in certificates.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
 

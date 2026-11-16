@@ -3397,6 +3397,15 @@ std::vector<const Stmt*> flatten(const Stmt* s) {
   return out;
 }
 
+/// Does a statement contain a loop?
+struct LoopScan : RecursiveASTVisitor<LoopScan> {
+  bool found = false;
+  bool VisitForStmt(ForStmt*) { found = true; return false; }
+  bool VisitWhileStmt(WhileStmt*) { found = true; return false; }
+  bool VisitDoStmt(DoStmt*) { found = true; return false; }
+  bool TraverseLambdaExpr(LambdaExpr*) { return true; }
+};
+
 struct ReturnScan : RecursiveASTVisitor<ReturnScan> {
   bool found = false;
   bool VisitReturnStmt(ReturnStmt*) { found = true; return false; }
@@ -4302,6 +4311,12 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   const Assn& entry = prolog.post;
 
   std::vector<const Stmt*> stmts = flatten(body);
+  bool bodyLoops = false;
+  {
+    LoopScan ls;
+    ls.TraverseStmt(const_cast<Stmt*>(body));
+    bodyLoops = ls.found;
+  }
   auto skipF = [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; };
   auto runBody = [&](const Assn& p, const Assn& hint) -> std::optional<CertPiece> {
     ++cc.depth;
@@ -4565,6 +4580,54 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     bodyPost.insert(bodyPost.begin(), cert::ghost(potc, j, static_cast<std::int64_t>(d)));
     std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
     if (!b) return std::nullopt;
+    // An inner loop from 0 to this loop's counter: its entry bound grows as the potential
+    // falls. With `gamma_j = k - pot` in the body (Lean `whileUp`), a body bound
+    // `a + c * gamma_j` has the amortised bound `upBound`; tried when the body has a loop,
+    // and compared with the other candidates by its value.
+    if (k && cc.ghostSym && bodyLoops) {
+      Assn upPre = guardInv;
+      upPre.insert(upPre.begin(), cert::upHi(potc, j, *k, 0));
+      upPre.insert(upPre.begin(), cert::upLo(potc, j, *k));
+      Assn upPost = inv;
+      upPost.insert(upPost.begin(), cert::upHi(potc, j, *k, static_cast<std::int64_t>(d)));
+      std::string savedFail = cc.fail;
+      std::optional<CertPiece> ub = runBody(upPre, upPost);
+      cc.fail = savedFail;
+      if (ub && j < ub->bound.co.size() && ub->bound.co[j] != 0) {
+        bool onlyJ = true;
+        for (std::size_t g = 0; g < ub->bound.co.size(); ++g)
+          if (g != j && ub->bound.co[g] != 0) onlyJ = false;
+        std::optional<std::vector<Farkas>> qt = cert::farkasAll(ub->post, upPost);
+        std::optional<std::uint64_t> tb;
+        if (onlyJ && qt) tb = cert::upBound(*k, d, w, ub->bound.c, ub->bound.co[j]);
+        if (tb) {
+          Node wn;
+          wn.kind = Node::WhileUp;
+          wn.w = w;
+          wn.gs = gs;
+          wn.inv = inv;
+          wn.pot = potc;
+          wn.d = d;
+          wn.k = *k;
+          wn.j = j;
+          wn.posCert = *posCert;
+          wn.b1 = ub->bound;
+          wn.c1 = weaken(upPre, identityCerts(upPre), ub->bound, ub->post, *qt, ub->node);
+          Assn pw = inv;
+          pw.insert(pw.begin(), Lin{potc.sv, {}, potc.c - *k});
+          Assn qw = inv;
+          if (gs.size() == 1) qw.insert(qw.begin(), cert::negLin(gs[0]));
+          cert::SB bw(*tb);
+          if (std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw)) {
+            CertPiece tp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
+            if (!best || *tb < bestValue) {
+              best = seqPiece(prolog, tp);
+              bestValue = *tb;
+            }
+          }
+        }
+      }
+    }
     // A body bound `a + c * gamma_j` (inner loops bounded by this loop's potential): the
     // amortised bound (Lean `triOk`), compared below with the body lowered again without
     // such inner bounds.

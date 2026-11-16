@@ -115,8 +115,11 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
 
 Certified bounds (2026-11-16): 146 of the 161 are the analyser's bound, 14 are lower
 (infeasible paths, and since the amortised loop rule, Paper I `prop:amortised-loop`, the
-triangular nest of `ludcmp_main`: 4,907 before, 3,674 now, and through it `main`: 6,076,
-now 4,843). The analyser's own bounds (the tables) do not change: it does not amortise.
+triangular nests of `ludcmp_main`: 4,907 before, 3,674 with the first form of the rule,
+3,474 since inner loops from `0` to the outer counter are amortised too (node `whileUp`,
+two of its three nests), and through it `main`: 6,076, then 4,843, now 4,643). The
+analyser's own bounds (the tables) do not change: it does not amortise. The run takes
+156 s (143 s before `whileUp`: bodies that contain a loop are lowered once more).
 
 Kernels (2026-11-16, 161 of 165 certified, all accepted): **152 certificates
 validated** (93 before mini-C had quotients, remainders, shifts, masks, unsigned stores and
@@ -146,7 +149,7 @@ static locals (5), calls in tests (3), a table read (1).
 One function (`gsm_enc_Weighting_filter`) was first exported and not validated: the
 constant expression `8192 >> 1` was exported as a quotient where the generator folds it;
 the exporter now folds constants first (and refuses that function for another statement).
-The slowest program, `cjpeg_transupp`, needed 2,299 s on a shared machine (614 s on
+Unchanged by the node `whileUp` (2026-11-16: same counts and bounds, no `j < i` nest with constant bounds); the run took 88 min. The slowest program, `cjpeg_transupp`, needed 2,833 s (2,299 s before `whileUp`, which lowers bodies that contain a loop once more) on a shared machine (614 s on
 2026-11-15, before the repeated search for potentials): set `CROSSCHECK_TACLE_TIMEOUT` above
 the default 1,800 s when the machine is loaded.
 

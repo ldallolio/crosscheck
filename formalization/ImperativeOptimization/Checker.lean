@@ -468,6 +468,8 @@ def ACmd.toCmd : ACmd → Cmd ℕ Env
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .whileGrow w gs _ _ _ _ _ _ _ body =>
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
+  | .whileUp w gs _ _ _ _ _ _ _ body =>
+      Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
   | .call w f _ _ _ _ => Cmd.call w f
@@ -759,6 +761,152 @@ theorem triloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
       rw [hvn, e1, e2]
       linarith
     exact_mod_cast this
+
+/-! ### Amortised loops with increasing cost -/
+
+theorem upLo_eval (pot : PExp) (j : ℕ) (k : ℤ) (ρ s : Env) :
+    (upLo pot j k).eval ρ s = k - pot.eval s - ρ j := by
+  simp only [upLo, Lin.eval, PExp.eval, dot_vsmul, dot_unit]; ring
+
+theorem upHi_eval (pot : PExp) (j : ℕ) (k extra : ℤ) (ρ s : Env) :
+    (upHi pot j k extra).eval ρ s = pot.eval s + ρ j - k + extra := by
+  simp only [upHi, Lin.eval, PExp.eval, dot_unit]; ring
+
+/-- The cost of the last `N` iterations of a loop of `whileUp`, plus the final test: the
+    `m`-th iteration from the end costs at most `w + a + c (k - m d)`. -/
+def upSum (w d a c : ℕ) (k : ℤ) : ℕ → ℕ
+  | 0 => w
+  | N + 1 => upSum w d a c k N + w + a + c * (k - ((N + 1 : ℕ) : ℤ) * d).toNat
+
+theorem upSum_ge (w d a c : ℕ) (k : ℤ) : ∀ N, w ≤ upSum w d a c k N
+  | 0 => le_refl _
+  | N + 1 => by have := upSum_ge w d a c k N; simp only [upSum]; omega
+
+theorem upSum_mono (w d a c : ℕ) (k : ℤ) : Monotone (upSum w d a c k) :=
+  monotone_nat_of_le_succ (fun N => by simp only [upSum]; omega)
+
+/-- `upSum`, doubled, is `upBound2` when the last iteration still has `k - N d ≥ 0`. -/
+theorem upSum_closed (w d a c : ℕ) (k : ℤ) : ∀ N : ℕ, (N : ℤ) * d ≤ k →
+    2 * (upSum w d a c k N : ℤ) =
+      2 * (((N : ℤ) + 1) * w + N * a) + c * (2 * N * k - d * N * (N + 1))
+  | 0, _ => by simp [upSum]
+  | N + 1, h => by
+    have h' : (N : ℤ) * d ≤ k := by push_cast at h; nlinarith [Int.natCast_nonneg d]
+    have ih := upSum_closed w d a c k N h'
+    have ht : (((k - ((N + 1 : ℕ) : ℤ) * d).toNat : ℕ) : ℤ) = k - ((N + 1 : ℕ) : ℤ) * d :=
+      Int.toNat_of_nonneg (by linarith)
+    simp only [upSum]
+    push_cast at ht ih ⊢
+    rw [ht]
+    linear_combination ih
+
+/-- The loop case of `whileUp`, from `valid_whileMono` with `F X = upSum (⌊X/d⌋)`. -/
+theorem uploop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {d : ℕ} {k : ℤ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb B : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hd : 0 < d) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
+    (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (upLo pot j k :: upHi pot j k 0 :: (G ++ inv)) ρ') body
+        (Wb.eval ρ') (holds (upHi pot j k d :: inv) ρ') ∧
+      ∀ s t n, holds (upLo pot j k :: upHi pot j k 0 :: (G ++ inv)) ρ' s →
+        Exec Φ body s t n → ∀ x, x ∉ M → t x = s x)
+    (hB : upOk w d k j Wb B = true)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (entryLin pot k [] :: inv) ρ) (Cmd.while w test body) (B.eval ρ)
+        (holds Qe ρ) ∧
+      ∀ s t n, holds (entryLin pot k [] :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
+        ∀ x, x ∉ M → t x = s x := by
+  simp only [upOk, Bool.and_eq_true, decide_eq_true_eq] at hB
+  obtain ⟨hWo, hT⟩ := hB
+  set a := Wb.c
+  set c := ncoeff Wb.co j
+  have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
+  have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
+    intro s hA hB e he
+    rcases List.mem_append.mp he with h | h
+    · exact hA e h
+    · exact hB e h
+  have hGinv : (G ++ inv).all (fun e => decide (coeff e.lv j = 0)) = true := by
+    simp only [List.all_append, Bool.and_eq_true]; exact ⟨hGj, hinv⟩
+  -- the body, read at the outer valuation with `γⱼ = k - pot`
+  have body_at : ∀ s, holds inv ρ s → test s = true →
+      Valid Φ (holds (upLo pot j k :: upHi pot j k 0 :: (G ++ inv))
+          (Function.update ρ j (k - pot.eval s))) body
+        (a + c * (k - pot.eval s).toNat)
+        (holds (upHi pot j k d :: inv) (Function.update ρ j (k - pot.eval s))) ∧
+      holds (upLo pot j k :: upHi pot j k 0 :: (G ++ inv))
+        (Function.update ρ j (k - pot.eval s)) s := by
+    intro s hI hb
+    refine ⟨?_, ?_⟩
+    · have := (hbody (Function.update ρ j (k - pot.eval s))).1
+      rwa [SB.eval_only hWo, Function.update_self] at this
+    · rw [holds_cons, holds_cons, upLo_eval, upHi_eval, holds_update_logical hGinv,
+        Function.update_self]
+      exact ⟨by linarith, by linarith, happ s (hG s hb) hI⟩
+  let F : ℤ → ℕ := fun X => upSum w d a c k (X / (d : ℤ)).toNat
+  have hFm : Monotone F := fun X Y h =>
+    upSum_mono w d a c k (Int.toNat_le_toNat (Int.ediv_le_ediv hdZ h))
+  have key := valid_whileMono (Φ := Φ) (I := holds inv ρ) (w := w) (b := test) (c := body)
+    (fun s => pot.eval s) d (fun v => a + c * (k - v).toNat) F k ?_ ?_
+    (fun X => upSum_ge w d a c k _) hFm ?_
+  · refine ⟨?_, ?_⟩
+    · refine valid_conseq ?_ key ?_ ?_
+      · intro s hP
+        rw [holds_cons, entryLin_eval] at hP
+        simp only [List.map_nil, dot, add_zero] at hP
+        exact ⟨hP.2, by linarith [hP.1]⟩
+      · -- `2 F k = upBound2 ≤ 2 B.c`
+        have hN : (((k / (d : ℤ)).toNat : ℕ) : ℤ) * d ≤ k ∨ (k / (d : ℤ)).toNat = 0 := by
+          by_cases hq : 0 ≤ k / (d : ℤ)
+          · left; rw [Int.toNat_of_nonneg hq]; exact Int.ediv_mul_le _ (ne_of_gt hdZ)
+          · right; omega
+        have hc : 2 * (F k : ℤ) = upBound2 w d a c k := by
+          simp only [F, upBound2]
+          rcases hN with h | h
+          · rw [upSum_closed w d a c k _ h]
+          · rw [h]; simp [upSum]
+        have h2 : B.c ≤ B.eval ρ := by simp [SB.eval]
+        have : (F k : ℤ) ≤ B.c := by linarith
+        omega
+      · rintro t ⟨hI, hb⟩; exact hQ t hI hb
+    · intro s t n hP he
+      rw [holds_cons] at hP
+      refine while_frame (I := holds inv ρ) (fun s' hI hb t' n' e => ?_) hP.2 he
+      obtain ⟨hv, hpre⟩ := body_at s' hI hb
+      have ht := (hv s' hpre).2 t' n' e
+      rw [holds_cons, holds_update_logical hinv] at ht
+      exact ⟨ht.2, (hbody _).2 s' t' n' hpre e⟩
+  · intro s hI hb
+    obtain ⟨H, hpre⟩ := body_at s hI hb
+    refine ⟨fun n hn => (H s hpre).1 n hn, fun t n he => ?_⟩
+    have ht := (H s hpre).2 t n he
+    rw [holds_cons, upHi_eval, holds_update_logical hinv, Function.update_self] at ht
+    exact ⟨ht.2, by linarith [ht.1]⟩
+  · intro s hI hb
+    have := entails1_sound hpos (ρ := ρ) (s := s) (happ s (hG s hb) hI)
+    simp only [Lin.eval, dot, dot_vsmul] at this
+    simp only [PExp.eval]; linarith
+  · intro v hv
+    have hdne : (d : ℤ) ≠ 0 := ne_of_gt hdZ
+    have hq : v / (d : ℤ) = (v - d) / (d : ℤ) + 1 := by
+      have : v = (v - d) + 1 * (d : ℤ) := by ring
+      conv_lhs => rw [this]
+      rw [Int.add_mul_ediv_right _ _ hdne]
+    have hM : 0 ≤ (v - d) / (d : ℤ) := Int.ediv_nonneg (by linarith) hdZ.le
+    have hv1 : (v / (d : ℤ)).toNat = ((v - d) / (d : ℤ)).toNat + 1 := by omega
+    have hle : (((((v - d) / (d : ℤ)).toNat + 1 : ℕ)) : ℤ) * d ≤ v := by
+      have e : ((((v - d) / (d : ℤ)).toNat + 1 : ℕ) : ℤ) = v / (d : ℤ) := by
+        push_cast; rw [Int.toNat_of_nonneg hM]; omega
+      rw [e]; exact Int.ediv_mul_le _ hdne
+    simp only [F]
+    rw [hv1]
+    simp only [upSum]
+    have : (k - v).toNat ≤ (k - ((((v - d) / (d : ℤ)).toNat + 1 : ℕ) : ℤ) * d).toNat :=
+      Int.toNat_le_toNat (by linarith)
+    have := Nat.mul_le_mul_left c this
+    omega
 
 /-! ### Logarithmic loops -/
 
@@ -1254,6 +1402,27 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
     exact ⟨valid_conseq (fun s hs => hs) H.1 (by
         have := SB.le_eval hB ρ
         simpa [SB.eval, SB.const, dotN] using this) (fun _ h => h), H.2⟩
+  | whileUp w gs inv pot d k j posCert Wb body ih =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hpos⟩, hbody⟩, hB⟩ := h
+    have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
+      simp [List.all_map, PExp.toLin, coeff]
+    exact uploop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv
+      (fun s hs e he => by
+        simp only [List.all_eq_true, decide_eq_true_eq] at hs
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        rw [PExp.toLin_eval]
+        exact hs g hg)
+      hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB
+      (fun t hI hbt => by
+        unfold logExit
+        split
+        · next g =>
+          rw [holds_cons, PExp.negLin_eval]
+          simp at hbt
+          exact ⟨by omega, hI⟩
+        · exact hI)
   | weaken P' preCerts B' Q' postCerts c ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true] at h
@@ -1531,6 +1700,107 @@ theorem triCert_69_rejected : check [] [] (triCertAt 69) (SB.const 70) [] = fals
 theorem triCert_cost (s : Env) (n : ℕ)
     (hp : Pre (fun _ => Cmd.skip) (triCertAt 70).toCmd s n) : n ≤ 71 := by
   have := certified_cost_le triCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) (by simp [holds]) hp
+  simpa using this
+
+/-! ### An amortised loop nest with increasing cost (`whileUp`) -/
+
+/-- The certificate the plugin emits for
+    `for (i = 0; i < 4; i++) for (j = 0; j < i; j++) {}` (variables `x₂ = i`, `x₃ = j`),
+    with the bound `b` claimed for the outer loop. In the outer body `γ₀ = 4 - (4 - i) = i`
+    (what the outer potential has lost), the inner loop's entry bound; the outer body costs
+    `5 + 4·γ₀` and the outer loop is bounded by `upOk`:
+    `5·2 + 4·5 + 4·(4·4 - 4·5/2) = 54`, where the product bound is `4·(2 + 5 + 4·4) + 2 = 94`. -/
+def upCertAt (b : ℕ) : ACmd :=
+  (.weaken [] [] (SB.const (b + 1)) [⟨[0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [],
+  -4⟩] [] (.seq (.weaken [⟨[0, 0, 0], [], 0⟩, ⟨[0, 0, 0], [], 0⟩] [(1, []), (1, [])] (SB.const 1)
+  [⟨[0, 0, 1], [], 0⟩, ⟨[0, 0, -1], [], 0⟩] [(1, [1, 0]), (1, [0, 1])] (.assign 1 2 ⟨[], 0⟩))
+  [⟨[0, 0, 1], [], 0⟩, ⟨[0, 0, -1], [], 0⟩] (SB.const 1) (SB.const b) (.seq .skip [⟨[0, 0, 1], [],
+  0⟩, ⟨[0, 0, -1], [], 0⟩] (SB.const 0) (SB.const b) (.weaken [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, -1],
+  [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [0, 1]), (1, [0, 1]), (1, [1, 0])] (SB.const b) [⟨[0, 0, -1],
+  [], 4⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0]), (1, [0, 1, 0]), (1, [0, 0,
+  1])] (.whileUp 2 [⟨[0, 0, 1], -3⟩] [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] ⟨[0, 0, -1], 4⟩ 1
+  (4) 0 (1, [1, 0, 0]) ⟨5, [4]⟩ (.weaken [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1],
+  [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0]),
+  (1, [0, 0, 1, 0, 0]), (1, [0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 1])] ⟨5, [4]⟩ [⟨[0, 0, 1, -1], [],
+  -1⟩, ⟨[0, 0, 1], [-1], -1⟩, ⟨[0, 0, -1], [1], 1⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0,
+  0, 1], [], -5⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩] [(1, [0, 0, 1, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0, 0, 1],
+  [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩]
+  (SB.const 0) ⟨3, [4]⟩ (.seq (.weaken [⟨[0, 0, 1, 0], [-1], 0⟩, ⟨[0, 0, -1, 0], [1], 0⟩, ⟨[0, 0,
+  1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [], 0⟩, ⟨[0, 0, 1, 0], [], -4⟩, ⟨[0, 0, 0, 0], [], 0⟩, ⟨[0, 0,
+  0, 0], [], 0⟩] [(1, [1, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0]), (1, [0, 0, 1, 0, 0]), (1, [0, 0, 0,
+  1, 0]), (1, [0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0])] (SB.const 1) [⟨[0, 0,
+  1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [],
+  -4⟩, ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0,
+  0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0,
+  0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 1])] (.assign 1 3 ⟨[], 0⟩)) [⟨[0, 0, 1],
+  [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
+  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 1) ⟨2, [4]⟩ (.seq .skip [⟨[0, 0, 1],
+  [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
+  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 0) ⟨2, [4]⟩ (.weaken [⟨[0, 0, 1, -1],
+  [-1], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
+  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0,
+  1]), (1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]), (1, [0,
+  0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 1, 0,
+  1, 0])] ⟨2, [4]⟩ [⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0,
+  1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1],
+  [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1])] (.while 2 ⟨[0, 0, -1, 1], 1⟩
+  [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0,
+  1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] ⟨[0, 0, 1, -1], 0⟩ 1 (0) [1] 1 (1,
+  [1, 0, 0, 0, 0, 0, 0, 0]) (SB.const 2) (.weaken [⟨[0, 0, 1, -1], [0, -1], 0⟩, ⟨[0, 0, -1, 1],
+  [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
+  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0,
+  0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0,
+  0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1])]
+  (SB.const 2) [⟨[0, 0, 1, -1], [0, -1], 1⟩, ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0,
+  -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [],
+  1⟩, ⟨[0, 0, -1, 1], [], -1⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 1, 0, 0,
+  0, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0, 0, 1, -1], [0, -1], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩, ⟨[0, 0,
+  1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [],
+  -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] (SB.const 0) (SB.const 0) .skip) [⟨[0, 0,
+  1, -1], [0, -1], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0,
+  1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1],
+  [], 0⟩] (SB.const 0) (SB.const 2) (.weaken [⟨[0, 0, 1, -1], [0, -1], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩,
+  ⟨[0, 0, 1, 0], [-1], 0⟩, ⟨[0, 0, -1, 0], [1], 0⟩, ⟨[0, 0, 1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [],
+  0⟩, ⟨[0, 0, 1, 0], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] [(1, [1, 0, 0, 0, 0,
+  0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0,
+  1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1])]
+  (SB.const 2) [⟨[0, 0, 1, -1], [0, -1], 1⟩, ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0,
+  -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [],
+  1⟩, ⟨[0, 0, -1, 1], [], -1⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1])] (.assign 2 3 ⟨[0, 0, 0, 1], 1⟩))))))))) [⟨[0,
+  0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1],
+  [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] ⟨3, [4]⟩ (SB.const
+  2) (.weaken [⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [],
+  -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩]
+  [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 1, -1], [], -1⟩,
+  ⟨[0, 0, 1], [-1], -1⟩, ⟨[0, 0, -1], [1], 1⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0, 0,
+  1], [], -5⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 1])] (.assign 2 2 ⟨[0, 0, 1], 1⟩)))))))))
+
+set_option maxRecDepth 100000 in
+theorem upCert_checks : check [] [] (upCertAt 54) (SB.const 55) [] = true := by decide
+
+set_option maxRecDepth 100000 in
+/-- The amortised bound is the least the checker accepts for this nest. -/
+theorem upCert_53_rejected : check [] [] (upCertAt 53) (SB.const 54) [] = false := by decide
+
+/-- Hence the nest costs at most `55` from any state, by the checker alone. -/
+theorem upCert_cost (s : Env) (n : ℕ)
+    (hp : Pre (fun _ => Cmd.skip) (upCertAt 54).toCmd s n) : n ≤ 55 := by
+  have := certified_cost_le upCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) (by simp [holds]) hp
   simpa using this
 
 /-! ### A constrained unknown value -/

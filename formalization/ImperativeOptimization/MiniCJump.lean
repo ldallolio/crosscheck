@@ -2245,6 +2245,9 @@ theorem quiet_of_quietB {nq : ℕ} {G W : List ℕ} : ∀ c : ACmd, quietCmd nq 
   | whileGrow w gs _ _ _ _ _ _ _ b ih =>
     intro h; simp only [quietCmd, Bool.and_eq_true, List.all_eq_true] at h
     exact ⟨fun σ σ' ha => all_indep (fun g hg => indep_of_zeroOn (h.1 g hg)) ha, ih h.2⟩
+  | whileUp w gs _ _ _ _ _ _ _ b ih =>
+    intro h; simp only [quietCmd, Bool.and_eq_true, List.all_eq_true] at h
+    exact ⟨fun σ σ' ha => all_indep (fun g hg => indep_of_zeroOn (h.1 g hg)) ha, ih h.2⟩
   | weaken _ _ _ _ _ c ih => intro h; exact ih h
   | dead _ c ih => intro h; exact ih h
   | call _ _ _ _ _ _ => intro h; simpa [quietCmd] using h

@@ -1157,6 +1157,58 @@ What the AI did for 47 (Claude Opus 5.5, 2026-11-16).
   `tab:lean`; Paper II certificate generation and limitations. **Author to check** (§3,
   item 36).
 
+48. "Proceed with the next step, also check yourself for prior work"
+
+What the AI did for 48 (Claude Opus 5.5, 2026-11-16).
+- **Prior work** (the `\authortodo` of prompt 47). Web search, then the texts read locally:
+  Healy, Sjödin, Rustagi, Whalley, van Engelen, "Supporting Timing Analysis by Automatic
+  Bounding of Loop Iterations", Real-Time Systems 18 (2000), Section 5: non-rectangular
+  loop nests, the number of iterations as a summation, after Sakellariou; and Albert,
+  Genaim, Masud, "More Precise Yet Widely Applicable Cost Analysis", VMCAI 2011, read
+  through Section 4.2 of Masud's thesis (the paper's own copy needs a login): the costs of
+  successive iterations bounded by an arithmetic (or geometric) sequence, increasing or
+  decreasing, and summed. Both DOIs checked against Crossref; bibliography entries
+  `healy2000supporting`, `albert2011more`; reading notes in `references/README.md`. The
+  paper no longer presents the summation as new: Paper I cites both before
+  `prop:amortised-loop`, Paper II in its related work. The search was a few queries, not
+  a survey: earlier sources may exist.
+- **Next step: inner loops from `0` to the outer counter** (`j < i`), left open by 47.
+  Lean: `Language.valid_whileMono` (with `whileMono_exec`, `whileMono_pre`): the loop
+  rule with a monotone bound `F` of the potential itself (`w + W v + F (v − d) ≤ F v`
+  for `v ≥ d`), which allows a cost that grows as the potential falls (Paper I
+  `prop:amortised-loop`(2)). Checker: new node `whileUp` (`CheckerCore`: `upLo`, `upHi`,
+  `upBound2`, `upOk`): constant entry bound `k`; the body is checked with
+  `γⱼ = k − pot` (two constraints) and must end with `pot + γⱼ − k + d ≤ 0`; body bound
+  `a + c·max(0, γⱼ)`; `2B ≥ 2((N+1)w + Na) + c(2Nk − dN(N+1))`, `N = ⌊k/d⌋`. Proof
+  `Checker.uploop_sound` (closed form by induction, `upSum`, `upSum_closed`) and the new
+  case of `check_sound`; the mini-C modules (`nf`, `nf_equiv`, `quietCmd`) and the
+  executable (`CheckerMain`: JSON, printing) handle the node. Example `upCertAt`: the
+  tool's certificate of `for i<4: for j<i`, `upCert_checks` (54 for the loop, 94 as a
+  product), `upCert_53_rejected`, `upCert_cost`, by `decide`. Lean: 436 theorems, about
+  9,700 lines, standard axioms only (checked with `#print axioms` for `valid_whileMono`,
+  `uploop_sound`, `check_sound`, `upCert_cost`, `program_sound`).
+- **Generator.** A loop whose body contains a loop and that has a constant entry bound is
+  also lowered with the body precondition `γⱼ = k − pot`; if the body bound is
+  `a + c·γⱼ`, a `whileUp` node with `cert::upBound` competes with the other candidates by
+  value. C++: `Node::WhileUp`, JSON, replicas `upLo`/`upHi`; interpreter
+  `formalization/test/cert_interp.py` runs the node. First version tried it only when
+  the first lowering had no bound in `γⱼ`; that missed the back-substitution nest of
+  `ludcmp` (330 → 230 once fixed). Cost: one more lowering of every body that contains a
+  loop (the example file 5 s → 12 s; the kernel run 143 s → 156 s).
+- **Tests.** `Certificates.AmortisedTriangularNest`: the `j < i` nest now below 60% of
+  the product; `Certificates.EmittedWithTheSameBound` now expects a lower certified bound
+  for its `j < i` nest (378 against 648) and a `whileUp` node; three `j < i` examples in
+  `tests/certificates/triangular.cpp` (`prefix`, `insertion`, `upto`; all accepted, about
+  half the product); the mutation fixture regenerated (119 mutants, 118 rejected, the
+  accepted one never exceeded). 175 ctest tests pass.
+- **Results.** Kernels: 161 certified, 161 accepted, 152 validated, 146 equal and 14
+  lower (unchanged counts); `ludcmp_main` 3,674 → 3,474 (two `whileUp` nests), `main` of
+  `ludcmp` 4,843 → 4,643. Sequential/app: unchanged (231 certified and accepted, 193 validated, none failing; 207 equal, 14 lower; no `whileUp` node: no `j < i` nest with constant bounds there); the run took 88 min, `cjpeg_transupp` 2,833 s (2,299 s before).
+- Papers: Paper I `prop:amortised-loop` (part 2, prior work), `def:certificate`, checker
+  description, proof of `thm:checker-soundness`, scope paragraph, nested-loops paragraph,
+  Table `tab:lean`, conclusion; Paper II generator, results, related work, limitations,
+  future work. **Author to check** (§3, item 37).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1376,5 +1428,15 @@ is whether each Lean statement says what the paper says, and everything outside 
     check that the third form of the loop condition in `def:certificate` and in the
     checker description is `CheckerCore.triOk`. Decide whether this rule is presented as
     new: amortised bounds for triangular nests are classical in loop-bound analysis (e.g.
-    symbolic summation of nested loop counts); the AI has not searched the literature for
-    the first appearance of this exact rule and the paper cites none for it.
+    symbolic summation of nested loop counts). (Prompt 48: the AI searched briefly and
+    now cites Healy et al. 2000 and Albert, Genaim, Masud 2011; see item 37.)
+37. **Amortised loops with increasing cost, and prior work (prompt 48).** Read part (2) of
+    `prop:amortised-loop` and its proof against `Language.valid_whileMono` and
+    `Checker.upSum_closed`/`uploop_sound`; check that the description of the loop
+    "amortised with increasing cost" in `def:certificate` and in the checker description
+    is `CheckerCore.whileUp`/`upOk`. Check the two attributions (`healy2000supporting`
+    Section 5; `albert2011more`, read only through Masud's thesis) and look for earlier
+    sources (Sakellariou's summations, IPET flow facts that bound the total count of an
+    inner loop, e.g. Puschner and Koza's markers): the paper must not suggest that the
+    summation is new, only its form as a rule of the cost logic with a checker case.
+    Remove the `\authortodo` before `prop:amortised-loop` when done.

@@ -792,13 +792,17 @@ TEST(Certificates, AmortisedTriangularNest) {
   EXPECT_EQ(d.certificate, "emitted");
   ASSERT_TRUE(d.certificateBound.has_value());
   EXPECT_LT(*d.certificateBound * 10, d.wcet * 6);  // below 60% of the product bound
-  for (const char* name : {"square", "up"}) {
-    const FunctionReport& f = fn(r, name);
-    ASSERT_TRUE(f.ok) << name;
-    EXPECT_EQ(f.certificate, "emitted") << name;
-    ASSERT_TRUE(f.certificateBound.has_value()) << name;
-    EXPECT_EQ(*f.certificateBound, f.wcet) << name;
-  }
+  const FunctionReport& sq = fn(r, "square");
+  ASSERT_TRUE(sq.ok);
+  EXPECT_EQ(sq.certificate, "emitted");
+  ASSERT_TRUE(sq.certificateBound.has_value());
+  EXPECT_EQ(*sq.certificateBound, sq.wcet);
+  // `j < i`: amortised with the node `whileUp`.
+  const FunctionReport& u = fn(r, "up");
+  ASSERT_TRUE(u.ok);
+  EXPECT_EQ(u.certificate, "emitted");
+  ASSERT_TRUE(u.certificateBound.has_value());
+  EXPECT_LT(*u.certificateBound * 10, u.wcet * 6);
 }
 
 // Option `symbolic`: without input ranges, a loop with a ranking potential is not an
@@ -899,9 +903,11 @@ TEST(Certificates, EmittedWithTheSameBound) {
   ASSERT_TRUE(f.ok);
   EXPECT_EQ(f.certificate, "emitted");
   ASSERT_TRUE(f.certificateBound.has_value());
-  EXPECT_EQ(*f.certificateBound, f.wcet);
+  // The nest `j < i` is amortised in the certificate (node `whileUp`), not by the analyser.
+  EXPECT_LT(*f.certificateBound, f.wcet);
   ASSERT_FALSE(r.certificates.empty());
   EXPECT_NE(r.certificates.back().find("\"while\""), std::string::npos);
+  EXPECT_NE(r.certificates.back().find("\"whileUp\""), std::string::npos);
 }
 
 TEST(Certificates, OutsideTheFragmentSaysWhy) {

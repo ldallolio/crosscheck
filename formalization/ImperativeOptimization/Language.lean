@@ -411,6 +411,101 @@ theorem valid_whileSum {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S
   exact ⟨fun n hp => whileSum_pre V d W F h_body h_pos hF0 hF hp K hs.1 hs.2,
     fun t n he => (whileSum_exec V d W F h_body h_pos hF0 hF he K hs.1 hs.2).2⟩
 
+/-- Terminating executions, with a bound `F` of the potential itself: if `F` is monotone,
+    `F X ≥ w` and `w + W v + F (v - d) ≤ F v` for `v ≥ d`, an execution from `s` costs at
+    most `F (V s)`. -/
+theorem whileMono_exec {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X) (hmono : Monotone F)
+    (hF : ∀ v, (d : ℤ) ≤ v → w + W v + F (v - d) ≤ F v)
+    {s t : S} {n : ℕ} (he : Exec Φ (Cmd.while w b c) s t n) :
+    I s → n ≤ F (V s) ∧ I t ∧ b t = false := by
+  generalize hW : Cmd.while w b c = Wc at he
+  induction he with
+  | skip => cases hW
+  | atom => cases hW
+  | seq => cases hW
+  | iteTrue => cases hW
+  | iteFalse => cases hW
+  | call => cases hW
+  | whileFalse hb =>
+    cases hW
+    intro hI
+    exact ⟨hF0 _, hI, hb⟩
+  | @whileTrue _ _ _ s' u' _ _ _ hb e₁ _ _ ih =>
+    cases hW
+    intro hI
+    have hbody := h_body s' hI hb
+    have hpost := hbody.2 _ _ e₁
+    have hcost := hbody.1 _ (Pre.done e₁)
+    have h1 := h_pos _ hI hb
+    obtain ⟨hn, hIt, hbt⟩ := ih rfl hpost.1
+    refine ⟨?_, hIt, hbt⟩
+    have hm := hmono (show V u' ≤ V s' - d by linarith [hpost.2])
+    have := hF (V s') h1
+    omega
+
+/-- The same for execution prefixes. -/
+theorem whileMono_pre {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X) (hmono : Monotone F)
+    (hF : ∀ v, (d : ℤ) ≤ v → w + W v + F (v - d) ≤ F v)
+    {s : S} {n : ℕ} (hp : Pre Φ (Cmd.while w b c) s n) :
+    I s → n ≤ F (V s) := by
+  generalize hW : Cmd.while w b c = Wc at hp
+  induction hp with
+  | stop => intro _; exact Nat.zero_le _
+  | done he =>
+    cases hW
+    intro hI
+    exact (whileMono_exec V d W F h_body h_pos hF0 hmono hF he hI).1
+  | seqLeft => cases hW
+  | seqRight => cases hW
+  | iteTrue => cases hW
+  | iteFalse => cases hW
+  | call => cases hW
+  | @whileBody _ _ _ s' _ hb p =>
+    cases hW
+    intro hI
+    have hcost := (h_body s' hI hb).1 _ p
+    have := hF (V s') (h_pos _ hI hb)
+    omega
+  | @whileNext _ _ _ s' u' _ _ hb e₁ _ ih =>
+    cases hW
+    intro hI
+    have hbody := h_body s' hI hb
+    have hpost := hbody.2 _ _ e₁
+    have hcost := hbody.1 _ (Pre.done e₁)
+    have hn := ih rfl hpost.1
+    have hm := hmono (show V u' ≤ V s' - d by linarith [hpost.2])
+    have := hF (V s') (h_pos _ hI hb)
+    omega
+
+/-- **Amortised loop rule, general form.** The bound is a monotone function `F` of the
+    potential itself: `F X ≥ w` and `w + W v + F (v - d) ≤ F v` for `v ≥ d`. Unlike
+    `valid_whileSum`, the body cost `W` need not grow with the potential: for
+    `W v = a + c (K - v)` (an iteration costs more when more has been spent before it)
+    the bound is `Σ_{m=1}^{N} (w + a + c (K - m d)) + w` with `N = ⌊K/d⌋`. -/
+theorem valid_whileMono {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    (V : S → ℤ) (d : ℕ) (W : ℤ → ℕ) (F : ℤ → ℕ) (K : ℤ)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ n, Pre Φ c s n → n ≤ W (V s)) ∧ ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (hF0 : ∀ X, w ≤ F X) (hmono : Monotone F)
+    (hF : ∀ v, (d : ℤ) ≤ v → w + W v + F (v - d) ≤ F v) :
+    Valid Φ (fun s => I s ∧ V s ≤ K) (Cmd.while w b c) (F K)
+      (fun t => I t ∧ b t = false) := by
+  intro s hs
+  exact ⟨fun n hp => le_trans (whileMono_pre V d W F h_body h_pos hF0 hmono hF hp hs.1)
+      (hmono hs.2),
+    fun t n he => (whileMono_exec V d W F h_body h_pos hF0 hmono hF he hs.1).2⟩
+
 end WhileSum
 
 /-! ### The cost logic -/

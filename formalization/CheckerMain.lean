@@ -151,6 +151,11 @@ partial def parseCmd (j : Json) : Except String ACmd := do
         (← parsePExp (← field j "pot")) (← getNat j "b") (← getInt j "K")
         (← getNat j "j") (← parseFarkas (← field j "capCert")) (← getSB j "Wb")
         (← parseCmd (← field j "body")))
+  | "whileUp" =>
+      pure (.whileUp (← getNat j "w") (← parseArr j "gs" parsePExp) (← parseArr j "inv" parseLin)
+        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k")
+        (← getNat j "j") (← parseFarkas (← field j "posCert")) (← getSB j "Wb")
+        (← parseCmd (← field j "body")))
   | "weaken" =>
       pure (.weaken (← parseArr j "P" parseLin) (← parseArr j "preCerts" parseFarkas)
         (← getSB j "B") (← parseArr j "Q" parseLin) (← parseArr j "postCerts" parseFarkas)
@@ -409,6 +414,11 @@ partial def showCmd (vars : List String) (ind : String) : ACmd → String
       s!"{ind}while ({" && ".intercalate (gs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}) \{" ++
       s!"    [test cost {w}; invariant {showAssn vars inv}; growing potential " ++
       s!"1 <= {showAffine vars pot.sv [] pot.c} <= {K} under the test, multiplied by {b} per iteration ({logIters b K} iterations); γ{j}; body bound {showSB Wb}]\n" ++
+      showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
+  | .whileUp w gs inv pot d k j _ Wb body =>
+      s!"{ind}while ({" && ".intercalate (gs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}) \{" ++
+      s!"    [test cost {w}; invariant {showAssn vars inv}; potential " ++
+      s!"({showAffine vars pot.sv [] pot.c})/{d} <= {k}/{d}; γ{j} = {k} - ({showAffine vars pot.sv [] pot.c}); body bound {showSB Wb}]\n" ++
       showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
   | .weaken _ _ _ _ _ c => showCmd vars ind c
   | .dead _ c => s!"{ind}// unreachable\n" ++ showCmd vars ind c

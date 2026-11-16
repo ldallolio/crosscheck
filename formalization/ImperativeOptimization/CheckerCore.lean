@@ -173,6 +173,20 @@ def triOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
   kl.all (· = 0) && (Wb.co.set j 0).all (· = 0) &&
     decide (triBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
 
+/-- **Amortised loops, increasing cost**: twice the bound of a loop with a constant entry
+    bound `k` of `pot`, decrease `d`, test cost `w`, whose body costs at most
+    `a + c·(k - pot)` (`pot` read before the body: the cost grows as the potential falls).
+    With `N = ⌊k/d⌋`, the `m`-th iteration from the end starts with `pot ≥ m·d`, so the loop
+    costs at most `N (w + a) + c (N k - d N (N + 1) / 2) + w`; doubled. -/
+def upBound2 (w d a c : Nat) (k : Int) : Int :=
+  2 * ((((k / d).toNat : Int) + 1) * w + ((k / d).toNat : Int) * a) +
+    c * (2 * ((k / d).toNat : Int) * k - d * ((k / d).toNat : Int) * (((k / d).toNat : Int) + 1))
+
+/-- The bound condition of `whileUp`: the body bound `Wb = a + c·γⱼ` mentions only the
+    loop's logical variable `j` (there `k - pot` before the body). -/
+def upOk (w d : Nat) (k : Int) (j : Nat) (Wb B : SB) : Bool :=
+  (Wb.co.set j 0).all (· = 0) && decide (upBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
+
 /-- The bound condition of the loop nodes `while` and `whileAnd`: a body bound that does
     not mention `γⱼ` (`loopBoundOk`), or the amortised bound (`triOk`). -/
 def loopOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
@@ -243,6 +257,13 @@ inductive ACmd where
       most `⌊log_b K⌋ + 1` times. The body bound `Wb` must be constant. -/
   | whileGrow (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (b : Nat) (K : Int)
       (j : Nat) (capCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
+  /-- `while (gs) body` with an affine potential `pot / d` bounded by the constant `k` on
+      entry, whose body may cost more as the potential falls: in the body the logical
+      variable `j` is `k - pot` (the potential read before the body), so that a body bound
+      `a + c·γⱼ` pays each iteration by what has been spent before it (an inner loop from
+      `0` to the outer counter). After the loop: as for `whileLog`. -/
+  | whileUp (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int)
+      (j : Nat) (posCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
   /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
       follows by the given Farkas certificates. -/
   | weaken (P' : List Lin) (preCerts : List (Nat × List Nat)) (B' : SB) (Q' : List Lin)
@@ -301,6 +322,15 @@ def logExit (gs : List PExp) (inv : List Lin) : List Lin :=
   | [g] => g.negLin :: inv
   | _ => inv
 
+/-- `k - pot - γⱼ ≤ 0`: the logical variable `j` is at least `k - pot`. -/
+def upLo (pot : PExp) (j : Nat) (k : Int) : Lin :=
+  ⟨vsmul (-1) pot.sv, vsmul (-1) (unit j), k - pot.c⟩
+
+/-- `pot + γⱼ - k + extra ≤ 0`: with `extra = 0`, `γⱼ` is at most `k - pot`; with
+    `extra = d`, the potential is at least `d` below its value before the iteration. -/
+def upHi (pot : PExp) (j : Nat) (k extra : Int) : Lin :=
+  ⟨pot.sv, unit j, pot.c - k + extra⟩
+
 /-- `pot - γⱼ + extra ≤ 0`, where `γⱼ` is the logical variable `j`. -/
 def ghost (pot : PExp) (j : Nat) (extra : Int) : Lin :=
   ⟨pot.sv, vsmul (-1) (unit j), pot.c + extra⟩
@@ -321,6 +351,7 @@ def writes (fs : List FunCert) : ACmd → List Nat
   | .whileAnd _ _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileLog _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileGrow _ _ _ _ _ _ _ _ _ body => writes fs body
+  | .whileUp _ _ _ _ _ _ _ _ _ body => writes fs body
   | .weaken _ _ _ _ _ c => writes fs c
   | .dead _ c => writes fs c
   | .call _ f _ _ _ _ => match fs[f]? with
@@ -378,6 +409,15 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       check fs (ghostLow pot j :: growEntry pot :: (gs.map PExp.toLin ++ inv)) body Wb
         (ghostGrow pot j b :: inv) &&
       SB.le (SB.const (logIters b K * (w + Wb.c) + w)) B
+  | .whileUp w gs inv pot d k j posCert Wb body, B, Q =>
+      decide (0 < d) &&
+      decide (P = entryLin pot k [] :: inv) &&
+      decide (Q = logExit gs inv) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) &&
+      entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
+      check fs (upLo pot j k :: upHi pot j k 0 :: (gs.map PExp.toLin ++ inv)) body Wb
+        (upHi pot j k d :: inv) &&
+      upOk w d k j Wb B
   | .weaken P' preCerts B' Q' postCerts c, B, Q =>
       entailsAll P P' preCerts && check fs P' c B' Q' && SB.le B' B &&
         entailsAll Q' Q postCerts

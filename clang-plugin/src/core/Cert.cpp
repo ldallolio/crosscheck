@@ -102,6 +102,12 @@ Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b) {
 Lin growEntry(const PExp& pot) { return Lin{vsmul(-1, pot.sv), {}, 1 - pot.c}; }
 
 Lin ghostLow(const PExp& pot, std::size_t j) { return Lin{vsmul(-1, pot.sv), unitVec(j), -pot.c}; }
+Lin upLo(const PExp& pot, std::size_t j, std::int64_t k) {
+  return Lin{vsmul(-1, pot.sv), vsmul(-1, unitVec(j)), k - pot.c};
+}
+Lin upHi(const PExp& pot, std::size_t j, std::int64_t k, std::int64_t extra) {
+  return Lin{pot.sv, unitVec(j), pot.c - k + extra};
+}
 
 Lin ghostGrow(const PExp& pot, std::size_t j, std::uint64_t b) {
   return Lin{vsmul(-1, pot.sv), vsmul(static_cast<std::int64_t>(b), unitVec(j)), -pot.c};
@@ -186,6 +192,18 @@ std::optional<std::uint64_t> triBound(std::int64_t k, std::uint64_t d, std::uint
   __int128 N = q > 0 ? q : 0;
   __int128 t2 = 2 * ((N + 1) * static_cast<__int128>(w) + N * static_cast<__int128>(a)) +
                 static_cast<__int128>(c) * (2 * N * k - static_cast<__int128>(d) * N * (N - 1));
+  if (t2 < 0 || t2 / 2 > static_cast<__int128>(std::numeric_limits<std::int64_t>::max())) return std::nullopt;
+  return static_cast<std::uint64_t>(t2 / 2);
+}
+
+std::optional<std::uint64_t> upBound(std::int64_t k, std::uint64_t d, std::uint64_t w,
+                                     std::uint64_t a, std::uint64_t c) {
+  // Lean `upBound2 w d a c k / 2` (the doubled value is even), with N = (k / d).toNat.
+  std::int64_t q = k >= 0 ? k / static_cast<std::int64_t>(d)
+                          : -((-k + static_cast<std::int64_t>(d) - 1) / static_cast<std::int64_t>(d));
+  __int128 N = q > 0 ? q : 0;
+  __int128 t2 = 2 * ((N + 1) * static_cast<__int128>(w) + N * static_cast<__int128>(a)) +
+                static_cast<__int128>(c) * (2 * N * k - static_cast<__int128>(d) * N * (N + 1));
   if (t2 < 0 || t2 / 2 > static_cast<__int128>(std::numeric_limits<std::int64_t>::max())) return std::nullopt;
   return static_cast<std::uint64_t>(t2 / 2);
 }
@@ -282,6 +300,7 @@ std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std
       case Node::WhileAnd:
       case Node::WhileLog:
       case Node::WhileGrow:
+      case Node::WhileUp:
       case Node::Weaken:
       case Node::Dead: go(*m.c1); break;
       case Node::Call:
@@ -588,6 +607,15 @@ std::string node(const Node& n) {
       return "{\"node\":\"whileGrow\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"b\":" + u(n.d) + ",\"K\":" + std::to_string(n.k) +
              ",\"j\":" + u(n.j) + ",\"capCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
+             ",\"body\":" + node(*n.c1) + "}";
+    }
+    case Node::WhileUp: {
+      std::string g = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) g += (i ? "," : "") + pexp(n.gs[i]);
+      g += "]";
+      return "{\"node\":\"whileUp\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
+             ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
+             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     }
     case Node::Weaken:
