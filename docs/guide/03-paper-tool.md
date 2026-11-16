@@ -75,7 +75,7 @@ stack bounds). Always say whether a loop figure is *for every call* or *in conte
 | Cortex-M0 cycles | 107 of 267 functions; 6 entry functions at 1.24 to 2.49 times the emulated run; 11 calls and 45 loops compared, no violation; one `fft` function 970 times (product of nested bounds) | `benchmarks/cycles/README.md` |
 | TPDB, 553 programs | analysis alone: 11 as is, 207 with input ranges (156 certified, 114 with a symbolic summary); KoAT2 288, CoFloCo 264 | `benchmarks/tpdb/README.md` |
 | TPDB without ranges (option `symbolic`) | 101 programs with a certificate valid for all inputs: 87 with a bound in the parameters (`max(0,x)`, `max(0,-x)`, `max(0,x-y)`), 14 constant; 135 more have potentials but no certificate (47: products) | `benchmarks/tpdb/README.md` |
-| Rust examples | 11 of 12 functions translated, 6 bounded, 3 certified, 1 validated; 382 differential runs, no mismatch | `frontends/rust/README.md` |
+| Rust examples | 11 of 12 functions translated, 6 bounded, 3 certified, all 3 validated; 382 differential runs, no mismatch | `frontends/rust/README.md` |
 
 Tests against executions (`fuzz_bounds.py`, `mutate_certificates.py`): see part 4,
 section 11, and Paper II, paragraph "Tests against executions". They found two defects

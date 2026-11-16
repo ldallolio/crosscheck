@@ -52,5 +52,5 @@ uses a slice iterator); 382 differential runs, no mismatch (38 Rust panics skipp
 bounded: `fir`, `sat_sum`, `bubble`, `steps_down`, `table`, `twice` (with `assert!`
 ranges, no annotation); `isqrt` not bounded (its test `(r+1)² ≤ x` is quadratic); the 4
 `rejected_*` not bounded; certificates for `steps_down`, `table`, `twice`, all accepted,
-`steps_down` also validated against mini-C (`fir`, `sat_sum`, `bubble` have `usize`
+all three also validated against mini-C since 2026-11-16 (`steps_down` only, before calls and unsigned stores were in mini-C) (`fir`, `sat_sum`, `bubble` have `usize`
 counters, for which the certificate generator does not find the invariants).
