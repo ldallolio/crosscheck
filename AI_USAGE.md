@@ -880,7 +880,9 @@ in the papers says that the author verified anything.
   how the generator already lowered it; the description has every execution of the C
   statement and more (the value is not compared with the labels). Tests `ok_switch`,
   `ok_switch_in_loop`, `ok_switch_return`, `no_switch_nested_label`. Kernels: 147 of 161
-  validated, 140 with all callees, none failing.
+  validated, 140 with all callees, none failing. Sequential/app, re-run afterwards:
+  178 of 231 validated (170 before), none failing; the TPDB certificate counts, re-run
+  with the same build, are unchanged (156 with ranges, 101 without).
 - **OTAWA** (the author built its Docker image during the session and said so; the AI ran
   it with `--network none`). `benchmarks/cycles/run_otawa.py`: the kernels linked for the
   Cortex-M0 with `rust-lld`, CrossCheck's bounds as FFX flow facts on the binary loop

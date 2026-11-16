@@ -64,7 +64,7 @@ stack bounds). Always say whether a loop figure is *for every call* or *in conte
 | TACLeBench kernels, 220 loops (`tab:tacle`) | for every call: 133 bounded, 105 = flow fact; in context: 142 bounded, 131 = flow fact; 12 of 29 entry functions bounded | `benchmarks/tacle/README.md` |
 | Observed loop counts (208 loops run) | no bound of CrossCheck below an observed count; geometric mean bound/observed: 1.85 (every call), 1.04 (in context; largest 7.2, binary search bounded linearly) | `compare_tools.py --check` |
 | Certificates on the kernels | 161 of 165 bounded functions, all accepted; 11 entry functions; 128 calls checked against the callee's summary | `run_tacle.py --certificates` |
-| Validation against the source | 143 of the 161 kernel certificates validated against mini-C, none failing (93 before division, unsigned stores and calls); 134 with all their callees; 170 of 231 on sequential/app (113 before); the rest: globals (6), jumps in loops (6), callees without an entry (4), calls in tests (2) | `run_tacle.py --minic` |
+| Validation against the source | 147 of the 161 kernel certificates validated against mini-C, none failing (93 before division, unsigned stores and calls; 143 before early exits and `switch`); 140 with all their callees; 178 of 231 on sequential/app (113 before); the rest on the kernels: globals (6), callees without an entry (6), calls in tests (2). Early exits and `switch` are written by the exporter with flag variables and unknown tests: a trusted rewriting | `run_tacle.py --minic` |
 | ScalarEvolution (LLVM) | 113 loops; of 104 common loops, 99 identical, ours smaller by one on 4, LLVM's smaller by one on 1 (`fft` doubling loop: 10 vs 11) | `tab:tools` |
 | oRange (OTAWA) | 131 loops; identical to our in-context bounds on 114 of 115 common loops (binary search: oRange 5, ours 29, the flow fact 4); one oRange bound below the observed count (`filterbank`) | `tab:tools`, `compare_ffx.py` |
 | KoAT2 / CoFloCo | 5 / 8 entry functions numerically bounded (ours: 12); CoFloCo never looser than KoAT2 on the same programs | `tab:tools` |
@@ -141,7 +141,7 @@ translation unverified.
 
 A compiler plugin bounds loops and recursion of real-time C/C++ at compile time; callees
 are analysed in their calling contexts; for a linear fragment it emits certificates that a
-Lean-verified checker accepts (161 of 165 bounded TACLeBench kernel functions; 143 also
+Lean-verified checker accepts (161 of 165 bounded TACLeBench kernel functions; 147 also
 validated against the source). Loops get affine or logarithmic potentials. Its in-context
 loop bounds agree with oRange's on all but one common loop, and never fall below observed
 loop counts. Without annotations it certifies bounds in the parameters for 101 of 553
