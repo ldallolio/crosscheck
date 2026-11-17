@@ -7,7 +7,8 @@ memory. It is step S5 of `docs/proposals.md`.
 
 ```bash
 python3 benchmarks/cycles/run_cycles.py --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
-    [--only bsort] [--json out.json] [--check] [--mul-cycles 32]
+    [--only bsort] [--json out.json] [--check] [--mul-cycles 32] \
+    [--certify DIR --checker formalization/.lake/build/bin/crosscheck-check]
 ```
 
 For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.py`):
@@ -85,6 +86,45 @@ Matching rule: the first version, which took the largest bound among all lines o
 loop's instructions, gave `matrix1_main` 100 iterations instead of 10 (an instruction of
 the loop's preheader inherits the line of another loop) and a bound 105 times the observed
 cycles; trying the lines of the back-edge branches first gives 1.31.
+
+## Certified cycle bounds (2026-11-17)
+
+`run_cycles.py --certify DIR --checker formalization/.lake/build/bin/crosscheck-check`
+also gives every function an IPET bound with a certificate (`ipet.py`): the control-flow
+graph of `wcet.py` with one exit node and costs on edges (a conditional branch: 3 cycles
+taken, 1 not taken), one row per matched loop (`Σ back edges − N·Σ entry edges ≤ 0`,
+`≤ N` if the header is the entry), the multipliers of the rows from the dual of the IPET
+linear program (scipy's HiGHS, untrusted), made integer, and potentials computed exactly
+as longest paths to the exit. The verified checker accepts or rejects the certificate
+(Lean `Cycles.program_sound`, Paper I `prop:cycles`; format in
+`docs/certificate-format.md`); calls add the callees' certified bounds.
+
+| | |
+|---|---:|
+| functions with a timing-schema bound | 107 |
+| of which certified (checker: ACCEPTED) | **107** |
+| certified bound below the schema's / equal / above | 60 / 47 / 0 |
+| certified / schema bound: smallest, median | 0.72, 0.998 |
+| calls compared with the runs, violations | 11, 0 |
+| run time of all kernels, with certificates | 2.6 min |
+
+| Kernel | Schema bound of `main` | Certified bound | Observed | Certified / observed |
+|---|---:|---:|---:|---:|
+| binarysearch | 32,686 | 27,222 | 24,241 | 1.12 |
+| bsort | 369,779 | 288,179 | 148,668 | 1.94 |
+| countnegative | 449,615 | 374,161 | 327,923 | 1.14 |
+| isqrt | 1,005,075 | 806,676 | 689,071 | 1.17 |
+| jfdctint | 75,652 | 64,760 | 60,911 | 1.06 |
+| matrix1 | 63,722 | 63,447 | 48,548 | 1.31 |
+
+The certified bounds can be lower because IPET costs each edge separately (a loop exit or
+another not-taken branch is not charged as taken) and maximizes over consistent edge
+counts rather than adding a longest iteration and a longest exit path; how much each
+contributes was not measured. What the check removes from the trusted base is the computation of the
+bound; the graph, the edge costs and the rows (decoding by `m0.py`, its timing table, the
+loop matching) stay trusted, as for `wcet.py`. Tests: `test_ipet.py` (a function whose
+worst case is known; certificates altered in each part must be rejected), in CI, where the
+certificates of all kernels are checked by the Lean checker job.
 
 ## OTAWA on the same binaries (2026-11-16)
 

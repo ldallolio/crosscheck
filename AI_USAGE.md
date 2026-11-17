@@ -1356,6 +1356,50 @@ What the AI did for 53 (Claude Opus 5.5, 2026-11-17): the linker work of prompt 
   step 17, CLAUDE.md.
 - **Not done**: aiT (not available here); a certified cycle bound of the binary.
 
+54. "Proceed with this next step"
+
+What the AI did for 54 (Claude Opus 5.5, 2026-11-17): the certified cycle bound of the
+binary (the research step of prompts 51-53).
+- **Prior work searched and read** (`references/pdf/maroneze2014formally.pdf`, Sections
+  2.2 and 3.4): Maroneze, Blazy, Pichardie and Puaut validate in Coq the solution of the
+  IPET program of their WCET estimation with a Farkas certificate, and prove the ILP
+  generation against CompCert's assembly semantics, with one cycle per instruction. The
+  new certificate is the same idea (weak LP duality, Schrijver; IPET, Li and Malik), in
+  the form of node potentials and row multipliers, with costs on edges and calls bounded
+  by the callees' claims; the generation of the graph is *not* proved here (trusted).
+  Paper I cites them before the statement.
+- **Lean** (new modules `CyclesCore`, no mathlib, and `Cycles`): graphs with weighted edges
+  and callees, rows on edge counts, certificates (scale, potentials, multipliers, bound),
+  executable `checkFn`/`checkProgram`; runs indexed by call depth (`Run`), `walk_bound`
+  (telescoping potentials), `sum_dot`, `cycles_sound`, `program_sound` (by induction on
+  the depth of calls: circular claims of recursive functions are sound for completed
+  runs); example with `decide` (`exLoop_checks`, `exLoop_tight`: a bound one below the
+  worst case is rejected) and a run satisfying the hypotheses (`exLoop_run`). Axioms: the
+  three standard ones. 463 theorems.
+- **Checker program**: format `crosscheck-cycles` (`docs/certificate-format.md`), calls by
+  name; the JSON conversion is trusted as before.
+- **Producer** `benchmarks/cycles/ipet.py`: the CFG of `wcet.py` (refactored into `cfg` and
+  `loop_structure`, bounds unchanged: 107/107 identical) with edge costs (branch taken 3,
+  not taken 1), one row per matched loop, the dual multipliers from scipy's HiGHS, made
+  integer, potentials by Bellman-Ford longest paths. `run_cycles.py --certify DIR --checker`,
+  `crosscheck_link.py --certify` (Cortex-M0).
+- **Measured**: all 107 functions with a schema bound certified and accepted; certified
+  bound below the schema for 60, equal for 47, never above (median ratio 0.998, smallest
+  0.72); no violation on the 11 calls compared; entry functions 1.06-1.94 times the
+  observed cycles (schema: 1.24-2.49); 2.6 min for all kernels.
+- **Tests**: `test_ipet.py` (14: exact bound of a function with a known worst case, call
+  composition, no certificate without a loop bound; altered bound, callee bound,
+  potentials, multiplier, removed row, raised edge weight, zero scale, unknown callee must
+  be rejected), in CI with the Lean job checking every kernel's certificate; ctest
+  `time_budgets_after_compilation` also runs `--certify` and requires a lowered bound to
+  be rejected.
+- **Documents**: Paper I subsection `subsec:cycles` (Definition `def:cycle-certificate`,
+  Proposition `prop:cycles` with proof, Table 1 row, scope list), Paper II paragraph
+  "Certified cycle bounds", READMEs, `formalization.yaml`, CLAUDE.md, guide, proposals.
+- **Not done**: certificates for the OTAWA processors (their timing is OTAWA's, not a
+  table); proving the graph extraction (a verified decoder of the binary and timing table
+  in Lean).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1608,3 +1652,11 @@ is whether each Lean statement says what the paper says, and everything outside 
     are not from the datasheet; no check against executions here) may be quoted, and
     whether the refusal rules of `otawa_flow.parse_calls` are complete for the code your
     compilers produce (e.g. other forms of indirect branches).
+41. **Cycle certificates (prompt 54).** Read Definition `def:cycle-certificate`,
+    Proposition `prop:cycles` and its proof in Paper I against `CyclesCore`/`Cycles`
+    (`Run`, `walk_bound`, `cycles_sound`, `program_sound`); check that the hypothesis
+    "the rows hold on the run" is what a source loop bound gives (back edges per entry,
+    summed over entries; header = entry: right-hand side N), and the attribution to
+    Maroneze et al. (Farkas validation of the IPET solution in Coq) and to Li and Malik;
+    confirm that the trusted part (graph, edge costs, rows) is stated wherever the
+    certified bounds are quoted.

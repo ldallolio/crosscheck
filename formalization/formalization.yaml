@@ -110,6 +110,10 @@ statements:
   - paper_labels: [def:activation-tree, prop:stack]
     module: ImperativeOptimization.Stack
     lean: [ActTree, highWater_le_of_bound, highWater_le_depth]
+  - paper_labels: [def:cycle-certificate, prop:cycles]
+    note: "IPET cycle certificates of control-flow graphs (dual potentials and row multipliers; calls by depth induction); the graph, weights and rows are trusted"
+    module: ImperativeOptimization.Cycles
+    lean: [Run, Walk, checkFn, checkProgram, walk_bound, sum_dot, cycles_sound, program_sound, exLoop_checks, exLoop_tight, exLoop_run]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

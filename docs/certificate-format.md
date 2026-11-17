@@ -216,6 +216,38 @@ of functions without an entry; loops without a test that are left by a jump; `go
 type, or whose address is taken; divisions and shifts outside the modelled forms; reads
 of constant tables.
 
+## Cycle certificates (`"format": "crosscheck-cycles"`)
+
+Cycle bounds of machine code, in a file of their own (produced by
+`benchmarks/cycles/ipet.py`, for the Cortex-M0; checked by the same `crosscheck-check`;
+Lean `Cycles`, Paper I `prop:cycles`):
+
+```json
+{"format": "crosscheck-cycles", "version": 1,
+ "programs": [{"name": "program", "functions": [
+   {"name": "f", "entry": 0, "exit": 3,
+    "edges": [{"src": 0, "dst": 1, "w": 2}, {"src": 1, "dst": 2, "w": 1},
+              {"src": 2, "dst": 1, "w": 5, "calls": ["g"]}, {"src": 1, "dst": 3, "w": 3}],
+    "rows": [{"coef": [[2, 1], [0, -10]], "rhs": 0, "note": "loop at 0x...: at most 10 back edges per entry"}],
+    "certificate": {"scale": 1, "pot": [65, 3, 2, 0], "mult": [6], "bound": 65}}]}]}
+```
+
+- A function is a graph on nodes `0..`: `entry`, `exit`, `edges` (indexed by position:
+  `w` = cycles when the edge is taken, `calls` = functions of the same program called
+  on it, by name), and `rows` `Σ coef[e]·x_e ≤ rhs` on the number of times `x_e` each
+  edge is taken (`[edge, coefficient]` pairs). The graph, weights and rows are trusted:
+  they are the producer's description of the code, its timing and its loop bounds.
+- The certificate: `scale` `D > 0`, potentials `pot` (one per node; missing ones are 0),
+  multipliers `mult ≥ 0` (one per row; missing ones are 0), claimed `bound`. It is
+  accepted if, for every edge `e = (u, v)`,
+  `D·(w + Σ bound(callee)) + pot[v] − pot[u] ≤ Σ_k mult[k]·coef_k[e]`, and
+  `pot[entry] − pot[exit] + Σ_k mult[k]·rhs[k] ≤ D·bound`.
+- The program is accepted (`PROGRAM … ACCEPTED`) if every function is, with the claimed
+  bounds of all; then every completed run of each function whose edge counts satisfy its
+  rows costs at most its bound (`Cycles.program_sound`; recursion is allowed, the
+  argument is by induction on the depth of calls).
+- Other fields (`note`, `blocks`: the block addresses) are ignored by the checker.
+
 ## How the plugin produces certificates
 
 `src/analysis/Analyzer.cpp`, section "Certificates", and `src/core/Cert.{hpp,cpp}`:

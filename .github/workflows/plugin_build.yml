@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build g++ \
             llvm-18-dev libclang-18-dev clang-18 lld-18 \
-            libz3-dev libgtest-dev python3-jsonschema \
+            libz3-dev libgtest-dev python3-jsonschema python3-scipy \
             libzstd-dev zlib1g-dev libedit-dev libcurl4-openssl-dev libxml2-dev libffi-dev
 
       # The SARIF 2.1.0 schema (OASIS), for the ctest that validates the plugin's SARIF output.
@@ -111,8 +111,18 @@ jobs:
         run: |
           python3 benchmarks/cycles/test_m0.py
           python3 benchmarks/cycles/test_otawa_flow.py
+          python3 benchmarks/cycles/test_ipet.py
           python3 benchmarks/cycles/run_cycles.py --clang=/usr/lib/llvm-18/bin/clang \
-            --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json
+            --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json \
+            --certify=cycle-certificates
+
+      # IPET cycle certificates of the same functions (their bounds were checked against
+      # the runs above); the verified checker checks them in the next job.
+      - name: Upload cycle certificates
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-certificates
+          path: cycle-certificates/
 
       - name: Upload TACLeBench results
         uses: actions/upload-artifact@v4
@@ -148,3 +158,18 @@ jobs:
           echo "Accepted: $(grep -c '^ACCEPTED' checked.txt)" >> "$GITHUB_STEP_SUMMARY"
           # mini-C sources (TACLeBench): a NOT VALIDATED line also fails this step
           echo "Validated against their mini-C source: $(grep -c '^VALIDATED' checked.txt)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download cycle certificates
+        uses: actions/download-artifact@v4
+        with:
+          name: cycle-certificates
+          path: cycle-certificates
+
+      # Cycle bounds of Cortex-M0 binaries (Lean Cycles.program_sound); then altered
+      # certificates must be rejected.
+      - name: Check the cycle certificates
+        run: |
+          formalization/.lake/build/bin/crosscheck-check cycle-certificates/*.json | tee cycles-checked.txt
+          echo "Cycle bounds accepted: $(grep -c '^ACCEPTED' cycles-checked.txt)" >> "$GITHUB_STEP_SUMMARY"
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy
+          python3 benchmarks/cycles/test_ipet.py --checker formalization/.lake/build/bin/crosscheck-check

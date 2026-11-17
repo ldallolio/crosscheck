@@ -5,7 +5,8 @@ the plugin (report) and scripts/crosscheck_link.py at 48 MHz; every ok_* functio
 meet its budget and every no_* function must fail it. Then, if an LLVM linker is found
 (ld.lld, or the rust-lld of a Rust toolchain), the same for a program of two files,
 time_budget_lib.c and time_budget_main.c, linked into an executable at the addresses of a
-microcontroller (two reports, one binary).
+microcontroller (two reports, one binary). With the Lean checker built and scipy, the
+first file is also checked with certified cycle bounds (--certify).
 Usage: check_time_budget.py TOOL CLANG INCLUDE [extra clang args...]"""
 import json
 import pathlib
@@ -31,6 +32,37 @@ def check(rows, status, n):
     bad = [r["function"] for r in rows if (r["function"].startswith("ok_")) != (r["verdict"] == "ok")]
     if bad or status != 1 or len(rows) != n:
         sys.exit(f"unexpected verdicts: {bad}, status {status}, {len(rows)} functions")
+
+
+def certified(src, rep, obj, d, rows):
+    """The same with --certify: IPET bounds accepted by the verified checker, the same
+    verdicts, at most the timing schema's bounds; skipped without the checker or scipy."""
+    checker = HERE.parent.parent / "formalization/.lake/build/bin/crosscheck-check"
+    try:
+        import scipy  # noqa: F401
+    except ImportError:
+        print("no scipy: the certified bounds are not checked")
+        return
+    if not checker.exists():
+        print("crosscheck-check not built: the certified bounds are not checked")
+        return
+    out, cert = d / "oc.json", d / "cycles.json"
+    p = subprocess.run([sys.executable, str(HERE.parent / "scripts" / "crosscheck_link.py"),
+                        "--report", str(rep), "--binary", str(obj), "--source", str(src), "--clock-mhz", "48",
+                        "--certify", "--checker", str(checker), "--cycle-certificate", str(cert),
+                        "--json", str(out)], capture_output=True, text=True)
+    print(p.stdout, p.stderr)
+    crows = json.loads(out.read_text())["functions"]
+    check(crows, p.returncode, 3)
+    schema = {r["function"]: r["cycles"] for r in rows}
+    if not all(r["cycles"] is not None and r["cycles"] <= schema[r["function"]] for r in crows):
+        sys.exit("a certified bound is missing or above the timing schema's bound")
+    # a certificate claiming one cycle less must be rejected
+    doc = json.loads(cert.read_text())
+    doc["programs"][0]["functions"][-1]["certificate"]["bound"] -= 1
+    cert.write_text(json.dumps(doc))
+    if subprocess.run([str(checker), str(cert)], capture_output=True).returncode != 1:
+        sys.exit("a certificate with a lower bound was not rejected")
 
 
 def two_files(tool, clang, inc, extra, linker, d):
@@ -70,7 +102,9 @@ def main():
                             "--report", str(rep), "--binary", str(obj), "--source", str(src),
                             "--clock-mhz", "48", "--json", str(out)], capture_output=True, text=True)
         print(p.stdout, p.stderr)
-        check(json.loads(out.read_text())["functions"], p.returncode, 3)
+        rows = json.loads(out.read_text())["functions"]
+        check(rows, p.returncode, 3)
+        certified(src, rep, obj, d, rows)
         linker = lld()
         if linker:
             two_files(tool, clang, inc, extra, linker, d)

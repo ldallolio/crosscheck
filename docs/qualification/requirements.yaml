@@ -75,3 +75,16 @@ requirements:
       output and error, and its verdict depends only on the contents of those files.
     evidence:
       - {kind: inspection, note: "CheckerMain.lean: IO.FS.readFile on the arguments, IO.println / IO.eprintln; no other IO action."}
+  - id: TOR-10
+    text: >
+      When the tool prints "PROGRAM <name>: ACCEPTED (cycle bounds ...)" for a file of
+      format crosscheck-cycles, every completed run of every function of that program, that
+      is a walk of its graph from entry to exit on which its rows hold, with calls that are
+      runs of the named functions, costs at most the function's stated bound (the sum of
+      the weights of the edges taken and of the calls' costs). That the graph, weights and
+      rows describe the machine code, its timing and its loop bounds is not a requirement
+      of the tool: it is the producer's claim.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Cycles.lean, lean: [program_sound, cycles_sound, walk_bound, exLoop_tight, exLoop_run]}
+      - {kind: test, files: [benchmarks/cycles/test_ipet.py]}
+      - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_ipet.py, cycle-certificates]}

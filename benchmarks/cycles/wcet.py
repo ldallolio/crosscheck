@@ -87,7 +87,9 @@ class Analysis:
             raise Unbounded(f"call to {name}, which is not bounded")
         return c
 
-    def _function(self, name):
+    def cfg(self, name):
+        """The control-flow graph of a function: entry, blocks (address -> instructions),
+        successors (address -> block addresses); raises Unbounded if unsupported."""
         entry, size = self.img.funcs[name]
         mem = self.img.mem
         # reachable instructions and basic blocks
@@ -110,7 +112,7 @@ class Analysis:
             if i.kind == "cond":
                 leaders.add(a + i.size)
         order = sorted(insns)
-        blocks, succ, cost = {}, {}, {}
+        blocks, succ = {}, {}
         cur = None
         for a in order:
             if a in leaders or cur is None:
@@ -121,12 +123,6 @@ class Analysis:
             if i.kind in ("cond", "jump", "ret") or (a + i.size) in leaders:
                 cur = None
         for b, il in blocks.items():
-            c = 0
-            for i in il:
-                c += m0.cycles(i, True)
-                if i.kind == "call":
-                    c += self.callee_cost(i.target)
-            cost[b] = c
             last = il[-1]
             s = []
             if last.kind in ("cond", "jump"):
@@ -134,9 +130,24 @@ class Analysis:
             if last.kind in ("cond", "seq", "call"):
                 s.append(last.addr + last.size)
             succ[b] = [x for x in s if x in blocks]
+        return entry, blocks, succ
+
+    def _function(self, name):
+        entry, blocks, succ = self.cfg(name)
+        cost = {}
+        for b, il in blocks.items():
+            c = 0
+            for i in il:
+                c += m0.cycles(i, True)
+                if i.kind == "call":
+                    c += self.callee_cost(i.target)
+            cost[b] = c
         return self._schema(name, entry, blocks, succ, cost)
 
-    def _schema(self, name, entry, blocks, succ, cost):
+    def loop_structure(self, name, entry, blocks, succ):
+        """Natural loops of a reducible graph, matched with source loops: (pred, back edges,
+        loop bodies by header, headers innermost first, parent loop, bound by header).
+        Records `self.loops[name]`; raises Unbounded if a loop has no bound."""
         nodes = list(blocks)
         pred = {b: [] for b in nodes}
         for b in nodes:
@@ -185,10 +196,7 @@ class Analysis:
             outer = [g for g in headers if g != h and h in loops[g] and loops[h] <= loops[g]]
             parent[h] = min(outer, key=lambda g: len(loops[g])) if outer else None
         self.loops[name] = []
-        # collapsed graph: a node is a block or an inner loop (by its header)
-        rep = {b: b for b in nodes}   # block -> representative node
-        ncost = dict(cost)
-        nsucc = {b: list(succ[b]) for b in nodes}
+        bound = {}
         for h in headers:
             body = loops[h]
             inner = [g for g in headers if parent.get(g) == h]
@@ -210,6 +218,19 @@ class Analysis:
                 raise Unbounded(f"binary loop at {h:#x} matches a source loop without a bound")
             N = max(cands)
             self.loops[name].append((h, sorted(l for l in lines if l in self.loop_bounds), N, set().union(*[set(i.addr for i in blocks[b]) for b in body])))
+            bound[h] = N
+        return pred, back, loops, headers, parent, bound
+
+    def _schema(self, name, entry, blocks, succ, cost):
+        nodes = list(blocks)
+        pred, back, loops, headers, parent, bound = self.loop_structure(name, entry, blocks, succ)
+        # collapsed graph: a node is a block or an inner loop (by its header)
+        rep = {b: b for b in nodes}   # block -> representative node
+        ncost = dict(cost)
+        nsucc = {b: list(succ[b]) for b in nodes}
+        for h in headers:
+            body = loops[h]
+            N = bound[h]
             members = {rep[b] for b in body}
             latches = {rep[u] for u, hh in back if hh == h}
             exits = [(rep[u], v) for u in body for v in succ[u] if v not in body]

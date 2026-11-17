@@ -272,6 +272,27 @@ flowchart TD
   recursion depth bound gives a stack bound.
 - Not formalised: that a machine program's runs are such trees (the processor model).
 
+### Cycle bounds of a control-flow graph (`subsec:cycles`)
+
+IPET (Li and Malik) as a certificate: weak LP duality, checked without the solver.
+
+```mermaid
+flowchart LR
+  E["entry π=65"] -->|"w=2, row: −10"| H["header π=3"]
+  H -->|"w=1"| B["body π=2"]
+  B -->|"w=5, row: +1 (back edge)"| H
+  H -->|"w=3"| X["exit π=0"]
+```
+
+- `def:cycle-certificate`: edges with weights and callees; rows `Σ a·x ≤ b` on edge
+  counts (loop: back edges − N·entry edges ≤ 0); certificate = scale `D`, potentials `π`,
+  multipliers `λ ≥ 0`, bound `B`; per edge `D(w + Σ B(callee)) + π v − π u ≤ Σ λ a`,
+  and `π s − π t + Σ λ b ≤ D·B`. Above: `λ = 6` (one iteration), `B = 65 = 2 + 10·6 + 3`.
+- `prop:cycles` (`Cycles.program_sound`): potentials telescope along the walk, rows hold
+  on the run, `λ ≥ 0`. Induction on call depth: recursive claims are fine for completed runs.
+- Prior work: Maroneze et al. (Coq, Farkas certificate of the IPET solution, ILP
+  generation proved against CompCert's assembly). Here the graph is trusted.
+
 ## 9. Paper I on one page
 
 *Halting is minimality.* Order traces by prefix and trees by grafting; the run of a loop or

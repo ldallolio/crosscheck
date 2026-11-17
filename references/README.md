@@ -68,7 +68,7 @@ reading (`AI_USAGE.md`, section 3).
 | `li1995ilp` | read 2026-11-16 (not kept) | UCI archive of DAC papers | Abstract and the start of the introduction read. Bounds on running time by considering all paths implicitly with integer linear programming (tool cinderella, Intel i960). Confirms the citations for IPET. |
 | `lommen2022automatic` | downloaded | publisher (Springer, open access) | Abstract read. Runtime bounds for triangular weakly non-linear loops, in KoAT. |
 | `manna1974mathematical` | book or web page |  |  |
-| `maroneze2014formally` | downloaded | open access (Semantic Scholar) | Abstract and the passages on RTL, assembly and IPET read (2026-11-16). Confirms: formally verified WCET estimation integrated into CompCert, loop bound estimation on RTL transported to assembly, IPET at assembly level. |
+| `maroneze2014formally` | downloaded | open access (Semantic Scholar) | Abstract and the passages on RTL, assembly and IPET read (2026-11-16). Confirms: formally verified WCET estimation integrated into CompCert, loop bound estimation on RTL transported to assembly, IPET at assembly level. 2026-11-17: Sections 2.2 and 3.4 read for Paper I `subsec:cycles`: cost model with one cycle per instruction; loop bounds as ILP constraints on header counts; ILP generation proved, the external solver's result validated in Coq by substitution and a Farkas certificate of the infeasibility of a larger objective. |
 | `mathlib2020` | downloaded | arXiv | Abstract read. |
 | `matiyasevich1970enumerable` | no open-access copy found |  |  |
 | `nielson1987hoare` | no open-access copy found |  |  |

@@ -26,6 +26,7 @@ import ImperativeOptimization.FixedPoint
 import ImperativeOptimization.OperationalSemantics
 import ImperativeOptimization.Examples
 import ImperativeOptimization.Stack
+import ImperativeOptimization.Cycles
 
 /-!
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification
@@ -63,5 +64,7 @@ in `Dominance`.
 - `Language`: A small imperative language with a cost semantics (terminating executions and
   execution prefixes), a cost logic (`Derivable`) and its soundness; symbolic bounds and
   the call rule for function summaries.
+- `Cycles` (with `CyclesCore`): cycle certificates of binary control-flow graphs (IPET dual:
+  potentials and row multipliers) and their soundness for programs with calls.
 - `Examples`: Machine-checked versions of the paper's worked examples.
 -/

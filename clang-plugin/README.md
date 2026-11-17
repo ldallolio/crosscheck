@@ -485,9 +485,25 @@ binaries is (`run_otawa.py --matching otawa --check`).
 What is trusted is printed with the results: the timing model (for the Cortex-M0:
 zero-wait-state memory), no interrupt during the function, that the compiler preserves
 the source loops' iteration counts, and the plugin's loop bounds (for every call; with
-`--context`, those of the calling contexts of the analysed program). Not yet: aiT as a back
-end (the flow facts it needs are exported already, `flowfacts=`), a cycle bound checked by
-a verified checker. Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget*.c`;
+`--context`, those of the calling contexts of the analysed program).
+
+**Certified cycle bounds** (`--certify`, Cortex-M0): the bound is then the IPET bound of
+the function's control-flow graph (`benchmarks/cycles/ipet.py`: edge costs, one row per
+matched loop, an LP solver for the dual multipliers; needs scipy) with a certificate that
+the verified checker `crosscheck-check` must accept (`--checker`, default
+`formalization/.lake/build/bin/crosscheck-check`; Lean `Cycles.program_sound`, Paper I
+`prop:cycles`; format in `docs/certificate-format.md`); `--cycle-certificate F` keeps it.
+The computation of the bound leaves the trusted base; the graph, its edge costs and loop
+rows (decoding of the binary, timing table, loop matching) stay in it, and are printed as
+such:
+
+```
+ok    ok_sum: bound 460 cycles = 9.583 us, budget 5000 cycles
+processor: cortex-m0 (certified cycle bounds); trusted: the control-flow graphs, edge weights and loop rows of the cycle certificate (...); the Lean checker (theorem Cycles.program_sound); ...
+```
+
+Not yet: aiT as a back end (the flow facts it needs are exported already, `flowfacts=`);
+certified bounds for the OTAWA processors. Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget*.c`;
 the two-file program needs an LLVM linker, `ld.lld` or `rust-lld`).
 
 ## Bounds in the parameters, without ranges (`symbolic`)

@@ -132,6 +132,8 @@ flowchart LR
 | `Interrupts` | 290 | schedule model `Admissible` (the activations of a handler are a set, possibly infinite; `before` takes those released before a slot), `sporadic_count`, `handler_demand`, **`response_time_bound`**, `rtaHolds_sound`; example schedules `oneRun_admissible`, `perRun_admissible` (a handler activated every 5 slots forever) |
 | `ForkJoin` | 140 | greedy (list) scheduling `Greedy`, **`greedy_bound`** (Graham: `p·L ≤ W + p·S`), `forkjoin_bound` (with certified task bounds), `makespan_lower` (for every assignment of tasks to processors, the makespan is at least `W/p` and at least every task) |
 | `Stack` | 150 | stack depth as a high-water mark: activation trees `ActTree`, `highWater`, **`highWater_le_of_bound`** (the composition rule of `benchmarks/cycles/stack.py`), `highWater_le_depth` (from a recursion depth) |
+| `CyclesCore` | 100 | no mathlib: `Graph`, `Edge`, `Row`, `Cert`, `checkFn`, `checkProgram` (the IPET dual check); used by the checker program (`crosscheck-cycles`) |
+| `Cycles` | 210 | `Walk`, `Run` (depth-indexed, calls nested), `walk_bound` (potentials telescope), `sum_dot`, **`cycles_sound`**, **`program_sound`**; examples `exLoop_checks`, `exLoop_tight`, `exLoop_run` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

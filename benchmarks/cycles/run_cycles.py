@@ -11,8 +11,13 @@ For each kernel (the same single-file unit as benchmarks/tacle/run_tacle.py):
    and every call of a function with a bound is checked: its cycles must not exceed the
    bound; every binary loop's back-edge traversals per entry must not exceed the source
    bound it was matched with. `--check` fails on a violation.
+4. with `--certify DIR`, the bounded functions also get IPET cycle certificates
+   (`ipet.py`, written to DIR/KERNEL.cycles.json), whose bounds are checked against the
+   same runs; with `--checker crosscheck-check`, the verified checker must accept them
+   (Lean `Cycles.program_sound`), otherwise `--check` fails.
 
     python3 benchmarks/cycles/run_cycles.py [--only bsort] [--json out.json] [--check]
+        [--certify DIR [--checker formalization/.lake/build/bin/crosscheck-check]]
 """
 import argparse
 import json
@@ -25,6 +30,7 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "benchmarks/tacle"))
 import m0  # noqa: E402
+import ipet  # noqa: E402
 import wcet  # noqa: E402
 import stack as stackbound  # noqa: E402
 import run_tacle  # noqa: E402
@@ -56,7 +62,7 @@ def runtime_bounds(tool, work, extra):
             for f in rep["functions"] for l in f["loops"]}
 
 
-def analyse(kernel, work, tool, clang, objdump, extra, rt):
+def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None):
     import subprocess
     r = run_tacle.run_kernel(tool, kernel, work, extra)
     rep = json.loads((work / f"{kernel.name}.json").read_text())
@@ -82,6 +88,20 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
     lines = wcet.line_table(str(objdump), str(obj), f"{kernel.name}.m0.c")
     an = wcet.Analysis(img, lines, bounds)
     static = {n: an.function(n) for n in sorted(img.funcs)}
+    certified, cert_info = {}, {}
+    if certdir:
+        # IPET cycle certificates (ipet.py), checked by the verified checker if given
+        # (Lean Cycles.program_sound); without a checker they are compared with the runs only
+        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs))
+        cf = pathlib.Path(certdir) / f"{kernel.name}.cycles.json"
+        cf.write_text(json.dumps(doc) + "\n")
+        certified = dict(ib)
+        accepted, output = None, None
+        if checker and doc["programs"]:
+            out = subprocess.run([checker, str(cf)], capture_output=True, text=True)
+            accepted = out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
+            output = None if accepted else (out.stdout + out.stderr)[-400:]
+        cert_info = dict(accepted=accepted, why=iwhy, checker_output=output)
     sa = stackbound.StackAnalysis(img)
     sbound = {n: sa.function(n) for n in sorted(img.funcs)}
     # run, with the checks
@@ -142,6 +162,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
     for fn, c in observed.items():
         if static.get(fn) is not None and c > static[fn]:
             viol.append(f"{fn}: observed {c} cycles > bound {static[fn]}")
+        if certified.get(fn) is not None and c > certified[fn]:
+            viol.append(f"{fn}: observed {c} cycles > certified bound {certified[fn]}")
     compared = [fn for fn in observed if static.get(fn) is not None and not fn.startswith("__aeabi")]
     ratios = [static[fn] / observed[fn] for fn in compared if observed[fn]]
     own = {n: v for n, v in static.items() if not n.startswith("__aeabi")}  # not runtime.c
@@ -160,7 +182,15 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
                 stack_exact=sum(1 for fn in scompared if sobserved[fn] == sbound[fn]),
                 stack_violations=sviol,
                 stack_why={n: sa.why[n] for n in sa.why if n in sown},
-                seconds=round(time.monotonic() - t0, 1))
+                seconds=round(time.monotonic() - t0, 1),
+                **({} if not certdir else dict(
+                    certified_functions={n: v for n, v in certified.items() if not n.startswith("__aeabi")},
+                    certificates_accepted=cert_info["accepted"],
+                    certificate_checker_output=cert_info["checker_output"],
+                    not_certified={n: cert_info["why"].get(n, "?") for n in own
+                                   if own[n] is not None and n not in certified},
+                    certified_compared=sum(1 for fn in compared if certified.get(fn) is not None),
+                    certified_main_observed_ratio=(certified["main"] / mach.cyc) if certified.get("main") and ret is not None and mach.cyc else None)))
 
 
 def main():
@@ -173,6 +203,9 @@ def main():
     ap.add_argument("--objdump", default=default_tool("llvm-objdump"))
     ap.add_argument("--json")
     ap.add_argument("--check", action="store_true", help="fail on a violation or a wrong result")
+    ap.add_argument("--certify", metavar="DIR",
+                    help="also write IPET cycle certificates (KERNEL.cycles.json) into DIR and compare their bounds with the runs")
+    ap.add_argument("--checker", help="crosscheck-check, to check the cycle certificates (with --certify)")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
@@ -183,9 +216,11 @@ def main():
     if a.only:
         kernels = [k for k in kernels if k.name in a.only]
     rows = []
+    if a.certify:
+        pathlib.Path(a.certify).mkdir(parents=True, exist_ok=True)
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     for k in kernels:
-        r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt)
+        r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker)
         rows.append(r)
         if "error" in r:
             print(f"{k.name:16s} {r['error']}", file=sys.stderr)
@@ -195,6 +230,12 @@ def main():
               f"observed={r['main_observed']} ret={r['returned']} compared={r['compared']} "
               f"loops={r['loops_checked']} violations={len(r['violations'])}"
               + (f" run_error={r['run_error']}" if r['run_error'] else ""), file=sys.stderr)
+        if a.certify:
+            cf = r["certified_functions"]
+            print(f"{'':16s} certified: {len(cf)} of {r['bounded']} bounded, accepted={r['certificates_accepted']}, "
+                  f"main={cf.get('main')} (schema {r['main_bound']}), "
+                  f"lower than the schema: {sum(1 for n, v in cf.items() if v < r['bounded_functions'].get(n, v + 1))}",
+                  file=sys.stderr)
         for v in r["violations"]:
             print("   VIOLATION " + v, file=sys.stderr)
         print(f"{'':16s} stack: bounded={r['stack_bounded']} main_bound={r['stack_main_bound']} "
@@ -213,13 +254,22 @@ def main():
                stack_compared=sum(r["stack_compared"] for r in ok),
                stack_exact=sum(r["stack_exact"] for r in ok),
                stack_violations=sum(len(r["stack_violations"]) for r in ok))
+    if a.certify:
+        cf = [(n, v, r["bounded_functions"].get(n)) for r in ok for n, v in r["certified_functions"].items()]
+        tot.update(certified=len(cf), certified_main=sum("main" in r["certified_functions"] for r in ok),
+                   certificates_rejected=sum(r["certificates_accepted"] is False for r in ok),
+                   certified_compared=sum(r["certified_compared"] for r in ok),
+                   certified_below_schema=sum(1 for _, v, s in cf if s is not None and v < s),
+                   certified_equal_schema=sum(1 for _, v, s in cf if s is not None and v == s),
+                   certified_above_schema=sum(1 for _, v, s in cf if s is not None and v > s),
+                   bounded_not_certified=sum(len(r["not_certified"]) for r in ok))
     print(json.dumps(tot), file=sys.stderr)
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(dict(total=tot, kernels=rows), indent=2) + "\n")
     wrong = [r["kernel"] for r in ok if r["returned"] != 0 and r["kernel"] not in EXPECTED_FAILURE]
     if wrong:
         print("wrong result or run error: " + ", ".join(wrong), file=sys.stderr)
-    if a.check and (tot["violations"] or tot["stack_violations"] or wrong):
+    if a.check and (tot["violations"] or tot["stack_violations"] or wrong or tot.get("certificates_rejected")):
         sys.exit("cycle check failed")
 
 

@@ -8,7 +8,8 @@ together with its loop bounds, and this script checks them on the compiled code:
 
     crosscheck_link.py --report a.json --source a.c [--report b.json --source b.c ...]
         --binary prog.elf [--processor cortex-m0|stm32f4|stm32h7] [--clock-mhz 48]
-        [--context] [--json out.json]
+        [--context] [--certify [--checker crosscheck-check] [--cycle-certificate F]]
+        [--json out.json]
 
 `--report` and `--source` are given in pairs, one per translation unit (the report of the
 plugin run on that source file); the binary is an object file or a linked executable
@@ -29,6 +30,11 @@ Processors (`--processor`):
   linked at the board's addresses (code in flash from 0x08000000, data from
   0x20000000), otherwise OTAWA assumes its worst memory latency for every access.
 
+With `--certify` (Cortex-M0), the bounds are those of the implicit path enumeration
+technique with a certificate (`benchmarks/cycles/ipet.py`) that the verified checker
+`crosscheck-check` must accept (Lean theorem `Cycles.program_sound`); the analysis that
+finds the bound is then outside the trusted base, the graph and its timing are not.
+
 Trusted, and printed with the results: the timing model (zero-wait-state memory and no
 interrupt for the Cortex-M0; OTAWA and its processor model for the others), that the
 compiler preserves the source loops' iteration counts, and the plugin's loop bounds (for
@@ -44,6 +50,7 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent / "benchmarks" / "cycles"))
+import ipet  # noqa: E402
 import m0  # noqa: E402
 import otawa_flow  # noqa: E402
 import wcet  # noqa: E402
@@ -52,11 +59,14 @@ TRUSTED_COMMON = ["no interrupt is taken while the function runs",
                   "the compiler preserves the source loops' iteration counts",
                   "the plugin's loop bounds (unverified analysis, or certificates if checked)"]
 TRUSTED_M0 = ["the Cortex-M0 timing table of m0.py (zero-wait-state memory)"] + TRUSTED_COMMON
+TRUSTED_CERTIFIED = ["the control-flow graphs, edge weights and loop rows of the cycle certificate "
+                     "(decoding of the binary by m0.py, its timing table, zero-wait-state memory)",
+                     "the Lean checker (theorem Cycles.program_sound)"] + TRUSTED_COMMON
 
 
-def trusted(processor):
+def trusted(processor, certify=False):
     if processor == "cortex-m0":
-        return TRUSTED_M0
+        return TRUSTED_CERTIFIED if certify else TRUSTED_M0
     return [f"OTAWA and its model of the {otawa_flow.PROCESSORS[processor][1]}"] + TRUSTED_COMMON
 
 
@@ -83,11 +93,30 @@ def loop_bounds(reports, context):
 
 
 def m0_bounds(a, names, bounds, roots):
-    """{symbol: (cycles or None, reason)} with the timing schema of wcet.py."""
+    """{symbol: (cycles or None, reason)} with the timing schema of wcet.py, or with
+    `--certify` the IPET bounds of ipet.py accepted by the verified checker."""
     img = m0.load(a.binary)
     lines = wcet.line_table(a.objdump, a.binary, names, base=img.base)
     an = wcet.Analysis(img, lines, bounds)
     res = {}
+    if a.certify:
+        known = [r for r in roots if r in img.funcs]
+        doc, ib, why = ipet.certify(an, known)
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(a.cycle_certificate or pathlib.Path(d) / "cycles.json")
+            path.write_text(json.dumps(doc, indent=1) + "\n")
+            out = subprocess.run([a.checker, str(path)], capture_output=True, text=True) if doc["programs"] else None
+        ok = out is not None and out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
+        for sym in roots:
+            if sym not in img.funcs:
+                res[sym] = (None, "not found in the binary")
+            elif sym not in ib:
+                res[sym] = (None, "no cycle certificate: " + why.get(sym, "?"))
+            elif not ok:
+                res[sym] = (None, "the checker rejected the cycle certificate")
+            else:
+                res[sym] = (ib[sym], None)
+        return res
     for sym in roots:
         if sym not in img.funcs:
             res[sym] = (None, "not found in the binary")
@@ -146,9 +175,16 @@ def main(argv=None):
     ap.add_argument("--clock-mhz", type=float, help="clock frequency, for budgets in microseconds")
     ap.add_argument("--context", action="store_true",
                     help="use the loop bounds of the calling contexts (whole program)")
+    ap.add_argument("--certify", action="store_true",
+                    help="cortex-m0: IPET bounds with certificates checked by the verified checker")
+    ap.add_argument("--checker", default=str(HERE.parent.parent / "formalization/.lake/build/bin/crosscheck-check"),
+                    help="crosscheck-check (with --certify)")
+    ap.add_argument("--cycle-certificate", help="keep the cycle certificate in this file (with --certify)")
     ap.add_argument("--objdump", default=default_objdump())
     ap.add_argument("--json", help="write the results as JSON")
     a = ap.parse_args(argv)
+    if a.certify and a.processor != "cortex-m0":
+        ap.error("--certify is available for the cortex-m0 only")
     if len(a.report) != len(a.source):
         ap.error("give one --source for each --report")
     names = [pathlib.Path(x).name for x in a.source]
@@ -195,8 +231,8 @@ def main(argv=None):
         bound = "-" if r["cycles"] is None else f"{r['cycles']} cycles" + (f" = {r['us']} us" if r["us"] is not None else "")
         print(f"{r['verdict'].split(':')[0]:5s} {r['function']}: bound {bound}, budget {budget}"
               + ("" if r["verdict"] == "ok" else f"  [{r['verdict']}]"))
-    tr = trusted(a.processor)
-    print(f"processor: {a.processor}; trusted: " + "; ".join(tr) + ("; loop bounds in context" if a.context else ""))
+    tr = trusted(a.processor, a.certify)
+    print(f"processor: {a.processor}{' (certified cycle bounds)' if a.certify else ''}; trusted: " + "; ".join(tr) + ("; loop bounds in context" if a.context else ""))
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(dict(processor=a.processor, clock_mhz=a.clock_mhz,
                                                         trusted=tr, functions=rows), indent=1) + "\n")

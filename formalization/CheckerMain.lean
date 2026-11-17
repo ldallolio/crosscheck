@@ -8,6 +8,7 @@ import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.MiniCCore
 import ImperativeOptimization.MiniCJumpCore
 import ImperativeOptimization.ResponseCore
+import ImperativeOptimization.CyclesCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -38,6 +39,14 @@ preempted by interrupt handlers (functions of the same program) with minimum int
 times and per-activation overheads, which are assumed. The checker requires the task and
 handlers to be accepted with constant bounds and runs the verified `Interrupts.rtaHolds`
 (theorem `Interrupts.rtaHolds_sound`).
+
+A file with `"format": "crosscheck-cycles"` holds cycle certificates of binary
+control-flow graphs instead (`ImperativeOptimization.Cycles.Graph`, `ImperativeOptimization.Cycles.Cert`; format in
+`docs/certificate-format.md`): the checker runs the verified `ImperativeOptimization.Cycles.checkProgram`
+(theorem `Cycles.program_sound`: every completed run of each function, whose edge counts
+satisfy the function's rows, costs at most its claimed bound). The graphs, weights and rows
+are trusted: they are the producer's description of the machine code, its timing and its
+loop bounds.
 
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
 input.
@@ -373,6 +382,58 @@ def parseFile (j : Json) : Except String (List Program) := do
         ← parseArr p "functions" parseSource, responses⟩
   else throw s!"unsupported version {ver} (this checker reads versions 1 and 2)"
 
+/-! ### Cycle certificates (`Cycles`) -/
+
+def parseRow (j : Json) : Except String ImperativeOptimization.Cycles.Row := do
+  let coef ← parseArr j "coef" fun p => do
+    match ← intList p "a row coefficient [edge, a]" with
+    | [e, a] => if e < 0 then throw "a row's edge must be a natural number" else pure (e.toNat, a)
+    | _ => throw "a row coefficient must be [edge, a]"
+  pure ⟨coef, ← getInt j "rhs"⟩
+
+/-- A cycle program: its name and its functions (name, graph, certificate); calls are by
+    function name, converted to the function's position. -/
+def parseCyclesProgram (p : Json) : Except String (String × List (String × ImperativeOptimization.Cycles.Graph × ImperativeOptimization.Cycles.Cert)) := do
+  let fns ← parseArr p "functions" pure
+  let names := fns.map (nameOf · "name")
+  let funs ← fns.mapM fun f => do
+    let edges ← parseArr f "edges" fun e => do
+      let calls ← match e.getObjVal? "calls" with
+        | .ok v => match v.getArr? with
+          | .ok a => a.toList.mapM fun c => match c.getStr? with
+            | .ok n => match names.indexOf? n with
+              | some i => pure i
+              | none => throw s!"call of '{n}', which is not a function of the program"
+            | .error _ => throw "'calls' must be an array of function names"
+          | .error _ => throw "'calls' must be an array of function names"
+        | .error _ => pure []
+      pure (⟨← getNat e "src", ← getNat e "dst", ← getNat e "w", calls⟩ : ImperativeOptimization.Cycles.Edge)
+    let c ← field f "certificate"
+    let G : ImperativeOptimization.Cycles.Graph := ⟨← getNat f "entry", ← getNat f "exit", edges, ← parseArr f "rows" parseRow⟩
+    let C : ImperativeOptimization.Cycles.Cert := ⟨← getNat c "scale", ← intList (← field c "pot") "pot",
+      ← natList (← field c "mult") "mult", ← getNat c "bound"⟩
+    pure (nameOf f "name", G, C)
+  pure (nameOf p "name", funs)
+
+def parseCyclesFile (j : Json) : Except String (List (String × List (String × ImperativeOptimization.Cycles.Graph × ImperativeOptimization.Cycles.Cert))) := do
+  let ver ← getNat j "version"
+  if ver != 1 then throw s!"unsupported version {ver} of crosscheck-cycles (this checker reads version 1)"
+  parseArr j "programs" parseCyclesProgram
+
+/-- Check a cycle file; the exit status. -/
+def runCycles (progs : List (String × List (String × ImperativeOptimization.Cycles.Graph × ImperativeOptimization.Cycles.Cert))) : IO UInt32 := do
+  let mut status : UInt32 := 0
+  for (pname, funs) in progs do
+    let bounds := funs.map (·.2.2.bound)
+    for (name, G, C) in funs do
+      let ok := ImperativeOptimization.Cycles.checkFn bounds G C
+      IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({G.edges.length} edges, {G.rows.length} rows)"
+    -- the decision of the verified `checkProgram` (theorem `Cycles.program_sound`)
+    let okP := ImperativeOptimization.Cycles.checkProgram (funs.map (·.2.1)) (funs.map (·.2.2))
+    IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds; the graphs, weights and rows are trusted)"
+    if !okP then status := 1
+  return status
+
 /-! ### Printing what was checked -/
 
 def showSB (b : SB) : String :=
@@ -455,6 +516,14 @@ def main (args : List String) : IO UInt32 := do
       | .error e => do
         IO.eprintln s!"{path}: {e}"
         return 2
+    if (Json.parse text).toOption.bind (fun j => (j.getObjValAs? String "format").toOption) == some "crosscheck-cycles" then
+      match Json.parse text >>= parseCyclesFile with
+      | .error e =>
+        IO.eprintln s!"{path}: malformed cycle certificate file: {e}"
+        return 2
+      | .ok progs =>
+        status := max status (← runCycles progs)
+      continue
     match Json.parse text >>= parseFile with
     | .error e =>
       IO.eprintln s!"{path}: malformed certificate file: {e}"
