@@ -1496,6 +1496,22 @@ notes in `references/README.md`.
   "multiple returns" as from the documentation; the oRange part of Paper II's
   `\authortodo` is removed (Shaw and Albert 2011 TOPLAS remain cited through other sources).
 
+60. "Start on the binary loop-bound certificates"
+
+61. (sent while 60 was in progress) "I added shaw1989reasoning.pdf and albert2011closed.pdf and replaced most of remaining authortodo, fix the remaining ones"
+
+What the AI did for 61 (Claude Opus 5.5, 2026-11-17): read both files (not committed);
+notes in `references/README.md`. `shaw1989reasoning`: Sections I-III; confirms the
+timing-schema citations; Paper I's `subsec:cost-logic` now also says that Shaw extended
+Hoare logic with a real-time variable. `albert2011closed`: abstract, Section 1 and the
+passages on ranking functions and maximization; confirms the citations. The author
+replaced the two responsibility `\authortodo` with statements of their own (not changed
+by the AI). On the author's instruction the three remaining `\authortodo` were removed:
+Paper I, confirmation of the attributions to Nielson (R-3, R-4) and to Healy et al. and
+Albert et al. (the AI read the cited passages, see `references/README.md`); Paper II, the
+note that Shaw and Albert 2011 (JAR) were cited through other sources (now read). No
+`\authortodo` remains in either paper. The work for 60 is recorded separately when done.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
