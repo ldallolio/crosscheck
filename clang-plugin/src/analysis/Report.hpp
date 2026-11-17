@@ -76,6 +76,9 @@ struct FunctionReport {
   /// Preconditions on the integer parameters (ranges, CROSSCHECK_REQUIRE), as C
   /// expressions over the parameter names, for the ACSL export.
   std::vector<std::string> requires_;
+  std::uint64_t solverWork = 0;  ///< solver work of the analysis (`solverCalls`, with callees analysed for it)
+  /// The search budget (option `budget`) ran out: optional searches were skipped.
+  bool budgetExhausted = false;
   std::vector<std::string> assumptions;  ///< everything trusted, not proved
   std::vector<std::string> errors;
   std::vector<Site> errorSites;  ///< the errors with their locations

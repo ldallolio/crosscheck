@@ -54,6 +54,12 @@ flowchart TB
 
 ## 3. Results to remember
 
+- **Industrial programs** (2026-11-17, TACLeBench `parallel`): ROSACE (5 threads, 73 of
+  86 functions bounded and certified each, every control task but the aircraft dynamics,
+  which call `sinf`/`cosf`) and DEBIE (111 of 187 bounded, 110 certified; 26 of 76
+  flow-fact loops equal); 480 certificates accepted, 309 validated. PapaBench does not
+  compile as distributed.
+
 Figures of 2026-11-16, after the steps of `docs/proposals.md` section 6 (lexicographic
 loops, soundness tests, mini-C with division and unsigned stores, bounds without ranges,
 stack bounds). Always say whether a loop figure is *for every call* or *in context*.

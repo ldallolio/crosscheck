@@ -22,6 +22,11 @@ bool isFeasible(const SymbolTable& syms, const std::vector<Constraint>& facts);
 bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
              const Constraint& goal);
 
+/// The solver work of this thread so far: for every query (answered or from the cache),
+/// the number of constraints it carries plus one. A deterministic measure of the
+/// analysis effort, roughly proportional to its time, used for the search budget.
+std::uint64_t solverCalls();
+
 /// A closed integer interval with optional ends.
 struct Interval {
   std::optional<std::int64_t> lo, hi;

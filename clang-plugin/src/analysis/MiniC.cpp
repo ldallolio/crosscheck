@@ -66,9 +66,9 @@ class Exporter {
         // call runs the callee's certificate on them (so its writes are seen). What is
         // assumed is that no other code (an interrupt handler, another thread) writes
         // them while the function runs; `volatile` ones are refused below. Static locals
-        // are refused: their declaration runs once, not at every call.
-        if (v->isStaticLocal()) bad = "a tracked static local variable";
-        else if (v->hasLocalStorage() && v->getDeclContext() != def) bad = "a tracked variable of another function";
+        // are globals visible in one function: their declaration runs once, before the
+        // first call, and is exported as nothing (see `decl`).
+        if (v->hasLocalStorage() && v->getDeclContext() != def) bad = "a tracked variable of another function";
         else if (v->getType().isVolatileQualified()) bad = "a volatile tracked variable";
         else if (!signedNonBool(v->getType()) && !ex->uwidth(v->getType()))
           bad = "a tracked variable that is neither a signed integer nor unsigned int or wider";
@@ -85,7 +85,6 @@ class Exporter {
       bool VisitLambdaExpr(LambdaExpr*) { bad = "a lambda"; return true; }
       bool VisitVarDecl(VarDecl* v) {
         if (v->getType()->isReferenceType()) bad = "a reference variable";
-        if (v->isStaticLocal()) bad = "a static local variable";
         return true;
       }
     } vis;
@@ -771,6 +770,13 @@ class Exporter {
     for (const Decl* d : ds->decls()) {
       const auto* vd = dyn_cast<VarDecl>(d);
       if (!vd) continue;
+      // A static local is initialised once, before the first call: its declaration does
+      // nothing at a call (a dynamic C++ initialiser, run at the first call, is refused).
+      if (vd->isStaticLocal()) {
+        if (vd->getInit() && !vd->getInit()->isConstantInitializer(ctx_, false))
+          throw Refused{"a static local variable with a dynamic initialiser"};
+        continue;
+      }
       const Expr* init = vd->getInit();
       bool withCalls = false;
       if (init) {

@@ -70,10 +70,54 @@ def pragmas(lines):
     return out
 
 
-def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None, ffxdir=None, minic=False):
-    name = kdir.name
+class Unit:
+    """A program: its .c files (concatenated into one translation unit), include
+    directories, preprocessor definitions, textual fixes applied to the copy in the work
+    directory (never to the cache), and the name of its entry function."""
+
+    def __init__(self, name, files, incs, defs=(), patches=(), main=None):
+        self.name, self.files, self.incs = name, list(files), list(incs)
+        self.defs, self.patches = list(defs), list(patches)
+        self.main = main or f"{name}_main"
+
+
+def parallel_units(src: pathlib.Path, work: pathlib.Path):
+    """The programs of TACLeBench's `parallel` category that compile as distributed, with
+    the fixes they need (see README.md): the five ROSACE threads (their own `random` and
+    `srandom` clash with the C library's declarations, so they are renamed in their text) and DEBIE
+    (a `#pragma entrypoint` inside a function header, an include guard with a typo;
+    host port `arch/x86`). PapaBench does not compile as distributed (a missing header,
+    `math_papabench.h`, and AVR interrupt macros) and is left out."""
+    par = src / "bench" / "parallel"
+    units = []
+    for i in range(1, 6):
+        d = par / "rosace" / f"thread{i}"
+        units.append(Unit(f"rosace_th{i}", sorted(d.glob("*.c")), [d],
+                          patches=[(re.compile(r"\bsrandom\b"), "rosace_srandom"),
+                                   (re.compile(r"\brandom\b"), "rosace_random")],
+                          main=f"ros_th{i}_main"))
+    import shutil
+    code = work / "debie_src"
+    if code.exists():
+        shutil.rmtree(code)
+    shutil.copytree(par / "DEBIE" / "code", code)
+    guard = code / "msg_ctrl.h"
+    guard.write_text(guard.read_text(errors="replace").replace("#define MSR_CTRL_H", "#define MSG_CTRL_H"))
+    units.append(Unit("debie", sorted(code.glob("*.c")) + [code / "harness" / "harness.c"],
+                      [code, code / "harness", code / "arch" / "x86"],
+                      patches=[("#pragma entrypoint ", "")], main="main"))
+    return units
+
+
+def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None, minic=False,
+               tool_opts=()):
+    u = kdir if isinstance(kdir, Unit) else Unit(kdir.name, sorted(kdir.glob("*.c")), [kdir])
+    name = u.name
     unit = work / f"{name}.c"
-    unit.write_text("".join(f.read_text(errors="replace") for f in sorted(kdir.glob("*.c"))))
+    text = "".join(f.read_text(errors="replace") for f in u.files)
+    for old, new in u.patches:
+        text = old.sub(new, text) if isinstance(old, re.Pattern) else text.replace(old, new)
+    unit.write_text(text)
     report = work / f"{name}.json"
     report.unlink(missing_ok=True)
     certs = [f"--opt=certificates={certdir / (name + '.json')}"] if certdir else []
@@ -81,8 +125,8 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
         certs.append("--opt=minic")
     if ffxdir:  # in-context loop bounds, FFX (OTAWA), for compare_ffx.py
         certs += [f"--opt=flowfacts={ffxdir / (name + '.ffx')}", "--opt=flowfacts-context=program"]
-    cmd = [str(tool), "--all", "--opt=entry=main", *certs, f"--report={report}", str(unit), "--",
-           "-x", "c", "-std=gnu99", f"-I{kdir}", "-w", "-ferror-limit=0",
+    cmd = [str(tool), "--all", "--opt=entry=main", *certs, *(f"--opt={o}" for o in tool_opts), f"--report={report}", str(unit), "--",
+           "-x", "c", "-std=gnu99", *(f"-I{d}" for d in u.incs), *u.defs, "-w", "-ferror-limit=0",
            # some programs call printf etc. without a declaration (an error since Clang 16)
            "-Wno-error=implicit-function-declaration", *extra]
     t0 = time.monotonic()
@@ -110,7 +154,7 @@ def run_kernel(tool, kdir: pathlib.Path, work: pathlib.Path, extra, certdir=None
             elif f.get("certificate"):
                 uncertified.append(f"{f['name']}: {f['certificate']}")
         assumptions += len(f.get("assumptions") or [])
-        if f["name"] == f"{name}_main":
+        if f["name"] == u.main:
             main = f
         if f["name"] == "main":
             program = f
@@ -190,6 +234,8 @@ def main():
     ap.add_argument("--extra-arg", action="append", default=[],
                     help="extra Clang flag, e.g. --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13")
     ap.add_argument("--only", action="append", help="run only these kernels")
+    ap.add_argument("--tool-opt", action="append", default=[],
+                    help="extra tool option, e.g. budget=0 (passed as --opt=...)")
     ap.add_argument("--category", action="append",
                     help="TACLeBench categories to run (kernel, sequential, app; default: kernel)")
     ap.add_argument("--markdown"); ap.add_argument("--latex"); ap.add_argument("--json")
@@ -204,10 +250,14 @@ def main():
     src = fetch(cache, a.rev)
     work = cache / "work"
     work.mkdir(parents=True, exist_ok=True)
-    kernels = sorted((p for c in (a.category or ["kernel"]) for p in (src / "bench" / c).iterdir()
+    cats = a.category or ["kernel"]
+    kernels = sorted((p for c in cats if c != "parallel" for p in (src / "bench" / c).iterdir()
                       if p.is_dir()), key=lambda p: p.name)
+    if "parallel" in cats:
+        kernels += parallel_units(src, work)
     if a.only:
         kernels = [k for k in kernels if k.name in a.only]
+    # (a Unit has a `name` too)
 
     certdir = pathlib.Path(a.certificates) if a.certificates else None
     ffxdir = pathlib.Path(a.flow_facts) if a.flow_facts else None
@@ -217,7 +267,7 @@ def main():
         certdir.mkdir(parents=True, exist_ok=True)
     rows = []
     for k in kernels:
-        r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir, a.minic)
+        r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir, a.minic, a.tool_opt)
         rows.append(r)
         print(f"{r['kernel']:16s} " + " ".join(f"{c}={r[c]}" for c in COLS)
               + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s", file=sys.stderr)

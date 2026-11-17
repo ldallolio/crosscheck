@@ -363,11 +363,24 @@ void ok_set_limit(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
   g_limit = n;
 }
-/* A static local: its initialisation runs once, not at every call. */
-int no_static_local(int n) {
+/* A static local: its initialisation runs once, before the first call, so its
+   declaration does nothing at a call and its value on entry is unknown (a global
+   visible in one function). */
+int ok_static_local(int n) {
   CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
   static int calls = 0;
   calls = n;
+  int s = 0;
+  for (int i = 0; i < calls; i++) s++;
+  return s;
+}
+/* A static local whose address escapes is written through a pointer: not tracked, so
+   the loop that it bounds has no exact translation (no bound, no certificate). */
+int no_static_escaped(int n) {
+  CROSSCHECK_REQUIRE(n >= 0 && n <= 20);
+  static int calls = 0;
+  int *p = &calls;
+  *p = n;
   int s = 0;
   for (int i = 0; i < calls; i++) s++;
   return s;

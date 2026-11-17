@@ -71,6 +71,11 @@ limitation, it says so.
 
 ## 4. WCET and real-time
 
+- **"Will it finish on real code?"** Each function has a deterministic search budget
+  (`budget`, in solver work); past it the analysis is less precise, never unsound, and the
+  report says so. Solver answers are cached. The slowest TACLeBench program went from
+  38 to about 6 minutes (2,277 s → 376 s) with the same results.
+
 - **"Is this a WCET tool?"** Not in general. It gives loop bounds and path costs in
   abstract units, and exports the loop bounds for aiT and OTAWA (OTAWA computes bounds
   for the 107 bounded functions of the Cortex-M0 binaries from them: `run_otawa.py`). For one predictable core,

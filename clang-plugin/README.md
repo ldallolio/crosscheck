@@ -93,6 +93,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 | `certificates=FILE` | write a cost certificate for every analysed function in the certificate fragment; check them with `crosscheck-check` (see [Certificates](#certificates)) |
 | `interrupt-overhead=N` | cost of entering and leaving an interrupt handler, added per activation (assumption) |
 | `minic` | with `certificates`: also export each certified function as mini-C, which the checker validates against the certificate (see [Validation against the source](#validation-against-the-source-minic)) |
+| `budget=N` | search budget per function, in solver work (constraints sent to the solver; default 500000, `0`: none). Once spent, the optional searches stop (the retry with more candidate invariants, the certificate candidates in the enclosing potentials and the amortised nests) and the refinement of candidate invariants stops after two rounds, dropping a set that is not yet inductive. Never unsound, only less precise; the report says so (`search_budget_exhausted`, with `solver_work`). Counted in work, not seconds, so that results do not depend on the machine |
 | `input-range=LO,HI` | assume every integer input without a declared range in `[LO,HI]` (unsigned) or `[-HI,HI]` (signed); listed as an assumption |
 | `contracts=FILE` | library contracts: trusted costs linear in the arguments (see [`docs/contracts.md`](../docs/contracts.md)) |
 | `flowfacts=FILE` | write the derived loop bounds as flow facts for WCET tools (see [Flow facts, SARIF and CI](#flow-facts-sarif-and-ci)) |
@@ -479,6 +480,24 @@ never return to the loop head was reported with 0 executions of its body instead
 (the function itself was already rejected, but the loop bound and the exported flow fact
 were wrong), and the mini-C exporter wrote a source for a loop whose test it cannot
 express (the checker then refused to validate it, rightly).
+
+A third defect was found by reading the code while extending the mini-C export
+(2026-11-16): the declaration of a **static local** variable was analysed as an
+assignment at every call, although C initialises it once, before the first call. A loop
+bounded by a static counter that grows from call to call (`static int n = 0; n++; for (i
+= 0; i < n; i++)`) received a bound, and a certificate of the wrong program that the
+checker accepted (the translation from C to the certificate is the unverified step;
+validation against the source would have refused the function, whose static local the
+exporter refused). Now the declaration of a static local does nothing at a call and its
+value on entry is unknown, as for a global; a C++ static local with a dynamic initialiser
+is an error. Regression test `Unsound.StaticLocalCounterGrowsAcrossCalls`; static locals
+are now exported to mini-C (`ok_static_local`, `no_static_escaped`).
+
+Analysis time (2026-11-16): the answers of the solver queries `entails`, `isFeasible` and
+`boundsOf` are cached under the closed premises (they are functions of them), with one Z3
+context per thread; the slowest TACLeBench program, `cjpeg_transupp`, went from 2,277 s
+of analysis to 742 s, and to 376 s with the default search budget, all with the same bounds; the
+whole sequential and application category from 88 to 23 minutes.
 
 ## Limitations
 

@@ -619,6 +619,110 @@ TEST(Loops, LexicographicWithBoundedInnerCounter) {
 
 // Must not be reported as 0 executions: the body of the outer loop starts once and never
 // ends (the inner loop does not terminate). Found by tests/fuzz_bounds.py.
+// Option `budget`: with no budget left the search is cut short; whatever is still
+// bounded must be bounded soundly, and the report says the budget ran out.
+TEST(Budget, ExhaustedSearchStaysSound) {
+  Options o;
+  ASSERT_TRUE(o.parse("budget=1"));
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 20) int n) {
+      int s = 0;
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+          for (int k = 0; k < j; k++) s++;
+      return s;
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  EXPECT_TRUE(f.budgetExhausted);
+  if (f.bounded) {
+    ASSERT_EQ(f.loops.size(), 3u);
+    for (const LoopReport& l : f.loops)
+      if (l.verified) { EXPECT_GE(l.bound, 19u); }
+  }
+  Options unlimited;
+  ASSERT_TRUE(unlimited.parse("budget=0"));
+  Report full = check(R"(
+    CROSSCHECK_REALTIME int g(CROSSCHECK_RANGE(0, 20) int n) {
+      int s = 0;
+      for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) s++;
+      return s;
+    })", unlimited);
+  EXPECT_FALSE(fn(full, "g").budgetExhausted);
+  EXPECT_TRUE(fn(full, "g").bounded);
+}
+
+// A static local is initialised once, before the first call: at each call its value is
+// whatever the previous calls left, so a loop bounded by a static counter that grows from
+// call to call has no bound (the analysis once re-ran the initialiser at every call).
+TEST(Unsound, StaticLocalCounterGrowsAcrossCalls) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(void) {
+      static int n = 0;
+      n++;
+      int s = 0;
+      for (int i = 0; i < n; i++) s++;
+      return s;
+    })", o);
+  const FunctionReport& f = fn(r, "f");
+  EXPECT_FALSE(f.bounded);
+  EXPECT_NE(f.certificate, "emitted");
+}
+
+// `p != q` in a loop guard: over the integers, `p < q` or `p > q`; the body starts on
+// both paths, and `p + q` decreases on each.
+TEST(Disequality, GuardSplitIntoTwoPaths) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int p, CROSSCHECK_RANGE(0, 100) int q) {
+      while (q > 0 && p > 0 && p != q) {
+        if (q < p) q = q - 1;
+        else if (p < q) p = p - 1;
+      }
+      return p;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.bounded);
+  ASSERT_FALSE(f.loops.empty());
+  EXPECT_GE(f.loops[0].bound, 99u);
+}
+
+// The same guard where one side does not move: when p > q nothing changes, so the loop
+// does not terminate; it must not get a bound.
+TEST(Unsound, DisequalityGuardOneSideStuck) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int p, CROSSCHECK_RANGE(0, 100) int q) {
+      while (p != q) {
+        if (p < q) p = p + 1;
+      }
+      return p;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// A conditional expression whose arm may be 0: the selected value has no positive lower
+// bound, so the loop is not shown to decrease.
+TEST(Unsound, ConditionalArmMayBeZero) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME void f(CROSSCHECK_RANGE(0, 1000) int len, CROSSCHECK_RANGE(0, 1) int z) {
+      while (len > 0) { int d = len < 64 ? len : z; len -= d; }
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// `min(len, 64)` written as a conditional expression: at most each arm and at least 1.
+TEST(Conditional, MinOfTwoArmsDecreases) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME void f(CROSSCHECK_RANGE(0, 1000) int len) {
+      while (len > 0) { int d = len < 64 ? len : 64; len -= d; }
+    })");
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.bounded);
+  ASSERT_FALSE(f.loops.empty());
+  EXPECT_EQ(f.loops[0].bound, 1000u);
+}
+
 TEST(Unsound, OuterLoopWhoseBodyNeverCompletes) {
   Report r = check(R"(
     CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 9) int n) {

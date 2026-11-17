@@ -82,6 +82,8 @@ std::string Report::toJson() const {
     out += ",\n      \"certificate_bound\": " +
            (f.certificateBound ? std::to_string(*f.certificateBound) : std::string("null"));
     out += ",\n      \"certificate_summary\": " + quote(f.certificateSummary);
+    out += ",\n      \"solver_work\": " + std::to_string(f.solverWork);
+    out += ",\n      \"search_budget_exhausted\": " + std::string(f.budgetExhausted ? "true" : "false");
     out += ",\n      \"assumptions\": " + strings(f.assumptions);
     out += ",\n      \"errors\": " + strings(f.errors);
     out += "\n    }";

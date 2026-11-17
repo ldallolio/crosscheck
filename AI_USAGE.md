@@ -1209,6 +1209,67 @@ What the AI did for 48 (Claude Opus 5.5, 2026-11-16).
   Table `tab:lean`, conclusion; Paper II generator, results, related work, limitations,
   future work. **Author to check** (§3, item 37).
 
+49. "Continue until all open improvements have been realized. Integrate other benchmarks if you think it is useful for scientific relevance and industrial value. Work on authortodos yourself as I have little time while reviewing your work. Keep execution time under control so that the tool will behave on real world cases."
+
+What the AI did for 49 (Claude Opus 5.5, 2026-11-16/17).
+- **Execution time.** Profiled the slowest program (`cjpeg_transupp`, 2,277 s of analysis)
+  by sampling stacks under gdb: nested loops re-run their bodies in every round of the
+  invariant refinement of the enclosing loops, and every query built a new Z3 context.
+  (1) The answers of `entails`, `isFeasible` and `boundsOf` are cached under the closed
+  premises (functions of them; answers identical), with one Z3 context per thread:
+  742 s, kernels 156 s → 114 s, ctest 194 s → 100 s, all results unchanged. (2) Option
+  `budget` (default 500,000 units of solver work per function, counted in constraints
+  sent to the solver, so machine-independent): once spent, the optional searches stop
+  and the refinement of candidate invariants stops after two rounds, dropping a set that
+  is not yet inductive (sound: only proved invariants are kept). The report gives
+  `solver_work` and `search_budget_exhausted`. Test `Budget.ExhaustedSearchStaysSound`.
+- **A soundness defect found and fixed** (by reading the code while extending mini-C):
+  static locals were initialised at every call in the analysis and in the certificate's
+  program, so a loop bounded by a static counter that grows from call to call got a
+  bound (and an accepted certificate of the wrong program; validation against the source
+  would have refused it). Now a static local's declaration does nothing at a call and its
+  value on entry is unknown, as for a global. Test `Unsound.StaticLocalCounterGrowsAcrossCalls`.
+- **Analyser precision.** Conditional expressions keep the facts true in both arms
+  (`m <= a`, `m <= b` for `a < b ? a : b`, and the hull of the arms' intervals); a
+  disequality in a loop guard is split into `a < b` and `a > b` (two paths). Tests
+  `Conditional.MinOfTwoArmsDecreases`, `Disequality.GuardSplitIntoTwoPaths`, must-reject
+  `Unsound.ConditionalArmMayBeZero`, `Unsound.DisequalityGuardOneSideStuck`.
+- **Mini-C**: static locals exported (their declaration as nothing); `ok_static_local`,
+  `no_static_escaped`.
+- **Benchmarks**: TACLeBench `parallel` category (`run_tacle.py --category parallel`,
+  program units with file lists and source fixes in the work copy): the five threads of
+  ROSACE (flight controller; `random`/`srandom` renamed in their text) and DEBIE (ESA
+  satellite instrument software; a `#pragma entrypoint` inside a function header and an
+  include-guard typo fixed in the copy; host port). PapaBench does not compile as
+  distributed (missing `math_papabench.h`, AVR interrupt macros) and is left out.
+  ROSACE: in each thread 73 of 86 functions bounded and certified (every control task but
+  `aircraft_dynamics`, which calls `sinf`/`cosf`); DEBIE: 111 of 187 bounded, 110 certified,
+  30 of 76 flow-fact loops bounded (26 equal; 2 below, `sizeof` of a structure that differs
+  between host and target); 480 certificates accepted, 309 validated.
+- **Re-measured** (2026-11-17, all with the final binary): kernels unchanged (161
+  certified, 152 validated; 1 min 53 s); sequential/app: same loop tables, 231 certified,
+  194 validated (193), 5 bounds 1-3 units lower (static-local initialisers no longer
+  charged), 23 min (88 min); TPDB: 215 bounded in the ranged mode (207), 107 bounded by the
+  other tools and not by CrossCheck (115); without ranges 103 certified (unchanged), 139
+  with potentials but no certificate (133); ranged-mode certificates 97 summaries, 62
+  constant (17 summaries became constant amortised bounds after prompts 47-48, smaller at
+  the largest inputs; found by building the earlier revision and comparing). 181 ctest
+  tests pass.
+- **Authortodos.** Copies obtained and read: `hoffmann2012multivariate` (author's copy),
+  `wilhelm2008worst` (MDU page); `shaw1989reasoning` and `albert2011closed` are now cited
+  as described in sources that were read (Wilhelm et al. §2.1.2; Masud's thesis); the
+  reading todo of Paper II is reduced to `puschner1989calculating` and
+  `demichiel2008orange`. No copy found for `necula1997proof`, `joseph1986finding`,
+  `nielson1987hoare`, `puschner1989calculating`, `demichiel2008orange` (searched again).
+  TPDB: a second random sample of ten programs (seed 2026) classified; it confirms the
+  first (`benchmarks/tpdb/README.md`). The todos that only the author can resolve are
+  kept: the responsibility statements in both papers and the decision on reporting
+  `filterbank` to oRange's authors.
+- **Not done** (open): polynomial bounds in the checker (products of parameters; needs a
+  new form of symbolic bound through the whole checker and its proofs), recursion in the
+  checker, stack bounds for recursion (no recursive function with a depth bound in the
+  benchmarks to test it on).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1440,3 +1501,13 @@ is whether each Lean statement says what the paper says, and everything outside 
     inner loop, e.g. Puschner and Koza's markers): the paper must not suggest that the
     summation is new, only its form as a rule of the cost logic with a checker case.
     Remove the `\authortodo` before `prop:amortised-loop` when done.
+38. **Prompt 49 (tool, benchmarks, no new theorem).** Check the static-local defect and its
+    fix (`Analyzer.cpp` `execDecl`, certificate generator, `MiniC.cpp` `decl`; test
+    `Unsound.StaticLocalCounterGrowsAcrossCalls`) and that the papers report it fairly;
+    the search budget (`Options::budget`, `searchBudgetLeft`, refinement capped at two
+    rounds with the candidates dropped if not inductive): that it can only lose
+    precision; the solver cache (`Solver.cpp`: keys are the closed premises and the goal);
+    the `?:` facts and the disequality split (sound case analyses); the fixes applied to
+    ROSACE and DEBIE in `run_tacle.py` (`parallel_units`) and the descriptions of both
+    programs; the second TPDB sample and the replacement of the TPDB `\authortodo` by a
+    sentence; the trade-off of 17 TPDB summaries for constant amortised bounds.

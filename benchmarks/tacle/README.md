@@ -139,17 +139,19 @@ global loop counter).
 Sequential and application programs (`--category sequential --category app`): tables
 unchanged (231 of 263 certified, all accepted; 207 certified bounds equal to the
 analyser's, 14 lower, among them `susan_median`, a sort of 8 values in a triangular nest,
-1,047 → 648 with the amortised loop rule, validated against its source); **193 validated, none failing** (2026-11-16;
+1,047 → 648 with the amortised loop rule, validated against its source); **194 validated, none failing** (2026-11-17; 193 before static locals were exported;
 178 before tracked globals were exported, 170 before early exits and `switch`, 113 before
 mini-C had division, unsigned stores and calls), including `adpcm_dec_main`,
 `adpcm_enc_main`, `petrinet_main` and `powerwindow_controlexclusion_main`; 188 with all
-their callees. Refused (38): divisions or shifts outside the modelled forms (12), calls of
-functions without an entry in the certificate file (12), narrow unsigned variables (5),
-static locals (5), calls in tests (3), a table read (1).
+their callees. Refused (37): divisions or shifts outside the modelled forms (12), calls of
+functions without an entry in the certificate file (12), variables of narrow types (9),
+calls in tests (3), a table read (1). Five certified bounds are 1 to 3 units lower than
+before (`g723_enc_pack_output` 22 → 19, four `powerwindow` functions): the initialisers
+of their static locals are no longer charged at every call.
 One function (`gsm_enc_Weighting_filter`) was first exported and not validated: the
 constant expression `8192 >> 1` was exported as a quotient where the generator folds it;
 the exporter now folds constants first (and refuses that function for another statement).
-Unchanged by the node `whileUp` (2026-11-16: same counts and bounds, no `j < i` nest with constant bounds); the run took 88 min. The slowest program, `cjpeg_transupp`, needed 2,833 s (2,299 s before `whileUp`, which lowers bodies that contain a loop once more) on a shared machine (614 s on
+Unchanged by the node `whileUp` (2026-11-16: same counts and bounds, no `j < i` nest with constant bounds); the run took 88 min, and 23 min on 2026-11-17 with the solver cache and the search budget (`cjpeg_transupp` 376 s, `epic` 329 s, `h264_dec` 69 s; budget exhausted in 4 functions: `mpeg2_dpframe_estimate`, `cjpeg_transupp_do_transverse`, `epic_build_pyr`, `h264_dec_decode_one_macroblock`; the loop table is the same as without the budget). The slowest program, `cjpeg_transupp`, needed 2,833 s (2,299 s before `whileUp`, which lowers bodies that contain a loop once more) on a shared machine (614 s on
 2026-11-15, before the repeated search for potentials): set `CROSSCHECK_TACLE_TIMEOUT` above
 the default 1,800 s when the machine is loaded.
 
@@ -196,6 +198,61 @@ every call, 317 / 297 / 15 / 5 in context.)
   (15, `gsm_dec` and `gsm_enc`: the macros of the GSM code, e.g. `STEP`, use `*LARc++`
   inside an expression), calls to library functions
   with a trusted cost (5, `susan`: `sqrtf`, `atanf`, `cosf`, …).
+
+## Industrial programs: the `parallel` category (2026-11-17)
+
+```bash
+python3 benchmarks/tacle/run_tacle.py --category parallel --extra-arg=... \
+    --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
+```
+
+TACLeBench's `parallel` directory holds three programs derived from industrial systems.
+The script builds them as program units (`parallel_units`), with fixes applied to the
+copy in the work directory only:
+
+- **ROSACE** (ONERA's flight-controller case study: aircraft dynamics, filters, altitude
+  and vertical-speed control laws), five threads, each a program; their own `random` and
+  `srandom` clash with the C library's declarations and are renamed in their text.
+- **DEBIE** (the DPU software of the DEBIE-1 instrument flown on ESA's PROBA-1; the
+  benchmark of the WCET Tool Challenge), with its test harness and the host port
+  (`arch/x86`): `void #pragma entrypoint InitHealthMonitoring(void)` is not C (the
+  pragma text is removed), and the include guard of `msg_ctrl.h` defines `MSR_CTRL_H`
+  instead of `MSG_CTRL_H` (fixed in the copy, so that the files can be concatenated).
+- **PapaBench** (Paparazzi UAV autopilot) is left out: it does not compile as
+  distributed (`math_papabench.h` is missing, and the fly-by-wire code uses AVR interrupt
+  macros); its `Loops_Bounds.txt` would have been a useful reference.
+
+| Program | Functions | Bounded | Certified | Loops with a flow fact | Bounded | = max |
+|---|---|---|---|---|---|---|
+| ROSACE, each of the 5 threads | 86 | 73 | 73 | 23 | 7 | 1 |
+| DEBIE | 187 | 111 | 110 | 76 | 30 | 26 |
+
+All 480 certificates of the run are accepted by the checker (475 of the 476 bounded
+functions; DEBIE's `InitData_RAM` is bounded but its certificate generator does not show
+the decrease of a potential), and **309 are validated against their source** (189 before
+static locals were exported, see below). The five ROSACE threads share most of their
+functions (the filters, the control laws and the single-precision `libm`), so the
+functions are counted five times.
+
+What is bounded and what is not:
+- In ROSACE every task of the control loop is bounded and certified (filters `*_filter_*`,
+  `altitude_hold_*`, `Vz_control`, `Va_control`, `elevator`, `engine`) except
+  `aircraft_dynamics`, which calls `cosf`/`sinf` of the bundled `libm`: their argument
+  reduction has loops without a bound for an arbitrary `float` (the flow facts give them
+  `max 0`: never run on the program's inputs). The scheduler loop of each thread calls
+  the tasks through function pointers (`CALL(...)`), which the plugin does not follow.
+  Of the 23 loops with a flow fact, 22 are in `libm` (`max 0`); the 7 bounded are
+  `libm` loops, bounded for every input (above the flow fact, as expected).
+- In DEBIE 30 of the 76 loops with a flow fact are bounded, 26 equal to it; 2 are
+  below it: both run `sizeof(telemetry_data)` times, and the structure has 120 bytes on
+  the host (x86-64) and 124 in the target build the flow facts were measured on, so the
+  bounds hold for the code analysed. Of the 46 loops without a bound (2 not reached by
+  the analysis), 29 are in the
+  test harness (`*_Tests`, `Send_Patch_*`), 1 in `main`, and 14 in the instrument
+  software itself (`HandleHitTrigger` 3, and one each in `RoughLogarithm`, `Check_RAM`,
+  `CalculateChecksum`, `Convert_AD`, `PatchCode`, `FindMinQualityRecord`, `ClearEvents`
+  and the four tasks); why each is not bounded was not analysed.
+- No function hits the search budget.
 
 ## Flow facts compared with oRange's (2026-11-14)
 

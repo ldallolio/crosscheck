@@ -443,6 +443,8 @@ struct LoopPotential {
 
 struct FnCtx {
   const FunctionDecl* fn = nullptr;
+  std::uint64_t queriesAtStart = 0;  ///< `solverCalls()` when the analysis started
+  std::uint64_t lowerings = 0;       ///< loop bodies lowered for the certificate
   std::map<const Stmt*, LoopPotential> potentials;
   std::map<const CallExpr*, SummaryKey> callKeys;
   std::set<const VarDecl*> tracked;
@@ -921,6 +923,16 @@ class Analyzer {
 
   // -- functions ------------------------------------------------------------
   const Summary& analyzeFunction(const FunctionDecl* def, const Context& context = {});
+  /// Is the search budget of the function being analysed (option `budget`) left? Marks
+  /// the report when it is not. Certificate lowerings count 100 units each.
+  bool runGuardSplit_ = true;  ///< split a loop guard's disequality into two paths
+  bool searchBudgetLeft() {
+    if (opts_.budget == 0 || stack_.empty()) return true;
+    FnCtx& f = cur();
+    if (solverCalls() - f.queriesAtStart + 100 * f.lowerings < opts_.budget) return true;
+    f.summary.report.budgetExhausted = true;
+    return false;
+  }
   State enterFunction(const FunctionDecl* def, FnCtx& fc);
   const Contract& contractOf(const FunctionDecl* def);
   bool callsItself(const FunctionDecl* def);
@@ -1316,7 +1328,7 @@ LinExpr Analyzer::eval(const Expr* e, State& s) {
           last = eval(x, s);
         } else if (const auto* ds = dyn_cast<DeclStmt>(st)) {
           for (const Decl* d : ds->decls())
-            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit()) {
+            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit() && !vd->isStaticLocal()) {
               LinExpr v = eval(vd->getInit(), s);
               if (tracked(vd)) assignVar(vd, v, s);
             }
@@ -1342,6 +1354,26 @@ LinExpr Analyzer::eval(const Expr* e, State& s) {
       std::int64_t c = d.constantTerm();
       s.facts.push_back(ge(m, v1 + LinExpr::constant(std::min<std::int64_t>(c, 0))));
       s.facts.push_back(le(m, v1 + LinExpr::constant(std::max<std::int64_t>(c, 0))));
+    } else if (!v1.poisoned() && !v2.poisoned() && s.facts.size() >= keep) {
+      // Facts true in both arms: the selected value is at most (at least) an arm's value
+      // when the other arm proves its own value at most (at least) that one, as for
+      // `a < b ? a : b` (at most `a` and at most `b`); and the hull of the two intervals.
+      // Each fact is about the fresh symbol and the immutable symbols of the arms.
+      const LinExpr arm[2] = {v1, v2};
+      const State* st[2] = {&s1, &s2};
+      for (int i = 0; i < 2; ++i) {
+        const int o = 1 - i;
+        if (entails(syms_, st[o]->facts, le(arm[o], arm[i]))) s.facts.push_back(le(m, arm[i]));
+        if (entails(syms_, st[o]->facts, ge(arm[o], arm[i]))) s.facts.push_back(ge(m, arm[i]));
+      }
+      std::optional<Interval> b1 = boundsOf(syms_, s1.facts, v1);
+      std::optional<Interval> b2 = boundsOf(syms_, s2.facts, v2);
+      if (!b1 && b2) b1 = b2;  // an unreachable arm contributes nothing
+      if (!b2 && b1) b2 = b1;
+      if (b1 && b2) {
+        if (b1->lo && b2->lo) s.facts.push_back(ge(m, LinExpr::constant(std::min(*b1->lo, *b2->lo))));
+        if (b1->hi && b2->hi) s.facts.push_back(le(m, LinExpr::constant(std::max(*b1->hi, *b2->hi))));
+      }
     }
     return m;
   }
@@ -1550,7 +1582,7 @@ Cost Analyzer::exprCost(const Expr* e) {
         else if (const auto* x = dyn_cast<Expr>(st)) c = seq(c, exprCost(x));
         else if (const auto* ds = dyn_cast<DeclStmt>(st))
           for (const Decl* d : ds->decls())
-            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit())
+            if (const auto* vd = dyn_cast<VarDecl>(d); vd && vd->getInit() && !vd->isStaticLocal())
               c = seq(c, seq(exprCost(vd->getInit()), unit(w_.assign)));
       }
       return c;
@@ -1895,6 +1927,15 @@ Cost Analyzer::execDecl(const DeclStmt* ds, std::vector<State>& states) {
     if (vd->hasLocalStorage() && vd->needsDestruction(ctx_) != QualType::DK_none)
       error(vd->getLocation(), "local variable '" + vd->getNameAsString() +
                                    "' has a non-trivial destructor (hidden cost)");
+    // A static local is initialised once, before the first call (C), not at each call:
+    // the declaration does nothing here, and the variable has an unknown value on entry,
+    // like a global. (C++ initialises it at the first call, with a guard: not modelled.)
+    if (vd->isStaticLocal()) {
+      if (ctx_.getLangOpts().CPlusPlus && vd->getInit() && !vd->getInit()->isConstantInitializer(ctx_, false))
+        error(vd->getLocation(), "static local variable '" + vd->getNameAsString() +
+                                     "' with a dynamic initializer (run at the first call; not modelled)");
+      continue;
+    }
     const Expr* init = vd->getInit();
     for (State& s : states) {
       if (s.flow != Flow::Normal) continue;
@@ -2170,15 +2211,37 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     Iteration it;
     State s = head;
     for (const Candidate& c : invs) s.facts.push_back(c.inv);
+    std::vector<std::pair<LinExpr, LinExpr>> guardNeq;
     if (cond) {
       CondResult r = evalCond(cond, s);
       it.test = seq(exprCost(cond), unit(w_.branch));
       assumeCond(s, r, true);
+      guardNeq = r.neqTrue;
       for (const Candidate& c : invs)
         if (c.strict) s.facts.push_back(*c.strict);
     }
     it.startFacts = s.facts;
-    std::vector<State> st{std::move(s)};
+    std::vector<State> st;
+    // A disequality `a != b` in the guard that the facts do not resolve: over the
+    // integers it is `a < b` or `a > b`, so the body starts on two paths, one for each
+    // (the first such disequality only, to keep the number of paths small).
+    std::optional<std::pair<LinExpr, LinExpr>> split;
+    if (cond && runGuardSplit_)
+      for (const auto& [a, b] : guardNeq)
+        if (!a.poisoned() && !b.poisoned() && !entails(syms_, s.facts, le(a, b)) &&
+            !entails(syms_, s.facts, ge(a, b))) {
+          split = std::make_pair(a, b);
+          break;
+        }
+    if (split) {
+      State lo = s, hi = s;
+      lo.facts.push_back(lt(split->first, split->second));
+      hi.facts.push_back(gt(split->first, split->second));
+      st.push_back(std::move(lo));
+      st.push_back(std::move(hi));
+    } else {
+      st.push_back(std::move(s));
+    }
     it.body = flat(exec(body, st));
     for (State& x : st)
       if (x.flow == Flow::Continue) x.flow = Flow::Normal;
@@ -2225,7 +2288,11 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   --fc.speculative;
   return settled;
   };
-  refine(~0u);
+  // Without a budget left, at most two rounds: a set that is not stable by then is
+  // dropped (the empty set is inductive). Each round runs the body, and with it the
+  // refinement of every inner loop, so unlimited rounds cost (rounds)^(depth).
+  if (searchBudgetLeft()) refine(~0u);
+  else if (!refine(2)) candidates.clear();
 
   const std::size_t errorsBefore = fc.errorCount;
   Iteration it = runIteration(candidates);
@@ -2333,7 +2400,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   // fewer invariants and stays valid.
   // Not inside the trial runs of an enclosing loop: an inner loop would be retried in
   // every one of them, and only its bound, which those runs discard, is at stake.
-  if (!rank && !logp && !growp && !fc.speculative) {
+  if (!rank && !logp && !growp && !fc.speculative && searchBudgetLeft()) {
     std::vector<Candidate> rich;
     auto add = [&](const Constraint& c) {
       if (c.e.poisoned() || c.e.isConstant() || rich.size() >= 24) return;
@@ -2891,6 +2958,7 @@ const Contract& Analyzer::contractOf(const FunctionDecl* def) {
   stack_.push_back(std::make_unique<FnCtx>());
   FnCtx& fc = cur();
   fc.fn = def;
+  fc.queriesAtStart = solverCalls();
   fc.speculative = 1;  // nothing is reported from here
   enterFunction(def, fc);
   Contract ct{fc.summary.paramSyms, fc.summary.requires_};
@@ -2996,6 +3064,7 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   stack_.push_back(std::make_unique<FnCtx>());
   FnCtx& fc = cur();
   fc.fn = def;
+  fc.queriesAtStart = solverCalls();
   FunctionReport& rep = fc.summary.report;
   rep.name = def->getQualifiedNameAsString();
   {
@@ -3149,6 +3218,7 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
     }
   }
 
+  rep.solverWork = solverCalls() - fc.queriesAtStart;
   fc.summary.potentials =
       std::make_shared<const std::map<const Stmt*, LoopPotential>>(fc.potentials);
   fc.summary.tracked = fc.tracked;
@@ -4276,6 +4346,9 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   trimP(pot);
   std::uint64_t dA = static_cast<std::uint64_t>(den);
   std::size_t j = cc.depth;
+  // Once the search budget is spent, no more candidates in the enclosing potentials:
+  // they lower loop bodies again (the bound may be the product instead of the sum).
+  if (cc.ghostSym && !searchBudgetLeft()) cc.ghostSym = false;
 
   // Jumps out of the body become flags tested by the loop: break, continue, return.
   JumpScan js = jumpsOf(body);
@@ -4319,6 +4392,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   }
   auto skipF = [&](const Assn& p) -> std::optional<CertPiece> { return CertPiece{mk(Node{}), p, 0}; };
   auto runBody = [&](const Assn& p, const Assn& hint) -> std::optional<CertPiece> {
+    ++cur().lowerings;
     ++cc.depth;
     cc.exits.push_back(ex);
     cc.hints.push_back(hint);
@@ -4584,7 +4658,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     // falls. With `gamma_j = k - pot` in the body (Lean `whileUp`), a body bound
     // `a + c * gamma_j` has the amortised bound `upBound`; tried when the body has a loop,
     // and compared with the other candidates by its value.
-    if (k && cc.ghostSym && bodyLoops) {
+    if (k && cc.ghostSym && bodyLoops && searchBudgetLeft()) {
       Assn upPre = guardInv;
       upPre.insert(upPre.begin(), cert::upHi(potc, j, *k, 0));
       upPre.insert(upPre.begin(), cert::upLo(potc, j, *k));
@@ -5022,6 +5096,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
     for (const Decl* d : ds->decls()) {
       const auto* vd = dyn_cast<VarDecl>(d);
       if (!vd) continue;
+      if (vd->isStaticLocal()) continue;  // initialised once, before the first call
       const Expr* init = vd->getInit();
       Scan sc = scanOf(init, cc.var);
       if (sc.writes) return cc.failed("assignment inside an expression"), std::nullopt;

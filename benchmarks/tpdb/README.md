@@ -39,32 +39,35 @@ benchmarks/tpdb/tools_in_containers.sh 4
 The *entry function* of a file is the defined function that no other function of the
 file calls (the last one if there are several).
 
-## Results (2026-11-15, analyser with globals, fields, tables and C integer tests)
+## Results (2026-11-17)
 
 Programs whose entry function gets a bound:
 
 | Family | Programs | CrossCheck as is | CrossCheck, inputs in [-1000, 1000] | KoAT2 | CoFloCo |
 |---|---:|---:|---:|---:|---:|
 | Benamram_2025 | 14 | 0 | 0 | 8 | 0 |
-| Flores-Montoya_2017 | 458 | 11 | 202 | 254 | 246 |
+| Flores-Montoya_2017 | 458 | 11 | 207 | 254 | 246 |
 | Lommen_22 | 20 | 0 | 1 | 1 | 1 |
 | Lommen_23 | 15 | 0 | 1 | 6 | 1 |
 | Lommen_24 | 20 | 0 | 0 | 1 | 0 |
-| Sinn_2016 | 26 | 0 | 3 | 18 | 16 |
-| **Total** | **553** | **11** | **207** | **288** | **264** |
+| Sinn_2016 | 26 | 0 | 6 | 18 | 16 |
+| **Total** | **553** | **11** | **215** | **288** | **264** |
 
 (2026-11-13: 165 with ranges; then one more in `Sinn_2016`; five more in
 `Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15;
 36 more on 2026-11-16, since the search for a potential is repeated with more candidate
 invariants (`docs/proposals.md`, step 9). One program, `sipmamergesort2`, exceeded the 120 s
-limit in both modes in that run, on a machine shared with other work; it had no bound before.)
+limit in both modes in that run, on a machine shared with other work; it had no bound before.
+2026-11-17: 8 more, since conditional expressions keep the facts true in both arms
+(`len -= min(len, 64)`) and a disequality in a loop guard is split into two paths
+(`while (p != q)`); all 8 are also bounded by KoAT2 or CoFloCo.)
 
 KoAT2 or CoFloCo bound 305 programs. CrossCheck with ranges against them:
 
 | | KoAT2 or CoFloCo: bound | no bound |
 |---|---:|---:|
-| CrossCheck (ranges): bound | 190 | 17 |
-| no bound | 115 | 231 |
+| CrossCheck (ranges): bound | 198 | 17 |
+| no bound | 107 | 231 |
 
 Reading the results:
 
@@ -91,7 +94,7 @@ Reading the results:
   Keeping the facts of each `break` path at a loop exit, joining intervals where paths
   merge, and recognising `x = x + 1` as an increment (for invariant candidates) added
   24 programs and lost none; all 24 are also bounded by KoAT2 or CoFloCo.
-- **The 115 programs bounded by KoAT2 or CoFloCo and not by CrossCheck** (147 when the sample below was drawn). Almost all of
+- **The 107 programs bounded by KoAT2 or CoFloCo and not by CrossCheck** (147 when the first sample below was drawn, 115 for the second). Almost all of
   CrossCheck's failures in this mode are "cannot derive an iteration bound" (the
   others: unstructured control flow in 3, a missing definition in 1, and the 2 programs
   that do not compile as C++). A sample of ten was drawn (`random.seed(1)`) from the
@@ -107,6 +110,22 @@ Reading the results:
   - (now handled) a fact needed after a loop that may exit by `break`
     (`speed_popl10_sequential_single`), and an invariant on a variable that grows
     (`HeizmannHoenickeLeikePodelski-ATVA2013-Fig1`).
+- **A second sample (2026-11-16)**, to check that the first one is representative: ten
+  programs drawn (`random.seed(2026)`) from the 115 of that day, classified by reading them.
+  Guards that one linear potential does not handle: `y1 != y2` with subtractions
+  (`BradleyMannaSipma-CAV2005-Fig1`), `p != q` (`LeikeHeizmann-TACAS2014-Ex9`, whose
+  potential `p + q` decreases on every path that the guard allows, but the analysis does
+  not split `p != q` in the body), `x - y > 2 || y - x > 2` (`wise`, drawn in both
+  samples). Nested loops that share counters and need amortisation: `Loopus2014_ex1`,
+  `Loopus2014_ex2` (pushes and pops), `rank2`, `cBench_s_SFD_process` (a counter that
+  moves back), `cBench_subsetdump` (an inner loop that advances the outer counter). A
+  relation carried out of an inner loop: `gcd1` (`r < y` after the inner loop makes `y`
+  decrease). A conditional expression: `cBench_zwritehexstring_at` (`len -= min(len, 64)`),
+  which the analysis did not relate to its arms; it now keeps the facts true in both arms
+  (`m <= a` and `m <= b` for `a < b ? a : b`) and bounds it. The two samples give the same
+  picture: disequalities and disjunctions in guards, and amortisation across nested
+  loops, account for most of the programs that the other tools bound and CrossCheck does
+  not.
 - KoAT2's classes for the 305 programs it or CoFloCo bounds are mostly `O(n)` and
   `O(n^2)`; for the 165 that CrossCheck bounded on 2026-11-13, KoAT2 gives `O(n)` for 109, `O(n^2)` for
   29 and `O(1)` for 18.
@@ -123,10 +142,17 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **159 of the 207 bounded entry functions are
-certified, all accepted by the checker**: 114 with a *summary* affine in their parameters
-(e.g. `c + a*max(0,n)`, valid for every input in the ranges), 45 with a constant bound,
-48 not certified (156, 42 and 51 before `do` loops were certified, 2026-11-16). For 77 of the 114, KoAT2 also reports a linear bound. The harness's
+In the second mode (inputs in [-K, K]), **159 of the 215 bounded entry functions are
+certified, all accepted by the checker** (2026-11-17): 97 with a *summary* affine in their
+parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 62 with a
+constant bound, 56 not certified. For 74 of the 97, KoAT2 also reports a linear bound.
+(2026-11-16: 114 summaries, 45 constant, 48 none, of 207; 156, 42 and 51 before `do` loops
+were certified.) Since the amortised loop rules (prompts 47 and 48), 17 functions get a
+constant amortised bound instead of a summary: the generator compares its candidates at
+the largest admissible inputs, where the amortised bound is about half the summary
+(`jama_ex2`: 2,009,003 against `7003 + 4000*max(0,n)` = 4,007,003 at `n = 1000`), but
+it no longer depends on the parameters (the amortised node needs a constant entry
+bound), so for small inputs the summary was the better bound. The harness's
 `CROSSCHECK_COST(1)` declarations become assumed contracts (46 entries). The analysis still
 needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.
 
@@ -152,8 +178,8 @@ after a loop stay unknown.
 |---|---:|
 | certificate accepted, bound in the parameters | **89** |
 | certificate accepted, constant bound | 14 |
-| potentials for every loop, no certificate | 133 |
-| a loop without a potential, or another error | 317 |
+| potentials for every loop, no certificate | 139 |
+| a loop without a potential, or another error | 311 |
 | timeout | 0 |
 
 - All 103 certificates are accepted by the checker: these bounds hold **for all inputs**,
@@ -164,7 +190,7 @@ after a loop stay unknown.
 - Before the two changes that followed the first run of this mode the count was 59 (45 +
   14): logical variables for `-x` and `x - y` (a loop `while (a < 30)` costs
   `max(0, -a)`), and nondeterministic inputs as parameters.
-- No certificate, of the 135 of the run before `do` loops were certified (133 now): a product of two symbolic quantities, as in nested loops
+- No certificate, of the 135 of the run before `do` loops were certified (139 on 2026-11-17, after the analyser changes above): a product of two symbolic quantities, as in nested loops
   both bounded by parameters (47: certified bounds are affine); a potential with no
   bound of that form on entry (36); a loop test with a call or an assignment (28); the
   generator's invariants too weak (16); `do` loops and labels (6); other (2).

@@ -81,6 +81,14 @@ struct Options {
   /// Cost of entering and leaving an interrupt handler, added to each activation's bound
   /// (trusted, listed as an assumption).
   std::uint64_t interruptOverhead = 0;
+  /// Search budget per analysed function, in solver work (constraints sent to the solver, `solverCalls`; 0: none). Once it is spent,
+  /// the optional searches stop: the retry with more candidate invariants for a loop
+  /// without a potential, and the extra certificate candidates (bounds in the enclosing
+  /// potentials, amortised nests); and the refinement of candidate invariants stops after
+  /// two rounds (a set that is not yet inductive is dropped). The result can only be less precise, never unsound;
+  /// the report says when the budget ran out. Counted in work, not seconds, so that
+  /// results do not depend on the machine.
+  std::uint64_t budget = 500000;
 
   /// Parses one `name=value` option (`weight-arith=3`, `max-paths=8`,
   /// `report=out.json`, `all`). Returns false if it is not understood.
@@ -126,6 +134,7 @@ struct Options {
       return false;
     std::uint64_t n = std::stoull(value);
     if (key == "interrupt-overhead") { interruptOverhead = n; return true; }
+    if (key == "budget") { budget = n; return true; }
     if (key == "max-paths") { maxPaths = n == 0 ? 1 : static_cast<unsigned>(n); return true; }
     if (key.rfind("weight-", 0) == 0) return weights.set(key.substr(7), n);
     return false;

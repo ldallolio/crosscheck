@@ -29,7 +29,7 @@ reading (`AI_USAGE.md`, section 3).
 |---|---|---|---|
 | `agmai2026responsible` | book or web page |  |  |
 | `albert2011more` | read 2026-11-16 (not kept), in the author's thesis | A. N. Masud, PhD thesis, Universidad Politécnica de Madrid (COSTA project page); the thesis states that its chapters on upper bounds were published as this paper and in a TOCL article | Section 4.2 ("Cost Relations with Non-Constant Cost", 4.2.1 "Linear Progression Behavior") and the overview in Section 2.2 read; the conference paper itself was not obtained (the publisher's copy redirects to a login). The cost contributed by successive applications of a recursive equation (a loop) is bounded by an arithmetic sequence, increasing or decreasing by the least progression, and summed, instead of multiplied by the number of iterations. Cited for the summation in `prop:amortised-loop` (Paper I) and in Paper II's related work. **Author: check against the paper.** |
-| `albert2011closed` | not obtained (2026-11-16: the publisher's copy is not open; the related tool paper of COSTA was not used) |  | Not read. Cited with `floresmontoya2014cofloco` for cost relations solved into closed forms, which is what its title and abstract page state. |
+| `albert2011closed` | not obtained; described in A. N. Masud's thesis (read 2026-11-16) |  | The thesis (its reference [5]) describes this paper as the approach in which specific upper-bound solvers for cost relations reason on the worst-case cost and obtain sound closed-form bounds; that is all Paper II claims (cost relations solved into closed forms). The paper itself not read. |
 | `alias2010multi` | downloaded | open access (Semantic Scholar) | Title page read. Multi-dimensional rankings and complexity bounds of flowchart programs. |
 | `baccelli1992synchronization` | book or web page |  |  |
 | `bardin2008fast` | no open-access copy found |  |  |
@@ -58,7 +58,7 @@ reading (`AI_USAGE.md`, section 3).
 | `gustafsson2010malardalen` | downloaded | DROPS (Dagstuhl, open access) | Skimmed. Describes the Mälardalen WCET benchmark suite. |
 | `haslbeck2018hoare` | downloaded | publisher (Springer, open access) | Sections 1-3.1 and 5 read. Three logics (Nielson style, potentials after Carbonneaux et al., separation logic with time credits) for the deterministic language IMP, in Isabelle/HOL; sound and complete; verified VCGs; a valid triple asserts termination within the bound. The comparison in subsec:cost-logic was rewritten from this reading. |
 | `heckmann2013ait` | downloaded (2026-11-14) | AbsInt web site | Section 4 read (user annotations): `loop "R" + n loops [begin\|end] max j;` (n-th loop of routine R, counted from 1, in the executable), source annotations `/* ai: loop here max j; */`. Undated; PDF metadata 2013. Used for the AIS exporter. |
-| `hoffmann2012multivariate` | no open-access copy found |  |  |
+| `hoffmann2012multivariate` | read 2026-11-16 (not kept) | author's copy (Yale) | Abstract and introduction read: the type system relies on the potential method of amortized analysis (after Hofmann and Jost, Tarjan). Supports both citations (amortized analysis; potential method). |
 | `hoffmann2022two` | downloaded | open access (Semantic Scholar) | Abstract read. Survey of automatic amortized resource analysis. |
 | `infercost` | book or web page |  |  |
 | `kahn1987natural` | no open-access copy found |  |  |
@@ -77,10 +77,10 @@ reading (`AI_USAGE.md`, section 3).
 | `puschner1989calculating` | no open-access copy found |  |  |
 | `sarif2023` | web page (2026-11-14) | OASIS | Title and editors read; the JSON schema (`sarif-2.1/schema/sarif-schema-2.1.0.json` of the OASIS repository) is used by the tests. |
 | `schrijver1986theory` | book or web page |  |  |
-| `shaw1989reasoning` | no open-access copy found |  |  |
+| `shaw1989reasoning` | no open-access copy found (2026-11-16) Wilhelm et al. 2008, Section 2.1.2, credit Shaw 1989 with the structure-based approach (the bound of `A; B` is the sum of the bounds), which supports the citation for the timing schema. |
 | `sinn2014complexity` | downloaded | arXiv | Abstract and the start of the introduction read (2026-11-16). Bound analysis with amortisation via lexicographic ranking functions on vector addition systems; the tool is called Loopus in the paper. |
 | `wegbreit1975mechanical` | no open-access copy found |  |  |
-| `wilhelm2008worst` | no open-access copy found |  |  |
+| `wilhelm2008worst` | read 2026-11-16 (not kept) | Mälardalen University publication page | Sections 1-3 and the tool descriptions read: users supply loop bounds and flow facts as annotations (aiT, Bound-T); IPET for bound calculation; context-dependent instruction times on processors with caches and pipelines; the structure-based approach is credited to Shaw 1989 (sum for sequences). Supports every citation. |
 | `winskel1993formal` | book or web page |  |  |
 | `armCortexM0trm` | read 2026-11-16 (not kept) | Arm documentation service (public) | Section 3.3, Table 3-1 (instruction summary with cycle counts) read in full and encoded as a test (`benchmarks/cycles/test_m0.py`). Not on Crossref (a manual). |
 | `audsley1993applying` | read 2026-11-16 (not kept) | course copy (Univ. of Padua) | Abstract, the start of the introduction, the passages that mention Joseph and Pandya and the reference list read. Exact schedulability analysis for static-priority pre-emptive dispatching, with blocking and release jitter; it attributes the response-time equation, in a different form, to Joseph and Pandya (its reference 6: M. Joseph and P. Pandya, Computer Journal 29(5), 1986, pp. 390-395, which confirms both authors of `joseph1986finding`). |
@@ -107,8 +107,10 @@ Updated 2026-11-16, after a second attempt to obtain the papers on which the tex
 what Paper I says about it rests on its description in `haslbeck2018hoare`, and the paper
 carries an `\authortodo` for it. Also not obtained and not read, each with an
 `\authortodo` in the paper that relies on it: `necula1997proof`, `joseph1986finding`
-(Paper I), `albert2011closed`, `hoffmann2012multivariate`, `wilhelm2008worst`,
-`shaw1989reasoning`, `puschner1989calculating`, `demichiel2008orange` (Paper II). The other entries without a copy were not read
+(Paper I), `puschner1989calculating`, `demichiel2008orange` (Paper II); `shaw1989reasoning`
+and `albert2011closed` were not obtained either but are cited as described in sources that
+were read (2026-11-16: `wilhelm2008worst` and A. N. Masud's thesis);
+`hoffmann2012multivariate` and `wilhelm2008worst` were read on 2026-11-16. The other entries without a copy were not read
 either and are cited for well-known results: `cousot1977abstract`,
 `podelski2004transition`, `podelski2004complete`, `wegbreit1975mechanical`,
 `floyd1967assigning`, `bardin2008fast`, `kincaid2019closed`, `kahn1987natural`,

@@ -106,6 +106,21 @@ sequenceDiagram
 
 ## 5. Loops
 
+**Cost control (2026-11-17).** Inner loops are re-analysed in every round of the
+Houdini refinement of the enclosing loops (rounds^depth). Two measures, neither of which
+changes what is proved: the solver queries `entails`/`isFeasible`/`boundsOf` are cached
+under their closed premises, with one Z3 context per thread (`core/Solver.cpp`); and the
+option `budget` (default 500,000 units of solver work per function, deterministic) stops
+the optional searches once spent and caps the refinement at two rounds, dropping a set
+that is not yet inductive (`searchBudgetLeft`). `cjpeg_transupp`: 2,277 s → 742 s
+(cache) → 376 s (budget), same bounds.
+
+| Construct | How the analysis reads it |
+|---|---|
+| `c ? a : b` | a fresh value with the facts true in both arms (`m <= a` if the other arm proves its value `<= a`, …) and the hull of the arms' intervals |
+| `while (p != q)` | the body starts on two paths, `p < q` and `p > q` (first unresolved disequality of the guard) |
+| `static int n = 0;` in a function | nothing at a call (initialised once, before the first call); the value on entry is unknown, as for a global |
+
 ```mermaid
 flowchart TD
   A["states reaching the loop → merge"] --> B["ModScan: modified / only-incremented vars"]
@@ -287,7 +302,7 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (173)
+## 9. Tests (181)
 
 | Suite | Count | Checks |
 |---|---|---|

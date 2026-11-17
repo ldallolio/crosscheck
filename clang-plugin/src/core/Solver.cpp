@@ -3,7 +3,10 @@
 
 #include <z3++.h>
 
+#include <memory>
 #include <set>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace crosscheck {
@@ -60,9 +63,74 @@ std::vector<Constraint> closePremises(const SymbolTable& syms,
   return out;
 }
 
+// --- memoisation ----------------------------------------------------------------
+// The queries below are functions of the closed premises (the facts with the ranges of
+// their symbols) and the goal, so their answers are cached under a textual key: the
+// analysis asks the same questions many times when it re-runs the bodies of nested
+// loops. A cached answer is the answer Z3 gave the first time; the cache is cleared when
+// it grows large.
+constexpr std::size_t kCacheLimit = 1u << 20;
+
+void keyOf(std::string& k, const LinExpr& e) {
+  k += std::to_string(e.constantTerm());
+  for (const auto& [s, c] : e.terms()) {
+    k += ' ';
+    k += std::to_string(s);
+    k += '*';
+    k += std::to_string(c);
+  }
+  k += ';';
+}
+
+std::string keyOf(char kind, const std::vector<Constraint>& closed, const LinExpr* goal) {
+  std::string k(1, kind);
+  for (const Constraint& c : closed) keyOf(k, c.e);
+  k += '|';
+  if (goal) keyOf(k, *goal);
+  return k;
+}
+
+template <class V>
+std::unordered_map<std::string, V>& cache() {
+  static thread_local std::unordered_map<std::string, V> m;
+  if (m.size() > kCacheLimit) m.clear();
+  return m;
+}
+
+std::uint64_t& callCounter() {
+  static thread_local std::uint64_t n = 0;
+  return n;
+}
+
+bool feasibleClosedRaw(const std::vector<Constraint>& closed);
+
+/// One Z3 context per thread for the cached queries (each query has its own solver),
+/// renewed now and then so that its tables do not grow without limit; creating a
+/// context per query dominated the time of small queries.
+z3::context& sharedContext() {
+  static thread_local std::unique_ptr<z3::context> ctx;
+  static thread_local unsigned uses = 0;
+  if (!ctx || ++uses > 20000) {
+    ctx.reset();
+    ctx = std::make_unique<z3::context>();
+    uses = 0;
+  }
+  return *ctx;
+}
+
 bool feasibleClosed(const std::vector<Constraint>& closed) {
+  callCounter() += closed.size() + 1;
+  auto& m = cache<bool>();
+  std::string k = keyOf('F', closed, nullptr);
+  if (auto it = m.find(k); it != m.end()) return it->second;
+  bool r = feasibleClosedRaw(closed);
+  m.emplace(std::move(k), r);
+  return r;
+}
+
+bool feasibleClosedRaw(const std::vector<Constraint>& closed) {
   try {
-    z3::context ctx;
+    z3::context& ctx = sharedContext();
     z3::solver solver(ctx);
     z3::params p(ctx);
     p.set("timeout", kTimeoutMs);
@@ -143,6 +211,8 @@ bool isFeasible(const SymbolTable& syms, const std::vector<Constraint>& facts) {
   return feasibleClosed(closePremises(syms, facts, {}));
 }
 
+std::uint64_t solverCalls() { return callCounter(); }
+
 bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
              const Constraint& goal) {
   if (goal.e.poisoned()) return false;
@@ -151,8 +221,13 @@ bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
     // A false goal is entailed only by contradictory facts.
   }
   std::vector<Constraint> closed = closePremises(syms, facts, {goal.e});
+  callCounter() += closed.size() + 1;
+  auto& m = cache<bool>();
+  std::string key = keyOf('E', closed, &goal.e);
+  if (auto it = m.find(key); it != m.end()) return it->second;
+  bool r = [&] {
   try {
-    z3::context ctx;
+    z3::context& ctx = sharedContext();
     z3::solver solver(ctx);
     z3::params p(ctx);
     p.set("timeout", kTimeoutMs);
@@ -163,6 +238,9 @@ bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
   } catch (const z3::exception&) {
     return false;
   }
+  }();
+  m.emplace(std::move(key), r);
+  return r;
 }
 
 std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Constraint>& facts,
@@ -170,11 +248,16 @@ std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Cons
   if (e.poisoned()) return Interval{};
   if (e.isConstant()) return Interval{e.constantTerm(), e.constantTerm()};
   std::vector<Constraint> closed = closePremises(syms, facts, {e});
+  callCounter() += closed.size() + 1;
+  auto& m = cache<std::optional<Interval>>();
+  std::string key = keyOf('B', closed, &e);
+  if (auto it = m.find(key); it != m.end()) return it->second;
+  std::optional<Interval> res = [&]() -> std::optional<Interval> {
   Interval out;
   for (bool upper : {true, false}) {
     std::optional<std::int64_t> end;
     try {
-      z3::context ctx;
+      z3::context& ctx = sharedContext();
       z3::optimize opt(ctx);
       z3::params p(ctx);
       p.set("timeout", kTimeoutMs);
@@ -199,6 +282,9 @@ std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Cons
     (upper ? out.hi : out.lo) = end;
   }
   return out;
+  }();
+  m.emplace(std::move(key), res);
+  return res;
 }
 
 std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
