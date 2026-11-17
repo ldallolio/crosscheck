@@ -73,7 +73,7 @@ reading (`AI_USAGE.md`, section 3).
 | `mathlib2020` | downloaded | arXiv | Abstract read. |
 | `matiyasevich1970enumerable` | no open-access copy found |  |  |
 | `nielson1984hoare` | downloaded | Edinburgh Research Archive (handle 1842/15527, open) | Abstract and acknowledgements read (2026-11-17): Hoare logics extended to run-time properties, three proof systems for iterative programs (sound and complete), one extended to nested recursive procedures with call-by-value parameters, a restricted "time T" system; no clock variables inserted; supervised by G. Plotkin. Supports the attribution in Paper I `subsec:cost-logic`. |
-| `nielson1987hoare` | no open-access copy found | | The journal version of the thesis above. Only its abstract was seen, as quoted by an indexing site (2026-11-17): the extension of a Hoare-like proof system to computation time, with bubble sort as an example. |
+| `nielson1987hoare` | provided by the author (2026-11-17), not committed | Science of Computer Programming 9 (1987) 107-136 | Abstract, Section 1 and the proof system R of Section 3 (rules R-1 to R-6 and their explanation) read (2026-11-17): a Hoare-like system for while programs proving total correctness and properties of the computation time, no clock variable; validity: termination in a final state satisfying Q and a time satisfying R; composition [R-3] relates the time of c2 to the initial values through c1's relational postcondition; while rule [R-4] bounds the unfoldings by a natural-number variable z; arithmetically sound and complete; bubble sort example. Supports Paper I `subsec:cost-logic` and the remark after `prop:summary-call`. |
 | `podelski2004complete` | no open-access copy found |  |  |
 | `podelski2004transition` | no open-access copy found |  |  |
 | `puschner1989calculating` | no open-access copy found |  |  |
@@ -108,7 +108,7 @@ Updated 2026-11-16, after a second attempt to obtain the papers on which the tex
 
 `nielson1987hoare` (the origin of Hoare logics for running time) could not be obtained;
 on 2026-11-17 the thesis it derives from, `nielson1984hoare` (open, Edinburgh), was read and
-is cited with it; the paper's `\authortodo` now only asks to confirm the attribution. A
+is cited with it; the same day the author provided the paper, which was read (see its row). A
 third attempt (2026-11-17) found no open copy of `necula1997proof` (the author's page no
 longer serves it), `demichiel2008orange`, `albert2011more` (publisher preview only),
 `joseph1986finding`, `puschner1989calculating`. Also not obtained and not read, each with an

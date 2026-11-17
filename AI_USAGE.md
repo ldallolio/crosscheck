@@ -1447,6 +1447,19 @@ DOI; handle checked on the archive) and cited with the journal paper; the `\auth
 reduced to confirming the attribution. No open copy of `necula1997proof`,
 `demichiel2008orange`, `albert2011more`, `joseph1986finding`, `puschner1989calculating`.
 
+57. "I do not feel like reporting the filterbank discrepancy to the oRange authors, maybe after the paper has been accepted and reviewed. I added nielson1987hoare.pdf to the references, check if you can read it."
+
+What the AI did for 57 (Claude Opus 5.5, 2026-11-17).
+- **Author decision recorded**: the `filterbank` discrepancy is not reported to oRange's
+  authors before acceptance; the corresponding `\authortodo` of Paper II is removed (the
+  text describing the case is unchanged).
+- **`nielson1987hoare` read** (the PDF provided by the author, not committed): abstract,
+  Section 1, Section 3 (system R, rules R-1 to R-6). Paper I now says that Nielson's logic
+  proves total correctness with a time bound in the initial values and that its loop rule
+  bounds the unfoldings by a natural-number variable (R-3, R-4), and, after
+  `prop:summary-call`, that its second statement is Nielson's composition rule R-3. The
+  `\authortodo` now asks to confirm these two attributions.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1634,8 +1647,8 @@ is whether each Lean statement says what the paper says, and everything outside 
       on loop matching by debug lines is left;
     - items 10 and 12 (classification of unbounded loops, loop instrumentation): done by
       scripts; the decision whether to add a run with minimal annotations is left to you;
-    - item 13: decide whether to report the `filterbank` case to the authors of oRange
-      before publication;
+    - item 13: decided by the author (2026-11-17, prompt 57): not reported to the authors
+      of oRange before the paper is accepted and reviewed;
     - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
       papers not obtained keep an `\authortodo`.
 34. **Early exits and `switch` in mini-C, and OTAWA (prompt 45).** (The rewriting is no
