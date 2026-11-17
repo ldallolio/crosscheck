@@ -909,6 +909,27 @@ TEST(Certificates, AmortisedTriangularNest) {
   EXPECT_LT(*u.certificateBound * 10, u.wcet * 6);
 }
 
+// Products of parameters: a nest whose two entry bounds are parameters gets a certified
+// bound quadratic in them (Lean `loopBoundOk`, third form), and a call composes it.
+TEST(Symbolic, ProductOfParameters) {
+  Options o;
+  ASSERT_TRUE(o.parse("certificates=unused.json"));
+  ASSERT_TRUE(o.parse("symbolic"));
+  o.certificatesPath.clear();
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int rect(int n, int m) {
+      int s = 0;
+      for (int i = 0; i < n; i++) for (int j = 0; j < m; j++) s++;
+      return s;
+    }
+    CROSSCHECK_REALTIME int twice(int k) { return rect(k, k); })", o);
+  for (const char* name : {"rect", "twice"}) {
+    const FunctionReport& f = fn(r, name);
+    EXPECT_EQ(f.certificate, "emitted") << name;
+    EXPECT_NE(f.certificateSummary.find(")*max(0,"), std::string::npos) << name << ": " << f.certificateSummary;
+  }
+}
+
 // Option `symbolic`: without input ranges, a loop with a ranking potential is not an
 // error; the function has no numeric bound (it is not accepted as real-time), and the
 // certificate carries a bound in the parameters.
@@ -934,9 +955,12 @@ TEST(Symbolic, BoundInTheParametersWithoutRanges) {
     EXPECT_NE(f.certificateSummary.find("max(0,n)"), std::string::npos) << name;
     EXPECT_TRUE(f.errors.empty()) << name;
   }
-  // A product of two parameters is not an affine summary: symbolic, but no certificate.
+  // Symbolic: no numeric bound for the product of two parameters.
   EXPECT_TRUE(fn(r, "nested").symbolic);
-  EXPECT_NE(fn(r, "nested").certificate, "emitted");
+  // A product of two parameters: certified since quadratic terms (Lean `loopBoundOk`,
+  // third form).
+  EXPECT_EQ(fn(r, "nested").certificate, "emitted");
+  EXPECT_NE(fn(r, "nested").certificateSummary.find(")*max(0,"), std::string::npos);
 }
 
 // Bounds that decrease in a parameter or depend on a difference of two: the certificate

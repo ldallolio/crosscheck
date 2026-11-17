@@ -107,7 +107,18 @@ def parseSBv (v : Json) (what : String) : Except String SB := do
     let co ← match v.getObjVal? "co" with
       | .ok a => natList a "co"
       | .error _ => pure []
-    pure ⟨c, co⟩
+    -- quadratic terms `[a, i, j]`: a * max(0, γi) * max(0, γj) (optional)
+    let q ← match v.getObjVal? "q" with
+      | .ok a => do
+          let ts ← match a.getArr? with
+            | .ok ts => pure ts
+            | .error _ => throw "field 'q' must be an array"
+          ts.toList.mapM fun t => do
+            match ← natList t "q" with
+            | [x, i, k] => pure (x, i, k)
+            | _ => throw "each quadratic term must be [a, i, j]"
+      | .error _ => pure []
+    pure ⟨c, co, q⟩
 
 def getSB (j : Json) (k : String) : Except String SB := do parseSBv (← field j k) k
 
@@ -366,7 +377,9 @@ def parseFile (j : Json) : Except String (List Program) := do
 
 def showSB (b : SB) : String :=
   let terms := (b.co.enum.filter (·.2 != 0)).map (fun (i, k) =>
-    (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})")
+    (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})") ++
+    (b.q.filter (·.1 != 0)).map (fun (k, i, j) =>
+      (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})*max(0,γ{j})")
   " + ".intercalate (if b.c != 0 || terms.isEmpty then toString b.c :: terms else terms)
 
 def varName (vars : List String) (i : Nat) : String := vars.getD i s!"x{i}"

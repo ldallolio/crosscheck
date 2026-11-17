@@ -56,6 +56,8 @@ struct FunctionReport {
   bool symbolic = false;
   std::uint64_t wcet = 0;   ///< worst-case cost bound in abstract units (if bounded)
   std::optional<std::uint64_t> deadline;
+  /// Time budgets (`CROSSCHECK_DEADLINE_CYCLES` / `_US`): recorded, checked after linking.
+  std::optional<std::uint64_t> deadlineCycles, deadlineUs;
   std::vector<LoopReport> loops;
   std::optional<RecursionReport> recursion;
   /// "In context": the function analysed with the argument intervals of the

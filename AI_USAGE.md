@@ -1270,6 +1270,62 @@ What the AI did for 49 (Claude Opus 5.5, 2026-11-16/17).
   checker, stack bounds for recursion (no recursive function with a depth bound in the
   benchmarks to test it on).
 
+50. "Proceed with the open tasks"
+
+What the AI did for 50 (Claude Opus 5.5, 2026-11-17).
+- **Quadratic bounds in the checker** (proposals step 12, open part). Lean: `SB` gains
+  quadratic terms `q` (`a·max(0,γᵢ)·max(0,γⱼ)`), `dotQ`; `SB.le` compares them as a
+  subsequence (`qsub`, sound since terms are non-negative); `SB.mul` (product of two
+  linear bounds, `crossQ`), `SB.qcomb` (a callee's quadratic terms instantiated with
+  products of the linear argument bounds); a third form of `loopBoundOk` (symbolic entry
+  bound, linear body bound, decrease 1: `B ≥ (w + Wb)·max(0,K) + w`); the existing forms
+  require the body's quadratic part to be empty or free of `γⱼ` (`qfree`). Proofs:
+  `dotQ_crossQ`, `SB.eval_mul`, `qsub_le`, `dotQ_update`, `SB.qcomb_ge`, the third case of
+  `loopBoundOk_sound`, the call case of `check_sound`. Example `prodCert_checks` (the
+  tool's certificate of `rect(n, m)`: `5 + 7·max(0,n) + 6·max(0,m)·max(0,n)`),
+  `prodCert_5_rejected`, `prodCert_cost`. 451 theorems, about 10,300 lines, standard
+  axioms only. The JSON format gains an optional field `q`; old certificates are still
+  accepted (all kernel certificates and the fixtures re-checked).
+- **Generator**: the product where it used to give up ("symbolic entry bound with a
+  symbolic body bound"); calls instantiate quadratic callee bounds; C++ replicas
+  `QT`, `sbMul` (trims the coefficient lists as the JSON does, keeps `kl` as written).
+  Interpreter `cert_interp.py` evaluates `q`. Tests: `Symbolic.ProductOfParameters`, the
+  expectation of `Symbolic.BoundInTheParametersWithoutRanges` changed (the nest is now
+  certified), fixture `products.json` in the mutation test (113 mutants, all rejected).
+- **Results**: TPDB without ranges 147 certified for all inputs (103), 133 with a bound in
+  the parameters, for 34 of which KoAT2 also reports `O(n²)`; all accepted. TACLeBench and
+  the ranged TPDB mode unchanged. Times on an idle machine: kernels 2 min 19 s (1 min 53 s:
+  `ludcmp_test` now goes further before its certificate fails), sequential/app 23 min,
+  TPDB 20 min.
+- **Not done**: recursion in the checker (design recorded in `docs/proposals.md`, step
+  18: rank variable, `callRec` node, `check_sound` generalised by a predicate on the
+  valuation; low industrial priority); stack bounds for recursion (nothing to test on).
+
+51. "I really think that code macros for cost guards to be checked should be expressed in time and not in operation counts to be useful in industrial terms. Maybe integrating something like OTAWA inside the plugin would help ? Any better idea or intuition about this ? Do not change anything about this for the moment, I only want to discuss about it with you"
+
+What the AI did for 51: discussion only, no change. Answer: time is a property of the
+binary on a processor, so a time budget is checked after linking (flow facts exported by
+the plugin, OTAWA, aiT or the Cortex-M0 model, clock frequency from a target profile),
+while the compile-time check stays in units; a calibrated time estimate at compile time
+would be an early warning, not a proof; sound timing is credible on predictable cores;
+research direction: a certificate of the binary's cycles checked by the same checker,
+relative to a trusted timing table.
+
+52. "I agree with you, I would like to work  on the linker in the cases you described, keep the current course, thank you for explaining all this"
+
+What the AI did for 52 (Claude Opus 5.5, 2026-11-17).
+- Finished the round of prompt 50 (benchmarks re-run on an idle machine, documents).
+- **Time budgets checked after compilation**: macros `CROSSCHECK_DEADLINE_CYCLES(n)` and
+  `CROSSCHECK_DEADLINE_US(n)` (real-time profile; the budget is recorded in the report,
+  `deadline_cycles`/`deadline_us`, not checked by the plugin); `scripts/crosscheck_link.py`
+  computes the cycle bound of each such function on the compiled Cortex-M0 code from the
+  plugin's loop bounds (debug-line matching and timing table of `benchmarks/cycles`),
+  converts with `--clock-mhz`, prints what is trusted, and exits 1 if a budget is
+  exceeded or a bound is missing (a post-build step). Test
+  `time_budgets_after_compilation` (`tests/c/time_budget.c`: two functions within budget,
+  one over). Not yet: other processors, OTAWA/aiT back ends, whole linked images across
+  files, a certificate of the binary's cycles.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1511,3 +1567,8 @@ is whether each Lean statement says what the paper says, and everything outside 
     ROSACE and DEBIE in `run_tacle.py` (`parallel_units`) and the descriptions of both
     programs; the second TPDB sample and the replacement of the TPDB `\authortodo` by a
     sentence; the trade-off of 17 TPDB summaries for constant amortised bounds.
+39. **Quadratic bounds (prompt 50).** Read the extended definition of symbolic bounds in
+    `def:certificate`, the third form of the loop condition and the call rule in Paper I
+    against `CheckerCore` (`SB`, `qsub`, `SB.mul`, `crossQ`, `loopBoundOk`, `SB.qcomb`,
+    `callBound`) and the proofs `loopBoundOk_sound`, `SB.qcomb_ge`, `dotQ_crossQ`; note that
+    the quadratic comparison is syntactic (a subsequence), a deliberate restriction.

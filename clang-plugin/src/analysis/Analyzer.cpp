@@ -4763,9 +4763,17 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
       std::uint64_t vn = cert::whileBound(*k, d, w, b->bound).c;
       if (!allBounded || vs > vn) useSym = false;
     }
-    if (!useSym && !k) { lastWhy = "symbolic entry bound with a symbolic body bound"; continue; }
-    std::int64_t kk = useSym ? sym->first : *k;
-    std::vector<std::uint64_t> kl = useSym ? sym->second : std::vector<std::uint64_t>{};
+    // A symbolic entry bound and a symbolic (linear) body bound, decrease 1: the bound is
+    // the product `(w + Wb) * max(0, K) + w`, quadratic in the parameters (Lean
+    // `loopBoundOk`, third form).
+    const bool useProd = !useSym && !k && sym && d == 1 && b->bound.q.empty();
+    if (!useSym && !k && !useProd) {
+      lastWhy = d != 1 ? "symbolic entry bound with a symbolic body bound (decrease above 1)"
+                       : "symbolic entry bound with a symbolic body bound";
+      continue;
+    }
+    std::int64_t kk = (useSym || useProd) ? sym->first : *k;
+    std::vector<std::uint64_t> kl = (useSym || useProd) ? sym->second : std::vector<std::uint64_t>{};
 
     Node wn;
     wn.kind = single ? Node::While : Node::WhileAnd;
@@ -4789,8 +4797,11 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     }
     Assn qw = inv;
     if (single) qw.insert(qw.begin(), cert::negLin(gs[0]));
-    cert::SB bw = useSym ? cert::whileBoundSym(kk, kl, d, w, b->bound.c)
-                         : cert::whileBound(kk, d, w, b->bound);
+    cert::SB kSB(static_cast<std::uint64_t>(std::max<std::int64_t>(0, kk)));
+    kSB.co = kl;
+    cert::SB bw = useProd  ? cert::sbMul(cert::SB(w) + b->bound, kSB, false) + cert::SB(w)
+                  : useSym ? cert::whileBoundSym(kk, kl, d, w, b->bound.c)
+                           : cert::whileBound(kk, d, w, b->bound);
     std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
     if (!pc) { lastWhy = "internal: loop entry"; continue; }
     CertPiece lp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
@@ -4893,7 +4904,10 @@ std::optional<Analyzer::CertPiece> Analyzer::certCallNode(CertCtx& cc, const Cer
   std::vector<Farkas> ucs;
   std::vector<std::uint64_t> co = F.bound.co;
   while (!co.empty() && co.back() == 0) co.pop_back();
-  for (std::size_t g = 0; g < co.size(); ++g) {
+  std::size_t nUbs = co.size();
+  for (const cert::QT& t : F.bound.q) nUbs = std::max(nUbs, std::max(t.i, t.j) + 1);
+  if (nUbs > inst.size()) return std::nullopt;
+  for (std::size_t g = 0; g < nUbs; ++g) {
     // A bound in the caller's parameters if there is one (summaries compose), else a
     // constant.
     std::optional<cert::SB> ub;
@@ -4921,8 +4935,10 @@ std::optional<Analyzer::CertPiece> Analyzer::certCallNode(CertCtx& cc, const Cer
   n.preCerts = *pcs;
   n.ubs = ubs;
   n.postCerts = ucs;
+  // Lean `callBound`: w + F.c + Σ co[g] ubs[g] + Σ a ubs[i] ubs[j] (the ubs are linear).
   cert::SB bound(F.bound.c);
   for (std::size_t g = 0; g < co.size(); ++g) bound = bound + cert::scale(co[g], ubs[g]);
+  for (const cert::QT& t : F.bound.q) bound = bound + cert::scale(t.a, cert::sbMul(ubs[t.i], ubs[t.j]));
   return seqPiece(acc, CertPiece{mk(n), frameOf(F.mods, acc.post), bound});
 }
 
@@ -5525,6 +5541,8 @@ class Collector : public RecursiveASTVisitor<Collector> {
     if (!fd->doesThisDeclarationHaveABody() || fd->isDependentContext()) return true;
     bool annotated = findAnnotation(fd, "crosscheck::realtime") ||
                      findAnnotation(fd, "crosscheck::deadline") ||
+                     findAnnotation(fd, "crosscheck::deadline_cycles") ||
+                     findAnnotation(fd, "crosscheck::deadline_us") ||
                      findAnnotation(fd, "crosscheck::interrupt");
     bool inMain = ctx_.getSourceManager().isInMainFile(
         ctx_.getSourceManager().getExpansionLoc(fd->getLocation()));
@@ -5624,9 +5642,27 @@ Report Analyzer::run() {
         }
       }
     }
+    // Time budgets: recorded for the check after linking (scripts/crosscheck_link.py).
+    for (auto [attr, field, macro] : {std::tuple{"crosscheck::deadline_cycles", &rep.deadlineCycles, "CROSSCHECK_DEADLINE_CYCLES"},
+                                      std::tuple{"crosscheck::deadline_us", &rep.deadlineUs, "CROSSCHECK_DEADLINE_US"}}) {
+      const AnnotateAttr* a = findAnnotation(fd, attr);
+      if (!a) continue;
+      auto n = annotationArg(a, 0, ctx_);
+      if (!n || *n < 0) {
+        std::string msg = std::string(macro) + " needs a non-negative constant";
+        diags.Report(fd->getLocation(), errorId_) << msg;
+        rep.errors.push_back(msg);
+        rep.errorSites.push_back(siteOf("rejected", fd->getLocation(), msg));
+        rep.ok = false;
+      } else {
+        *field = static_cast<std::uint64_t>(*n);
+      }
+    }
     if (rep.bounded) {
       std::string msg = "'" + rep.name + "': worst-case cost bound " + std::to_string(rep.wcet) +
                         " units";
+      if (rep.deadlineCycles) msg += " (time budget " + std::to_string(*rep.deadlineCycles) + " cycles, checked after linking)";
+      if (rep.deadlineUs) msg += " (time budget " + std::to_string(*rep.deadlineUs) + " us, checked after linking)";
       if (rep.deadline) msg += " (deadline " + std::to_string(*rep.deadline) + ")";
       if (!rep.assumptions.empty())
         msg += ", under " + std::to_string(rep.assumptions.size()) + " assumption(s)";

@@ -148,6 +148,15 @@ if(BUILD_TESTING)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_minic.py
           $<TARGET_FILE:crosscheck-tool> ${CROSSCHECK_CHECKER} ${CMAKE_CURRENT_SOURCE_DIR}/tests/c/minic.c
           ${CMAKE_CURRENT_SOURCE_DIR}/include ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+      # Time budgets checked after compilation on a Cortex-M0 binary
+      # (scripts/crosscheck_link.py), if the compiler can target ARMv6-M.
+      find_program(CROSSCHECK_CLANG_FOR_M0 NAMES clang clang-18)
+      if(CROSSCHECK_CLANG_FOR_M0)
+        add_test(NAME time_budgets_after_compilation
+          COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_time_budget.py
+            $<TARGET_FILE:crosscheck-tool> ${CROSSCHECK_CLANG_FOR_M0} ${CMAKE_CURRENT_SOURCE_DIR}/include
+            ${CROSSCHECK_CLANG_EXTRA_FLAGS_LIST})
+      endif()
       # Random loop programs: no derived loop bound below an executed count, and every
       # certificate emitted for them accepted (tests/fuzz_bounds.py; fixed seed).
       add_test(NAME random_loops_bounds_hold
@@ -163,6 +172,7 @@ if(BUILD_TESTING)
           ${CROSSCHECK_CHECKER}
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/program.json
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/triangular.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/products.json
           --mutants 150)
     endif()
   endif()

@@ -45,9 +45,16 @@ using Assn = std::vector<Lin>;
 
 /// Symbolic bound `c + sum co[j] * max(0, gamma_j)` over the logical variables (Lean
 /// `SB`). A constant converts implicitly.
+/// A quadratic term `a * max(0, gamma_i) * max(0, gamma_j)` (Lean `SB.q`).
+struct QT {
+  std::uint64_t a = 0;
+  std::size_t i = 0, j = 0;
+  bool operator==(const QT& o) const { return a == o.a && i == o.i && j == o.j; }
+};
 struct SB {
   std::uint64_t c = 0;
   std::vector<std::uint64_t> co;
+  std::vector<QT> q;  ///< quadratic terms (products of logical variables)
   SB() = default;
   SB(std::uint64_t v) : c(v) {}  // NOLINT: constants are bounds
   bool constant() const;
@@ -57,8 +64,12 @@ SB operator+(const SB& a, const SB& b);
 /// Componentwise maximum (an upper bound of both, for every valuation).
 SB smax(const SB& a, const SB& b);
 SB scale(std::uint64_t k, const SB& a);
-/// Componentwise `<=` (Lean `SB.le`).
+/// Componentwise `<=`, the quadratic terms of `a` a subsequence of those of `b` (Lean `SB.le`).
 bool sbLe(const SB& a, const SB& b);
+/// The product of two linear bounds (Lean `SB.mul`, with `crossQ` over the coefficient
+/// lists as the certificate writes them: trailing zeros removed).
+/// `trimB = false` keeps `b.co` as it is (the `kl` of a loop node is written untrimmed).
+SB sbMul(const SB& a, const SB& b, bool trimB = true);
 /// `a.c + sum a.co[j] * v[j]` for natural values `v`.
 std::uint64_t sbAt(const SB& a, const std::vector<std::uint64_t>& v);
 /// Readable form, e.g. `5 + 7*max(0,g1)`.

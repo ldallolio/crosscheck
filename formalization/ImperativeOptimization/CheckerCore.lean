@@ -129,14 +129,41 @@ def nle : List Nat → List Nat → Bool
 structure SB where
   c : Nat
   co : List Nat
+  /-- Quadratic terms `(a, i, j)`: `a * max 0 γᵢ * max 0 γⱼ` (products of parameters). -/
+  q : List (Nat × Nat × Nat)
   deriving DecidableEq, Repr
 
-def SB.eval (b : SB) (ρ : Env) : Nat := b.c + dotN b.co ρ
-def SB.const (w : Nat) : SB := ⟨w, []⟩
-def SB.add (a b : SB) : SB := ⟨a.c + b.c, nadd a.co b.co⟩
-def SB.smul (k : Nat) (a : SB) : SB := ⟨k * a.c, nsmul k a.co⟩
-/-- `a ≤ b` for every valuation, by comparing coefficients. -/
-def SB.le (a b : SB) : Bool := decide (a.c ≤ b.c) && nle a.co b.co
+/-- `Σ a * max 0 (f i) * max 0 (f j)` over the quadratic terms. -/
+def dotQ : List (Nat × Nat × Nat) → Env → Nat
+  | [], _ => 0
+  | (a, i, j) :: t, f => a * (f i).toNat * (f j).toNat + dotQ t f
+
+/-- Is `l` a subsequence of `m`? -/
+def qsub : List (Nat × Nat × Nat) → List (Nat × Nat × Nat) → Bool
+  | [], _ => true
+  | _ :: _, [] => false
+  | x :: xs, y :: ys => if x = y then qsub xs ys else qsub (x :: xs) ys
+
+/-- Do the quadratic terms avoid the logical variable `j`? -/
+def qfree (q : List (Nat × Nat × Nat)) (j : Nat) : Bool :=
+  q.all (fun t => decide (t.2.1 ≠ j) && decide (t.2.2 ≠ j))
+
+def SB.eval (b : SB) (ρ : Env) : Nat := b.c + dotN b.co ρ + dotQ b.q ρ
+def SB.const (w : Nat) : SB := ⟨w, [], []⟩
+def SB.add (a b : SB) : SB := ⟨a.c + b.c, nadd a.co b.co, a.q ++ b.q⟩
+def SB.smul (k : Nat) (a : SB) : SB := ⟨k * a.c, nsmul k a.co, a.q.map (fun t => (k * t.1, t.2))⟩
+/-- `a ≤ b` for every valuation, by comparing coefficients: the quadratic terms of `a`
+    must be a subsequence of those of `b` (they are non-negative). -/
+def SB.le (a b : SB) : Bool := decide (a.c ≤ b.c) && nle a.co b.co && qsub a.q b.q
+
+/-- The quadratic terms of the product of two linear forms `Σ a[i] γᵢ` and `Σ b[j] γⱼ`. -/
+def crossQ (a b : List Nat) : List (Nat × Nat × Nat) :=
+  (List.range a.length).foldr
+    (fun i acc => (List.range b.length).map (fun j => (a.getD i 0 * b.getD j 0, i, j)) ++ acc) []
+
+/-- The product of two linear bounds (`q = []`): a bound with quadratic terms. -/
+def SB.mul (a b : SB) : SB :=
+  ⟨a.c * b.c, nadd (nsmul a.c b.co) (nsmul b.c a.co), crossQ a.co b.co⟩
 
 /-- `Σⱼ k[j] • bs[j]` (the shorter list decides the length). -/
 def SB.comb : List Nat → List SB → SB
@@ -154,9 +181,12 @@ def ncoeff (l : List Nat) (j : Nat) : Nat := l.getD j 0
 def loopBoundOk (w d : Nat) (k : Int) (kl : List Nat) (Wb B : SB) : Bool :=
   (kl.all (· = 0) &&
     SB.le ((SB.smul (k / d).toNat ((SB.const w).add Wb)).add (SB.const w)) B) ||
-  (Wb.co.all (· = 0) && decide (w ≤ B.c) &&
+  (Wb.co.all (· = 0) && decide (Wb.q = []) && decide (w ≤ B.c) &&
     decide (((w + Wb.c : Nat) : Int) * k ≤ (d : Int) * ((B.c : Int) - w)) &&
-    nle (nsmul (w + Wb.c) kl) (nsmul d B.co))
+    nle (nsmul (w + Wb.c) kl) (nsmul d B.co)) ||
+  -- symbolic entry bound and symbolic (linear) body bound, decrease 1: a product
+  (decide (d = 1) && decide (Wb.q = []) &&
+    SB.le ((SB.mul ((SB.const w).add Wb) ⟨k.toNat, kl, []⟩).add (SB.const w)) B)
 
 /-- **Amortised (triangular) loops**: twice the bound of a loop with a constant entry
     bound `k` of `pot`, decrease `d`, test cost `w`, whose body costs at most `a + c·pot`
@@ -170,7 +200,7 @@ def triBound2 (w d a c : Nat) (k : Int) : Int :=
 /-- The bound of a loop whose body bound `Wb = a + c·γⱼ` mentions the loop's own logical
     variable `j` (the potential before the body) and no other: constant entry bound. -/
 def triOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
-  kl.all (· = 0) && (Wb.co.set j 0).all (· = 0) &&
+  kl.all (· = 0) && (Wb.co.set j 0).all (· = 0) && decide (Wb.q = []) &&
     decide (triBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
 
 /-- **Amortised loops, increasing cost**: twice the bound of a loop with a constant entry
@@ -185,12 +215,13 @@ def upBound2 (w d a c : Nat) (k : Int) : Int :=
 /-- The bound condition of `whileUp`: the body bound `Wb = a + c·γⱼ` mentions only the
     loop's logical variable `j` (there `k - pot` before the body). -/
 def upOk (w d : Nat) (k : Int) (j : Nat) (Wb B : SB) : Bool :=
-  (Wb.co.set j 0).all (· = 0) && decide (upBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
+  (Wb.co.set j 0).all (· = 0) && decide (Wb.q = []) &&
+    decide (upBound2 w d Wb.c (ncoeff Wb.co j) k ≤ 2 * (B.c : Int))
 
 /-- The bound condition of the loop nodes `while` and `whileAnd`: a body bound that does
     not mention `γⱼ` (`loopBoundOk`), or the amortised bound (`triOk`). -/
 def loopOk (w d : Nat) (k : Int) (kl : List Nat) (j : Nat) (Wb B : SB) : Bool :=
-  (decide (ncoeff Wb.co j = 0) && loopBoundOk w d k kl Wb B) || triOk w d k kl j Wb B
+  (decide (ncoeff Wb.co j = 0) && qfree Wb.q j && loopBoundOk w d k kl Wb B) || triOk w d k kl j Wb B
 
 /-- The entry constraint of a loop: `pot - k - Σ kl[j] γⱼ ≤ 0`. -/
 def entryLin (pot : PExp) (k : Int) (kl : List Nat) : Lin :=
@@ -335,9 +366,15 @@ def upHi (pot : PExp) (j : Nat) (k extra : Int) : Lin :=
 def ghost (pot : PExp) (j : Nat) (extra : Int) : Lin :=
   ⟨pot.sv, vsmul (-1) (unit j), pot.c + extra⟩
 
-/-- The cost of a call: `w + F.c + Σⱼ F.co[j] • ubs[j]`. -/
+/-- `Σ a • ubs[i] * ubs[j]` over the quadratic terms `(a, i, j)` of a callee's bound. -/
+def SB.qcomb : List (Nat × Nat × Nat) → List SB → SB
+  | [], _ => SB.const 0
+  | (a, i, j) :: t, ubs =>
+      (SB.smul a (SB.mul (ubs.getD i (SB.const 0)) (ubs.getD j (SB.const 0)))).add (SB.qcomb t ubs)
+
+/-- The cost of a call: `w + F.c + Σⱼ F.co[j] • ubs[j] + Σ a • ubs[i] * ubs[j]`. -/
 def callBound (w : Nat) (Fb : SB) (ubs : List SB) : SB :=
-  (SB.const (w + Fb.c)).add (SB.comb Fb.co ubs)
+  ((SB.const (w + Fb.c)).add (SB.comb Fb.co ubs)).add (SB.qcomb Fb.q ubs)
 
 /-- The variables a command may modify (for a call: the callee's declared ones). -/
 def writes (fs : List FunCert) : ACmd → List Nat
@@ -396,7 +433,7 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       decide (1 < b) &&
       decide (P = entryLin pot k [] :: inv) &&
       decide (Q = logExit gs inv) &&
-      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) && decide (Wb.q = []) &&
       entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩ posCert &&
       check fs (ghost pot j 0 :: (gs.map PExp.toLin ++ inv)) body Wb (ghostMul pot j b :: inv) &&
       SB.le (SB.const (logIters b k * (w + Wb.c) + w)) B
@@ -404,7 +441,7 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       decide (1 < b) &&
       decide (P = growEntry pot :: inv) &&
       decide (Q = logExit gs inv) &&
-      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) &&
+      inv.all (fun e => decide (coeff e.lv j = 0)) && Wb.co.all (· = 0) && decide (Wb.q = []) &&
       entails1 (gs.map PExp.toLin ++ inv) ⟨pot.sv, [], pot.c - K⟩ capCert &&
       check fs (ghostLow pot j :: growEntry pot :: (gs.map PExp.toLin ++ inv)) body Wb
         (ghostGrow pot j b :: inv) &&
@@ -428,6 +465,8 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       | some F =>
           entailsAll P (F.pre.map (fun e => e.inst inst)) preCerts &&
           decide (F.bound.co.length ≤ ubs.length) && decide (ubs.length ≤ inst.length) &&
+          ubs.all (fun u => decide (u.q = [])) &&
+          F.bound.q.all (fun t => decide (t.2.1 < ubs.length) && decide (t.2.2 < ubs.length)) &&
           entailsAll P (ubGoals inst ubs) ubCerts &&
           SB.le (callBound w F.bound ubs) B &&
           decide (Q = frameOf F.mods P)

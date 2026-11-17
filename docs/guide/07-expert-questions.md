@@ -71,6 +71,9 @@ limitation, it says so.
 
 ## 4. WCET and real-time
 
+- **"Can I write budgets in microseconds?"** Yes, `CROSSCHECK_DEADLINE_US(n)`, but it is
+  checked after compilation on the binary (`scripts/crosscheck_link.py`, Cortex-M0 model,
+  `--clock-mhz`): time belongs to machine code on a processor, not to the source.
 - **"Will it finish on real code?"** Each function has a deterministic search budget
   (`budget`, in solver work); past it the analysis is less precise, never unsound, and the
   report says so. Solver answers are cached. The slowest TACLeBench program went from
@@ -149,10 +152,10 @@ of the TPDB harness.
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
    For the functions whose certificate is validated against their mini-C export, the
    generator is out of the trusted base, the exporter (syntactic) is in it.
-2. **Coverage**: 207 of 553 TPDB programs with input ranges (103 certified for all inputs without) vs 288 for KoAT2. Certificates give summaries
+2. **Coverage**: 215 of 553 TPDB programs with input ranges (147 certified for all inputs without) vs 288 for KoAT2. Certificates give summaries
    affine in the parameters; since option `symbolic` the analyser can propose potentials
-   without ranges and the certificate carries the parametric bound, but only for bounds
-   affine in the parameters (no products).
+   without ranges and the certificate carries the parametric bound, affine or quadratic
+   (no degree above two).
 3. **Novelty in the packaging** for the theory; the checker and the evaluation are the
    stronger points.
 4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a

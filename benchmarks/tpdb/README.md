@@ -156,7 +156,7 @@ bound), so for small inputs the summary was the better bound. The harness's
 `CROSSCHECK_COST(1)` declarations become assumed contracts (46 entries). The analysis still
 needs the ranges to bound a loop: in the first mode ("as is") the figures are unchanged.
 
-## Without input ranges: certified bounds in the parameters (2026-11-16)
+## Without input ranges: certified bounds in the parameters (2026-11-17)
 
 ```bash
 python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
@@ -165,8 +165,10 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
 
 A third mode, with the tool's option `symbolic`: no range is added. A loop needs only a
 ranking potential; the analysis gives no numeric bound, and the certificate generator
-derives a bound that is affine in the parameters (in `max(0, x)`, `max(0, -x)` and
-`max(0, x - y)` of the integer parameters), which the checker accepts or not. The harness
+derives a bound in the parameters (in `max(0, x)`, `max(0, -x)` and `max(0, x - y)` of
+the integer parameters), affine or, since 2026-11-17, quadratic (products of two such
+terms, from a nest of two loops over parameters or from a call), which the checker
+accepts or not. The harness
 of this mode does two things to a file: undefined functions get a unit cost (as in the
 bounded mode), and, in the entry function, **a value read from an undefined function
 before the first loop becomes a parameter** (`x = nondet();` is replaced by `x = in_k;`,
@@ -176,17 +178,19 @@ after a loop stay unknown.
 
 | Entry functions (553 programs) | |
 |---|---:|
-| certificate accepted, bound in the parameters | **89** |
+| certificate accepted, bound in the parameters | **133** |
 | certificate accepted, constant bound | 14 |
-| potentials for every loop, no certificate | 139 |
+| potentials for every loop, no certificate | 95 |
 | a loop without a potential, or another error | 311 |
 | timeout | 0 |
 
-- All 103 certificates are accepted by the checker: these bounds hold **for all inputs**,
+- All 147 certificates are accepted by the checker: these bounds hold **for all inputs**,
   with no annotation and no assumption on ranges (signed overflow is assumed absent, as
-  everywhere). All 103 programs are also bounded by KoAT2 or CoFloCo; on the 89 with a
-  bound in the parameters KoAT2 answers `O(n)` for 86 and `O(1)` for 3 (there our bound
-  is looser than necessary). (101 = 87 + 14 before `do` loops were certified.)
+  everywhere). All 147 programs are also bounded by KoAT2 or CoFloCo; on the 133 with a
+  bound in the parameters KoAT2 answers `O(n)` for 96, `O(n^2)` for 34 and `O(1)` for 3
+  (there our bound is looser than necessary). Before quadratic terms (2026-11-16): 103
+  (89 + 14), and KoAT2 `O(n)` for 86 of the 89; (101 = 87 + 14 before `do` loops were
+  certified.)
 - Before the two changes that followed the first run of this mode the count was 59 (45 +
   14): logical variables for `-x` and `x - y` (a loop `while (a < 30)` costs
   `max(0, -a)`), and nondeterministic inputs as parameters.
@@ -194,4 +198,4 @@ after a loop stay unknown.
   both bounded by parameters (47: certified bounds are affine); a potential with no
   bound of that form on entry (36); a loop test with a call or an assignment (28); the
   generator's invariants too weak (16); `do` loops and labels (6); other (2).
-- KoAT2 or CoFloCo bound 305 programs: 202 of them have no certificate here.
+- KoAT2 or CoFloCo bound 305 programs: 158 of them have no certificate here (202 before quadratic terms).

@@ -53,7 +53,8 @@ def lin(e, rho, s):
 def sb(b, rho):
     if isinstance(b, int):
         return b
-    return b.get("c", 0) + sum(c * max(0, rho.get(j, 0)) for j, c in enumerate(b.get("co", [])) if c)
+    return (b.get("c", 0) + sum(c * max(0, rho.get(j, 0)) for j, c in enumerate(b.get("co", [])) if c)
+            + sum(a * max(0, rho.get(i, 0)) * max(0, rho.get(j, 0)) for a, i, j in b.get("q", [])))
 
 
 def interval(constraints, x, s, rho=None):

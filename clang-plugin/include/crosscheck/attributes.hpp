@@ -26,6 +26,14 @@
 /// function is rejected when its worst-case cost bound exceeds `units`.
 #define CROSSCHECK_DEADLINE(units) CROSSCHECK_ANNOTATE("crosscheck::deadline", units)
 
+/// Function: real-time profile plus a time budget, in processor cycles or in
+/// microseconds. Time is a property of the binary on a processor, not of the source:
+/// the plugin records the budget in its report (`deadline_cycles`, `deadline_us`), and
+/// `scripts/crosscheck_link.py` checks it after compilation, from the binary, the
+/// plugin's loop bounds and a processor model (clock frequency for microseconds).
+#define CROSSCHECK_DEADLINE_CYCLES(n) CROSSCHECK_ANNOTATE("crosscheck::deadline_cycles", n)
+#define CROSSCHECK_DEADLINE_US(n) CROSSCHECK_ANNOTATE("crosscheck::deadline_us", n)
+
 /// Parameter: precondition `lo <= p <= hi` on an integer parameter. Assumed
 /// inside the function, proved at every call site that CrossCheck analyses.
 #define CROSSCHECK_RANGE(lo, hi) CROSSCHECK_ANNOTATE("crosscheck::range", lo, hi)

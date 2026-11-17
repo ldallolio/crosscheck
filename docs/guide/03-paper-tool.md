@@ -135,8 +135,9 @@ translation unverified.
 - Observed counts are for one input; a bound above them is not necessarily loose.
 - The other tools answer other questions (asymptotic complexity, cost regressions,
   whole-program flow facts) and were not tuned.
-- On TPDB, CrossCheck is weaker: 103 programs certified for all inputs against 288 and
-  264 bounded by KoAT2 and CoFloCo; certified bounds are affine in the parameters, and
+- On TPDB, CrossCheck is weaker: 147 programs certified for all inputs (103 before
+  quadratic bounds) against 288 and 264 bounded by KoAT2 and CoFloCo; certified bounds
+  are at most quadratic in the parameters, and
   there are no multi-phase or disjunctive potentials. The symbolic mode's harness makes
   inputs read before the first loop parameters: say so.
 - CMSIS-DSP figures rest on assumed input ranges, with no observed counts and no

@@ -119,7 +119,9 @@ triangular nests of `ludcmp_main`: 4,907 before, 3,674 with the first form of th
 3,474 since inner loops from `0` to the outer counter are amortised too (node `whileUp`,
 two of its three nests), and through it `main`: 6,076, then 4,843, now 4,643). The
 analyser's own bounds (the tables) do not change: it does not amortise. The run takes
-156 s (143 s before `whileUp`: bodies that contain a loop are lowered once more).
+156 s (143 s before `whileUp`: bodies that contain a loop are lowered once more); 2026-11-17,
+with the solver cache, the budget and quadratic bounds: 2 min 19 s (`ludcmp_test`, whose
+nest is now tried as a product, takes 40 s of it).
 
 Kernels (2026-11-16, 161 of 165 certified, all accepted): **152 certificates
 validated** (93 before mini-C had quotients, remainders, shifts, masks, unsigned stores and

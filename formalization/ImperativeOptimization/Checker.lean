@@ -254,20 +254,104 @@ theorem dotN_update {l : List ℕ} {j : ℕ} (h : ncoeff l j = 0) (f : Env) (v :
       simp only [ncoeff, List.getD_cons_succ] at h
       simp only [dotN, e, h0, ih h]
 
+/-! ### Quadratic terms -/
+
+@[simp] theorem dotQ_nil (f : Env) : dotQ [] f = 0 := rfl
+
+theorem dotQ_append (a b : List (ℕ × ℕ × ℕ)) (f : Env) :
+    dotQ (a ++ b) f = dotQ a f + dotQ b f := by
+  induction a with
+  | nil => simp [dotQ]
+  | cons t a ih => obtain ⟨x, i, j⟩ := t; simp only [List.cons_append, dotQ, ih]; ring
+
+theorem dotQ_smul (k : ℕ) (q : List (ℕ × ℕ × ℕ)) (f : Env) :
+    dotQ (q.map (fun t => (k * t.1, t.2))) f = k * dotQ q f := by
+  induction q with
+  | nil => simp [dotQ]
+  | cons t q ih => obtain ⟨x, i, j⟩ := t; simp only [List.map_cons, dotQ, ih]; ring
+
+theorem qsub_le : ∀ {a b : List (ℕ × ℕ × ℕ)}, qsub a b = true → ∀ f : Env, dotQ a f ≤ dotQ b f
+  | [], b, _, f => Nat.zero_le _
+  | _ :: _, [], h, _ => by simp [qsub] at h
+  | x :: xs, y :: ys, h, f => by
+    obtain ⟨y1, y2, y3⟩ := y
+    by_cases hxy : x = (y1, y2, y3)
+    · subst hxy
+      simp only [qsub, if_true] at h
+      have := qsub_le h f
+      simp only [dotQ]; omega
+    · simp only [qsub, hxy, if_false] at h
+      have := qsub_le h f
+      simp only [dotQ] at this ⊢; omega
+
+theorem dotQ_update {q : List (ℕ × ℕ × ℕ)} {j : ℕ} (h : qfree q j = true) (f : Env) (v : ℤ) :
+    dotQ q (Function.update f j v) = dotQ q f := by
+  induction q with
+  | nil => rfl
+  | cons t q ih =>
+    obtain ⟨x, i, k⟩ := t
+    simp only [qfree, List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨hi, hk⟩, hq⟩ := h
+    simp only [dotQ, Function.update_of_ne hi, Function.update_of_ne hk, ih hq]
+
+theorem dotN_sum (l : List ℕ) (f : Env) :
+    dotN l f = ((List.range l.length).map (fun i => l.getD i 0 * (f i).toNat)).sum := by
+  induction l generalizing f with
+  | nil => simp [dotN]
+  | cons a l ih =>
+    rw [List.length_cons, List.range_succ_eq_map]
+    simp only [dotN, ih (fun i => f (i + 1)), List.map_cons, List.sum_cons, List.map_map]
+    simp [Function.comp_def]
+
+theorem dotQ_foldr (L : List ℕ) (g : ℕ → List (ℕ × ℕ × ℕ)) (f : Env) :
+    dotQ (L.foldr (fun i acc => g i ++ acc) []) f = (L.map (fun i => dotQ (g i) f)).sum := by
+  induction L with
+  | nil => simp [dotQ]
+  | cons i L ih => simp only [List.foldr_cons, dotQ_append, ih, List.map_cons, List.sum_cons]
+
+theorem dotQ_row (L : List ℕ) (c : ℕ → ℕ) (i : ℕ) (f : Env) :
+    dotQ (L.map (fun j => (c j, i, j))) f = (L.map (fun j => c j * (f i).toNat * (f j).toNat)).sum := by
+  induction L with
+  | nil => simp [dotQ]
+  | cons j L ih => simp only [List.map_cons, dotQ, ih, List.sum_cons]
+
+theorem dotQ_crossQ (a b : List ℕ) (f : Env) : dotQ (crossQ a b) f = dotN a f * dotN b f := by
+  unfold crossQ
+  rw [dotQ_foldr, dotN_sum a, dotN_sum b, ← List.sum_map_mul_right]
+  congr 1
+  apply List.map_congr_left
+  intro i _
+  rw [dotQ_row, ← List.sum_map_mul_left]
+  congr 1
+  apply List.map_congr_left
+  intro j _
+  ring
+
+theorem SB.eval_mul {a b : SB} (ha : a.q = []) (hb : b.q = []) (ρ : Env) :
+    (SB.mul a b).eval ρ = a.eval ρ * b.eval ρ := by
+  simp only [SB.eval, SB.mul, dotN_nadd, dotN_nsmul, dotQ_crossQ, ha, hb, dotQ_nil]
+  ring
+
 @[simp] theorem SB.eval_const (w : ℕ) (ρ : Env) : (SB.const w).eval ρ = w := by
-  simp [SB.eval, SB.const, dotN]
+  simp [SB.eval, SB.const, dotN, dotQ]
 
 @[simp] theorem SB.eval_add (a b : SB) (ρ : Env) : (a.add b).eval ρ = a.eval ρ + b.eval ρ := by
-  simp only [SB.eval, SB.add, dotN_nadd]; ring
+  simp only [SB.eval, SB.add, dotN_nadd, dotQ_append]; ring
 
 @[simp] theorem SB.eval_smul (k : ℕ) (a : SB) (ρ : Env) : (a.smul k).eval ρ = k * a.eval ρ := by
-  simp only [SB.eval, SB.smul, dotN_nsmul]; ring
+  simp only [SB.eval, SB.smul, dotN_nsmul, dotQ_smul]; ring
 
 theorem SB.le_eval {a b : SB} (h : SB.le a b = true) (ρ : Env) : a.eval ρ ≤ b.eval ρ := by
   simp only [SB.le, Bool.and_eq_true, decide_eq_true_eq] at h
   simp only [SB.eval]
-  have := nle_dotN h.2 ρ
+  have := nle_dotN h.1.2 ρ
+  have := qsub_le h.2 ρ
   omega
+
+/-- A bound with no coefficient and no quadratic term is its constant. -/
+theorem SB.eval_of_const {b : SB} (h : b.co.all (· = 0) = true) (hq : b.q = []) (ρ : Env) :
+    b.eval ρ = b.c := by
+  simp [SB.eval, dotN_zero h, hq, dotQ]
 
 /-- A combination of bounds bounds the same combination of values bounded by them. -/
 theorem SB.comb_ge (ks : List ℕ) (bs : List SB) (ρ ρ' : Env) (hlen : ks.length ≤ bs.length)
@@ -289,25 +373,72 @@ theorem SB.comb_ge (ks : List ℕ) (bs : List SB) (ρ ρ' : Env) (hlen : ks.leng
       have : k * (ρ' 0).toNat ≤ k * b.eval ρ := Nat.mul_le_mul_left _ h0
       omega
 
+theorem SB.getD_q_nil {ubs : List SB} (h : ubs.all (fun u => decide (u.q = [])) = true) (i : ℕ) :
+    (ubs.getD i (SB.const 0)).q = [] := by
+  rw [List.getD_eq_getElem?_getD]
+  cases hi : ubs[i]? with
+  | none => rfl
+  | some u =>
+    simp only [List.all_eq_true, decide_eq_true_eq] at h
+    exact h u (List.mem_of_getElem? hi)
+
+/-- The quadratic terms of a callee's bound, instantiated with linear bounds of its
+    logical variables, bound the callee's quadratic part. -/
+theorem SB.qcomb_ge (q : List (ℕ × ℕ × ℕ)) (ubs : List SB) (ρ ρ' : Env)
+    (hlin : ubs.all (fun u => decide (u.q = [])) = true)
+    (hb : ∀ i, i < ubs.length → (ρ' i).toNat ≤ (ubs.getD i (SB.const 0)).eval ρ)
+    (hidx : q.all (fun t => decide (t.2.1 < ubs.length) && decide (t.2.2 < ubs.length)) = true) :
+    dotQ q ρ' ≤ (SB.qcomb q ubs).eval ρ := by
+  induction q with
+  | nil => simp [dotQ, SB.qcomb]
+  | cons t q ih =>
+    obtain ⟨a, i, j⟩ := t
+    simp only [List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at hidx
+    obtain ⟨⟨hi, hj⟩, hq⟩ := hidx
+    have hr := ih hq
+    simp only [dotQ, SB.qcomb, SB.eval_add, SB.eval_smul,
+      SB.eval_mul (SB.getD_q_nil hlin i) (SB.getD_q_nil hlin j)]
+    have h1 := hb i hi
+    have h2 := hb j hj
+    have : a * (ρ' i).toNat * (ρ' j).toNat ≤
+        a * ((ubs.getD i (SB.const 0)).eval ρ * (ubs.getD j (SB.const 0)).eval ρ) := by
+      rw [Nat.mul_assoc]; exact Nat.mul_le_mul_left _ (Nat.mul_le_mul h1 h2)
+    omega
+
 /-- The loop bound required by `loopBoundOk` dominates the bound of the loop rule. -/
 theorem loopBoundOk_sound {w d : ℕ} {k : ℤ} {kl : List ℕ} {Wb B : SB}
     (h : loopBoundOk w d k kl Wb B = true) (hd : 0 < d) (ρ : Env) :
     ((k + dot (kl.map Int.ofNat) ρ) / (d : ℤ)).toNat * (w + Wb.eval ρ) + w ≤ B.eval ρ := by
   simp only [loopBoundOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at h
-  rcases h with ⟨hkl, hle⟩ | ⟨⟨⟨hW, hw⟩, hk⟩, hco⟩
+  rcases h with (⟨hkl, hle⟩ | ⟨⟨⟨⟨hW, hWq⟩, hw⟩, hk⟩, hco⟩) | ⟨⟨hd1, hWq⟩, hle⟩
   · have := SB.le_eval hle ρ
     simp only [SB.eval_add, SB.eval_smul, SB.eval_const] at this
     rw [dot_ofNat_zero hkl, add_zero]
     exact this
-  · have hWb : Wb.eval ρ = Wb.c := by simp [SB.eval, dotN_zero hW]
+  rotate_left
+  · -- decrease 1, symbolic entry and body bounds: the product
+    subst hd1
+    have h1 := SB.le_eval hle ρ
+    rw [SB.eval_add, SB.eval_mul (by simp [SB.add, SB.const, hWq]) rfl, SB.eval_const,
+      SB.eval_add, SB.eval_const] at h1
+    have hev : (⟨k.toNat, kl, []⟩ : SB).eval ρ = k.toNat + dotN kl ρ := by simp [SB.eval, dotQ]
+    rw [hev] at h1
+    have hD := dot_ofNat_le kl ρ
+    have hN : ((k + dot (kl.map Int.ofNat) ρ) / ((1 : ℕ) : ℤ)).toNat ≤ k.toNat + dotN kl ρ := by
+      simp only [Nat.cast_one, Int.ediv_one]; omega
+    have h2 : ((k + dot (kl.map Int.ofNat) ρ) / ((1 : ℕ) : ℤ)).toNat * (w + Wb.eval ρ) ≤
+        (w + Wb.eval ρ) * (k.toNat + dotN kl ρ) := by
+      rw [Nat.mul_comm]; exact Nat.mul_le_mul_left _ hN
+    linarith
+  · have hWb : Wb.eval ρ = Wb.c := SB.eval_of_const hW hWq ρ
     rw [hWb]
+    refine le_trans ?_ (show B.c + dotN B.co ρ ≤ B.eval ρ by simp only [SB.eval]; omega)
     have hco' := nle_dotN hco ρ
     rw [dotN_nsmul, dotN_nsmul] at hco'
     have hD := dot_ofNat_le kl ρ
     set D := dot (kl.map Int.ofNat) ρ
     set N := ((k + D) / (d : ℤ)).toNat
     set W := w + Wb.c
-    simp only [SB.eval]
     have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
     by_cases hK : k + D < 0
     · have : N = 0 := by
@@ -511,7 +642,7 @@ theorem loop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G
     {pot : PExp} {d : ℕ} {k : ℤ} {kl : List ℕ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb B : SB}
     {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
     (hd : 0 < d) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
-    (hWj : ncoeff Wb.co j = 0)
+    (hWj : ncoeff Wb.co j = 0) (hWq : qfree Wb.q j = true)
     (hG : ∀ s, test s = true → holds G ρ s)
     (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
     (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert = true)
@@ -541,7 +672,7 @@ theorem loop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G
     intro s hI hb
     refine ⟨?_, ?_⟩
     · have := (hbody (Function.update ρ j (pot.eval s))).1
-      rwa [SB.eval, dotN_update hWj, ← SB.eval] at this
+      simp only [SB.eval, dotN_update hWj, dotQ_update hWq] at this ⊢; exact this
     · rw [holds_cons, ghost_eval, holds_update_logical hGinv]
       exact ⟨by simp, happ s (hG s hb) hI⟩
   have key := valid_while (Φ := Φ) (I := holds inv ρ)
@@ -602,9 +733,10 @@ theorem dotN_set (l : List ℕ) (j : ℕ) (f : Env) :
       rw [this]; ring
 
 /-- A body bound mentioning only `γⱼ`, read at `γⱼ = v`. -/
-theorem SB.eval_only {Wb : SB} {j : ℕ} (h : (Wb.co.set j 0).all (· = 0) = true) (ρ : Env) :
+theorem SB.eval_only {Wb : SB} {j : ℕ} (h : (Wb.co.set j 0).all (· = 0) = true)
+    (hq : Wb.q = []) (ρ : Env) :
     Wb.eval ρ = Wb.c + ncoeff Wb.co j * (ρ j).toNat := by
-  simp only [SB.eval]
+  simp only [SB.eval, hq, dotQ_nil, add_zero]
   rw [dotN_set Wb.co j ρ, dotN_zero h, zero_add]
 
 /-- One iteration of the doubled amortised bound: for `k ≥ d`,
@@ -668,7 +800,7 @@ theorem triloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
       ∀ s t n, holds (entryLin pot k kl :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
         ∀ x, x ∉ M → t x = s x := by
   simp only [triOk, Bool.and_eq_true, decide_eq_true_eq] at hB
-  obtain ⟨⟨hkl, hWo⟩, hT⟩ := hB
+  obtain ⟨⟨⟨hkl, hWo⟩, hWq⟩, hT⟩ := hB
   set a := Wb.c
   set c := ncoeff Wb.co j
   have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
@@ -686,7 +818,7 @@ theorem triloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
     intro s hI hb
     refine ⟨?_, ?_⟩
     · have := (hbody (Function.update ρ j (pot.eval s))).1
-      rwa [SB.eval_only hWo, Function.update_self] at this
+      rwa [SB.eval_only hWo hWq, Function.update_self] at this
     · rw [holds_cons, ghost_eval, holds_update_logical hGinv]
       exact ⟨by simp, happ s (hG s hb) hI⟩
   -- the bound, halved
@@ -721,7 +853,7 @@ theorem triloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
         rw [holds_cons, entryLin_eval, dot_ofNat_zero hkl] at hP
         exact ⟨hP.2, by linarith [hP.1]⟩
       · have h1 : T k ≤ B.c := by rw [hT2] at hT; linarith
-        have h2 : B.c ≤ B.eval ρ := by simp [SB.eval]
+        have h2 : B.c ≤ B.eval ρ := by simp only [SB.eval]; omega
         omega
       · rintro t ⟨hI, hb⟩; exact hQ t hI hb
     · intro s t n hP he
@@ -819,7 +951,7 @@ theorem uploop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} 
       ∀ s t n, holds (entryLin pot k [] :: inv) ρ s → Exec Φ (Cmd.while w test body) s t n →
         ∀ x, x ∉ M → t x = s x := by
   simp only [upOk, Bool.and_eq_true, decide_eq_true_eq] at hB
-  obtain ⟨hWo, hT⟩ := hB
+  obtain ⟨⟨hWo, hWq⟩, hT⟩ := hB
   set a := Wb.c
   set c := ncoeff Wb.co j
   have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
@@ -841,7 +973,7 @@ theorem uploop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} 
     intro s hI hb
     refine ⟨?_, ?_⟩
     · have := (hbody (Function.update ρ j (k - pot.eval s))).1
-      rwa [SB.eval_only hWo, Function.update_self] at this
+      rwa [SB.eval_only hWo hWq, Function.update_self] at this
     · rw [holds_cons, holds_cons, upLo_eval, upHi_eval, holds_update_logical hGinv,
         Function.update_self]
       exact ⟨by linarith, by linarith, happ s (hG s hb) hI⟩
@@ -867,7 +999,7 @@ theorem uploop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} 
           rcases hN with h | h
           · rw [upSum_closed w d a c k _ h]
           · rw [h]; simp [upSum]
-        have h2 : B.c ≤ B.eval ρ := by simp [SB.eval]
+        have h2 : B.c ≤ B.eval ρ := by simp only [SB.eval]; omega
         have : (F k : ℤ) ≤ B.c := by linarith
         omega
       · rintro t ⟨hI, hb⟩; exact hQ t hI hb
@@ -977,7 +1109,7 @@ theorem logloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
     {pot : PExp} {b : ℕ} {k : ℤ} {j : ℕ} {posCert : ℕ × List ℕ} {Wb : SB}
     {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
     (hb : 1 < b) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
-    (hWc : Wb.co.all (· = 0) = true)
+    (hWc : Wb.co.all (· = 0) = true) (hWq : Wb.q = [])
     (hG : ∀ s, test s = true → holds G ρ s)
     (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
     (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], 1 - pot.c⟩ posCert = true)
@@ -992,7 +1124,7 @@ theorem logloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
         ∀ x, x ∉ M → t x = s x := by
   have hWeval : ∀ ρ', Wb.eval ρ' = Wb.c := by
     intro ρ'
-    simp only [SB.eval, dotN_zero hWc, add_zero]
+    simp only [SB.eval, dotN_zero hWc, hWq, dotQ_nil, add_zero]
   have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
     intro s hA hB e he
     rcases List.mem_append.mp he with h | h
@@ -1098,7 +1230,7 @@ theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool
     {pot : PExp} {b : ℕ} {K : ℤ} {j : ℕ} {capCert : ℕ × List ℕ} {Wb : SB}
     {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
     (hb : 1 < b) (hinv : inv.all (fun e => decide (coeff e.lv j = 0)) = true)
-    (hWc : Wb.co.all (· = 0) = true)
+    (hWc : Wb.co.all (· = 0) = true) (hWq : Wb.q = [])
     (hG : ∀ s, test s = true → holds G ρ s)
     (hGj : G.all (fun e => decide (coeff e.lv j = 0)) = true)
     (hcap : entails1 (G ++ inv) ⟨pot.sv, [], pot.c - K⟩ capCert = true)
@@ -1113,7 +1245,7 @@ theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool
         ∀ x, x ∉ M → t x = s x := by
   have hWeval : ∀ ρ', Wb.eval ρ' = Wb.c := by
     intro ρ'
-    simp only [SB.eval, dotN_zero hWc, add_zero]
+    simp only [SB.eval, dotN_zero hWc, hWq, dotQ_nil, add_zero]
   have happ : ∀ s, holds G ρ s → holds inv ρ s → holds (G ++ inv) ρ s := by
     intro s hA hB e he
     rcases List.mem_append.mp he with h | h
@@ -1327,8 +1459,8 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
         have : 0 < g.eval t := by simpa using hb
         exact ⟨by omega, hI⟩
     simp only [loopOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hB
-    rcases hB with ⟨hWj, hB⟩ | hB
-    · exact loop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hWj hG
+    rcases hB with ⟨⟨hWj, hWq⟩, hB⟩ | hB
+    · exact loop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hWj hWq hG
         hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB hQ
     · exact triloop_sound (G := [g.toLin]) (M := writes fs body) ρ hd hinv hG
         hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB hQ
@@ -1345,19 +1477,19 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
       rw [PExp.toLin_eval]
       exact hs g hg
     simp only [loopOk, Bool.or_eq_true, Bool.and_eq_true, decide_eq_true_eq] at hB
-    rcases hB with ⟨hWj, hB⟩ | hB
-    · exact loop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hWj hG
+    rcases hB with ⟨⟨hWj, hWq⟩, hB⟩ | hB
+    · exact loop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hWj hWq hG
         hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
     · exact triloop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hinv hG
         hGj hpos (fun ρ' => ih _ _ _ hbody ρ') hB (fun t hI _ => hI)
   | whileLog w gs inv pot b k j posCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hpos⟩, hbody⟩, hB⟩ := h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hWq⟩, hpos⟩, hbody⟩, hB⟩ := h
     have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
       simp [List.all_map, PExp.toLin, coeff]
     have H := logloop_sound (Φ := Φ) (w := w) (test := fun s => gs.all (fun e => decide (e.eval s ≤ 0)))
-      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (k := k) ρ hb hinv hWc
+      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (k := k) ρ hb hinv hWc hWq
       (fun s hs e he => by
         simp only [List.all_eq_true, decide_eq_true_eq] at hs
         obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
@@ -1379,11 +1511,11 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
   | whileGrow w gs inv pot b K j capCert Wb body ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
-    obtain ⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hcap⟩, hbody⟩, hB⟩ := h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨hb, rfl⟩, rfl⟩, hinv⟩, hWc⟩, hWq⟩, hcap⟩, hbody⟩, hB⟩ := h
     have hGj : (gs.map PExp.toLin).all (fun e => decide (coeff e.lv j = 0)) = true := by
       simp [List.all_map, PExp.toLin, coeff]
     have H := growloop_sound (Φ := Φ) (w := w) (test := fun s => gs.all (fun e => decide (e.eval s ≤ 0)))
-      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (K := K) ρ hb hinv hWc
+      (body := body.toCmd) (G := gs.map PExp.toLin) (M := writes fs body) (K := K) ρ hb hinv hWc hWq
       (fun s hs e he => by
         simp only [List.all_eq_true, decide_eq_true_eq] at hs
         obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
@@ -1447,7 +1579,7 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
     | none => simp [hF] at h
     | some F =>
       simp only [hF, Bool.and_eq_true, decide_eq_true_eq] at h
-      obtain ⟨⟨⟨⟨⟨hpre, hlen⟩, hlen'⟩, hub⟩, hB⟩, rfl⟩ := h
+      obtain ⟨⟨⟨⟨⟨⟨⟨hpre, hlen⟩, hlen'⟩, hubq⟩, hqidx⟩, hub⟩, hB⟩, rfl⟩ := h
       obtain ⟨hV, hfr⟩ := hfs f F hF
       have pre_at : ∀ s, holds P ρ s → holds F.pre (instEnv inst s) s := by
         intro s hs e he
@@ -1458,9 +1590,12 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
         have hu := entailsAll_sound hub hs
         have hc := SB.comb_ge F.bound.co ubs ρ (instEnv inst s) hlen (fun i hi =>
           ubGoals_sound hu i (by omega) (by omega))
+        have hq := SB.qcomb_ge F.bound.q ubs ρ (instEnv inst s) hubq
+          (fun i hi => ubGoals_sound hu i hi (by omega)) hqidx
         have := SB.le_eval hB ρ
         simp only [callBound, SB.eval_add, SB.eval_const] at this
-        have e : F.bound.eval (instEnv inst s) = F.bound.c + dotN F.bound.co (instEnv inst s) := rfl
+        have e : F.bound.eval (instEnv inst s) =
+            F.bound.c + dotN F.bound.co (instEnv inst s) + dotQ F.bound.q (instEnv inst s) := rfl
         omega
       refine ⟨?_, ?_⟩
       · intro s hs
@@ -1628,12 +1763,12 @@ def triCertAt (b : ℕ) : ACmd :=
   1], [], -4⟩] [(1, [0, 1]), (1, [0, 1]), (1, [1, 0])] (SB.const b) [⟨[0, 0, -1], [], 4⟩, ⟨[0, 0,
   -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0]), (1, [0, 1, 0]), (1, [0, 0, 1])] (.while 2
   ⟨[0, 0, 1], -3⟩ [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] ⟨[0, 0, -1], 4⟩ 1 (4) [] 0 (1, [1, 0,
-  0]) ⟨5, [4]⟩ (.weaken [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0,
+  0]) ⟨5, [4], []⟩ (.weaken [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0,
   1], [], -4⟩] [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])] ⟨5,
-  [4]⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 5⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩,
+  [4], []⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 5⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩,
   ⟨[0, 0, 1], [], -5⟩, ⟨[0, 0, 1, -1], [], -1⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [0, 1, 0, 0, 0, 0,
   0]), (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0, 0, -1],
-  [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] (SB.const 0) ⟨3, [4]⟩
+  [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] (SB.const 0) ⟨3, [4], []⟩
   (.seq (.weaken [⟨[0, 0, -1, 0], [-1], 4⟩, ⟨[0, 0, 1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [], 0⟩, ⟨[0,
   0, 1, 0], [], -4⟩, ⟨[0, 0, 0, 0], [], 0⟩, ⟨[0, 0, 0, 0], [], 0⟩] [(1, [1, 0, 0, 0]), (1, [0, 1,
   0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0]), (1, [0, 0, 0, 0])] (SB.const 1)
@@ -1641,13 +1776,13 @@ def triCertAt (b : ℕ) : ACmd :=
   -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0]), (1,
   [0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 1])]
   (.assign 1 3 ⟨[0, 0, 1], 0⟩)) [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
-  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 1) ⟨2, [4]⟩ (.seq
+  ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 1) ⟨2, [4], []⟩ (.seq
   .skip [⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
-  ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 0) ⟨2, [4]⟩ (.weaken [⟨[0, 0, 0, -1],
+  ⟨[0, 0, -1, 1], [], 0⟩, ⟨[0, 0, 1, -1], [], 0⟩] (SB.const 0) ⟨2, [4], []⟩ (.weaken [⟨[0, 0, 0, -1],
   [-1], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
   ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0,
   0]), (1, [0, 1, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0,
-  0, 1]), (1, [0, 0, 0, 1, 1, 0])] ⟨2, [4]⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0,
+  0, 1]), (1, [0, 0, 0, 1, 1, 0])] ⟨2, [4], []⟩ [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0,
   0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
   [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]),
   (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
@@ -1679,7 +1814,7 @@ def triCertAt (b : ℕ) : ACmd :=
   [0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1])]
   (.assign 2 3 ⟨[0, 0, 0, 1], 1⟩))))))))) [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0,
   1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
-  [], -4⟩] ⟨3, [4]⟩ (SB.const 2) (.weaken [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0,
+  [], -4⟩] ⟨3, [4], []⟩ (SB.const 2) (.weaken [⟨[0, 0, 0, -1], [], 4⟩, ⟨[0, 0, -1], [-1], 4⟩, ⟨[0, 0,
   1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 0, 1],
   [], -4⟩] [(1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]),
   (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
@@ -1719,14 +1854,14 @@ def upCertAt (b : ℕ) : ACmd :=
   [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [0, 1]), (1, [0, 1]), (1, [1, 0])] (SB.const b) [⟨[0, 0, -1],
   [], 4⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0]), (1, [0, 1, 0]), (1, [0, 0,
   1])] (.whileUp 2 [⟨[0, 0, 1], -3⟩] [⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] ⟨[0, 0, -1], 4⟩ 1
-  (4) 0 (1, [1, 0, 0]) ⟨5, [4]⟩ (.weaken [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1],
+  (4) 0 (1, [1, 0, 0]) ⟨5, [4], []⟩ (.weaken [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1],
   [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩] [(1, [1, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0]),
-  (1, [0, 0, 1, 0, 0]), (1, [0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 1])] ⟨5, [4]⟩ [⟨[0, 0, 1, -1], [],
+  (1, [0, 0, 1, 0, 0]), (1, [0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 1])] ⟨5, [4], []⟩ [⟨[0, 0, 1, -1], [],
   -1⟩, ⟨[0, 0, 1], [-1], -1⟩, ⟨[0, 0, -1], [1], 1⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0,
   0, 1], [], -5⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 1⟩] [(1, [0, 0, 1, 0, 0, 0, 0, 0]),
   (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0])] (.seq (.seq .skip [⟨[0, 0, 1],
   [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩]
-  (SB.const 0) ⟨3, [4]⟩ (.seq (.weaken [⟨[0, 0, 1, 0], [-1], 0⟩, ⟨[0, 0, -1, 0], [1], 0⟩, ⟨[0, 0,
+  (SB.const 0) ⟨3, [4], []⟩ (.seq (.weaken [⟨[0, 0, 1, 0], [-1], 0⟩, ⟨[0, 0, -1, 0], [1], 0⟩, ⟨[0, 0,
   1, 0], [], -3⟩, ⟨[0, 0, -1, 0], [], 0⟩, ⟨[0, 0, 1, 0], [], -4⟩, ⟨[0, 0, 0, 0], [], 0⟩, ⟨[0, 0,
   0, 0], [], 0⟩] [(1, [1, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0]), (1, [0, 0, 1, 0, 0]), (1, [0, 0, 0,
   1, 0]), (1, [0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0])] (SB.const 1) [⟨[0, 0,
@@ -1735,14 +1870,14 @@ def upCertAt (b : ℕ) : ACmd :=
   0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0,
   0]), (1, [0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 1])] (.assign 1 3 ⟨[], 0⟩)) [⟨[0, 0, 1],
   [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
-  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 1) ⟨2, [4]⟩ (.seq .skip [⟨[0, 0, 1],
+  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 1) ⟨2, [4], []⟩ (.seq .skip [⟨[0, 0, 1],
   [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩,
-  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 0) ⟨2, [4]⟩ (.weaken [⟨[0, 0, 1, -1],
+  ⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, -1], [], 0⟩] (SB.const 0) ⟨2, [4], []⟩ (.weaken [⟨[0, 0, 1, -1],
   [-1], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩,
   ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0,
   1]), (1, [1, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0]), (1, [0,
   0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 1, 0,
-  1, 0])] ⟨2, [4]⟩ [⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0,
+  1, 0])] ⟨2, [4], []⟩ [⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0,
   1], [], -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1],
   [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0,
   0]), (1, [0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0,
@@ -1778,7 +1913,7 @@ def upCertAt (b : ℕ) : ACmd :=
   0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0,
   0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1])] (.assign 2 3 ⟨[0, 0, 0, 1], 1⟩))))))))) [⟨[0,
   0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [], -3⟩, ⟨[0, 0, -1],
-  [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] ⟨3, [4]⟩ (SB.const
+  [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩] ⟨3, [4], []⟩ (SB.const
   2) (.weaken [⟨[0, 0, 1, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 1], [],
   -3⟩, ⟨[0, 0, -1], [], 0⟩, ⟨[0, 0, 1], [], -4⟩, ⟨[0, 0, 0, -1], [], 0⟩, ⟨[0, 0, -1, 1], [], 0⟩]
   [(1, [1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0]),
@@ -1803,6 +1938,368 @@ theorem upCert_cost (s : Env) (n : ℕ)
   have := certified_cost_le upCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) (by simp [holds]) hp
   simpa using this
 
+/-! ### A bound that is a product of parameters -/
+
+/-- The precondition the plugin emits for `rect (n, m)`: `n = γ₀`, `m = γ₁` (and the
+    logical variables for `-n`, `-m`, `n - m`, ...). -/
+def prodPre : List Lin :=
+  [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1],
+  0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0,
+  0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩]
+
+/-- The plugin's certificate for `for (i = 0; i < n; i++) for (j = 0; j < m; j++) s++`,
+    with the quadratic coefficient `a` claimed in the bound of the outer loop: the inner
+    loop costs `2 + 6·max(0, γ₁)`, so the outer one, with the symbolic entry bound `γ₀`,
+    costs `(w + Wb)·max(0, γ₀) + w` (`loopBoundOk`, third form). -/
+def prodCertAt (a : ℕ) : ACmd :=
+  (.weaken [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0,
+  -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0,
+  0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1,
+  1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0,
+  0, 1], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0,
+  0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] ⟨5, [7], [(0, 0, 0), (a, 1, 0)]⟩ [⟨[0, 0,
+  1, 0, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0,
+  0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1],
+  [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0,
+  0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0,
+  0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] [] (.seq (.havoc 1 1) [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0,
+  -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1],
+  0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1],
+  0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1],
+  [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩] (SB.const 1) ⟨4, [7], [(0, 0,
+  0), (a, 1, 0)]⟩ (.seq (.seq (.weaken [⟨[0, 0, 1, 0, 0], [-1], 0⟩, ⟨[0, 0, -1, 0, 0], [1], 0⟩,
+  ⟨[0, 0, 0, 1, 0], [0, -1], 0⟩, ⟨[0, 0, 0, -1, 0], [0, 1], 0⟩, ⟨[0, 0, -1, 0, 0], [0, 0, -1], 0⟩,
+  ⟨[0, 0, 1, 0, 0], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1, 0], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1, 0], [0, 0,
+  0, 1], 0⟩, ⟨[0, 0, 1, -1, 0], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1, 0], [0, 0, 0, 0, 1], 0⟩, ⟨[0,
+  0, -1, 1, 0], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1, 0], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0,
+  0], [], 0⟩, ⟨[0, 0, 0, 0, 0], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])] (SB.const 1) [⟨[0, 0, 1],
+  [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0,
+  -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0,
+  1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩,
+  ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0,
+  1], [], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (.assign 1 4 ⟨[], 0⟩)) [⟨[0, 0,
+  1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0,
+  0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0,
+  1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩,
+  ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0,
+  1], [], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] (SB.const 1) ⟨2, [7], [(0, 0, 0), (a, 1, 0)]⟩ (.seq .skip
+  [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1],
+  0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0,
+  0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0,
+  0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] (SB.const 0) ⟨2, [7], [(0, 0, 0), (a, 1, 0)]⟩
+  (.weaken [⟨[0, 0, 1, 0, -1], [-1], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0,
+  1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1],
+  0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0,
+  0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] ⟨2, [7],
+  [(0, 0, 0), (a, 1, 0)]⟩ [⟨[0, 0, 1, 0, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩,
+  ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1],
+  [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1,
+  -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1])] (.while 2 ⟨[0, 0, -1, 0, 1], 1⟩ [⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1],
+  [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩,
+  ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] ⟨[0, 0, 1, 0, -1], 0⟩ 1 (0) [1] 6 (1,
+  [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) ⟨5, [0, 6], []⟩ (.weaken [⟨[0, 0, 1, 0, -1], [0, 0,
+  0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0,
+  0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0,
+  0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1],
+  [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1],
+  0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] ⟨5,
+  [0, 6], []⟩ [⟨[0, 0, 0, 1, 0, -1], [], 0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 1⟩, ⟨[0,
+  0, -1, 0, 1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩,
+  ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0,
+  -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1],
+  [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] [(1, [0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 0])] (.seq (.seq .skip [⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1],
+  0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0,
+  -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩,
+  ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] (SB.const 0) ⟨3, [0, 6], []⟩ (.seq
+  (.weaken [⟨[0, 0, 1, 0, -1, 0], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1, 0], [], 1⟩, ⟨[0,
+  0, 1, 0, 0, 0], [-1], 0⟩, ⟨[0, 0, -1, 0, 0, 0], [1], 0⟩, ⟨[0, 0, 0, 1, 0, 0], [0, -1], 0⟩, ⟨[0,
+  0, 0, -1, 0, 0], [0, 1], 0⟩, ⟨[0, 0, -1, 0, 0, 0], [0, 0, -1], 0⟩, ⟨[0, 0, 1, 0, 0, 0], [0, 0,
+  1], 0⟩, ⟨[0, 0, 0, -1, 0, 0], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1, 0, 0], [0, 0, 0, 1], 0⟩, ⟨[0, 0,
+  1, -1, 0, 0], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1, 0, 0], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1, 0,
+  0], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1, 0, 0], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1, 0],
+  [], 0⟩, ⟨[0, 0, 0, 0, 0, 0], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])]
+  (SB.const 1) [⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0,
+  1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0,
+  0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0,
+  1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩,
+  ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0,
+  -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1])] (.assign 1 5 ⟨[], 0⟩)) [⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0,
+  1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0,
+  -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0,
+  0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1,
+  1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0,
+  0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩]
+  (SB.const 1) ⟨2, [0, 6], []⟩ (.seq .skip [⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0,
+  0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1],
+  [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0,
+  0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0,
+  0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1],
+  [], 0⟩] (SB.const 0) ⟨2, [0, 6], []⟩ (.weaken [⟨[0, 0, 0, 1, 0, -1], [0, -1], 0⟩, ⟨[0, 0, 1, 0,
+  -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1],
+  [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩,
+  ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩,
+  ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0,
+  0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0,
+  0, 0, 0, -1], [], 0⟩] [(1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] ⟨2, [0, 6], []⟩ [⟨[0, 0, 0, 1, 0, -1], [],
+  0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1],
+  0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1],
+  [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0,
+  0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0,
+  -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [],
+  0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (.while 2 ⟨[0, 0, 0, -1, 0,
+  1], 1⟩ [⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1],
+  [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0,
+  -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0,
+  1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩,
+  ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0,
+  -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] ⟨[0, 0, 0, 1, 0, -1], 0⟩ 1 (0) [0, 1] 7 (1, [1, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) (SB.const 4) (.weaken [⟨[0, 0, 0, 1, 0, -1], [0, 0,
+  0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1],
+  0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0,
+  -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩,
+  ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] [(1,
+  [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (SB.const 4) [⟨[0, 0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0,
+  0, -1], 1⟩, ⟨[0, 0, 0, -1, 0, 1], [], 0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0,
+  0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1],
+  [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0,
+  0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0,
+  0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 1⟩] [(1, [1, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (.seq (.seq .skip [⟨[0, 0, 0, 1, 0,
+  -1], [0, 0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0,
+  0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0,
+  0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0,
+  1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0,
+  0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩]
+  (SB.const 0) (SB.const 2) (.havoc 2 1)) [⟨[0, 0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1],
+  [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1],
+  [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1],
+  [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0,
+  1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] (SB.const 2) (SB.const 2)
+  (.weaken [⟨[0, 0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, -1, 0, 1], [], 1⟩,
+  ⟨[0, 0, 1, 0, -1, 0], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1, 0], [], 1⟩, ⟨[0, 0, 1, 0, 0,
+  0], [-1], 0⟩, ⟨[0, 0, -1, 0, 0, 0], [1], 0⟩, ⟨[0, 0, 0, 1, 0, 0], [0, -1], 0⟩, ⟨[0, 0, 0, -1, 0,
+  0], [0, 1], 0⟩, ⟨[0, 0, -1, 0, 0, 0], [0, 0, -1], 0⟩, ⟨[0, 0, 1, 0, 0, 0], [0, 0, 1], 0⟩, ⟨[0,
+  0, 0, -1, 0, 0], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1, 0, 0], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1, 0, 0],
+  [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1, 0, 0], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1, 0, 0], [0, 0, 0,
+  0, 0, -1], 0⟩, ⟨[0, 0, 1, -1, 0, 0], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1, 0], [], 0⟩, ⟨[0,
+  0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0]), (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 0, 1,
+  0, -1], [0, 0, 0, 0, 0, 0, 0, -1], 1⟩, ⟨[0, 0, 0, -1, 0, 1], [], 0⟩, ⟨[0, 0, 1, 0, -1], [0, 0,
+  0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1], [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0,
+  0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0,
+  0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1],
+  [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1],
+  0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [],
+  1⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (.assign 2 5 ⟨[0, 0, 0, 0, 0, 1], 1⟩)))))))))
+  [⟨[0, 0, 0, 1, 0, -1], [], 0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 0, 1],
+  [], 1⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1],
+  [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0,
+  -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1],
+  [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0,
+  1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] ⟨3, [0, 6], []⟩ (SB.const 2)
+  (.weaken [⟨[0, 0, 0, 1, 0, -1], [], 0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0,
+  -1, 0, 1], [], 1⟩, ⟨[0, 0, 1, 0, 0], [-1], 0⟩, ⟨[0, 0, -1, 0, 0], [1], 0⟩, ⟨[0, 0, 0, 1, 0], [0,
+  -1], 0⟩, ⟨[0, 0, 0, -1, 0], [0, 1], 0⟩, ⟨[0, 0, -1, 0, 0], [0, 0, -1], 0⟩, ⟨[0, 0, 1, 0, 0], [0,
+  0, 1], 0⟩, ⟨[0, 0, 0, -1, 0], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1, 0], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1,
+  -1, 0], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1, 0], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1, 0], [0, 0,
+  0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1, 0], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0,
+  0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 1, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]), (1, [0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]), (1,
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (SB.const 2) [⟨[0, 0, 0, 1, 0, -1], [],
+  0⟩, ⟨[0, 0, 1, 0, -1], [0, 0, 0, 0, 0, 0, -1], 1⟩, ⟨[0, 0, -1, 0, 1], [], 0⟩, ⟨[0, 0, 1], [-1],
+  0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0, 1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1],
+  [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1], 0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0,
+  0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0,
+  -1, 1], [0, 0, 0, 0, 0, -1], 0⟩, ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [],
+  1⟩, ⟨[0, 0, 0, 0, 0, -1], [], 0⟩] [(1, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1,
+  [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0]), (1, [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 1,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+  (1, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+  0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+  0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 0, 0, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]), (1, [0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])] (.assign 2 4 ⟨[0, 0, 0, 0, 1],
+  1⟩)))))))) [⟨[0, 0, 1, 0, -1], [], 0⟩, ⟨[0, 0, 1], [-1], 0⟩, ⟨[0, 0, -1], [1], 0⟩, ⟨[0, 0, 0,
+  1], [0, -1], 0⟩, ⟨[0, 0, 0, -1], [0, 1], 0⟩, ⟨[0, 0, -1], [0, 0, -1], 0⟩, ⟨[0, 0, 1], [0, 0, 1],
+  0⟩, ⟨[0, 0, 0, -1], [0, 0, 0, -1], 0⟩, ⟨[0, 0, 0, 1], [0, 0, 0, 1], 0⟩, ⟨[0, 0, 1, -1], [0, 0,
+  0, 0, -1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, -1, 1], [0, 0, 0, 0, 0, -1], 0⟩,
+  ⟨[0, 0, 1, -1], [0, 0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, -1], [], 0⟩] ⟨3, [7], [(0, 0, 0), (a, 1,
+  0)]⟩ (SB.const 1) (.havoc 1 1))))
+
+set_option maxRecDepth 100000 in
+theorem prodCert_checks :
+    check [] prodPre (prodCertAt 6) ⟨5, [7], [(0, 0, 0), (6, 1, 0)]⟩ [] = true := by decide
+
+set_option maxRecDepth 100000 in
+/-- A smaller product coefficient is rejected. -/
+theorem prodCert_5_rejected :
+    check [] prodPre (prodCertAt 5) ⟨5, [7], [(0, 0, 0), (5, 1, 0)]⟩ [] = false := by decide
+
+/-- Hence `rect` costs at most `5 + 7 max(0,n) + 6 max(0,m) max(0,n)` for all `n, m`. -/
+theorem prodCert_cost (ρ s : Env) (hs : holds prodPre ρ s) (n : ℕ)
+    (hp : Pre (fun _ => Cmd.skip) (prodCertAt 6).toCmd s n) :
+    n ≤ 5 + 7 * (ρ 0).toNat + 6 * (ρ 1).toNat * (ρ 0).toNat := by
+  have := certified_cost_le prodCert_checks (fun _ => Cmd.skip) hs hp
+  simpa [SB.eval, dotN, dotQ] using this
+
 /-! ### A constrained unknown value -/
 
 /-- `x₁ := x₀ >> 2` for `x₀ ≥ 0`, modelled as an unknown value with `4 x₁ ≤ x₀ ≤ 4 x₁ + 3`. -/
@@ -1821,14 +2318,14 @@ theorem shiftCert_rejected :
     `i = 0`, `n ≤ γ₀` (γ₀ is the value of the parameter `n`), the entry bound of the
     potential `n - i` is `0 + 1·γ₀`, and the bound is `1 + 2·max 0 γ₀`. -/
 def countSym : ACmd :=
-  .weaken [⟨[-1, 1], [-1], 0⟩] [(1, [0, 1, 1])] ⟨1, [2]⟩ [⟨[-1, 1], [], 0⟩] []
+  .weaken [⟨[-1, 1], [-1], 0⟩] [(1, [0, 1, 1])] ⟨1, [2], []⟩ [⟨[-1, 1], [], 0⟩] []
     (.while 1 ⟨[1, -1], 1⟩ [] ⟨[-1, 1], 0⟩ 1 0 [1] 1 (1, [1]) (SB.const 1)
       (.weaken [⟨[-1, 1], [0, -1], 0⟩] [(1, [1, 0])] (SB.const 1) [⟨[-1, 1], [0, -1], 1⟩] [(1, [1])]
         (.assign 1 0 ⟨[1], 1⟩)))
 
 def countPre : List Lin := [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [-1], 0⟩]
 
-theorem countSym_checks : check [] countPre countSym ⟨1, [2]⟩ [] = true := by decide
+theorem countSym_checks : check [] countPre countSym ⟨1, [2], []⟩ [] = true := by decide
 
 /-- From `i = 0`, the loop costs at most `1 + 2·max 0 n`, for every `n`. -/
 theorem countSym_cost (s : Env) (h0 : s 0 = 0) (n : ℕ)
@@ -1840,7 +2337,7 @@ theorem countSym_cost (s : Env) (h0 : s 0 = 0) (n : ℕ)
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
 
 /-- The function `count` (variables `x₀ = i`, `x₁ = n`): it may modify `i`. -/
-def countF : FunCert := ⟨countPre, ⟨1, [2]⟩, [], [0], some countSym⟩
+def countF : FunCert := ⟨countPre, ⟨1, [2], []⟩, [], [0], some countSym⟩
 
 /-- `main`: `n := 7; i := 0; count()`. The call instantiates `γ₀` by `n` and bounds it by
     `7`; the call costs `1 + (1 + 2·7) = 16` and `main` `18`, without inlining `count`. -/
@@ -1848,26 +2345,26 @@ def mainBody : ACmd :=
   .seq (.weaken [⟨[0, 0], [], 0⟩, ⟨[0, 0], [], 0⟩] [(1, []), (1, [])] (SB.const 1)
           [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] [(1, [1, 0]), (1, [0, 1])]
           (.assign 1 1 ⟨[], 7⟩))
-    [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨17, []⟩
+    [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨17, [], []⟩
     (.seq (.weaken [⟨[0], [], 0⟩, ⟨[0], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
             [(1, []), (1, []), (1, [1, 0]), (1, [0, 1])] (SB.const 1)
             [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
             [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])]
             (.assign 1 0 ⟨[], 0⟩))
-      [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨16, []⟩
+      [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] (SB.const 1) ⟨16, [], []⟩
       (.weaken [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩]
           [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [0, 0, 1, 0]), (1, [0, 0, 0, 1])]
-          ⟨16, []⟩ [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] []
-        (.call 1 0 [⟨[0, 1], 0⟩] [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [])] [⟨7, []⟩]
+          ⟨16, [], []⟩ [⟨[0, 1], [], -7⟩, ⟨[0, -1], [], 7⟩] []
+        (.call 1 0 [⟨[0, 1], 0⟩] [(1, [1, 0, 0, 0]), (1, [0, 1, 0, 0]), (1, [])] [⟨7, [], []⟩]
           [(1, [0, 0, 1, 0])])))
 
-def mainF : FunCert := ⟨[], ⟨18, []⟩, [], [0, 1], some mainBody⟩
+def mainF : FunCert := ⟨[], ⟨18, [], []⟩, [], [0, 1], some mainBody⟩
 
 theorem exProgram_checks : checkProgram [countF, mainF] = true := by decide
 
 /-- The same program with the bound `17` for `main` is rejected. -/
 theorem exProgram_17_rejected :
-    checkProgram [countF, ⟨[], ⟨17, []⟩, [], [0, 1], some mainBody⟩] = false := by decide
+    checkProgram [countF, ⟨[], ⟨17, [], []⟩, [], [0, 1], some mainBody⟩] = false := by decide
 
 /-- The procedures of the example: function `0` is `count`, function `1` is `main`. -/
 def exΦ : ℕ → Cmd ℕ Env := fun i => if i = 0 then countSym.toCmd else mainBody.toCmd

@@ -120,6 +120,7 @@ effect; other compilers ignore them.
 |---|---|---|---|
 | `CROSSCHECK_REALTIME` | function | enforce the profile, report a bound | – |
 | `CROSSCHECK_DEADLINE(n)` | function | same, and reject if the bound exceeds `n` | – |
+| `CROSSCHECK_DEADLINE_CYCLES(n)`, `CROSSCHECK_DEADLINE_US(n)` | function | same, and a time budget, recorded in the report and checked after compilation on the binary ([Time budgets](#time-budgets-checked-after-compilation)) | the processor model (see there) |
 | `CROSSCHECK_RANGE(lo, hi)` | integer parameter | precondition `lo <= p <= hi` | proved at analysed call sites; assumed for external callers |
 | `CROSSCHECK_REQUIRE(cond)` | first statements of a body | precondition relating parameters, e.g. `lo < hi` | as above |
 | `CROSSCHECK_ASSUME(cond)` | statement | fact usable from this point on (e.g. after reading a register) | **yes** |
@@ -425,22 +426,61 @@ A GitHub Actions job for a project that uses the tool:
   with: { sarif_file: sarif }
 ```
 
+## Time budgets, checked after compilation
+
+The cost bounds are in abstract units; a time budget belongs to the binary on a
+processor. `CROSSCHECK_DEADLINE_CYCLES(n)` and `CROSSCHECK_DEADLINE_US(n)` put a function
+under the real-time profile and record the budget in the report (`deadline_cycles`,
+`deadline_us`); the plugin does not check them. `scripts/crosscheck_link.py` checks them
+on the compiled code, from the plugin's loop bounds and a processor model:
+
+```bash
+crosscheck-tool --all --report=r.json prog.c -- -Iinclude ...
+clang --target=thumbv6m-none-eabi -mcpu=cortex-m0 -O1 -g -c prog.c -o prog.o
+python3 scripts/crosscheck_link.py --report r.json --binary prog.o --source prog.c --clock-mhz 48
+```
+```
+ok    ok_sum: bound 462 cycles = 9.625 us, budget 5000 cycles
+FAIL  no_too_slow: bound 462 cycles = 9.625 us, budget 1 us  [FAIL: budget exceeded]
+```
+
+The exit status is 1 if a budget is exceeded or a function with a budget has no cycle
+bound, so the check can run as a post-build step, e.g. in CMake:
+
+```cmake
+add_custom_command(TARGET firmware POST_BUILD
+  COMMAND python3 ${CROSSCHECK}/clang-plugin/scripts/crosscheck_link.py
+          --report ${CMAKE_BINARY_DIR}/crosscheck.json --binary $<TARGET_FILE:firmware>
+          --source ${CMAKE_SOURCE_DIR}/src/control.c --clock-mhz 48)
+```
+
+The processor model is the Cortex-M0 of `benchmarks/cycles` (`m0.py`: timing table,
+`wcet.py`: binary loops matched with source loops through the debug lines, timing schema
+on the binary). What is trusted is printed with the results: the timing table
+(zero-wait-state memory), no interrupt during the function, that the compiler preserves
+the source loops' iteration counts, and the plugin's loop bounds (for every call; with
+`--context`, those of the calling contexts of the analysed program). One source file per
+run. Not yet: other processors, OTAWA or aiT as back ends (the flow facts they need are
+exported already, `flowfacts=`), a check of the whole linked image across files.
+Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget.c`).
+
 ## Bounds in the parameters, without ranges (`symbolic`)
 
 By default a loop whose inputs have no range is an error: a real-time function needs a
 number. With `--opt=symbolic` (plugin: `-fplugin-arg-crosscheck-symbolic`) such a loop is
 accepted if it has a ranking potential, which needs no range. The function then has no
 numeric bound (`ok` stays false, the summary line says `SYMB`), and with `certificates`
-the generator derives a bound that is affine in the parameters, which the checker proves
-for all inputs:
+the generator derives a bound in the parameters, affine or quadratic, which the checker
+proves for all inputs:
 
 ```
 SYMB count: no numeric bound; certified 5 + 6*max(0,n) units
 ```
 
 Nothing new is trusted: the analysis only proposes the potential; the bound is the
-checker's. A product of two parameters (nested loops both bounded by parameters) has
-potentials but no certificate, since certified bounds are affine. The mode is meant for
+checker's. A product of two parameters (nested loops both bounded by parameters) gets a
+quadratic certified bound (e.g. `5 + 7*max(0,n) + 6*max(0,m)*max(0,n)`, and a call
+composes it); three nested loops over parameters (a cubic bound) get no certificate. The mode is meant for
 measuring unannotated code and for library functions whose callers supply the ranges.
 
 ## Whole projects, ACSL, and explanations

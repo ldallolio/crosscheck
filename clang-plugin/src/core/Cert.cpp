@@ -127,10 +127,10 @@ std::uint64_t logIters(std::uint64_t b, std::int64_t k) {
 }
 
 bool SB::constant() const {
-  return std::all_of(co.begin(), co.end(), [](std::uint64_t x) { return x == 0; });
+  return q.empty() && std::all_of(co.begin(), co.end(), [](std::uint64_t x) { return x == 0; });
 }
 bool SB::operator==(const SB& o) const {
-  if (c != o.c) return false;
+  if (c != o.c || !(q == o.q)) return false;
   for (std::size_t i = 0; i < std::max(co.size(), o.co.size()); ++i)
     if ((i < co.size() ? co[i] : 0) != (i < o.co.size() ? o.co[i] : 0)) return false;
   return true;
@@ -140,6 +140,8 @@ SB operator+(const SB& a, const SB& b) {
   r.co.resize(std::max(a.co.size(), b.co.size()), 0);
   for (std::size_t i = 0; i < a.co.size(); ++i) r.co[i] += a.co[i];
   for (std::size_t i = 0; i < b.co.size(); ++i) r.co[i] += b.co[i];
+  r.q = a.q;
+  r.q.insert(r.q.end(), b.q.begin(), b.q.end());
   return r;
 }
 SB smax(const SB& a, const SB& b) {
@@ -147,22 +149,45 @@ SB smax(const SB& a, const SB& b) {
   r.co.resize(std::max(a.co.size(), b.co.size()), 0);
   for (std::size_t i = 0; i < r.co.size(); ++i)
     r.co[i] = std::max(i < a.co.size() ? a.co[i] : 0, i < b.co.size() ? b.co[i] : 0);
+  // Both lists of quadratic terms, so that each is a subsequence (one copy if equal).
+  r.q = a.q;
+  if (!(a.q == b.q)) r.q.insert(r.q.end(), b.q.begin(), b.q.end());
   return r;
 }
 SB scale(std::uint64_t k, const SB& a) {
   SB r(k * a.c);
   for (std::uint64_t x : a.co) r.co.push_back(k * x);
+  for (const QT& t : a.q) r.q.push_back(QT{k * t.a, t.i, t.j});
   return r;
 }
 bool sbLe(const SB& a, const SB& b) {
   if (a.c > b.c) return false;
   for (std::size_t i = 0; i < a.co.size(); ++i)
     if (a.co[i] > (i < b.co.size() ? b.co[i] : 0)) return false;
+  std::size_t p = 0;  // Lean `qsub`: greedy subsequence
+  for (const QT& t : a.q) {
+    while (p < b.q.size() && !(b.q[p] == t)) ++p;
+    if (p == b.q.size()) return false;
+    ++p;
+  }
   return true;
+}
+SB sbMul(const SB& a, const SB& b, bool trimB) {
+  std::vector<std::uint64_t> ac = a.co, bc = b.co;
+  while (!ac.empty() && ac.back() == 0) ac.pop_back();
+  while (trimB && !bc.empty() && bc.back() == 0) bc.pop_back();
+  SB r(a.c * b.c);
+  r.co.assign(std::max(ac.size(), bc.size()), 0);
+  for (std::size_t i = 0; i < bc.size(); ++i) r.co[i] += a.c * bc[i];
+  for (std::size_t i = 0; i < ac.size(); ++i) r.co[i] += b.c * ac[i];
+  for (std::size_t i = 0; i < ac.size(); ++i)
+    for (std::size_t j = 0; j < bc.size(); ++j) r.q.push_back(QT{ac[i] * bc[j], i, j});
+  return r;
 }
 std::uint64_t sbAt(const SB& a, const std::vector<std::uint64_t>& v) {
   std::uint64_t r = a.c;
   for (std::size_t i = 0; i < a.co.size(); ++i) r += a.co[i] * (i < v.size() ? v[i] : 0);
+  for (const QT& t : a.q) r += t.a * (t.i < v.size() ? v[t.i] : 0) * (t.j < v.size() ? v[t.j] : 0);
   return r;
 }
 std::string sbString(const SB& a, const std::vector<std::string>& names) {
@@ -171,6 +196,13 @@ std::string sbString(const SB& a, const std::vector<std::string>& names) {
     if (!a.co[i]) continue;
     std::string g = i < names.size() ? names[i] : "g" + std::to_string(i);
     s += (s.empty() ? "" : " + ") + (a.co[i] == 1 ? "" : std::to_string(a.co[i]) + "*") + "max(0," + g + ")";
+  }
+  for (const QT& t : a.q) {
+    if (!t.a) continue;
+    std::string gi = t.i < names.size() ? names[t.i] : "g" + std::to_string(t.i);
+    std::string gj = t.j < names.size() ? names[t.j] : "g" + std::to_string(t.j);
+    s += (s.empty() ? "" : " + ") + (t.a == 1 ? "" : std::to_string(t.a) + "*") + "max(0," + gi +
+         ")*max(0," + gj + ")";
   }
   if (a.c || s.empty()) s = std::to_string(a.c) + (s.empty() ? "" : " + " + s);
   return s;
@@ -553,7 +585,9 @@ std::string sb(const SB& b) {
   if (b.constant()) return u(b.c);
   std::vector<std::uint64_t> co = b.co;
   while (!co.empty() && co.back() == 0) co.pop_back();
-  return "{\"c\":" + u(b.c) + ",\"co\":" + uvec(co) + "}";
+  std::string q;
+  for (const QT& t : b.q) q += (q.empty() ? "" : ",") + ("[" + u(t.a) + "," + u(t.i) + "," + u(t.j) + "]");
+  return "{\"c\":" + u(b.c) + ",\"co\":" + uvec(co) + (b.q.empty() ? "" : ",\"q\":[" + q + "]") + "}";
 }
 std::string klField(const std::vector<std::uint64_t>& kl) {
   bool any = std::any_of(kl.begin(), kl.end(), [](std::uint64_t x) { return x != 0; });
