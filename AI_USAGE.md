@@ -1481,6 +1481,21 @@ reading notes in `references/README.md`.
 - `joseph1986finding.pdf` is another paper (O'Rourke et al., minimal enclosing triangles,
   J. Algorithms 1986); the `\authortodo` of Paper I is unchanged and the author is told.
 
+59. "look at joseph1986finding_bis.pdf conf-vmcai-AlbertGM11.pdf demichiel2008orange_bis.pdf"
+
+What the AI did for 59 (Claude Opus 5.5, 2026-11-17): read the three files (not committed);
+notes in `references/README.md`.
+- `joseph1986finding` (a scan, OCR with tesseract): read entirely. The `\authortodo` of
+  Paper I is removed; after `thm:response-time` Paper I now says that the iteration is
+  Joseph and Pandya's function Response, and that their analysis starts at the critical
+  instant whereas the theorem bounds every schedule with no activation pending at slot 0.
+- `albert2011more`: Sections 1-4 read; the attribution of Paper I agrees. The Healy/Albert
+  `\authortodo` now only asks the author to check the two attributions.
+- `demichiel2008orange` (the RTCSA paper): read entirely. Paper II's description of oRange
+  now takes the context tree with expanded calls (no recursion) from the paper and marks
+  "multiple returns" as from the documentation; the oRange part of Paper II's
+  `\authortodo` is removed (Shaw and Albert 2011 TOPLAS remain cited through other sources).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
