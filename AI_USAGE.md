@@ -1434,6 +1434,19 @@ What the AI did for 55 (Claude Opus 5.5, 2026-11-17).
   specification; the copy of the code into the certificate is not checked against the ELF
   file by the checker; the OTAWA processors.
 
+56. "How could we further improve the scientific relevance and industrial value, what is the next logical thing to do ? Also, look into author todos to see if some can be treated by you."
+
+What the AI did for 56 (Claude Opus 5.5, 2026-11-17): a recommendation (discussion, in the
+conversation) and the author todos it could treat. Of the 9 `\authortodo`, 3 are the
+author's by nature (responsibility statements in both papers; whether to report the
+`filterbank` case to oRange's authors) and 1 (attributions to Healy et al. and Albert et
+al.) asks the author to confirm what was read. For the 5 papers not obtained, a new search
+found an open copy of Nielson's 1984 Edinburgh thesis, from which `nielson1987hoare`
+derives: read (abstract, contents), added to the bibliography as `nielson1984hoare` (no
+DOI; handle checked on the archive) and cited with the journal paper; the `\authortodo`
+reduced to confirming the attribution. No open copy of `necula1997proof`,
+`demichiel2008orange`, `albert2011more`, `joseph1986finding`, `puschner1989calculating`.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
