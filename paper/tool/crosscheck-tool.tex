@@ -299,7 +299,7 @@ Blazy, Maroneze and Pichardie verified a loop-bound estimation in Coq \cite{blaz
 \paragraph{Compile-time real-time checks.}
 Recent versions of Clang check, through function effect attributes, that functions declared non-blocking or non-allocating do not call functions that may block or allocate \cite{clangeffects}. Such checks exclude unbounded operations but do not bound loops or recursion; the plugin's real-time profile (Section~\ref{sec:implementation}) rejects allocation, exceptions and indirect calls, and adds the bounds.
 
-\authortodo{read \cite{puschner1989calculating} and \cite{demichiel2008orange} (whose description of oRange rests on the tool's README), of which no copy could be obtained; \cite{shaw1989reasoning} and \cite{albert2011closed} are cited as described in \cite{wilhelm2008worst} and in A.~N.~Masud's thesis (see references/README.md).}
+\authortodo{read \cite{demichiel2008orange}, of which no copy could be obtained (the description of oRange rests on the tool's README and on a six-page summary of that paper by Bonenfant, de Michiel and Sainrat, dated September 2008, which was read); \cite{shaw1989reasoning} and \cite{albert2011closed} are cited as described in \cite{wilhelm2008worst} and in A.~N.~Masud's thesis (see references/README.md).}
 
 \section{Limitations}
 \label{sec:limitations}

@@ -1460,6 +1460,27 @@ What the AI did for 57 (Claude Opus 5.5, 2026-11-17).
   `prop:summary-call`, that its second statement is Nielson's composition rule R-3. The
   `\authortodo` now asks to confirm these two attributions.
 
+58. "I added puschner1989calculating.pdf joseph1986finding.pdf healy2000supporting.pdf necula1997proof.pdf demichiel2008orange.pdf"
+
+What the AI did for 58 (Claude Opus 5.5, 2026-11-17): read the five files (not committed);
+reading notes in `references/README.md`.
+- `puschner1989calculating`: read entirely. Confirms the timing-schema attribution of
+  Paper I; one sentence added to Paper I's related work ("WCET analysis"): Puschner and Koza's
+  markers, scopes and loop sequences bound execution counts, constraints of the kind IPET
+  expresses linearly (`li1995ilp`). Removed from Paper II's reading `\authortodo`.
+- `necula1997proof`: a scan; text obtained by OCR (tesseract) and Sections 1, 2, 6, 7 read.
+  Confirms the citation for the principle; Paper I's sentence now says what the principle
+  is (the producer supplies a proof, the consumer validates it by a simple algorithm); its
+  `\authortodo` removed.
+- `healy2000supporting`: the journal version; Section 5 agrees with the preprint read
+  before. Paper I's `\authortodo` now says the journal version was read.
+- `demichiel2008orange.pdf` is not the cited RTCSA paper but a six-page summary of it by
+  Bonenfant, de Michiel and Sainrat (September 2008); read entirely, consistent with Paper
+  II's description of oRange. Not cited (venue unknown); Paper II's `\authortodo` now says
+  the paper itself is still unread and the summary was read.
+- `joseph1986finding.pdf` is another paper (O'Rourke et al., minimal enclosing triangles,
+  J. Algorithms 1986); the `\authortodo` of Paper I is unchanged and the author is told.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
