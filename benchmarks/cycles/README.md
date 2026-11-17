@@ -145,6 +145,90 @@ binaries OTAWA could not place such facts (inlined callees, rotated loops: "no l
 the loop at ..."), so the matching of binary loops to source loops is done by `wcet.py`,
 as for the cycle bounds. That matching is checked on runs, not proved.
 
+**The loops of OTAWA's graphs** (`--matching otawa`, 2026-11-17): the same run with the
+binary loops taken from OTAWA's own control-flow graphs and matched by `otawa_flow.py` (the
+matching used for the processors modelled by OTAWA, below), instead of `wcet.py`'s:
+107 of 107 functions bounded, none refused by the matching, 11 calls compared with **no
+bound below the executed instructions**, the same bounds per function as with `wcet.py`'s
+matching for all 107 (99 flow facts, written for the functions reachable from those given to OTAWA; 199 with `wcet.py`'s matching, 108 of them for the loops of the run-time division functions, written for every kernel).
+
+## Other processors: OTAWA's STM32 models (2026-11-17)
+
+`otawa_flow.py` gives CrossCheck's source loop bounds to OTAWA on any binary it decodes:
+in a container without network, `mkff` lists the loop headers of the code reachable from
+a function and `dumpcfg --cfg-raw -S` its basic blocks; each natural loop is matched with
+the source loops through the debug lines (back-edge branches first, then the header, then
+the loop's own instructions; the largest bound if several match) and written as a flow
+fact by label and offset (`maxcount` = bound + 1). A call graph read from the disassembly
+refuses, for every function that reaches them, recursion, indirect calls and jumps, jump
+tables (TBB/TBH), branches into another function, calls of undefined symbols (linked to
+the next instruction when unresolved symbols are ignored) and loops without a matched
+bound. `test_otawa_flow.py` tests these rules without OTAWA (CI). It is the back end of
+`clang-plugin/scripts/crosscheck_link.py --processor stm32f4|stm32h7`.
+
+`run_stm32.py` compiles each kernel for a Cortex-M4 with its single-precision FPU
+(`-mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O1 -g`), links it at the addresses of
+an STM32 (flash from 0x08000000, RAM from 0x20000000: OTAWA's model gives an address outside
+its memory banks the worst latency) and asks OTAWA's `stm32` script for the WCET of every
+function, with `ARCH=0` (STM32F427, Cortex-M4: pipeline, no cache) and `ARCH=1`
+(STM32H753, Cortex-M7: pipeline, caches, branch history table).
+
+```bash
+python3 benchmarks/cycles/run_stm32.py --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
+    [--m0-json cycles.json] [--json stm32.json]
+```
+
+| | Cortex-M4 (`stm32f4`) | Cortex-M7 (`stm32h7`) |
+|---|---:|---:|
+| functions (29 kernels) | 267 | 267 |
+| with a WCET from OTAWA | **168** | **162** |
+| ... entry functions `main` | 8 | 7 |
+| of the 107 bounded on the Cortex-M0 (above) | 106 | 103 |
+| bounded here and not on the Cortex-M0 | 62 | 59 |
+
+Flow facts: 542. Not bounded (same for both, 99 functions): a reached loop matched with a
+source loop without a bound, 56; a call of an undefined symbol (double-precision floating
+point, `memcpy`...: no run-time library), 22; a loop that matches no source loop, 12;
+recursion, 7; a jump table, 2. On the Cortex-M7, OTAWA gives no result within 300 s for 6
+more functions (its cache analysis; `basicmath___ieee754_acosf` in three kernels and three
+functions of `jfdctint`). Of the 62 functions bounded only on the Cortex-M4, 57 call a
+single-precision floating-point function of the run-time library on the Cortex-M0 (no code
+there; an FPU instruction on the M4) and 5 call a function without a bound. The one
+function bounded on the Cortex-M0 and not here, `bsort_BubbleSort`, has an outer loop whose
+instructions the debug lines attribute to the function's first line and to the `if (Sorted)
+break;` after the inner loop, never to the loop's own line, so it is matched with no
+source loop (no bound, which is the safe outcome). The run takes 29 minutes, most of it the
+Cortex-M7 analysis (at most 300 s per function, `--timeout`).
+
+Bounds of the `main` functions, in cycles:
+
+| Kernel | Cortex-M0 (timing schema, above) | Cortex-M4 (OTAWA) | Cortex-M7 (OTAWA) |
+|---|---:|---:|---:|
+| binarysearch | 32,686 | 47,228 | 34,433 |
+| bsort | 369,779 | 8,087,233 | 3,683,167 |
+| complex_updates | -- | 72,360 | 15,275 |
+| countnegative | 449,615 | 675,320 | 347,632 |
+| iir | -- | 74,953 | 12,010 |
+| isqrt | 1,005,075 | 22,803,665 | 2,307,706 |
+| jfdctint | 75,652 | 156,189 | -- (timeout) |
+| matrix1 | 63,722 | 970,223 | 760,826 |
+
+The Cortex-M4 bounds are 1.4 to 23 times those of the Cortex-M0 for the same source, on a
+faster core; we did not analyse where OTAWA's time goes, but its STM32F427 model gives
+every memory bank, the flash included, a latency of 50 cycles (see above). The three
+processors are not compared here: the numbers show that the same source bounds reach
+OTAWA's models, not how fast these processors are.
+
+**What these numbers are**: OTAWA's WCET on OTAWA's models of the two processors, with
+CrossCheck's loop bounds as the only flow facts. They are **not checked against
+executions** (there is no simulator of these processors here), and the models are OTAWA's:
+its STM32F427 memory file gives every bank a latency of 50 cycles and says that the values
+"could not be found in official datasheets", so the Cortex-M4 bounds are as pessimistic as
+that assumption. What this measures is the interface: how many functions get a WCET on
+another instruction set (Thumb-2, with hardware division and single-precision floating
+point) from the same source bounds, with the matching that is checked on the Cortex-M0
+above.
+
 ## Stack bounds (2026-11-16)
 
 `stack.py` bounds the stack of every function of the same binaries: the largest depth of

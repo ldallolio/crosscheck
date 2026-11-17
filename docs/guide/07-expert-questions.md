@@ -72,8 +72,11 @@ limitation, it says so.
 ## 4. WCET and real-time
 
 - **"Can I write budgets in microseconds?"** Yes, `CROSSCHECK_DEADLINE_US(n)`, but it is
-  checked after compilation on the binary (`scripts/crosscheck_link.py`, Cortex-M0 model,
-  `--clock-mhz`): time belongs to machine code on a processor, not to the source.
+  checked after compilation on the binary (`scripts/crosscheck_link.py`, `--clock-mhz`):
+  time belongs to machine code on a processor, not to the source. Processors: Cortex-M0
+  (our model, checked against emulated runs) or, through OTAWA, the STM32F4 (Cortex-M4)
+  and STM32H7 (Cortex-M7) models of OTAWA (not checked against executions here). The
+  binary may be the whole linked program, one plugin report per source file.
 - **"Will it finish on real code?"** Each function has a deterministic search budget
   (`budget`, in solver work); past it the analysis is less precise, never unsound, and the
   report says so. Solver answers are cached. The slowest TACLeBench program went from

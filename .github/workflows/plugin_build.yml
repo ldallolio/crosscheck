@@ -25,7 +25,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build g++ \
-            llvm-18-dev libclang-18-dev clang-18 \
+            llvm-18-dev libclang-18-dev clang-18 lld-18 \
             libz3-dev libgtest-dev python3-jsonschema \
             libzstd-dev zlib1g-dev libedit-dev libcurl4-openssl-dev libxml2-dev libffi-dev
 
@@ -110,6 +110,7 @@ jobs:
       - name: Cortex-M0 cycle bounds
         run: |
           python3 benchmarks/cycles/test_m0.py
+          python3 benchmarks/cycles/test_otawa_flow.py
           python3 benchmarks/cycles/run_cycles.py --clang=/usr/lib/llvm-18/bin/clang \
             --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json
 

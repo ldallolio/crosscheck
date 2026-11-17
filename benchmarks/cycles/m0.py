@@ -172,6 +172,7 @@ class Image:
         self.symbols = {}      # name -> address (defined)
         self.funcs = {}        # name -> (address, size)
         self.undefined = {}    # address of a stub -> name (calls of undefined functions)
+        self.base = 0          # address of mem[0] (executables: the lowest code address)
 
 
 def load(path, base=0, ram=1 << 22):
@@ -179,6 +180,8 @@ def load(path, base=0, ram=1 << 22):
     `base`, then `ram` bytes of stack. Undefined functions get stub addresses (calls to
     them stop the interpreter)."""
     data = open(path, "rb").read()
+    if struct.unpack_from("<H", data, 0x10)[0] == 2:
+        return _load_exec(data)
     (e_shoff,) = struct.unpack_from("<I", data, 0x20)
     e_shentsize, e_shnum, e_shstrndx = struct.unpack_from("<HHH", data, 0x2E)
     secs = []
@@ -260,6 +263,42 @@ def load(path, base=0, ram=1 << 22):
                 raise ValueError(f"unsupported relocation type {rtype} in {names[k]}")
     img.stack_top = len(img.mem) + ram
     img.mem.extend(b"\0" * ram)
+    return img
+
+
+def _load_exec(data):
+    """A linked executable (ET_EXEC), for static analysis only: the allocated sections of
+    the code region (addresses below 0x20000000 in the ARMv6-M/ARMv7-M memory map) are
+    placed at their addresses minus the lowest one, `img.base` (the code is position
+    independent for decoding: branches and literal loads are relative to the PC); no stack,
+    no data in RAM, so the interpreter cannot run it."""
+    (e_shoff,) = struct.unpack_from("<I", data, 0x20)
+    e_shentsize, e_shnum, e_shstrndx = struct.unpack_from("<HHH", data, 0x2E)
+    secs = [struct.unpack_from("<IIIIIIIIII", data, e_shoff + k * e_shentsize) for k in range(e_shnum)]
+    code = [s for s in secs if (s[2] & 2) and s[5] and s[3] < 0x20000000]
+    if not code:
+        raise ValueError("no allocated section in the code region")
+    img = Image()
+    img.base = min(s[3] for s in code)
+    img.mem = bytearray(max(s[3] + s[5] for s in code) - img.base + 4)
+    for s in code:
+        if s[1] != 8:  # not NOBITS
+            img.mem[s[3] - img.base:s[3] - img.base + s[5]] = data[s[4]:s[4] + s[5]]
+    symtab = next(k for k, s in enumerate(secs) if s[1] == 2)
+    st, strtab = secs[symtab], secs[secs[symtab][6]]
+    for j in range(st[5] // 16):
+        st_name, st_value, st_size, st_info, _, st_shndx = struct.unpack_from("<IIIBBH", data, st[4] + j * 16)
+        if not st_name or st_shndx == 0 or st_shndx >= 0xFF00:
+            continue
+        start = strtab[4] + st_name
+        nm = data[start:data.index(b"\0", start)].decode()
+        a = (st_value & ~1) - img.base
+        if not 0 <= a < len(img.mem):
+            continue
+        img.symbols[nm] = a
+        if st_info & 15 == 2:
+            img.funcs[nm] = (a, st_size)
+    img.stack_top = None
     return img
 
 

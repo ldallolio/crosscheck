@@ -147,6 +147,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt):
     own = {n: v for n, v in static.items() if not n.startswith("__aeabi")}  # not runtime.c
     return dict(kernel=kernel.name, functions=len(own),
                 bounded=sum(v is not None for v in own.values()),
+                bounded_functions={n: v for n, v in own.items() if v is not None},
                 main_bound=static.get("main"), main_observed=mach.cyc if ret is not None else None,
                 returned=ret, run_error=run_error, compared=len(compared),
                 loops_checked=len(worst_loop), violations=viol,

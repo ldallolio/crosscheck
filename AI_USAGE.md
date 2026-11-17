@@ -1326,6 +1326,36 @@ What the AI did for 52 (Claude Opus 5.5, 2026-11-17).
   one over). Not yet: other processors, OTAWA/aiT back ends, whole linked images across
   files, a certificate of the binary's cycles.
 
+53. "Proceed with the next steps"
+
+What the AI did for 53 (Claude Opus 5.5, 2026-11-17): the linker work of prompt 52.
+- **Whole linked programs**: `crosscheck_link.py` takes one `--report`/`--source` pair per
+  translation unit and a binary that may be a linked executable (`m0.load` reads ET_EXEC
+  for static analysis: the code region rebased; `wcet.line_table` keys lines by file).
+  ctest `time_budgets_after_compilation` also checks a program of two files linked at the
+  addresses of a microcontroller (bound 2,686 cycles; an emulated run of the same code,
+  merged with `ld -r`, takes 2,367).
+- **Other processors through OTAWA**: `benchmarks/cycles/otawa_flow.py` matches the loops
+  of OTAWA's own graphs (`mkff`, `dumpcfg --cfg-raw -S`) with the source loops by debug
+  lines and writes flow facts; a call graph from the disassembly refuses recursion,
+  indirect calls/jumps, jump tables, branches into other functions and calls of undefined
+  symbols; `test_otawa_flow.py` (CI) tests these rules. `crosscheck_link.py --processor
+  stm32f4|stm32h7` uses OTAWA's `stm32` script (Cortex-M4, Cortex-M7) in a container
+  without network. Defects found and fixed during the work: OTAWA loads `<binary>.ffx` by
+  itself (a stale file hid loop headers; now removed first, and such output is refused);
+  the `-S` output of OTAWA's tuned graph drops edges into IT-block copies (the raw graph is
+  used); linker padding decoded as a branch (instructions past the symbol size ignored);
+  `blo` taken for a call.
+- **Measured**: `run_otawa.py --matching otawa --check`: identical OTAWA bounds to the
+  `wcet.py` matching for all 107 Cortex-M0 functions, no bound below a run.
+  `run_stm32.py` (new): TACLeBench compiled for a Cortex-M4 with FPU; OTAWA bounds 168 of
+  267 functions (STM32F427) and 162 (STM32H753, 6 timeouts), 106 of the 107 bounded on the
+  Cortex-M0, 62 more (57 of them use single-precision floating point); not checked against
+  executions; OTAWA's M4 latencies are not from the datasheet (its own comment). Paper II
+  paragraphs "Time budgets" and "Other processors", the READMEs, guide 03/07, proposals
+  step 17, CLAUDE.md.
+- **Not done**: aiT (not available here); a certified cycle bound of the binary.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1572,3 +1602,9 @@ is whether each Lean statement says what the paper says, and everything outside 
     against `CheckerCore` (`SB`, `qsub`, `SB.mul`, `crossQ`, `loopBoundOk`, `SB.qcomb`,
     `callBound`) and the proofs `loopBoundOk_sound`, `SB.qcomb_ge`, `dotQ_crossQ`; note that
     the quadratic comparison is syntactic (a subsequence), a deliberate restriction.
+40. **Time budgets on other processors (prompt 53).** Read the paragraphs "Time budgets"
+    and "Other processors" of Paper II against `crosscheck_link.py`, `otawa_flow.py` and
+    `run_stm32.py`; decide whether OTAWA's STM32 models (memory latencies its own file says
+    are not from the datasheet; no check against executions here) may be quoted, and
+    whether the refusal rules of `otawa_flow.parse_calls` are complete for the code your
+    compilers produce (e.g. other forms of indirect branches).

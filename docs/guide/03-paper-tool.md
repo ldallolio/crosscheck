@@ -120,6 +120,16 @@ are usable by an IPET tool, and our loop matching agrees with OTAWA's view of th
 What it does not: an independent timing model (the cycle table is ours), and source-line
 flow facts on optimised code. Not loaded into aiT.
 
+**Other processors (paragraph "Other processors")**: the same bounds on OTAWA's own graphs
+(`benchmarks/cycles/otawa_flow.py`: OTAWA's loops matched by debug lines; call graph
+refusing recursion, indirect calls/jumps, jump tables, calls of undefined symbols). On the
+Cortex-M0 binaries: identical OTAWA bounds to the `wcet.py` matching for all 107 functions.
+Kernels compiled for a Cortex-M4 (`run_stm32.py`), bounded by OTAWA's `stm32` models:
+168 of 267 functions (STM32F427, Cortex-M4), 162 (STM32H753, Cortex-M7; 6 timeouts);
+106 of the 107 Cortex-M0 functions, 62 more thanks to the FPU. Not checked against
+executions; OTAWA's M4 memory latencies (50 cycles) are not from the datasheet. Used by
+`crosscheck_link.py --processor stm32f4|stm32h7` (time budgets, whole linked programs).
+
 **Related work (Paper II, `sec:related`)**: bound analysers (SPEED, Loopus, KoAT, CoFloCo,
 COSTA, C4B), WCET flow analysis (IPET, oRange), verified and certified bounds (Blazy,
 Maroneze et al. in CompCert; C4B; proof-carrying code), Clang's function effects. The

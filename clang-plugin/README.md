@@ -445,24 +445,50 @@ FAIL  no_too_slow: bound 462 cycles = 9.625 us, budget 1 us  [FAIL: budget excee
 ```
 
 The exit status is 1 if a budget is exceeded or a function with a budget has no cycle
-bound, so the check can run as a post-build step, e.g. in CMake:
+bound, so the check can run as a post-build step, e.g. in CMake (one `--report`/`--source`
+pair per translation unit, the binary being the linked program):
 
 ```cmake
 add_custom_command(TARGET firmware POST_BUILD
   COMMAND python3 ${CROSSCHECK}/clang-plugin/scripts/crosscheck_link.py
-          --report ${CMAKE_BINARY_DIR}/crosscheck.json --binary $<TARGET_FILE:firmware>
-          --source ${CMAKE_SOURCE_DIR}/src/control.c --clock-mhz 48)
+          --report ${CMAKE_BINARY_DIR}/control.json --source ${CMAKE_SOURCE_DIR}/src/control.c
+          --report ${CMAKE_BINARY_DIR}/filters.json --source ${CMAKE_SOURCE_DIR}/src/filters.c
+          --binary $<TARGET_FILE:firmware> --clock-mhz 48)
 ```
 
-The processor model is the Cortex-M0 of `benchmarks/cycles` (`m0.py`: timing table,
-`wcet.py`: binary loops matched with source loops through the debug lines, timing schema
-on the binary). What is trusted is printed with the results: the timing table
-(zero-wait-state memory), no interrupt during the function, that the compiler preserves
+**Whole programs.** The binary may be an object file or a linked executable, and contain
+the code of several source files: a call is costed from the callee's code in the binary,
+whatever file it comes from, with the loop bounds of that file's report (the debug lines
+tell the files apart; two sources with the same file name are refused). Test: a program of
+two files (`tests/c/time_budget_lib.c`, `time_budget_main.c`) linked at the addresses of a
+microcontroller.
+
+**Processors** (`--processor`):
+
+| Processor | Timing model | Binary |
+|---|---|---|
+| `cortex-m0` (default) | `benchmarks/cycles`: `m0.py` (timing table of the Arm manual), `wcet.py` (binary loops matched with source loops through the debug lines, timing schema on the binary); checked against emulated runs by `run_cycles.py` | object, or executable with its code below 0x20000000 |
+| `stm32f4` (Cortex-M4) | OTAWA, script `stm32` (`ARCH=0`): pipeline, no cache, memory latencies of OTAWA's model (its file says they are not from the datasheet) | executable linked at the board's addresses (flash from 0x08000000) |
+| `stm32h7` (Cortex-M7) | OTAWA, script `stm32` (`ARCH=1`): pipeline, caches, branch history table | same |
+
+For the OTAWA processors (`benchmarks/cycles/otawa_flow.py`), OTAWA runs in the Docker
+image `--otawa-image` (default `otawa:dev`, built by the user; not distributed here)
+without network; the loops of OTAWA's own control-flow graphs are matched with the source
+loops through the debug lines and the bounds are given to it as flow facts (`maxcount` =
+bound + 1, by function label and offset); OTAWA computes the WCET by IPET. A function gets
+no bound if it reaches a loop without a matched bound, recursion, an indirect call or jump,
+a jump table, a branch into another function, or code of an undefined symbol (an
+executable with undefined symbols is refused). The STM32 bounds are not checked against
+executions here (no simulator of these processors); the same matching on Cortex-M0
+binaries is (`run_otawa.py --matching otawa --check`).
+
+What is trusted is printed with the results: the timing model (for the Cortex-M0:
+zero-wait-state memory), no interrupt during the function, that the compiler preserves
 the source loops' iteration counts, and the plugin's loop bounds (for every call; with
-`--context`, those of the calling contexts of the analysed program). One source file per
-run. Not yet: other processors, OTAWA or aiT as back ends (the flow facts they need are
-exported already, `flowfacts=`), a check of the whole linked image across files.
-Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget.c`).
+`--context`, those of the calling contexts of the analysed program). Not yet: aiT as a back
+end (the flow facts it needs are exported already, `flowfacts=`), a cycle bound checked by
+a verified checker. Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget*.c`;
+the two-file program needs an LLVM linker, `ld.lld` or `rust-lld`).
 
 ## Bounds in the parameters, without ranges (`symbolic`)
 

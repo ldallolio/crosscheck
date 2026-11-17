@@ -3,7 +3,8 @@
 # Released under the MIT license as described in the file LICENSE.
 """CrossCheck's loop bounds used by a WCET analyser: OTAWA on the Cortex-M0 binaries.
 
-    run_otawa.py --lld LLD [--image otawa:dev] [--only KERNEL]... [--check] [--json OUT]
+    run_otawa.py --lld LLD [--image otawa:dev] [--only KERNEL]... [--matching wcet|otawa]
+                 [--check] [--json OUT]
 
 For each TACLeBench kernel:
 
@@ -35,6 +36,11 @@ a loop without a bound), `main` included. `--check` fails if a bound of OTAWA is
 instructions executed by a call of that function (a wrong flow fact, loop matching or
 reading of `maxcount`), or if OTAWA gives no result for one of these functions.
 
+With `--matching otawa`, step 3 uses the loops of OTAWA's own control-flow graphs instead
+(`otawa_flow.py`, the matching of `crosscheck_link.py --processor stm32f4/stm32h7`), and a
+function is not given to OTAWA if that matching refuses it; `--check` then tests that
+matching against the runs.
+
 Source-line flow facts (`--opt=flowfacts=FILE`, FFX with `source` and `line`) are what
 the plugin exports; on optimised code OTAWA cannot always place them (inlined and rotated
 loops), which is why this script places them from the binary's control-flow graph.
@@ -55,6 +61,7 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "benchmarks" / "tacle"))
 import m0  # noqa: E402
+import otawa_flow  # noqa: E402
 import run_cycles  # noqa: E402
 import run_tacle  # noqa: E402
 import wcet  # noqa: E402
@@ -133,6 +140,20 @@ def analyse(kernel, work, a, rt):
     if p.returncode:
         row["status"] = "not linked: " + (p.stderr.strip().splitlines() or ["?"])[0][-120:]
         return row
+    if a.matching == "otawa":
+        # the loops of OTAWA's own graphs, matched by otawa_flow.py (as crosscheck_link.py
+        # does for the processors modelled by OTAWA), instead of those of wcet.py
+        elf.chmod(0o644)
+        lines_e = wcet.line_table(a.objdump, str(elf), [src.name])
+        calls, unsupported = otawa_flow.call_graph(a.objdump, str(elf))
+        graphs, _ = otawa_flow.graphs(a.image, work, elf.name, own, a.timeout)
+        text, missing = otawa_flow.flow_facts(graphs, lines_e, {(src.name, l): b for l, b in bounds.items()})
+        ffx.write_text(text)
+        row["flow_facts"] = text.count("<loop ")
+        refused = {f: otawa_flow.unsupported_reason(otawa_flow.reachable(calls, f), unsupported, missing, calls)
+                   for f in own}
+        row["refused_by_matching"] = {f: w for f, w in refused.items() if w}
+        own = [f for f in own if not refused[f]]
     files = [elf, ffx]
     mounts = ["-v", f"{work}:/w:ro"]
     if a.timing == "m0":
@@ -198,6 +219,8 @@ def main():
     ap.add_argument("--owcet-path", default="/tmp/otawa-install/bin")
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument("--timing", choices=["instructions", "m0"], default="instructions")
+    ap.add_argument("--matching", choices=["wcet", "otawa"], default="wcet",
+                    help="loops matched on the graph of wcet.py, or on OTAWA's (otawa_flow.py)")
     ap.add_argument("--json")
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()

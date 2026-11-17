@@ -28,19 +28,22 @@ LINE = re.compile(r"^; (.*):(\d+)$")
 INSN = re.compile(r"^\s+([0-9a-f]+):\s")
 
 
-def line_table(objdump, obj, src_name):
-    """address -> source line, for the lines of `src_name` (inlined code included)."""
+def line_table(objdump, obj, src_name, base=0):
+    """address - base -> source line, for the lines of `src_name` (inlined code included).
+    With several names (a list), the lines are pairs (name, line)."""
+    names = [src_name] if isinstance(src_name, str) else list(src_name)
     out = subprocess.run([objdump, "-d", "--line-numbers", "--no-show-raw-insn", obj],
                          capture_output=True, text=True, check=True).stdout
     table, cur = {}, None
     for l in out.splitlines():
         m = LINE.match(l)
         if m:
-            cur = int(m.group(2)) if m.group(1).endswith(src_name) else None
+            nm = next((n for n in names if m.group(1) == n or m.group(1).endswith("/" + n)), None)
+            cur = None if nm is None else int(m.group(2)) if isinstance(src_name, str) else (nm, int(m.group(2)))
             continue
         m = INSN.match(l)
         if m and cur is not None:
-            table[int(m.group(1), 16)] = cur
+            table[int(m.group(1), 16) - base] = cur
     return table
 
 
