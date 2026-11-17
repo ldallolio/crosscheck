@@ -27,6 +27,7 @@ import ImperativeOptimization.OperationalSemantics
 import ImperativeOptimization.Examples
 import ImperativeOptimization.Stack
 import ImperativeOptimization.Cycles
+import ImperativeOptimization.Thumb
 
 /-!
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification
@@ -66,5 +67,7 @@ in `Dominance`.
   the call rule for function summaries.
 - `Cycles` (with `CyclesCore`): cycle certificates of binary control-flow graphs (IPET dual:
   potentials and row multipliers) and their soundness for programs with calls.
+- `Thumb` (with `ThumbCore`): the same on Cortex-M0 machine code: ARMv6-M decoder and cycle
+  table, graphs built from the code, every run of the machine code bounded (`binary_sound`).
 - `Examples`: Machine-checked versions of the paper's worked examples.
 -/

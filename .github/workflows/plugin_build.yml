@@ -122,7 +122,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cycle-certificates
-          path: cycle-certificates/
+          include-hidden-files: true
+          path: |
+            cycle-certificates/
+            benchmarks/tacle/.cache/work/*.m0.o
 
       - name: Upload TACLeBench results
         uses: actions/upload-artifact@v4
@@ -165,11 +168,15 @@ jobs:
           name: cycle-certificates
           path: cycle-certificates
 
-      # Cycle bounds of Cortex-M0 binaries (Lean Cycles.program_sound); then altered
-      # certificates must be rejected.
+      # Cycle bounds of the Cortex-M0 machine code (Lean Thumb.binary_sound: the checker
+      # decodes the code and builds the graphs); altered certificates must be rejected; the
+      # Lean decoder is compared with m0.py on every encoding and with llvm-objdump on the
+      # kernels' objects.
       - name: Check the cycle certificates
         run: |
-          formalization/.lake/build/bin/crosscheck-check cycle-certificates/*.json | tee cycles-checked.txt
+          formalization/.lake/build/bin/crosscheck-check cycle-certificates/cycle-certificates/*.json | tee cycles-checked.txt
           echo "Cycle bounds accepted: $(grep -c '^ACCEPTED' cycles-checked.txt)" >> "$GITHUB_STEP_SUMMARY"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy llvm-18
           python3 benchmarks/cycles/test_ipet.py --checker formalization/.lake/build/bin/crosscheck-check
+          python3 benchmarks/cycles/test_thumb.py --checker formalization/.lake/build/bin/crosscheck-check \
+            --objects cycle-certificates/benchmarks/tacle/.cache/work --objdump /usr/lib/llvm-18/bin/llvm-objdump

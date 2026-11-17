@@ -114,6 +114,10 @@ statements:
     note: "IPET cycle certificates of control-flow graphs (dual potentials and row multipliers; calls by depth induction); the graph, weights and rows are trusted"
     module: ImperativeOptimization.Cycles
     lean: [Run, Walk, checkFn, checkProgram, walk_bound, sum_dot, cycles_sound, program_sound, exLoop_checks, exLoop_tight, exLoop_run]
+  - paper_labels: [def:machine-run, thm:machine-cycles]
+    note: "cycle bounds of Cortex-M0 machine code: decoder and timing table (the trusted specification), graphs built from the code, every run bounded"
+    module: ImperativeOptimization.Thumb
+    lean: [decode, trans, Step, MRun, buildFn, checkBinary, chain_walk, translate, binary_sound, exBinary_checks, exBinary_tight, exBinary_run]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

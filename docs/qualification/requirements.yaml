@@ -88,3 +88,16 @@ requirements:
       - {kind: proof, file: formalization/ImperativeOptimization/Cycles.lean, lean: [program_sound, cycles_sound, walk_bound, exLoop_tight, exLoop_run]}
       - {kind: test, files: [benchmarks/cycles/test_ipet.py]}
       - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_ipet.py, cycle-certificates]}
+  - id: TOR-11
+    text: >
+      For a file of format crosscheck-binary-cycles, the tool builds each function's graph
+      from the machine code it contains with the decoder Thumb.decode and prints
+      "PROGRAM <name>: ACCEPTED (cycle bounds of the machine code ...)" only if every run of
+      the machine code of each function, in the semantics Thumb.MRun, on which its rows
+      hold, costs at most the stated bound. The decoder (encodings, effect on the program
+      counter, Cortex-M0 cycles) is the specification of the processor; it is compared
+      with m0.py on every encoding and with llvm-objdump on compiled code.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/Thumb.lean, lean: [binary_sound, translate, chain_walk, exBinary_tight, exBinary_run]}
+      - {kind: test, files: [benchmarks/cycles/test_ipet.py, benchmarks/cycles/test_thumb.py]}
+      - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_ipet.py, test_thumb.py]}

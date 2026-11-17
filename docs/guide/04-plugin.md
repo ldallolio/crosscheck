@@ -368,7 +368,7 @@ Tools added on 2026-11-16 (`docs/proposals.md` section 6):
 | Project driver | `scripts/crosscheck_project.py` | a whole `compile_commands.json`: `project.json`, `index.html`, baseline for `cost_diff.py` |
 | ACSL export | `scripts/acsl_export.py` | `requires`, `loop invariant`, `loop variant` from the report, for Frama-C/WP (not run through it here) |
 | Symbolic mode | option `symbolic` (`execLoop`, `synthesizeRanking(..., unbounded)`) | loops with a potential but no numeric bound; the parametric bound is produced as a certificate (ghosts for `x`, `-x`, `x - y`) |
-| Certified cycle bounds | `benchmarks/cycles/ipet.py` | IPET on the binary's graph, dual multipliers from scipy, integer potentials; format `crosscheck-cycles`, checked by `crosscheck-check`; `run_cycles.py --certify`, `crosscheck_link.py --certify` |
+| Certified cycle bounds | `benchmarks/cycles/ipet.py` | IPET on the machine code, dual multipliers from scipy, integer potentials; format `crosscheck-binary-cycles` (code + instruction addresses + rows on address pairs), the checker decodes and builds the graph; `run_cycles.py --certify`, `crosscheck_link.py --certify`; `test_thumb.py` compares the Lean decoder |
 | Stack bounds | `benchmarks/cycles/stack.py` | high-water mark on the binary's control-flow graph, checked on every emulated call |
 | Qualification kit | `docs/qualification/` | requirements TOR-1..9 of the checker with evidence, checked by `check_traceability.py` |
 

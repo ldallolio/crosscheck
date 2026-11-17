@@ -291,7 +291,13 @@ flowchart LR
 - `prop:cycles` (`Cycles.program_sound`): potentials telescope along the walk, rows hold
   on the run, `λ ≥ 0`. Induction on call depth: recursive claims are fine for completed runs.
 - Prior work: Maroneze et al. (Coq, Farkas certificate of the IPET solution, ILP
-  generation proved against CompCert's assembly). Here the graph is trusted.
+  generation proved against CompCert's assembly).
+- `def:machine-run`, `thm:machine-cycles` (`Thumb.binary_sound`): the checker builds the
+  graph from the machine code (one node per instruction address, closed under
+  successors, no unmodelled instruction); every PC-level run is a walk of it. Trusted:
+  the decoder/timing table `Thumb.decode` (a specification, like an ISA model). Sewell,
+  Kam and Heiser (seL4) proved their decompiled graph against Fox and Myreen's ARM model
+  but left the last step (graph given to the WCET tool ↔ binary paths) as future work.
 
 ## 9. Paper I on one page
 

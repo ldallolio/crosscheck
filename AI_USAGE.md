@@ -1400,6 +1400,40 @@ binary (the research step of prompts 51-53).
   table); proving the graph extraction (a verified decoder of the binary and timing table
   in Lean).
 
+55. "Proceed with Proving that the graph matches the binary, which needs a decoder and timing table in Lean, as Maroneze et al. did for CompCert."
+
+What the AI did for 55 (Claude Opus 5.5, 2026-11-17).
+- **Prior work searched and read** (`references/pdf/sewell2017high.pdf`, contributions,
+  Sections 2.4 and 4.1; `fox2010trustworthy.pdf`, abstract and introduction): Sewell, Kam
+  and Heiser obtain the seL4 binary's CFG from a decompiler proved (HOL4) against the
+  Cambridge ARM model of Fox and Myreen (validated on hardware), and leave as future work
+  the proof that the CFG given to Chronos captures the binary's control paths. Both DOIs
+  checked on Crossref; bibliography entries `sewell2017high`, `fox2010trustworthy`.
+- **Lean** `ThumbCore` (no mathlib): `decode` (ARMv6-M Thumb, effect on the PC, Cortex-M0
+  cycles, the same table as `m0.py`), `trans`, `closed`, `medges`, `buildFn`,
+  `checkBinary`. `Thumb`: the PC-level semantics `Step`/`MRun` (data abstracted; an
+  address without code or an unmodelled instruction allows any step), `chain_walk`,
+  `translate` (every machine run is a run of the built graph, same cost and row values),
+  `binary_sound`; example with `decide` (68-cycle loop accepted, 67 rejected) and a run
+  satisfying the hypotheses. Three standard axioms; 476 theorems.
+- **Checker program**: format `crosscheck-binary-cycles` (code, instruction addresses, rows
+  on address pairs, certificate) and `--decode` (for differential tests).
+- **Producer** `ipet.py` now emits that format (instruction-level graph, same LP).
+- **Measured**: same 107 bounds as the graph-level certificates, all accepted (223
+  functions with the run-time routines, 8,333 instructions, checked in 0.15 s); run 2.8 min.
+  `test_thumb.py`: Lean decoder = `m0.py` on all 131,072 cases (every halfword followed by
+  two second halfwords), = llvm-objdump on 24,285 kernel instructions (kind, size,
+  target); a wrong MULS setting is detected.
+- **Tests**: `test_ipet.py` (17, incl. altered code: a slower instruction, an indirect
+  branch; an instruction missing from the list; a missing callee), `test_thumb.py`, both
+  in CI (the Lean job downloads the certificates and the objects); TOR-11.
+- **Documents**: Paper I `def:machine-run`, `thm:machine-cycles` (proof, Table 1 row,
+  scope list), Paper II "Certified cycle bounds", READMEs, certificate format, guide,
+  CLAUDE.md, proposals, plan.
+- **Not done**: a decoder validated on hardware or derived from Arm's machine-readable
+  specification; the copy of the code into the certificate is not checked against the ELF
+  file by the checker; the OTAWA processors.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -1660,3 +1694,10 @@ is whether each Lean statement says what the paper says, and everything outside 
     Maroneze et al. (Farkas validation of the IPET solution in Coq) and to Li and Malik;
     confirm that the trusted part (graph, edge costs, rows) is stated wherever the
     certified bounds are quoted.
+42. **Cycle bounds of machine code (prompt 55).** Read `ThumbCore.decode` against the
+    ARMv6-M Architecture Reference Manual (Thumb encodings, A5.2-A5.7) and the Cortex-M0
+    TRM Table 3-1 (cycles): it is the trusted specification; read Definition
+    `def:machine-run` and Theorem `thm:machine-cycles` against `Thumb.MRun` and
+    `binary_sound`; confirm the attributions to Sewell, Kam and Heiser and to Fox and
+    Myreen, and that the statement "our decoder is not validated on hardware" is kept
+    wherever the certified bounds are quoted.

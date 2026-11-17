@@ -31,9 +31,11 @@ Processors (`--processor`):
   0x20000000), otherwise OTAWA assumes its worst memory latency for every access.
 
 With `--certify` (Cortex-M0), the bounds are those of the implicit path enumeration
-technique with a certificate (`benchmarks/cycles/ipet.py`) that the verified checker
-`crosscheck-check` must accept (Lean theorem `Cycles.program_sound`); the analysis that
-finds the bound is then outside the trusted base, the graph and its timing are not.
+technique with a certificate on the machine code (`benchmarks/cycles/ipet.py`) that the
+verified checker `crosscheck-check` must accept: it decodes the code and builds the
+control-flow graphs itself (Lean theorem `Thumb.binary_sound`); the analysis, the graph
+construction and the bound computation are then outside the trusted base, the Lean
+specification of the processor (decoder, timing table) and the loop bounds are not.
 
 Trusted, and printed with the results: the timing model (zero-wait-state memory and no
 interrupt for the Cortex-M0; OTAWA and its processor model for the others), that the
@@ -59,9 +61,10 @@ TRUSTED_COMMON = ["no interrupt is taken while the function runs",
                   "the compiler preserves the source loops' iteration counts",
                   "the plugin's loop bounds (unverified analysis, or certificates if checked)"]
 TRUSTED_M0 = ["the Cortex-M0 timing table of m0.py (zero-wait-state memory)"] + TRUSTED_COMMON
-TRUSTED_CERTIFIED = ["the control-flow graphs, edge weights and loop rows of the cycle certificate "
-                     "(decoding of the binary by m0.py, its timing table, zero-wait-state memory)",
-                     "the Lean checker (theorem Cycles.program_sound)"] + TRUSTED_COMMON
+TRUSTED_CERTIFIED = ["the Lean specification of the Cortex-M0 (Thumb.decode: instruction decoding and cycles, "
+                     "zero-wait-state memory)",
+                     "that the code in the cycle certificate is the binary's (copied by ipet.py)",
+                     "the Lean checker (theorem Thumb.binary_sound)"] + TRUSTED_COMMON
 
 
 def trusted(processor, certify=False):

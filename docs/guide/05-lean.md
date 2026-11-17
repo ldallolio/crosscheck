@@ -134,6 +134,8 @@ flowchart LR
 | `Stack` | 150 | stack depth as a high-water mark: activation trees `ActTree`, `highWater`, **`highWater_le_of_bound`** (the composition rule of `benchmarks/cycles/stack.py`), `highWater_le_depth` (from a recursion depth) |
 | `CyclesCore` | 100 | no mathlib: `Graph`, `Edge`, `Row`, `Cert`, `checkFn`, `checkProgram` (the IPET dual check); used by the checker program (`crosscheck-cycles`) |
 | `Cycles` | 210 | `Walk`, `Run` (depth-indexed, calls nested), `walk_bound` (potentials telescope), `sum_dot`, **`cycles_sound`**, **`program_sound`**; examples `exLoop_checks`, `exLoop_tight`, `exLoop_run` |
+| `ThumbCore` | 230 | no mathlib: `decode` (ARMv6-M Thumb + Cortex-M0 cycles), `trans`, `closed`, `medges`, `buildFn`, `checkBinary`; used by the checker program (`crosscheck-binary-cycles`, `--decode`) |
+| `Thumb` | 310 | `Step`, `MRun` (PC-level semantics), `chain_walk`, `translate` (machine runs are graph runs), **`binary_sound`**; examples `exBinary_checks`, `exBinary_tight`, `exBinary_run` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading

@@ -488,18 +488,20 @@ the source loops' iteration counts, and the plugin's loop bounds (for every call
 `--context`, those of the calling contexts of the analysed program).
 
 **Certified cycle bounds** (`--certify`, Cortex-M0): the bound is then the IPET bound of
-the function's control-flow graph (`benchmarks/cycles/ipet.py`: edge costs, one row per
-matched loop, an LP solver for the dual multipliers; needs scipy) with a certificate that
-the verified checker `crosscheck-check` must accept (`--checker`, default
-`formalization/.lake/build/bin/crosscheck-check`; Lean `Cycles.program_sound`, Paper I
-`prop:cycles`; format in `docs/certificate-format.md`); `--cycle-certificate F` keeps it.
-The computation of the bound leaves the trusted base; the graph, its edge costs and loop
-rows (decoding of the binary, timing table, loop matching) stay in it, and are printed as
-such:
+the function's machine code with a certificate (`benchmarks/cycles/ipet.py`: the code,
+the instruction addresses, one row per matched loop, an LP solver for the dual
+multipliers; needs scipy) that the verified checker `crosscheck-check` must accept
+(`--checker`, default `formalization/.lake/build/bin/crosscheck-check`): it decodes the
+code and builds the control-flow graphs itself (Lean `Thumb.binary_sound`, Paper I
+`thm:machine-cycles`; format in `docs/certificate-format.md`); `--cycle-certificate F`
+keeps it. The analysis, the graph construction and the bound computation leave the
+trusted base; the Lean specification of the processor (decoder and timing table,
+`Thumb.decode`), the copy of the code into the certificate and the loop bounds stay in it,
+and are printed as such:
 
 ```
 ok    ok_sum: bound 460 cycles = 9.583 us, budget 5000 cycles
-processor: cortex-m0 (certified cycle bounds); trusted: the control-flow graphs, edge weights and loop rows of the cycle certificate (...); the Lean checker (theorem Cycles.program_sound); ...
+processor: cortex-m0 (certified cycle bounds); trusted: the Lean specification of the Cortex-M0 (Thumb.decode: ...); that the code in the cycle certificate is the binary's (copied by ipet.py); the Lean checker (theorem Thumb.binary_sound); ...
 ```
 
 Not yet: aiT as a back end (the flow facts it needs are exported already, `flowfacts=`);

@@ -50,6 +50,7 @@ reading (`AI_USAGE.md`, section 3).
 | `falke2011termination` | downloaded | DROPS (Dagstuhl, open access) | Abstract and the description of the translation read. Confirms: instructions returning an integer such as `load` are abstracted to an unspecified value, floating-point results are arbitrary; modelling memory is listed as future work. Supports the paper's statement that values in memory become unknown inputs. |
 | `floresmontoya2014cofloco` | technical-report version downloaded (2026-11-16, TU Darmstadt server, `APLAS14techReport.pdf`, 6 pages; not compared with the LNCS version) | authors' institution | Read in full: cost equations (Def. 2), SCCs with linear recursion, chains of phases and their refinement (Sec. 3, Theorem 1), forward and backward invariants (3.2). Supports Paper II's description of CoFloCo. |
 | `floyd1967assigning` | no open-access copy found |  |  |
+| `fox2010trustworthy` | downloaded | author's copy (Cambridge) | Abstract and introduction read (2026-11-17): a HOL4 formalization of the ARMv7 ISA, validated by testing against ARM development boards. Cited in Paper I `subsec:cycles` as the kind of validated ISA model our hand-written decoder is not. |
 | `frohn2020calculus` | downloaded | arXiv | Abstract read. A calculus combining loop acceleration techniques modularly. |
 | `giesl2019termcomp` | downloaded | open access (Semantic Scholar) | Skimmed. Confirms the competition has categories for C programs and C programs restricted to integers. |
 | `gueneau2018fistful` | downloaded | open access (Semantic Scholar) | Abstract and contributions read. Confirms: Coq, separation logic with time credits, asymptotic (O) bounds. |
@@ -77,6 +78,7 @@ reading (`AI_USAGE.md`, section 3).
 | `puschner1989calculating` | no open-access copy found |  |  |
 | `sarif2023` | web page (2026-11-14) | OASIS | Title and editors read; the JSON schema (`sarif-2.1/schema/sarif-schema-2.1.0.json` of the OASIS repository) is used by the tests. |
 | `schrijver1986theory` | book or web page |  |  |
+| `sewell2017high` | downloaded | course copy (UNSW) | Contributions list, Sections 2.1, 2.4 and 4.1 read (2026-11-17): WCET of the seL4 binary with Chronos and an ILP solver; the binary CFG is obtained by a decompiler that proves (HOL4) its output against the Cambridge ARM model; the final conversion into Chronos's CFG is not proved ("we could formalise the meaning of the CFG and prove it captured the control paths of the binary ... we leave this to future work"). Cited in Paper I `subsec:cycles`. |
 | `shaw1989reasoning` | no open-access copy found (2026-11-16) Wilhelm et al. 2008, Section 2.1.2, credit Shaw 1989 with the structure-based approach (the bound of `A; B` is the sum of the bounds), which supports the citation for the timing schema. |
 | `sinn2014complexity` | downloaded | arXiv | Abstract and the start of the introduction read (2026-11-16). Bound analysis with amortisation via lexicographic ranking functions on vector addition systems; the tool is called Loopus in the paper. |
 | `wegbreit1975mechanical` | no open-access copy found |  |  |

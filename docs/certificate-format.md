@@ -248,6 +248,41 @@ Lean `Cycles`, Paper I `prop:cycles`):
   argument is by induction on the depth of calls).
 - Other fields (`note`, `blocks`: the block addresses) are ignored by the checker.
 
+## Cycle certificates on machine code (`"format": "crosscheck-binary-cycles"`)
+
+The same certificates, but the graph is built by the checker from the machine code
+(Lean `Thumb`, Paper I `thm:machine-cycles`); this is what `benchmarks/cycles/ipet.py`
+produces for the Cortex-M0:
+
+```json
+{"format": "crosscheck-binary-cycles", "version": 1, "mul_cycles": 32,
+ "code": {"base": 0, "halfwords": [8192, 10250, 55809, 12289, 59387, 18288]},
+ "programs": [{"name": "program", "functions": [
+   {"name": "f", "entry": 0, "nodes": [0, 2, 4, 6, 8, 10],
+    "rows": [{"coef": [[8, 2, 1], [0, 2, -10]], "rhs": 0, "note": "loop at 0x2: ..."}],
+    "certificate": {"scale": 1, "pot": [68, 7, 6, 5, 4, 3, 0], "mult": [6], "bound": 68}}]}]}
+```
+
+- `code`: the 16-bit halfwords of the code region from address `base`; `mul_cycles`: the
+  cycles of MULS (1 or 32, a configuration of the processor).
+- A function: its `entry`, the addresses of its instructions (`nodes`), its loop `rows`
+  on transitions `[src, dst, coefficient]` (the number of times the instruction at `src`
+  is followed by the one at `dst`), and the certificate: potentials in the order of
+  `nodes`, then the exit node.
+- The checker decodes every address of `nodes` (`Thumb.decode`: ARMv6-M Thumb, cycles of
+  the Cortex-M0 with zero-wait-state memory), requires the entry to be in `nodes`, every
+  successor to be in `nodes` and no instruction without a modelled effect on the program
+  counter (indirect branches, `BLX`, `SVC`, `WFI`, undefined...), maps every `BL` target to
+  a function of the program, builds one edge per successor (a conditional branch: 3
+  cycles taken, 1 not taken; `BL`: 4 cycles plus the callee's bound), and checks the
+  certificate on that graph (`Thumb.checkBinary`).
+- Accepted: every run of the machine code of each function, in the semantics of
+  `Thumb.MRun` (data abstracted: both successors of a conditional branch possible), on
+  which its rows hold, costs at most its bound (`Thumb.binary_sound`). Trusted: the
+  decoder and timing table, that the code is the binary's, the rows.
+- `crosscheck-check --decode FILE` prints the decoding of the `addresses` of FILE
+  (`mul_cycles`, `code`, `addresses`), for `benchmarks/cycles/test_thumb.py`.
+
 ## How the plugin produces certificates
 
 `src/analysis/Analyzer.cpp`, section "Certificates", and `src/core/Cert.{hpp,cpp}`:

@@ -18,10 +18,11 @@ See `docs/proposals.md` (2026-11-14) for the argued order of the next steps afte
 | Bound under an invariant and a calling context | `prop:context-bound` | `Certificate`: `ranking_bound_of_context`, `call_bound_of_context` |
 | Lexicographic and logarithmic potentials (bounds on run length only) | `prop:lex-log` | `Certificate`: `lex_potential`, `lex_ranking_bound`, `log_ranking_bound` |
 | Cycle bounds of a control-flow graph (IPET dual certificate; calls by depth induction); the graph, weights and rows are trusted | `subsec:cycles`, `prop:cycles` | `Cycles`: `checkProgram`, `cycles_sound`, `program_sound` |
+| Cycle bounds of Cortex-M0 machine code: graphs built from the code by the checker; trusted: the decoder/timing table and the rows | `def:machine-run`, `thm:machine-cycles` | `Thumb`: `decode`, `MRun`, `checkBinary`, `binary_sound` |
 
 Not proved, and to be kept out of any claim: the translation from C/C++ (or Rust) to
-`ACmd`; parallel composition; time on real processors (the cycle certificates hold for
-the graph, edge costs and rows they are given, which are the producer's description).
+`ACmd`; parallel composition; time on real processors (the cycle certificates on machine code hold for the
+Lean specification of the Cortex-M0, `Thumb.decode`, which is trusted).
 
 ## 2. The certificate format
 

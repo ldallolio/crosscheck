@@ -9,6 +9,7 @@ import ImperativeOptimization.MiniCCore
 import ImperativeOptimization.MiniCJumpCore
 import ImperativeOptimization.ResponseCore
 import ImperativeOptimization.CyclesCore
+import ImperativeOptimization.ThumbCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -47,6 +48,14 @@ control-flow graphs instead (`ImperativeOptimization.Cycles.Graph`, `ImperativeO
 satisfy the function's rows, costs at most its claimed bound). The graphs, weights and rows
 are trusted: they are the producer's description of the machine code, its timing and its
 loop bounds.
+
+A file with `"format": "crosscheck-binary-cycles"` holds the machine code itself (Cortex-M0,
+`Thumb.Code`) with, per function, its entry, the addresses of its instructions, its loop
+rows on pairs of addresses and a certificate: the checker builds the graphs from the code
+with the verified decoder and runs `Thumb.checkBinary` (theorem `Thumb.binary_sound`: every
+run of the machine code, in the semantics of `Thumb`, on which the rows hold, costs at most
+the bound). `--decode FILE` prints the decoding of the addresses listed in FILE (for
+differential tests of the decoder).
 
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
 input.
@@ -434,6 +443,76 @@ def runCycles (progs : List (String × List (String × ImperativeOptimization.Cy
     if !okP then status := 1
   return status
 
+/-! ### Cycle certificates on machine code (`Thumb`) -/
+
+def parseCode (j : Json) : Except String ImperativeOptimization.Thumb.Code := do
+  let c ← field j "code"
+  pure ⟨← getNat c "base", (← natList (← field c "halfwords") "halfwords").toArray⟩
+
+def parseMRow (j : Json) : Except String ImperativeOptimization.Thumb.MRow := do
+  let coef ← parseArr j "coef" fun p => do
+    match ← intList p "a row coefficient [src, dst, a]" with
+    | [s, t, a] =>
+      if s < 0 || t < 0 then throw "row addresses must be natural numbers" else pure (s.toNat, t.toNat, a)
+    | _ => throw "a row coefficient must be [src, dst, a]"
+  pure ⟨coef, ← getInt j "rhs"⟩
+
+/-- A function: entry, instruction addresses, rows, certificate (potentials per address in
+    the order of `nodes`, then the exit). -/
+def parseBFun (f : Json) : Except String (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert) := do
+  let c ← field f "certificate"
+  let F : ImperativeOptimization.Thumb.BFun :=
+    ⟨← getNat f "entry", ← natList (← field f "nodes") "nodes", ← parseArr f "rows" parseMRow⟩
+  let C : ImperativeOptimization.Cycles.Cert := ⟨← getNat c "scale", ← intList (← field c "pot") "pot",
+    ← natList (← field c "mult") "mult", ← getNat c "bound"⟩
+  pure (nameOf f "name", F, C)
+
+def parseBinaryFile (j : Json) :
+    Except String (Nat × ImperativeOptimization.Thumb.Code ×
+      List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert))) := do
+  let ver ← getNat j "version"
+  if ver != 1 then throw s!"unsupported version {ver} of crosscheck-binary-cycles (this checker reads version 1)"
+  let progs ← parseArr j "programs" fun p => do
+    pure (nameOf p "name", ← parseArr p "functions" parseBFun)
+  pure (← getNat j "mul_cycles", ← parseCode j, progs)
+
+def runBinary (mul : Nat) (code : ImperativeOptimization.Thumb.Code)
+    (progs : List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert))) :
+    IO UInt32 := do
+  let mut status : UInt32 := 0
+  for (pname, funs) in progs do
+    let fs := funs.map (·.2.1)
+    let entries := fs.map (·.entry)
+    let bounds := funs.map (·.2.2.bound)
+    for (name, F, C) in funs do
+      match ImperativeOptimization.Thumb.buildFn mul code entries F with
+      | none => IO.println s!"REJECTED {name}: the graph cannot be built from the code (an instruction address without code, a stop instruction, a successor or callee missing)"
+      | some G =>
+        let ok := ImperativeOptimization.Cycles.checkFn bounds G C
+        IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({F.nodes.length} instructions, {G.edges.length} edges, {G.rows.length} rows)"
+    -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
+    let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2))
+    IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
+    if !okP then status := 1
+  return status
+
+def showKind : ImperativeOptimization.Thumb.Kind → String
+  | .seq => "seq -"
+  | .cond t => s!"cond {t}"
+  | .jump t => s!"jump {t}"
+  | .call t => s!"call {t}"
+  | .ret => "ret -"
+  | .stop => "stop -"
+
+/-- `--decode`: one line per address: `addr size kind target cycles cycles-not-taken`. -/
+def runDecode (j : Json) : Except String (List String) := do
+  let mul ← getNat j "mul_cycles"
+  let code ← parseCode j
+  let addrs ← natList (← field j "addresses") "addresses"
+  pure <| addrs.map fun a => match ImperativeOptimization.Thumb.decode mul code a with
+    | some i => s!"{a} {i.size} {showKind i.kind} {i.cyc} {i.cycNot}"
+    | none => s!"{a} none"
+
 /-! ### Printing what was checked -/
 
 def showSB (b : SB) : String :=
@@ -504,9 +583,10 @@ end CheckerMain
 open CheckerMain in
 def main (args : List String) : IO UInt32 := do
   let printIt := args.contains "--print"
-  let files := args.filter (· != "--print")
+  let decodeIt := args.contains "--decode"
+  let files := args.filter (fun a => a != "--print" && a != "--decode")
   if files.isEmpty then
-    IO.eprintln "usage: crosscheck-check [--print] FILE.json..."
+    IO.eprintln "usage: crosscheck-check [--print | --decode] FILE.json..."
     return 2
   let mut status : UInt32 := 0
   for path in files do
@@ -516,6 +596,21 @@ def main (args : List String) : IO UInt32 := do
       | .error e => do
         IO.eprintln s!"{path}: {e}"
         return 2
+    if decodeIt then
+      match Json.parse text >>= runDecode with
+      | .error e =>
+        IO.eprintln s!"{path}: malformed decode request: {e}"
+        return 2
+      | .ok ls => ls.forM IO.println
+      continue
+    if (Json.parse text).toOption.bind (fun j => (j.getObjValAs? String "format").toOption) == some "crosscheck-binary-cycles" then
+      match Json.parse text >>= parseBinaryFile with
+      | .error e =>
+        IO.eprintln s!"{path}: malformed binary cycle certificate file: {e}"
+        return 2
+      | .ok (mul, code, progs) =>
+        status := max status (← runBinary mul code progs)
+      continue
     if (Json.parse text).toOption.bind (fun j => (j.getObjValAs? String "format").toOption) == some "crosscheck-cycles" then
       match Json.parse text >>= parseCyclesFile with
       | .error e =>

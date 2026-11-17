@@ -80,7 +80,7 @@ stack bounds). Always say whether a loop figure is *for every call* or *in conte
 | CMSIS-DSP, 786 functions | as is 161 bounded; with assumed ranges 616 (78%), 1,044 loops (two files timed out in the last run) | `benchmarks/cmsis/README.md` |
 | Cortex-M0 stack | 143 of 267 functions (no loop bound needed); 10 entry functions, 9 equal to the observed stack; 24 calls compared, no violation | `benchmarks/cycles/README.md` |
 | Cortex-M0 cycles | 107 of 267 functions; 6 entry functions at 1.24 to 2.49 times the emulated run; 11 calls and 45 loops compared, no violation; one `fft` function 970 times (product of nested bounds) | `benchmarks/cycles/README.md` |
-| Certified cycles (IPET) | all 107 certified, checker accepts all; below the schema for 60, equal 47, never above; entry functions 1.06 to 1.94 times the run; 2.6 min | `benchmarks/cycles/README.md` |
+| Certified cycles (IPET, on the machine code) | all 107 certified, checker accepts all (223 functions with run-time routines, 8,333 instructions, 0.15 s); below the schema for 60, equal 47, never above; entry functions 1.06 to 1.94 times the run; Lean decoder = m0.py on all encodings, = llvm-objdump on 24,285 instructions; 2.8 min | `benchmarks/cycles/README.md` |
 | TPDB, 553 programs | analysis alone: 11 as is, 207 with input ranges (159 certified, 114 with a symbolic summary); KoAT2 288, CoFloCo 264 | `benchmarks/tpdb/README.md` |
 | TPDB without ranges (option `symbolic`) | 103 programs with a certificate valid for all inputs: 89 with a bound in the parameters (`max(0,x)`, `max(0,-x)`, `max(0,x-y)`), 14 constant; 133 more have potentials but no certificate (47: products) | `benchmarks/tpdb/README.md` |
 | Rust examples | 11 of 12 functions translated, 6 bounded, 3 certified, all 3 validated; 382 differential runs, no mismatch | `frontends/rust/README.md` |
@@ -106,7 +106,7 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 | Rust | `rustc` MIR (text, rustc 1.100.0) translated to C, then the same pipeline | the translation (tested differentially) |
 | Interrupts | `CROSSCHECK_INTERRUPT(T)`: response time from certified bounds (`response_time_bound`, checked by `rtaHolds`) | the period `T`; one cost unit = one time slot |
 | Cycles on a predictable processor | timing schema on the Cortex-M0 binary, loop bounds from the source loops | the timing table (compared row by row with Table 3-1 of Arm's manual by `test_m0.py`, not with hardware); the matching of binary to source loops (checked on runs) |
-| Certified cycle bounds | IPET certificate per function (`ipet.py`), checked by `crosscheck-check` (`prop:cycles`, Lean `Cycles`) | the graph, edge costs and loop rows (decoder, timing table, loop matching) |
+| Certified cycle bounds | IPET certificate on the machine code (`ipet.py`); `crosscheck-check` decodes and builds the graph (`thm:machine-cycles`, Lean `Thumb`) | the Lean decoder/timing table, the copy of the code, the loop rows (loop matching) |
 | Stack on the same binaries | high-water mark on the binary's control-flow graph (`prop:stack`, Lean `Stack`) | the decoder; no interrupt frames counted |
 | Tests against executions | random loop programs (bounds, exported ACSL annotations, mini-C export) and mutated certificates | nothing: these are tests |
 | Bounds without ranges (in "Complexity benchmarks") | option `symbolic`: potentials only; the bound in the parameters is the certificate's | nothing new: the checker decides |

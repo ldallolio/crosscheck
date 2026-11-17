@@ -90,14 +90,17 @@ cycles; trying the lines of the back-edge branches first gives 1.31.
 ## Certified cycle bounds (2026-11-17)
 
 `run_cycles.py --certify DIR --checker formalization/.lake/build/bin/crosscheck-check`
-also gives every function an IPET bound with a certificate (`ipet.py`): the control-flow
-graph of `wcet.py` with one exit node and costs on edges (a conditional branch: 3 cycles
-taken, 1 not taken), one row per matched loop (`Σ back edges − N·Σ entry edges ≤ 0`,
-`≤ N` if the header is the entry), the multipliers of the rows from the dual of the IPET
-linear program (scipy's HiGHS, untrusted), made integer, and potentials computed exactly
-as longest paths to the exit. The verified checker accepts or rejects the certificate
-(Lean `Cycles.program_sound`, Paper I `prop:cycles`; format in
-`docs/certificate-format.md`); calls add the callees' certified bounds.
+also gives every function an IPET bound with a certificate on its **machine code**
+(`ipet.py`, format `crosscheck-binary-cycles` in `docs/certificate-format.md`): the code
+region of the binary, and per function its entry, the addresses of its instructions, one
+row per matched loop on pairs of addresses (`Σ back edges − N·Σ entry edges ≤ 0`, `≤ N` if
+the header is the entry), the multipliers of the rows from the dual of the IPET linear
+program (scipy's HiGHS, untrusted), made integer, and potentials computed exactly as
+longest paths to the exit. The verified checker decodes the code itself (Lean
+`Thumb.decode`: ARMv6-M Thumb and the Cortex-M0 cycles of `m0.py`), builds the graph (one
+node per instruction, an edge per successor: a conditional branch costs 3 cycles taken,
+1 not taken; `BL` 4 plus the callee's certified bound) and accepts or rejects the
+certificate (Lean `Thumb.binary_sound`, Paper I `thm:machine-cycles`).
 
 | | |
 |---|---:|
@@ -106,7 +109,8 @@ as longest paths to the exit. The verified checker accepts or rejects the certif
 | certified bound below the schema's / equal / above | 60 / 47 / 0 |
 | certified / schema bound: smallest, median | 0.72, 0.998 |
 | calls compared with the runs, violations | 11, 0 |
-| run time of all kernels, with certificates | 2.6 min |
+| certificates checked (with the run-time division routines) | 223 functions, 8,333 instructions, 0.15 s |
+| run time of all kernels, with certificates | 2.8 min |
 
 | Kernel | Schema bound of `main` | Certified bound | Observed | Certified / observed |
 |---|---:|---:|---:|---:|
@@ -120,11 +124,17 @@ as longest paths to the exit. The verified checker accepts or rejects the certif
 The certified bounds can be lower because IPET costs each edge separately (a loop exit or
 another not-taken branch is not charged as taken) and maximizes over consistent edge
 counts rather than adding a longest iteration and a longest exit path; how much each
-contributes was not measured. What the check removes from the trusted base is the computation of the
-bound; the graph, the edge costs and the rows (decoding by `m0.py`, its timing table, the
-loop matching) stay trusted, as for `wcet.py`. Tests: `test_ipet.py` (a function whose
-worst case is known; certificates altered in each part must be rejected), in CI, where the
-certificates of all kernels are checked by the Lean checker job.
+contributes was not measured. What the check removes from the trusted base is the analysis
+of the binary, the graph construction and the computation of the bound; the Lean
+specification of the processor (`Thumb.decode`), the copy of the code into the
+certificate and the loop bounds (rows) stay trusted.
+
+The Lean decoder is compared by `test_thumb.py` (CI) with `m0.py` on every 16-bit encoding
+(each followed by a `BL` second half and by zero: 131,072 cases, size, kind, target and
+cycles) and with llvm-objdump on the 24,285 instructions of the kernels' objects (kind,
+size, target): no difference. Tests: `test_ipet.py` (machine code whose worst case is
+known; certificates altered in each part, including the code, must be rejected), in CI,
+where the certificates of all kernels are checked by the Lean checker job.
 
 ## OTAWA on the same binaries (2026-11-16)
 
