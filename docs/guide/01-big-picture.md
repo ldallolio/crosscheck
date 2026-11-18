@@ -240,7 +240,7 @@ model has been compared with an emulator written for this project, not with a re
 | | Paper I (`paper/theory/`) | Paper II (`paper/tool/`) | Paper III (`paper/binary/`) |
 |---|---|---|---|
 | Subject | Theory: loops and recursion as minimisation; bounds by potentials; a cost logic; certificates and a verified checker | The Clang plugin; certificate production; evaluation on benchmarks; comparison with five tools | Cycle bounds of machine code; the checker builds the graph from the code; loop bounds proved on the code |
-| Lean | almost everything (about 10 300 lines, 451 theorems) | — | modules `Cycles`, `Thumb`, `ThumbData` (about 2 900 lines, 102 theorems) |
+| Lean | almost everything (about 10 300 lines, 451 theorems) | — | modules `Cycles`, `Thumb`, `ThumbData` (about 3 000 lines, 110 theorems) |
 | Measurements | none | TACLeBench, CMSIS-DSP, TPDB, observed counts, five other tools | TACLeBench on Cortex-M0: cycles, certificates, OTAWA, stack |
 
 The code: `clang-plugin/` (C++, the analyser), `formalization/` (Lean: the proofs and the

@@ -1361,4 +1361,158 @@ theorem exData_sound (d : Nat) (tot : Int) (h : DRun 32 false exCode [exFunD] [e
 
 end
 
+/-! ### Data runs that exist: a concrete simulator
+
+To show that the hypotheses of `data_sound` can be met, runs are built from concrete
+states (eight registers as a list, the flags, SP `0x8000`, memory `0`) and checked by
+boolean functions whose acceptance implies the relations of the data semantics
+(`effOkB_sound`, `chainB_sound`, `dOkB_sound`; for instructions that do not touch the
+stack). The counting loop then has a run of exactly 68 cycles (`exData_run`): the bound of
+`exData_sound` is attained. -/
+
+/-- A concrete state. -/
+def mkS (r : List Nat) (f : Flags) : MState := ⟨fun i => r.getD i 0, f, 32768, fun _ => 0⟩
+
+/-- The flags after an effect, checked on concrete values. -/
+def flOkB (fl : FEff) (r : List Nat) (f f' : Flags) : Bool :=
+  match fl with
+  | .keep => f' == f
+  | .any => true
+  | .add a b => f' == flagsAdd (srcVal (fun k => r.getD k 0) a) (srcVal (fun k => r.getD k 0) b)
+  | .sub a b => f' == flagsSub (srcVal (fun k => r.getD k 0) a) (srcVal (fun k => r.getD k 0) b)
+
+/-- `EffOk`, checked on concrete registers and flags. -/
+def effOkB (e : Eff) (r r' : List Nat) (f f' : Flags) : Bool :=
+  (List.range 8).all (fun i => decide (r'.getD i 0 < U)) &&
+  (List.range 8).all (fun i => match e.dst.find? (fun p => p.1 == i) with
+    | none => r'.getD i 0 == r.getD i 0
+    | some p => match valOf (fun k => r.getD k 0) p.2 with
+      | some v => r'.getD i 0 == v
+      | none => true) &&
+  flOkB e.fl r f f'
+
+theorem effOkB_sound (e : Eff) (r r' : List Nat) (f f' : Flags) (h : effOkB e r r' f f' = true) :
+    EffOk e (mkS r f) (mkS r' f') := by
+  simp only [effOkB, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
+  obtain ⟨⟨hw, hd⟩, hf⟩ := h
+  refine ⟨fun i hi => hw i hi, fun i hi hn => ?_, fun i hi p hp v hv => ?_, ?_⟩
+  · have := hd i hi
+    rw [hn] at this
+    simpa [mkS] using this
+  · have := hd i hi
+    simp only [hp] at this
+    simp only [mkS] at hv ⊢
+    simp only [hv] at this
+    simpa using this
+  · simp only [mkS]
+    cases hq : e.fl <;> rw [hq] at hf <;> simp_all [flOkB, flagsOfE]
+
+/-- The instruction does not touch the stack. -/
+def stackKeep (s : StackE) : Bool := s.sp == .keep && s.mem == .keep && s.load == none
+
+theorem stackKeep_sound (s : StackE) (h : stackKeep s = true) (frame : Bool) (SP0 : Nat)
+    (r r' : List Nat) (f f' : Flags) : StackOk frame SP0 s (mkS r f) (mkS r' f') := by
+  simp only [stackKeep, Bool.and_eq_true, beq_iff_eq] at h
+  obtain ⟨⟨h1, h2⟩, h3⟩ := h
+  refine ⟨⟨by simp [mkS, U], fun _ => by simp [mkS, U]⟩, ?_, ?_, ?_⟩
+  · rw [h1]; rfl
+  · rw [h2]; intro _; rfl
+  · intro p hp; rw [h3] at hp; cases hp
+
+/-- A concrete step: the step of the machine run, the transition, registers, flags. -/
+abbrev CStep := MStep × Nat × List Nat × Flags
+
+def toD (x : CStep) : DStep := ⟨x.1, x.2.1, mkS x.2.2.1 x.2.2.2⟩
+
+/-- `DChain`, checked on concrete steps (instructions that do not touch the stack). -/
+def chainB (abi : Bool) (c : Code) : Option Nat → List CStep → Bool
+  | none, [] => true
+  | some a, x :: t => x.1.a == a &&
+      (match t with
+        | [] => true
+        | y :: _ => effOkB (effect abi c a) x.2.2.1 y.2.2.1 x.2.2.2 y.2.2.2 && stackKeep (stackEffect abi c a)) &&
+      chainB abi c x.1.next t
+  | _, _ => false
+
+theorem chainB_sound (abi frame : Bool) (c : Code) (SP0 : Nat) :
+    ∀ (o : Option Nat) (l : List CStep), chainB abi c o l = true → DChain abi frame c SP0 o (l.map toD)
+  | none, [], _ => by simp [DChain]
+  | none, _ :: _, h => by simp [chainB] at h
+  | some _, [], h => by simp [chainB] at h
+  | some a, x :: t, h => by
+    simp only [chainB, Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨⟨hxa, hm⟩, hr⟩ := h
+    refine ⟨by simpa [toD] using hxa, fun y hy => ?_, chainB_sound abi frame c SP0 _ t hr⟩
+    cases t with
+    | nil => simp at hy
+    | cons z t =>
+      simp only [List.map_cons, List.head?_cons, Option.mem_def, Option.some.injEq] at hy
+      subst hy
+      simp only [Bool.and_eq_true] at hm
+      exact ⟨effOkB_sound _ _ _ _ _ hm.1, stackKeep_sound _ hm.2 frame SP0 _ _ _ _⟩
+
+/-- `DOk`, checked on a concrete step. -/
+def dOkB (mul : Nat) (c : Code) (x : CStep) : Bool :=
+  (List.range 8).all (fun i => decide (x.2.2.1.getD i 0 < U)) &&
+  match decode mul c x.1.a with
+  | some i => (trans i x.1.a)[x.2.1]? == some (x.1.next, x.1.w, x.1.calls) &&
+      (match i.kind with
+        | .cond _ => condHolds (ccOf c x.1.a) x.2.2.2 == (x.2.1 == 0)
+        | _ => true)
+  | none => false
+
+theorem dOkB_sound (mul : Nat) (c : Code) (x : CStep) (h : dOkB mul c x = true) :
+    DOk mul c (toD x).st.a (toD x).j (toD x).σ (toD x).st.next (toD x).st.w (toD x).st.calls := by
+  simp only [dOkB, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
+  obtain ⟨hw, hd⟩ := h
+  refine ⟨fun i hi => by simpa [toD, mkS] using hw i hi, ⟨by simp [toD, mkS, U], fun _ => by simp [toD, mkS, U]⟩, ?_⟩
+  split at hd
+  · rename_i i hi
+    simp only [Bool.and_eq_true, beq_iff_eq] at hd
+    refine ⟨i, by simpa [toD] using hi, by simpa [toD] using hd.1, fun t ht => ?_⟩
+    have := hd.2
+    rw [ht] at this
+    simpa [toD, mkS] using this
+  · cases hd
+
+/-- The registers `r0 = v`, the others `0`. -/
+def regs0 (v : Nat) : List Nat := [v, 0, 0, 0, 0, 0, 0, 0]
+
+def f0 : Flags := ⟨false, false, false, false⟩
+
+def cstep (a : Nat) (next : Option Nat) (w j v : Nat) (f : Flags) : CStep := (⟨a, next, w, [], 0⟩, j, regs0 v, f)
+
+/-- The flags at `cmp` in iteration `v`. -/
+def exFl (v : Nat) : Flags := if v = 0 then f0 else flagsAdd (v - 1) 1
+
+/-- The run of the counting loop: `movs`, ten iterations, the last test and the return. -/
+def exRunC : List CStep :=
+  [cstep 0x100 (some 0x102) 1 0 0 f0] ++
+  (List.range 10).flatMap (fun v =>
+    [cstep 0x102 (some 0x104) 1 0 v (exFl v), cstep 0x104 (some 0x106) 1 1 v (flagsSub v 10),
+     cstep 0x106 (some 0x108) 1 0 v (flagsSub v 10), cstep 0x108 (some 0x102) 3 0 (v + 1) (flagsAdd v 1)]) ++
+  [cstep 0x102 (some 0x104) 1 0 10 (exFl 10), cstep 0x104 (some 0x10A) 3 0 10 (flagsSub 10 10),
+   cstep 0x10A none 3 0 10 (flagsSub 10 10)]
+
+theorem exRun_chain : chainB false exCode (some 0x100) exRunC = true := by decide
+
+theorem exRun_steps : exRunC.all (dOkB 32 exCode) = true := by decide
+
+theorem exRun_cost : ((exRunC.map toD).map fun x => (x.st.w : Int) + x.st.x).sum = 68 := by decide
+
+/-- **The hypotheses are satisfiable, and the bound is attained**: the counting loop has a
+    run of the data semantics of exactly 68 cycles, the bound of `exData_sound`. -/
+theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 68 := by
+  refine ⟨exFunD, exDFun, exRunC.map toD, rfl, ?_, ?_, ?_, exRun_cost.symm⟩
+  · exact chainB_sound false exDFun.frame exCode _ (some 0x100) exRunC exRun_chain
+  · intro x hx
+    obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
+    refine ⟨dOkB_sound 32 exCode y (List.all_eq_true.mp exRun_steps y hy), ?_⟩
+    have : y.1.calls = [] ∧ y.1.x = 0 := by
+      revert hy; simp only [exRunC, cstep, List.mem_append, List.mem_flatMap, List.mem_range,
+        List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false]
+      intro hy; rcases hy with (rfl | ⟨v, _, hv⟩) | hv <;> (try rcases hv with rfl | rfl | rfl | rfl) <;> simp
+    simp only [toD, this.1, this.2, CallsWith]
+  · intro r hr; simp [exDFun] at hr
+
 end ImperativeOptimization.Thumb

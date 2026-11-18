@@ -1628,6 +1628,19 @@ non-specialist (about 1,650 → 3,300 lines, 9 parts).
   said 103 of 553 TPDB programs certified where its text says 147 (the count before
   quadratic bounds): corrected.
 
+65. "Your choice about what to do now, what I want is to keep improving scientific relevance, better benchmark results, more cases covered, apply well known techniques, augment industrial values by checking on known cases, make the papers sound and solid"
+
+What the AI did for 65 (Claude Opus 5.5, 2026-11-18), first part: Paper III said that no
+data run of its example was built in Lean, so the hypotheses of `data_sound` were only shown
+satisfiable informally. Added to `ThumbData.lean` a concrete simulator (boolean checks
+`effOkB`, `chainB`, `dOkB` on concrete registers and flags, with soundness lemmas
+`effOkB_sound`, `stackKeep_sound`, `chainB_sound`, `dOkB_sound`) and `exData_run`: the
+counting loop has a data run of exactly 68 cycles, so the hypotheses are satisfiable and
+the certified bound is attained (8 theorems; 561 in all). Paper III, Table `tab:lean3`,
+`formalization.yaml`, CLAUDE.md and the guide updated. `run_cycles.py` gained `--cflag`
+and `--tag` to measure another build (here `-fomit-frame-pointer`) without replacing the
+published one.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

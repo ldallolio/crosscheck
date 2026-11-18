@@ -214,7 +214,7 @@ The cost bounds are in abstract units, while industrial budgets are durations. A
 \section{Mechanization}
 \label{sec:mechanization}
 
-The modules of this paper (\lean{CyclesCore}, \lean{Cycles}, \lean{ThumbCore}, \lean{Thumb}, \lean{ThumbDataCore}, \lean{ThumbData}) have about 2{,}900 lines of Lean~4 and 102 theorems, in the repository of Paper~I; the executable parts (\lean{\dots Core}) do not use mathlib and are compiled into the checker program. Table~\ref{tab:lean3} lists which Lean statements back the paper's. Each module's examples check a certificate of a counting loop by \lean{decide} and refuse a bound one lower.
+The modules of this paper (\lean{CyclesCore}, \lean{Cycles}, \lean{ThumbCore}, \lean{Thumb}, \lean{ThumbDataCore}, \lean{ThumbData}) have about 3{,}000 lines of Lean~4 and 110 theorems, in the repository of Paper~I; the executable parts (\lean{\dots Core}) do not use mathlib and are compiled into the checker program. Table~\ref{tab:lean3} lists which Lean statements back the paper's. Each module's examples check a certificate of a counting loop by \lean{decide} and refuse a bound one lower.
 
 \begin{table}[ht]
 \centering
@@ -228,14 +228,14 @@ Def.~\ref{def:machine-run}, Thm.~\ref{thm:machine-cycles} & \lean{decode}, \lean
 Def.~\ref{def:data-run} & \lean{effect}, \lean{stackEffect}, \lean{flagsAdd}, \lean{flagsSub}, \lean{condHolds}, \lean{EffOk}, \lean{StackOk}, \lean{DOk}, \lean{DRun} & \lean{ThumbData} \\
 Def.~\ref{def:loop-certificate} & \lean{DFun}, \lean{LoopCert}, \lean{loopRow}, \lean{obligations}, \lean{checkData} & \lean{ThumbData} \\
 Lem.~\ref{lem:cond-facts} & \lean{condFacts\_\allowbreak sound}, \lean{sub\_\allowbreak nv}, \lean{sub\_\allowbreak z}, \lean{add\_\allowbreak z} & \lean{ThumbData} \\
-Thm.~\ref{thm:machine-loops} & \lean{postS\_\allowbreak eval}, \lean{step\_\allowbreak ok}, \lean{chain\_\allowbreak ok}, \lean{chain\_\allowbreak rows}, \lean{drun\_\allowbreak mrun}, \lean{data\_\allowbreak sound}; example \lean{exData\_\allowbreak sound} & \lean{ThumbData} \\
+Thm.~\ref{thm:machine-loops} & \lean{postS\_\allowbreak eval}, \lean{step\_\allowbreak ok}, \lean{chain\_\allowbreak ok}, \lean{chain\_\allowbreak rows}, \lean{drun\_\allowbreak mrun}, \lean{data\_\allowbreak sound}; examples \lean{exData\_\allowbreak sound}, \lean{exData\_\allowbreak run} (a run of 68 cycles: the bound is attained) & \lean{ThumbData} \\
 \bottomrule
 \end{tabular}
 \caption{Paper statements and their Lean counterparts (namespace \lean{ImperativeOptimization.Thumb}, \lean{Cycles} for the first row).}
 \label{tab:lean3}
 \end{table}
 
-Not mechanized: that the specification (decoder, cycles, effects on registers, flags, stack pointer and memory, conditions; zero-wait-state memory, no interrupts) describes the Cortex-M0, that the code in a certificate is that of the binary, that callees preserve $r_4, \dots, r_7$ and SP when this is assumed (\emph{abi}), that no other code writes a function's frame when this is assumed (\emph{frame}), and that the trusted rows hold. No data run of the example is constructed in Lean (a run of the program-counter semantics is, \lean{exBinary\_\allowbreak run}); that the hypotheses of Theorem~\ref{thm:machine-loops} are satisfiable rests on the emulated runs of Section~\ref{sec:evaluation}, which follow our interpreter, compared with the specification.
+Not mechanized: that the specification (decoder, cycles, effects on registers, flags, stack pointer and memory, conditions; zero-wait-state memory, no interrupts) describes the Cortex-M0, that the code in a certificate is that of the binary, that callees preserve $r_4, \dots, r_7$ and SP when this is assumed (\emph{abi}), that no other code writes a function's frame when this is assumed (\emph{frame}), and that the trusted rows hold. The hypotheses of Theorem~\ref{thm:machine-loops} are satisfiable: a run of the example's code in the data semantics, of exactly 68 cycles, is built in Lean by a concrete simulator whose acceptance implies the relations of Definition~\ref{def:data-run} (\lean{exData\_\allowbreak run}), so the certified bound is also attained.
 
 \section{Limitations}
 \label{sec:limitations}

@@ -63,7 +63,7 @@ def runtime_bounds(tool, work, extra):
 
 
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
-            frame=False):
+            frame=False, cflags=(), tag=""):
     import subprocess
     r = run_tacle.run_kernel(tool, kernel, work, extra)
     rep = json.loads((work / f"{kernel.name}.json").read_text())
@@ -80,8 +80,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
             if l["line"] in bounds and bounds[l["line"]] is not None and b is not None:
                 b = max(b, bounds[l["line"]])
             bounds[l["line"]] = b
-    obj = work / f"{kernel.name}.m0.o"
-    p = subprocess.run([str(clang), *FLAGS, f"-I{kernel}", "-c", str(work / f"{kernel.name}.m0.c"), "-o", str(obj)],
+    obj = work / f"{kernel.name}.m0{tag}.o"
+    p = subprocess.run([str(clang), *FLAGS, *cflags, f"-I{kernel}", "-c", str(work / f"{kernel.name}.m0.c"), "-o", str(obj)],
                        capture_output=True, text=True)
     if p.returncode:
         return dict(kernel=kernel.name, error="compilation failed: " + p.stderr[-300:])
@@ -244,6 +244,10 @@ def main():
     ap.add_argument("--frame", action="store_true",
                     help="with --certify-loops: for functions that take no address of their frame, assume "
                          "that stores through other registers and calls do not write it")
+    ap.add_argument("--cflag", action="append", default=[],
+                    help="an extra compiler flag for the Cortex-M0 build (e.g. -fomit-frame-pointer)")
+    ap.add_argument("--tag", default="",
+                    help="suffix of the objects (KERNEL.m0TAG.o), so that another build does not replace the default one")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
@@ -259,7 +263,7 @@ def main():
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     for k in kernels:
         r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker,
-                    a.certify_loops, a.abi, a.frame)
+                    a.certify_loops, a.abi, a.frame, a.cflag, a.tag)
         rows.append(r)
         if "error" in r:
             print(f"{k.name:16s} {r['error']}", file=sys.stderr)

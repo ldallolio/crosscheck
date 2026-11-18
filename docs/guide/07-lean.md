@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 29 modules, about 13,100 lines, 553 theorems (Paper I: about 10,300 lines and 451 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 2,900 lines and 102 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 29 modules, about 13,300 lines, 561 theorems (Paper I: about 10,300 lines and 451 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 3,000 lines and 110 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -146,7 +146,7 @@ flowchart LR
 | `ThumbCore` | 230 | no mathlib: `decode` (ARMv6-M Thumb + Cortex-M0 cycles), `trans`, `closed`, `medges`, `buildFn`, `checkBinary`; used by the checker program (`crosscheck-binary-cycles`, `--decode`) |
 | `Thumb` | 310 | `Step`, `MRun` (PC-level semantics), `chain_walk`, `translate` (machine runs are graph runs), **`binary_sound`**; examples `exBinary_checks`, `exBinary_tight`, `exBinary_run` |
 | `ThumbDataCore` | 630 | no mathlib: `effect` and `stackEffect` (what each instruction does to `r0`-`r7`, the flags, SP and memory: the trusted specification), `Flags`, `flagsAdd`, `flagsSub`, `condHolds`; `condFacts` (conditions as linear facts on two ghost operands); certificates `DFun` (kinds, invariants, loops, SP offsets, tracked frame words, `frame`), `LoopCert`, `postS`, `obligations`, `loopRow`, **`checkData`**; used by the checker program (version 2, `--effect`) |
-| `ThumbData` | 1,360 | data runs `EffOk`, `StackOk`, `DOk`, `DChain`, `DRun`; `condFacts_sound` (the flag lemmas `sub_z`, `sub_c`, `sub_nv`, `add_z`, `add_c`), `postE_eval`, `postS_eval` (address arithmetic modulo 2³² by `omega`), **`step_ok`**, **`chain_ok`** (invariants and telescoping potentials), `chain_rows`, `drun_mrun`, **`data_sound`**; examples `exData_checks`, `exData_tight`, `exData_sound` (Paper III `thm:machine-loops`) |
+| `ThumbData` | 1,520 | data runs `EffOk`, `StackOk`, `DOk`, `DChain`, `DRun`; `condFacts_sound` (the flag lemmas `sub_z`, `sub_c`, `sub_nv`, `add_z`, `add_c`), `postE_eval`, `postS_eval` (address arithmetic modulo 2³² by `omega`), **`step_ok`**, **`chain_ok`** (invariants and telescoping potentials), `chain_rows`, `drun_mrun`, **`data_sound`**; examples `exData_checks`, `exData_tight`, `exData_sound`; a concrete simulator (`effOkB_sound`, `chainB_sound`, `dOkB_sound`) and `exData_run`, a data run of exactly 68 cycles, so the hypotheses are satisfiable and the bound attained (Paper III `thm:machine-loops`) |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading
