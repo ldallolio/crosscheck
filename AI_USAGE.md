@@ -1684,6 +1684,51 @@ Crossref, text not obtained: attribution flagged in Paper III's `\authortodo`).
   bound; all accepted, no violation. Reported in Paper III and the README as a separate
   build; the default build's figures are unchanged (OTAWA runs not redone).
 
+66. "Proceed with the next step as you are proposing"
+
+67. "Those tests are taking hours on multiple processors, I feels that something is wrong, what do you think?"
+
+68. "I added cullmann2007data.pdf crary2000resource.pdf sewell2016complete.pdf granger1989static.pdf and fixed the authortodo, read them and adapt the corresponding lines"
+
+What the AI did for 66 and 67 (Claude Opus 5.5, 2026-11-18): **potentials per instruction by
+linear programming** in the producer of loop certificates on machine code
+(`binloops.synth_lp`): when the potential search with one linear part for the whole loop fails
+(the counter moves between a register and a word of the frame inside the loop, e.g. the outer
+loop of `matrix1_main` at `-O1`), one linear program over the checker's own obligations, with
+the potentials and the Farkas multipliers as unknowns, minimizes the bound (Colon and Sipma
+2001; per control point, Alias, Darte, Feautrier and Gonnord 2010: Sections 1 to 3.1 read).
+The rational solution is rounded and proved again with exact arithmetic; the checker and the
+Lean proofs are unchanged (the certificate format already allowed a potential per
+instruction). Test `PotentialsPerInstruction` (`test_binloops.py`): a loop certified only with
+the linear program (9 back edges, 114 cycles, instead of the trusted source row, 125), and four
+altered certificates rejected (bound 8, the header's potential everywhere, a constant too
+small, the loop's store removed: endless loop). Prompt 67: the first measurement runs hung for
+about six hours, because HiGHS did not terminate on a badly scaled linear program of
+`jfdctint` (constants up to 2^32) and no time limit had been set; the runs were stopped, the
+cause found by dumping the stack, and each solve is now limited to 5 s (a loop whose program
+times out stays uncertified; soundness is unaffected, the checker decides). The runs were
+restarted; their results are recorded below when complete.
+
+What the AI did for 68 (Claude Opus 5.5, 2026-11-18): read the four papers in full (copies
+supplied by the author, not committed) and adapted Paper III: `cullmann2007data` (counters in
+memory, also modified through pointers, through the value analysis; intervals of iteration
+counts; after the pattern-based analysis), `sewell2016complete` (their binary example is a
+register stepped by 4 leaving on inequality with 256, bounded with the divisibility of its
+initial value; 47 of 67 seL4 loops bounded from the binary alone, failures for lack of a memory
+aliasing analysis and of invariants maintained by the loop's environment), `crary2000resource`
+(time counted in function calls in the calculus but in backward jumps in TALres; virtual
+clock attributed by them to Necula and Lee; soundness by type safety, on paper),
+`granger1989static` (the rounding of the branch facts is the reduction of his product of
+congruences and intervals, Proposition 6.1, applied to a difference; it replaces the earlier
+comparison with cutting planes). The author had replaced the `\authortodo` of the statement
+on the use of AI with their own statement; its last clause (the former instruction to confirm
+the attributions) was replaced by "The AI assistant checked the attributions to [the four
+papers] against the full texts of these papers, which the author supplied." Note for the
+author: text added to Paper III after that statement (the related-work changes above and the
+evaluation of prompt 66 when it is written) is not covered by it until the author reads it.
+`references/README.md` (four rows), the guide (Part 2 rounding paragraph, Part 8 map)
+updated. Papers I, II and III build without warnings (Paper III: 16 pages).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

@@ -710,8 +710,10 @@ a multiple of every power of two up to 2³². So the congruence survives overflo
 
 How it is used: if the two operands compared by `cmp` (here `r4` and the constant 80) are
 **both** `≡ 0 (mod 4)`, their difference is a multiple of 4. A fact "difference ≤ −1"
-then becomes "difference ≤ −4" — **rounding to the next multiple**, the same trick as the
-"cutting planes" of integer programming. So `r4 ≠ 80` with `r4 ≤ 80` gives `r4 ≤ 76`, and
+then becomes "difference ≤ −4" — **rounding to the next multiple**. Granger already did
+this when he combined congruences with intervals (his Proposition 6.1: each end of an
+interval is moved to the nearest member of the class); CrossCheck applies it to the
+difference of the two compared operands. So `r4 ≠ 80` with `r4 ≤ 80` gives `r4 ≤ 76`, and
 the ordinary linear machinery (zones, potentials, Farkas) does the rest.
 
 ![a counter stepped by 4: what zones see, and what congruences add](img/congruence.svg)

@@ -111,5 +111,6 @@ flowchart LR
 | `fox2010trustworthy` | Fox & Myreen, 2010 | ARM ISA model in HOL4, validated on hardware | read (parts) |
 | `cullmann2007data` | Cullmann & Martin, 2007 | aiT's data-flow loop bounds on executables | read |
 | `crary2000resource` | Crary & Weirich, 2000 | resource bounds of typed assembly, certified by typing | read |
+| `granger1989static` | Granger, 1989 | congruence analysis; combined with intervals by rounding bounds to the class (Prop. 6.1) | read |
 | `necula1997proof` | Necula, 1997 | proof-carrying code | read |
 | `ballabriga2010otawa` | Ballabriga et al., OTAWA, 2010 | the WCET analyser compared on the binaries | — |
