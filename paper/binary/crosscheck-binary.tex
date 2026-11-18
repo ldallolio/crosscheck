@@ -1,0 +1,258 @@
+\documentclass[oneside,english]{amsart}
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage{babel}
+\usepackage{mathtools}
+\usepackage{amstext}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{xr-hyper}
+\usepackage[pdfusetitle,
+ bookmarks=true,bookmarksnumbered=false,bookmarksopen=false,
+ breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+ {hyperref}
+% Cross-references to Papers I and II: build ../theory and ../tool first.
+\externaldocument[I-]{../theory/crosscheck-theory}
+\externaldocument[II-]{../tool/crosscheck-tool}
+
+\makeatletter
+\numberwithin{equation}{section}
+\theoremstyle{plain}
+\newtheorem{thm}{\protect\theoremname}
+\theoremstyle{definition}
+\newtheorem{defn}[thm]{\protect\definitionname}
+\theoremstyle{plain}
+\newtheorem{prop}[thm]{\protect\propositionname}
+\theoremstyle{plain}
+\newtheorem{lem}[thm]{\protect\lemmaname}
+\theoremstyle{remark}
+\newtheorem*{rem*}{\protect\remarkname}
+
+\newcommand{\lean}[1]{{\ttfamily\small #1}}
+\newcommand{\authortodo}[1]{\textbf{[AUTHOR TO CONFIRM: #1]}}
+\emergencystretch=3em
+\makeatother
+
+\usepackage{booktabs}
+\usepackage{array}
+\providecommand{\definitionname}{Definition}
+\providecommand{\lemmaname}{Lemma}
+\providecommand{\propositionname}{Proposition}
+\providecommand{\remarkname}{Remark}
+\providecommand{\theoremname}{Theorem}
+
+\begin{document}
+\title[CrossCheck III: Certified Cycle Bounds of Machine Code]{CrossCheck III: Certified Cycle Bounds of Machine Code, Loop Bounds Included}
+\author{Luca Dall'Olio}
+\begin{abstract}
+We certify worst-case cycle bounds of compiled machine code with a checker whose soundness is proved in Lean~4. A bound is certified by a dual solution of the implicit path enumeration program, potentials and multipliers checked with integer arithmetic on a control-flow graph; the checker builds the graph itself from the machine code, with a decoder and a cycle table of the Cortex-M0 written in Lean, so that the specification of the processor replaces the analysis of the binary in the trusted base. The loop bounds, which the implicit path enumeration needs and which come from the source program, can themselves be certified on the machine code: the certificate gives every instruction an invariant on the registers and on the operands of the operation that set the flags, and every loop a potential that decreases on its back edges, all checked by Farkas multipliers against a semantics of the instructions' effects on registers and flags. On the 29 TACLeBench kernels compiled with Clang for a Cortex-M0, all 115 functions that receive a cycle bound are certified, and 72 of the 403 loops of the kernels' own code are bounded on the machine code with nothing trusted about them (94 if callees are assumed to preserve the registers that the calling convention makes them preserve); no bound is exceeded in emulated runs. The other loops keep their source bounds, which remain trusted. We also describe the cycle and stack bounds of the same binaries, their comparison with the WCET analyzer OTAWA, and a check of time budgets after compilation.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:intro}
+
+A bound on the execution time of a real-time function is a property of its machine code on a processor. The companion papers derive bounds of source programs: Paper~I \cite{crosscheckTheory} gives the theory and a checker of cost certificates proved sound in Lean, and Paper~II \cite{crosscheckTool} a Clang plugin that bounds the loops of C and C++ functions and emits such certificates. This paper takes the step to the binary. The bounds of the source loops, matched with the loops of the compiled code through its debug information, give a cycle bound of each function of the binary on a processor whose instruction timings are fixed, by the timing schema or by implicit path enumeration (IPET) \cite{li1995ilp}. The question we address is what has to be trusted for such a bound, and how much of it a small verified checker can take over.
+
+The chain from a source loop bound to a cycle bound of the binary has four links: the loop bound itself, certified on the source for the functions of Paper~II's fragment; the correspondence between source and binary loops, which assumes that the compiler preserves iteration counts; the control-flow graph of the binary and the computation of the bound; and the timing of the processor. We make the checker responsible for the third link (Sections~\ref{sec:graphs} and~\ref{sec:machine}): the certificate holds the machine code, the checker decodes it and builds the graph with a specification of the processor written in Lean, and checks a dual solution of the IPET program on it. For the second link we give certificates of loop bounds on the machine code itself (Section~\ref{sec:loops}): with them, a loop's bound no longer depends on the compiler, on the debug information nor on the source analysis. What remains trusted is the specification of the processor: the decoder, the cycle table, the effects of the instructions on registers and flags, and the absence of interrupts.
+
+\subsection*{Contributions}
+\begin{itemize}
+  \item Cycle certificates for control-flow graphs with calls and loop rows, as dual solutions of the IPET program, and their soundness (Proposition~\ref{prop:cycles}; known in substance from Maroneze et al.\ \cite{maroneze2014formally}, here with calls and recursion by depth of runs).
+  \item The check on machine code: a decoder and cycle table of the Cortex-M0 in Lean, the graph built by the checker, and the theorem that every run of the code is a walk of that graph (Theorem~\ref{thm:machine-cycles}).
+  \item Loop bounds certified on the machine code: a data semantics of the instructions' effects on the low registers and the flags (Definition~\ref{def:data-run}), certificates of invariants and potentials (Definition~\ref{def:loop-certificate}), and the theorem that the rows of the certified loops hold on every run, so that they need not be trusted (Theorem~\ref{thm:machine-loops}).
+  \item An evaluation on the TACLeBench kernels compiled for a Cortex-M0 (Section~\ref{sec:evaluation}): cycle and stack bounds compared with emulated runs, certificates, loop bounds certified on the machine code, a comparison with OTAWA, and the check of time budgets after compilation.
+\end{itemize}
+All the statements of Sections~\ref{sec:graphs} to~\ref{sec:loops} are mechanized in Lean~4 without axioms beyond the three standard ones (Section~\ref{sec:mechanization}).
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Implicit path enumeration.} IPET bounds the cost of a program by a linear program over the execution counts of the edges of its control-flow graph, with flow conservation and loop bounds as constraints \cite{li1995ilp}; it is the path analysis of industrial WCET analyzers \cite{wilhelm2008worst} and of OTAWA \cite{ballabriga2010otawa}. Constraints on execution counts beyond loop bounds go back to the markers, scopes and loop sequences of Puschner and Koza \cite{puschner1989calculating}. A feasible solution of the dual of the linear program bounds its optimum (weak duality \cite{schrijver1986theory}), which is what our certificates check.
+
+\paragraph{Verified WCET estimation.} Blazy, Maroneze and Pichardie verified a loop-bound estimation in Coq on CompCert's RTL \cite{blazy2013formal}, and Maroneze et al.\ built on it a WCET estimation for CompCert, whose IPET program is generated from the semantics of CompCert's assembly language and whose solution is validated by a Farkas certificate of the infeasibility of a larger cost \cite{maroneze2014formally}. Their guarantees hold for code produced by CompCert; ours hold for any binary, relative to a specification of the processor, and the loop bounds are checked on the machine code instead of being proved for the compiler's intermediate language.
+
+\paragraph{Loop bounds on binaries.} The aiT analyzer derives loop bounds on executables by a data-flow analysis of loop counters, intervals from its value analysis, and the evaluation of the loop tests, with overflows of the counters taken into account \cite{cullmann2007data}; the bounds are computed, not certified. For the seL4 kernel, Sewell, Kam and Heiser determine loop bounds of the binary with the translation-validation toolchain of the kernel's verification: SMT models of the binary's loops, by unrolling or by induction over a symbolic iteration, use facts proved of the C code, and a binary search refines the bound \cite{sewell2016complete,sewell2017high}. The proofs are those of SMT solvers inside their toolchain, and the control-flow graph is obtained by a decompiler that proves its output against the Cambridge model of the ARM instruction set \cite{fox2010trustworthy}, except for a final simplification, whose formalization they leave as future work. Our loop bounds are certificates of invariants and potentials checked by a small program proved sound in Lean; they are weaker (no memory, no C-level facts) and the specification of the processor is ours, not validated against hardware.
+
+\paragraph{Certified resource bounds.} Proof-carrying code ships with a program a proof that a small trusted checker validates \cite{necula1997proof}. Crary and Weirich certified running-time bounds of typed assembly code with a type system in which function types carry a virtual clock, compiled from annotated source programs \cite{crary2000resource}; time is counted in function calls and the checker is the type checker. Carbonneaux et al.\ derive resource bounds of C programs certified in Coq against CompCert's Clight \cite{carbonneaux2015compositional}. Our certificates are in processor cycles of the binary of an unmodified compiler, and the checker's soundness is a Lean theorem about the machine code.
+
+\section{Cycle Certificates on Control-Flow Graphs}
+\label{sec:graphs}
+
+The loop bounds of the source program become a cycle bound of the compiled code through its control-flow graph: the implicit path enumeration technique (IPET) of Li and Malik \cite{li1995ilp} maximizes the cost of the edge counts that satisfy flow conservation and the loop bounds, a linear program. A feasible solution of its dual is a certificate of the bound, checked without the solver; this is weak duality of linear programming \cite{schrijver1986theory}. Maroneze et al.\ validated in Coq the solution of the IPET program of their WCET estimation with a Farkas certificate of the infeasibility of a larger cost \cite{maroneze2014formally}; the certificate below is the same idea, in the form of potentials and multipliers, with costs on edges and calls bounded by the claims of the callees.
+
+\begin{defn}[Cycle certificate]
+\label{def:cycle-certificate}
+A function is a finite directed multigraph with an entry node $s$ and an exit node $t$; each edge $e = (u, v)$ has a weight $w_e \in \mathbb{N}$ and a list $\mathrm{calls}(e)$ of functions, and the function has finitely many \emph{rows} $\sum_e a_{ke}\, x_e \le b_k$ ($a_{ke}, b_k \in \mathbb{Z}$). A \emph{run} of depth $n + 1$ of a function is a walk $e_1 \cdots e_m$ from $s$ to $t$ together with, for each step $i$, runs of depth $n$ of the functions of $\mathrm{calls}(e_i)$ (there is no run of depth 0) such that the edge counts $x_e = |\{i : e_i = e\}|$ satisfy the rows; its cost is $\sum_i (w_{e_i} + c_i)$, where $c_i$ is the sum of the costs of the runs of step $i$. Given claimed bounds $B$ for all functions of a program, a \emph{certificate} of a function is an integer $D > 0$, integers $\pi_v$ (potentials) and natural numbers $\lambda_k$ (multipliers) such that
+\[
+  D\Bigl(w_e + \sum_{g \in \mathrm{calls}(e)} B(g)\Bigr) + \pi_v - \pi_u \;\le\; \sum_k \lambda_k\, a_{ke} \quad \text{for every edge } e = (u, v),
+\]
+and
+\[
+  \pi_s - \pi_t + \sum_k \lambda_k\, b_k \;\le\; D\, B(f).
+\]
+\end{defn}
+
+\begin{prop}[Cycle bounds]
+\label{prop:cycles}
+If every function of a program has a certificate for the claimed bounds $B$, every run of every function $f$ costs at most $B(f)$.
+\end{prop}
+
+\begin{proof}
+By induction on the depth of the run; the runs of the calls of step $i$ cost at most $\sum_{g \in \mathrm{calls}(e_i)} B(g)$ by the induction hypothesis. Summing the edge condition along the walk, the potentials telescope:
+\[
+  D \cdot \mathrm{cost} + \pi_t - \pi_s \;\le\; \sum_i \sum_k \lambda_k\, a_{k e_i} \;=\; \sum_k \lambda_k \sum_e a_{ke}\, x_e \;\le\; \sum_k \lambda_k\, b_k,
+\]
+the last step because the rows hold on the run and $\lambda_k \ge 0$. With the second condition, $D \cdot \mathrm{cost} \le D\, B(f)$.
+\end{proof}
+
+The induction is on the depth of a finite run, so the claimed bounds may be circular: the certificates of recursive functions are checked against the claims of each other, and the conclusion holds for every run that completes. The bounds of loops become rows: a loop entered by edges $E$, whose back edges $R$ may be taken at most $N$ times per entry, gives $\sum_{e \in R} x_e - N \sum_{e \in E} x_e \le 0$ (with right-hand side $N$ if the loop header is the entry), the sum of its per-entry bounds. The best certificate is an optimal solution of the dual of the IPET program; the bound it gives is the IPET bound, at most that of the timing schema \cite{puschner1989calculating} on the same graph. The executable check is the function \lean{Cycles.\allowbreak checkProgram} of the certificate checker.
+
+
+\section{Machine Code}
+\label{sec:machine}
+
+The graph need not be given: it can be built from the machine code, so that the remaining interface to the binary is a specification of the processor. Sewell, Kam and Heiser obtained the control-flow graph of the seL4 binary from a decompiler that proves its output against a model of the ARM instruction set, and left as future work to formalize the meaning of the graph given to their WCET analyzer and prove that it captures the control paths of the binary \cite{sewell2017high}; the next theorem is such a proof for the graphs of Definition~\ref{def:cycle-certificate}, relative to a specification written for the purpose.
+
+\begin{defn}[Runs of machine code]
+\label{def:machine-run}
+A \emph{specification} of the processor maps an address $a$ to the instruction stored there, if any, and its successors $\mathit{succ}(a)$: triples $(a', w, G)$ of a next address ($a' = \bot$ for a return), a number of cycles and a list of called functions (by entry address); a conditional branch has two successors, taken and not taken, with their cycles, and an instruction whose effect on the program counter is not modelled has none. A \emph{run} of depth $n + 1$ of the function with entry $e$ is a sequence of steps $(a_i, a'_i, w_i, G_i)$, $0 \le i \le m$, with $a_0 = e$, $a_{i+1} = a'_i$ and $a'_m = \bot$, where each step is a successor of the instruction at $a_i$ or, if there is no instruction at $a_i$ or its effect is not modelled, arbitrary; together with runs of depth $n$ of the called functions; and such that the rows of the function, on the numbers of indices $i$ with $(a_i, a'_i) = (u, v)$ for pairs of addresses $(u, v)$, hold. Its cost is $\sum_i (w_i + c_i)$, with $c_i$ the cost of the runs called at step $i$.
+\end{defn}
+
+\begin{thm}[Cycle bounds of machine code]
+\label{thm:machine-cycles}
+Let each function of a program be given by its entry address, a finite set $V$ of addresses and rows on pairs of addresses, and build its graph: a node per address of $V$ and an exit node, an edge per successor of the instruction at each address of $V$, with its cycles and its callees, and the rows carried over to the edges by their pairs of addresses. Suppose that $V$ contains the entry and the successors of its instructions, that every address of $V$ holds an instruction whose effect is modelled, that every callee is the entry of a function of the program, and that the graphs have certificates for the claimed bounds. Then every run of every function costs at most its claimed bound.
+\end{thm}
+
+\begin{proof}
+By induction on the depth of the run. The addresses of a run stay in $V$, since the entry is in $V$ and $V$ contains the successors of its instructions; each step is therefore a successor of a modelled instruction, hence an edge of the graph with the same cycles, and the steps form a walk from the entry node to the exit node of the same cost, on which each row has the value it has on the run. By the induction hypothesis the calls of each step are runs of the callees' graphs, and Proposition~\ref{prop:cycles} applies.
+\end{proof}
+
+The specification is trusted, as an instruction-set semantics is. For the Cortex-M0 it is a decoder of the ARMv6-M Thumb encodings with the cycles of the processor's instruction summary (zero-wait-state memory), written for the purpose (\lean{Thumb.\allowbreak decode}): no data are modelled, so both successors of a conditional branch are allowed, and an instruction that writes the program counter otherwise than by a branch, a call or a return has no successor and makes the check fail. A model of the instruction set validated against hardware, such as the HOL4 model of ARMv7 of Fox and Myreen \cite{fox2010trustworthy}, would make that specification more trustworthy; it is not used here. The rows remain an assumption on the executions here; Section~\ref{sec:loops} removes it for the loops that it certifies. Maroneze et al.\ prove the generation of their IPET program from the semantics of CompCert's assembly language \cite{maroneze2014formally}, where the code is the compiler's output rather than a binary.
+
+\section{Loop Bounds on the Machine Code}
+\label{sec:loops}
+
+The rows of Definition~\ref{def:cycle-certificate} are assumptions on the runs. In Theorem~\ref{thm:machine-cycles} they come from the source program, through the matching of source and binary loops, and they are the remaining link between the source analysis and the bound of the binary. To check them on the machine code itself we need a semantics with data: the program counter alone allows both successors of every conditional branch, and no loop is bounded in it. We model the effect of each instruction on the low registers $r_0, \dots, r_7$ and on the flags, and nothing else.
+
+\begin{defn}[Data runs]
+\label{def:data-run}
+A \emph{state} holds eight words $r_0, \dots, r_7 \in [0, 2^{32})$ and four flags $N, Z, C, V$. The specification gives every instruction an \emph{effect}: for each low register, that it is kept, that it receives $(a + b) \bmod 2^{32}$ or $(a - b) \bmod 2^{32}$ for operands $a, b$ that are registers or constants, or that it receives any value; and for the flags, that they are kept, that they are those of the addition $a + b$ or of the subtraction $a - b$ as ARM's AddWithCarry computes them, or that they are any. A conditional branch is \emph{taken} exactly when its condition, a function of the flags, holds. A \emph{data run} of a function is a run of Definition~\ref{def:machine-run} together with a state before each step, such that each step's instruction is modelled, the step is its taken successor if and only if the condition holds (for a conditional branch), and each state is an effect of the previous instruction on the previous state; a call is a single step, whose effect is that of the call instruction. Only the rows designated as trusted need to hold on a data run.
+\end{defn}
+
+For the Cortex-M0 the effects are exact for the additions and subtractions of low registers and immediates (\texttt{ADDS}, \texttt{SUBS}), the moves of an immediate or between low registers, and the comparisons \texttt{CMP} and \texttt{CMN}; every other instruction writes the low registers it may write, with any value, and the flags, with any value, if it may change them. A load gives any value: memory is not modelled. A call may change $r_0, \dots, r_3$ and the flags; it may change every low register unless the callees are assumed to preserve $r_4, \dots, r_7$, as the Arm procedure call standard requires of them, an assumption that the certificate states and the checker reports.
+
+\begin{defn}[Loop certificate]
+\label{def:loop-certificate}
+Let $f$ be a function with entry $e$ and instruction addresses $V$. A \emph{loop certificate} of $f$ gives every $a \in V$ a \emph{kind} $k_a \in \{\mathrm{none}, \mathrm{add}, \mathrm{sub}\}$ and a finite set $I_a$ of linear constraints over $r_0, \dots, r_7$ and two \emph{ghost} variables $g_1, g_2$; and each certified loop $L$ a header $h \in V$, a body $B \subseteq V$, a scale $D \ge 1$, a bound $N \ge 0$ and an affine potential $\Phi_a$ for each $a \in B$ ($\Phi_a = 0$ for $a \notin B$ and for a return). A state $\sigma$ with ghosts $g$ satisfies the certificate at $a$ if $\sigma$ and $g$ satisfy $I_a$ and, when $k_a \ne \mathrm{none}$, the flags of $\sigma$ are those of $g_1 + g_2$ or $g_1 - g_2$ according to $k_a$. The certificate is \emph{valid} if
+\begin{enumerate}
+  \item $k_e = \mathrm{none}$, $I_e$ holds in every state, and $\Phi_e \le \beta$ in every state, where $\beta = N$ if $e \in B$ and $\beta = 0$ otherwise;
+  \item for every transition from $a$ to $a'$ allowed by the effect and the condition at $a$, from a state that satisfies the certificate at $a$ with ghosts $g$: the state after satisfies it at $a'$ with ghosts $g'$, where $g' = g$ if the flags are kept, $g'$ are the operands if the flags are those of an addition or subtraction (and then $k_{a'}$ is $k_a$, the new kind or none), and $k_{a'} = \mathrm{none}$ if the flags become any; and, for every certified loop,
+  \[
+    \kappa_L(a, a') + \Phi_{a'}(\text{after}) - \Phi_a(\text{before}) \;\le\; 0, \qquad
+    \kappa_L(a, a') = \begin{cases} D & a' = h,\ a \in B,\\ -N & a' = h,\ a \notin B,\\ 0 & \text{otherwise.}\end{cases}
+  \]
+\end{enumerate}
+The \emph{row} of $L$ is $\sum_{u \in B} D\, x_{(u,h)} - \sum_{u \notin B} N\, x_{(u,h)} \le \beta$ on the counts of the transitions $(u, h)$.
+\end{defn}
+
+The row says that the back edges of the loop are taken at most $N/D$ times per entry; with $D = 1$ it is the row of Section~\ref{sec:graphs}. Each implication of condition~(2) is checked by a Farkas certificate, with the constraints of $I_a$, the range $[0, 2^{32})$ of every variable and the facts of the transition as premises. The facts of a sum or difference written into a register are a case split on its wrap-around: the value is $a + b + m \cdot 2^{32}$ for some $m \in \{-1, 0, 1\}$ with $0 \le a + b + m\, 2^{32} < 2^{32}$, and the certificate proves the goal in each case (the cases that the invariant excludes by a contradiction). The facts of a conditional branch are a disjunction of linear constraints on the ghosts, by the following lemma.
+
+\begin{lem}[Conditions as linear facts]
+\label{lem:cond-facts}
+For words $g_1, g_2$ and each of the conditions EQ, NE, CS, CC, HI, LS, GE, LT, GT, LE, whether it holds on the flags of $g_1 - g_2$ is a disjunction of conjunctions of linear constraints on $g_1, g_2$; for EQ, NE, CS, CC, HI and LS, so is whether it holds on the flags of $g_1 + g_2$. For instance GE holds on the flags of $g_1 - g_2$ if and only if $g_1, g_2 < 2^{31} \wedge g_1 \ge g_2$, or $g_1, g_2 \ge 2^{31} \wedge g_1 \ge g_2$, or $g_1 < 2^{31} \le g_2$; and NE holds on the flags of $g_1 + g_2$ if and only if $1 \le g_1 + g_2 \le 2^{32} - 1$ or $g_1 + g_2 \ge 2^{32} + 1$.
+\end{lem}
+
+\begin{proof}
+From the definition of AddWithCarry: for the subtraction, $C$ holds if and only if $g_1 \ge g_2$, $Z$ if and only if $g_1 = g_2$, and $N = V$ if and only if $\mathrm{sgn}(g_1) \ge \mathrm{sgn}(g_2)$, where $\mathrm{sgn}$ reads a word in two's complement; the signed comparison is then split by the signs. For the addition, $C$ holds if and only if $g_1 + g_2 \ge 2^{32}$ and $Z$ if and only if $g_1 + g_2 \in \{0, 2^{32}\}$. The other conditions (MI, PL, VS, VC) give no fact.
+\end{proof}
+
+\begin{thm}[Loop bounds of machine code]
+\label{thm:machine-loops}
+Suppose that the functions of a program satisfy the hypotheses of Theorem~\ref{thm:machine-cycles}, with, as rows, the rows designated as trusted and the rows of the certified loops of valid loop certificates. Then every data run of every function on which the trusted rows hold costs at most its claimed bound. In particular, if no row is trusted, every data run does.
+\end{thm}
+
+\begin{proof}
+Let $(a_i, \sigma_i)_{0 \le i \le m}$ be the steps and states of a data run of $f$. By condition~(1) the certificate holds at $a_0 = e$ with any ghosts, and by condition~(2) and induction on $i$ it holds at every $a_i$, with ghosts chosen along the run; condition~(2) also gives, for every certified loop $L$, $\kappa_L(a_i, a_{i+1}) \le \Phi_{a_i}(\sigma_i) - \Phi_{a_{i+1}}(\sigma_{i+1})$, with $\Phi = 0$ after the return. Summing, the potentials telescope:
+\[
+  \sum_{i} \kappa_L(a_i, a_{i+1}) \;\le\; \Phi_e(\sigma_0) \;\le\; \beta,
+\]
+and the left-hand side is the value of the row of $L$ on the counts of the run. Hence every row holds, the data run is a run of Definition~\ref{def:machine-run}, and Theorem~\ref{thm:machine-cycles} applies; the calls are data runs of smaller depth, by induction on the depth.
+\end{proof}
+
+The proof uses neither the order of the instructions nor the structure of the loops: a certified loop need not be a natural loop, and its body need not be the set of instructions that the producer found. Only the generated row matters. In the checker, the rows of the certified loops are generated from the certificate, after the trusted ones, and the graph of Theorem~\ref{thm:machine-cycles} is built with them, so that the cycle certificate is checked against the rows that Theorem~\ref{thm:machine-loops} proves.
+
+The certificates are produced by an analysis of the binary, untrusted (script \lean{benchmarks/cycles/binloops.py}): the kinds by a forward data-flow analysis, the invariants by an analysis of differences of registers (a zone domain, with widening at loop headers and descending iterations), restricted to the registers that the potentials and the loop tests involve, and the potentials by trying $\pm r_i$ and $\pm (r_i - r_j)$ for the registers compared at the loop's exits, with per-instruction constants computed as longest paths and the scale $D$ chosen among $1, 2, 4, 8$. The Farkas multipliers come from shortest paths in the graph of the difference constraints, or from a negative cycle when the premises are contradictory, or else from a linear program; a constraint or a loop whose obligations cannot be proved is dropped, and a dropped loop keeps its row from the source, trusted.
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+The binaries are those of the 29 kernels of TACLeBench, as in Paper~II \cite[Section~\ref{II-subsec:tacle}]{crosscheckTool}, whose loop bounds in the calling contexts of the programs are the source bounds used here.
+
+\paragraph{Cycles on a predictable processor.}
+On a processor whose instruction timings do not depend on the execution history, cost bounds can become time bounds. For the Arm Cortex-M0 (in order, without cache or branch prediction; zero-wait-state memory assumed), the kernels were compiled with Clang at \texttt{-O1} without loop unrolling, and each function of the binary was bounded in cycles by the timing schema applied to its control-flow graph: a loop costs its iteration bound times its longest iteration plus its longest exit path, a call its callee's bound, a conditional branch the taken case. The iteration bound of a binary loop is the in-context bound that CrossCheck derived for the source loop it is matched with through the debug line table (the line of its back-edge branches, else of its header, else of its instructions). The instruction timings are those of the instruction summary of the processor's reference manual; a binary loop is assumed to iterate at most as often as its source loop. Both assumptions were checked on executions: an interpreter of the instruction set, written for this purpose and tested against the C semantics, runs each kernel (each program checks its own result), counts cycles with the same table, and compares every call of a bounded function and every binary loop with its bound. Integer division, which the M0 lacks, is compiled from a small C implementation analysed like the kernels; floating point, done in software on the M0, is not covered. Of the 267 functions of the 29 kernels, 107 receive a cycle bound, including the entry functions of 6 kernels (\texttt{binarysearch}, \texttt{bsort}, \texttt{countnegative}, \texttt{isqrt}, \texttt{jfdctint}, \texttt{matrix1}), whose bounds are 1.24 to 2.49 times the observed cycles; no bound is exceeded on the 11 calls and 45 loops compared. One of these calls, of a function of \texttt{fft} bounded since logarithmic potentials were added, has a bound 970 times its observed cycles: its three nested loops are bounded by the product of their bounds, while at each outer iteration the count of one inner loop doubles and that of the other halves. A first matching rule, which took the largest bound among all the lines of a loop, gave \texttt{matrix1} a bound 105 times the observed cycles, because an instruction outside the loop body inherited the line of another loop. \texttt{fft} fails its own check on the M0: it converts negative floating-point values to \texttt{unsigned long}, which is undefined in C. The comparison checks the path analysis and the loop matching, not the timing table, which the interpreter shares; the table is compared separately, row by row, with the instruction summary of the processor's reference manual \cite{armCortexM0trm} (a test of 87 rows; instructions without a fixed cycle count there, such as \texttt{WFI}, stop the analysis of their function).
+
+\paragraph{Certified cycle bounds.}
+The bound of a binary function can also be checked by the verified checker instead of being trusted from the analysis that computed it. The certificate holds the machine code of the binary, and for each function its entry, the addresses of its instructions, its loop rows (``the back edges of the loop matched with a source loop of bound $N$ are taken at most $N$ times its entry edges'', on pairs of instruction addresses) and the dual solution of the IPET program \cite{li1995ilp}: a linear-programming solver (HiGHS, through scipy; untrusted) gives the multipliers of the rows, which are made integer, and the potentials are computed exactly as longest paths (script \lean{benchmarks/cycles/ipet.py}, option \texttt{--certify} of \lean{run\_cycles.py}). The checker decodes the code itself with a decoder and cycle table written in Lean, builds the control-flow graph of each function (an edge per successor of each instruction; a conditional branch costs 3 cycles taken and 1 not taken), and checks the certificate on it (Theorem~\ref{thm:machine-cycles}). All 107 functions with a cycle bound receive a certificate, and the checker accepts all of them (with the run-time division routines they call, 223 functions, 8{,}333 instructions, checked in 0.15~s); the certified bound is below the timing schema's for 60 functions and equal for 47 (median ratio 0.998, smallest 0.72), never above, and none of the 11 calls compared exceeds it. The entry functions' bounds become 1.06 to 1.94 times the observed cycles. The Lean decoder is compared with the decoder of our interpreter on all $2^{16}$ halfwords (each followed by two second halfwords, for \texttt{BL}) and with llvm-objdump on the 24{,}285 instructions of the kernels' objects, without difference; the comparison with our interpreter covers the cycle table, which is itself compared with the processor's manual (paragraph above). What the check removes from the trusted base is the analysis of the binary, the construction of the graph and the computation of the bound; the specification of the processor (decoder, cycle table, zero-wait-state memory), the copy of the code into the certificate and the loop bounds remain trusted. Maroneze et al.\ prove the generation of their IPET program against the semantics of CompCert's assembly language \cite{maroneze2014formally}, and Sewell et al.\ the decompilation of the seL4 binary against a model of the ARM instruction set validated on hardware \cite{sewell2017high,fox2010trustworthy}; our decoder is not validated on hardware. The run of all kernels with certificates takes 2.8~minutes.
+
+
+\paragraph{A WCET analyzer on the same binaries.}
+The loop bounds were also given to an existing WCET analyzer, OTAWA \cite{ballabriga2010otawa} (version 2.3, built from its public sources), on the same Cortex-M0 binaries, linked into executables. The flow facts that the plugin exports designate loops by source line; on code compiled at \texttt{-O1}, with inlined and rotated loops, OTAWA could not place them, so for this experiment each bound was attached to the header of the binary loop matched with the source loop, as above, designated by function and offset, with the header bounded by one more than the bound of the body. With these flow facts alone, 199 in all, OTAWA computes by IPET a bound for each of the 107 functions that have a cycle bound above, including the 6 entry functions; with one unit per instruction (OTAWA's script \texttt{trivial}), the result bounds executed instructions: of the 11 calls of these functions that the emulated runs complete, none executes more instructions than OTAWA's bound (geometric mean of bound over executed 2.36, the largest ratio, 756, for the same function of \texttt{fft} as above). For cycles, a small program compiled against OTAWA (\lean{benchmarks/cycles/otawa/m0time.cpp}) gives each basic block of OTAWA's control-flow graphs the Cortex-M0 cycles of its instructions, from the timing table above, a conditional branch counted as taken; the Cortex-M0 has no cache and fixed instruction times, so the time of a block is that sum and no pipeline description is needed. OTAWA then bounds the same 107 functions in cycles; none of the 11 calls takes more cycles than its bound (geometric mean 2.74, largest ratio 1{,}054, again in \texttt{fft}). Its bound is never below that of our timing schema: equal for 52 functions and larger for 55 (at most by a factor 1.29, the median ratio being 1.005), the difference coming from the extra execution given to loop headers. The two computations share the timing table and the loop bounds, not the control-flow graphs nor the computation of the bound (IPET in OTAWA, the timing schema here). This checks that the bounds are usable by such a tool and that the binary loop matching is consistent with it; it is not an evaluation of OTAWA.
+
+\paragraph{Other processors.}
+For processors whose timing is not modelled here, the loop bounds are given to OTAWA on its own control-flow graphs: OTAWA lists the loop headers and basic blocks of each function, the natural loops of these graphs are matched with the source loops through the debug lines, by the rules above, and written as flow facts (script \lean{benchmarks/cycles/otawa\_flow.py}); a call graph read from the disassembly refuses, for every function that reaches them, recursion, indirect calls and jumps, jump tables, branches into another function and calls of undefined symbols. On the Cortex-M0 binaries above, this matching gives OTAWA the same bounds as the matching of the timing schema for all 107 functions, with no bound below an emulated run (11 calls). The kernels were then compiled for a Cortex-M4 with its single-precision floating-point unit, linked at the addresses of an STM32 microcontroller, and bounded by the two models of OTAWA's \texttt{stm32} script: the STM32F427 (Cortex-M4: pipeline, no cache) and the STM32H753 (Cortex-M7: pipeline, caches, branch history). OTAWA computes a bound for 168 of the 267 functions on the first (8 entry functions) and 162 on the second (7; six analyses do not finish within 300~s); of the 107 functions bounded on the Cortex-M0, 106 are bounded on the Cortex-M4 (one outer loop is attributed by the debug lines to other source lines and matches no source loop, so it gets no bound), and 62 functions are bounded only there, 57 of which call a single-precision floating-point function of the run-time library on the Cortex-M0, an instruction of the M4. The other functions reach a loop without a bound (56), an undefined function (22: double precision, \texttt{memcpy}), a loop that matches no source loop (12), recursion (7) or a jump table (2). These bounds are not checked against executions (there is no simulator of these processors here), and the timing models are OTAWA's: its STM32F427 memory description gives every bank a latency of 50 cycles and notes that the values are not from the datasheet, and the Cortex-M4 bounds of the entry functions are 1.4 to 23 times those of the Cortex-M0. The experiment shows that the same source bounds reach another instruction set and another timing analysis through flow facts, not how fast these processors are. The run takes 29 minutes, most of it OTAWA's cache analysis for the Cortex-M7.
+
+\paragraph{Stack on the same binaries.}
+The stack that a function needs is a high-water mark: the rule over calls is a maximum, $\max(\mathrm{own}(f),\ d + \mathrm{stack}(g))$ over the call sites of $f$, where the rule for cost is a sum \cite[Proposition~\ref{I-prop:stack}]{crosscheckTheory}. On the same Cortex-M0 binaries, the depth of the stack pointer below its value at a function's entry is computed on the control-flow graph (pushes, pops and adjustments of the stack pointer; it must have a single value at every instruction and be $0$ at every return), and the rule is applied bottom-up on the call graph. No loop bound is involved, so more functions are covered than by the cycle bounds: 143 of the 267 functions, including the entry functions of 10 kernels. The interpreter records, for every call, the stack pointer at entry and its lowest value before the return: no bound is exceeded on the 24 calls compared, and 19 bounds equal the observed stack (9 of the 10 entry functions: between 24 and 104 bytes; \texttt{md5}: 584 bytes against 552 observed). The functions without a bound call software floating-point routines that have no code in our setting (116), set the stack pointer from a register whose value is not a constant loaded just before (4), or are recursive in the binary (4). Exception frames are not counted.
+
+\paragraph{Time budgets.}
+The cost bounds are in abstract units, while industrial budgets are durations. A duration is a property of the machine code on a processor, so it cannot be checked at compile time: an annotation \texttt{CROSSCHECK\_DEADLINE\_US(n)} (or \texttt{\_CYCLES}) is only recorded in the report, together with the loop bounds, and a script checks it after compilation: it computes the cycle bound of the function's code from the plugin's loop bounds, matched with the binary's loops through the debug line table, and a timing model of the processor, converts it with the clock frequency, and fails, so that it can be a post-build step, if the budget is exceeded or the function has no cycle bound. The binary may be the linked program of several translation units, one report per unit: a call is costed from the callee's code in the binary, with the loop bounds of the callee's own report. What it trusts is stated with the result: the timing model, the absence of interrupts during the function, that the compiler preserves the source loops' iteration counts, and the plugin's loop bounds. Two kinds of timing model are supported: the Cortex-M0 model of Section~\ref{sec:evaluation}, and OTAWA \cite{ballabriga2010otawa} for the processors it models, the STM32F427 (Cortex-M4) and STM32H753 (Cortex-M7) of its \texttt{stm32} script, run in a container without network; for OTAWA, the loops of its own control-flow graphs are matched with the source loops, the bounds are given to it as flow facts, and a function that reaches recursion, an indirect call or jump, a jump table or an undefined symbol gets no bound (paragraph ``Other processors'' in Section~\ref{sec:evaluation}). On the Cortex-M0 the cycle bound can also be a certified one, accepted by the verified checker (option \texttt{--certify}; paragraph ``Certified cycle bounds'').
+
+\paragraph{Loop bounds on the machine code.} With option \texttt{--certify-loops}, the loop bounds are also certified on the machine code where the producer finds a certificate (Section~\ref{sec:loops}). The kernels' own functions have 403 natural loops in the binary, and the run-time division routines 116 (four routines per kernel, which shift and subtract). Without assumption on callees, 72 loops of the kernels are certified, none of the division routines; with the assumption that callees preserve $r_4, \dots, r_7$, 94. The checker accepts every certificate, and in the emulated runs no loop takes more back edges per entry than its certified bound. A certified bound is often one less than the source bound, since the binary counts back edges and a rotated loop executes its body once before its first back edge. Certified loop bounds also bound loops that the source analysis does not: 8 more functions receive a certified cycle bound, 115 in all (among them \texttt{fac\_fac} and the copy and fill loops of \texttt{md5} and \texttt{pm}). Of the 425 loops not certified with the assumption on callees, 116 are those of the division routines; of the others, 118 have a counter written by a load (memory is not modelled: at \texttt{-O1} counters are often kept on the stack around calls) or by an instruction whose effect is not modelled, 52 compare a value that is not a copy of a register, 12 test flags set by an instruction whose effect is not modelled, and for 127 the producer's candidates give no potential (for instance a counter whose initial value is computed by \texttt{MVNS}, or a condition computed without branches). The specification of effects, flags and conditions is compared with our interpreter on every 16-bit encoding, in three random states each, with and without the assumption on callees: 297{,}244 executions, without difference (\lean{benchmarks/cycles/test\_effect.py}); and the checker refuses certificates altered in their bounds, scales, potentials, invariants, kinds, multipliers, assumption on callees, or code (\lean{test\_binloops.py}). The run of all kernels with loop certificates takes 3.4~minutes.
+
+\section{Mechanization}
+\label{sec:mechanization}
+
+The modules of this paper (\lean{CyclesCore}, \lean{Cycles}, \lean{ThumbCore}, \lean{Thumb}, \lean{ThumbDataCore}, \lean{ThumbData}) have about 2{,}400 lines of Lean~4 and 93 theorems, in the repository of Paper~I; the executable parts (\lean{\dots Core}) do not use mathlib and are compiled into the checker program. Table~\ref{tab:lean3} lists which Lean statements back the paper's. Each module's examples check a certificate of a counting loop by \lean{decide} and refuse a bound one lower.
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\textwidth}>{\raggedright\arraybackslash}p{0.5\textwidth}>{\raggedright\arraybackslash}p{0.15\textwidth}@{}}
+\toprule
+Paper statement & Lean & Module \\
+\midrule
+Def.~\ref{def:cycle-certificate}, Prop.~\ref{prop:cycles} & \lean{checkFn}, \lean{checkProgram}, \lean{Run}, \lean{cycles\_\allowbreak sound}, \lean{program\_\allowbreak sound} & \lean{Cycles} \\
+Def.~\ref{def:machine-run}, Thm.~\ref{thm:machine-cycles} & \lean{decode}, \lean{trans}, \lean{buildFn}, \lean{checkBinary}, \lean{MRun}, \lean{translate}, \lean{binary\_\allowbreak sound} & \lean{Thumb} \\
+Def.~\ref{def:data-run} & \lean{effect}, \lean{flagsAdd}, \lean{flagsSub}, \lean{condHolds}, \lean{EffOk}, \lean{DOk}, \lean{DRun} & \lean{ThumbData} \\
+Def.~\ref{def:loop-certificate} & \lean{DFun}, \lean{LoopCert}, \lean{loopRow}, \lean{obligations}, \lean{checkData} & \lean{ThumbData} \\
+Lem.~\ref{lem:cond-facts} & \lean{condFacts\_\allowbreak sound}, \lean{sub\_\allowbreak nv}, \lean{sub\_\allowbreak z}, \lean{add\_\allowbreak z} & \lean{ThumbData} \\
+Thm.~\ref{thm:machine-loops} & \lean{step\_\allowbreak ok}, \lean{chain\_\allowbreak ok}, \lean{chain\_\allowbreak rows}, \lean{drun\_\allowbreak mrun}, \lean{data\_\allowbreak sound}; example \lean{exData\_\allowbreak sound} & \lean{ThumbData} \\
+\bottomrule
+\end{tabular}
+\caption{Paper statements and their Lean counterparts (namespace \lean{ImperativeOptimization.Thumb}, \lean{Cycles} for the first row).}
+\label{tab:lean3}
+\end{table}
+
+Not mechanized: that the specification (decoder, cycles, effects, flags, conditions; zero-wait-state memory, no interrupts) describes the Cortex-M0, that the code in a certificate is that of the binary, that callees preserve $r_4, \dots, r_7$ when this is assumed, and that the trusted rows hold. No data run of the example is constructed in Lean (a run of the program-counter semantics is, \lean{exBinary\_\allowbreak run}); that the hypotheses of Theorem~\ref{thm:machine-loops} are satisfiable rests on the emulated runs of Section~\ref{sec:evaluation}, which follow our interpreter, compared with the specification.
+
+\section{Limitations}
+\label{sec:limitations}
+
+The specification of the processor is written for the purpose and compared with an interpreter written by the same hand, not with hardware; a model of the instruction set validated on silicon \cite{fox2010trustworthy} would make it more trustworthy. Memory is not modelled, so loops whose counters are kept in memory are not certified on the machine code; neither are loops whose tests depend on instructions whose effects are approximated. Potentials are differences of at most two registers with per-instruction constants. The bounds are for one processor, the Cortex-M0 with zero-wait-state memory, and without interrupts. The kernels are small programs.
+
+\section*{Conclusions}
+
+Cycle bounds of machine code can be certified by a checker proved sound in Lean, with the graph built by the checker from the code, so that the trusted base is a specification of the processor. The loop bounds of the IPET program can be certified on the same code, for the loops whose counters live in registers, which removes the compiler, the debug information and the source analysis from the trusted base for those loops. Future work is a model of the stack and of memory accessed at constant offsets, which most of the remaining loops need, more exact effects, and a specification of the processor validated on hardware.
+
+\section*{Statement on the Use of AI}
+
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. In November 2026 an AI coding assistant (Anthropic's Claude, model Opus~5.5, used through the Claude Code tool) wrote the Lean modules of Table~\ref{tab:lean3}, the cycle and stack analyses of the binaries, the interpreter, the producers of certificates, the OTAWA experiments, the check of time budgets, the tests, ran the measurements and drafted the text of this paper, which takes over sections of the two companion papers; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository, and the passages read of the cited works in \lean{references/README.md}. Every Lean proof is checked by the Lean kernel. \authortodo{state that you have read and verified the text, the statements and proofs, the measurements and every citation, and take full responsibility for the content; confirm the attributions to \cite{cullmann2007data} (Sections 1, 2 and 5 were read), \cite{crary2000resource} (abstract, Sections 1 and 2) and \cite{sewell2016complete} (Sections I to III).}
+
+\section*{Acknowledgements}
+
+\bibliographystyle{unsrt}
+\bibliography{../crosscheck}
+
+\end{document}

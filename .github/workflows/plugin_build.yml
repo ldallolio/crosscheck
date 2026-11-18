@@ -112,9 +112,10 @@ jobs:
           python3 benchmarks/cycles/test_m0.py
           python3 benchmarks/cycles/test_otawa_flow.py
           python3 benchmarks/cycles/test_ipet.py
+          python3 benchmarks/cycles/test_binloops.py
           python3 benchmarks/cycles/run_cycles.py --clang=/usr/lib/llvm-18/bin/clang \
             --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json \
-            --certify=cycle-certificates
+            --certify=cycle-certificates --certify-loops
 
       # IPET cycle certificates of the same functions (their bounds were checked against
       # the runs above); the verified checker checks them in the next job.
@@ -169,14 +170,17 @@ jobs:
           path: cycle-certificates
 
       # Cycle bounds of the Cortex-M0 machine code (Lean Thumb.binary_sound: the checker
-      # decodes the code and builds the graphs); altered certificates must be rejected; the
-      # Lean decoder is compared with m0.py on every encoding and with llvm-objdump on the
-      # kernels' objects.
+      # decodes the code and builds the graphs), with loop bounds certified on the code where
+      # possible (Thumb.data_sound); altered certificates must be rejected; the Lean decoder is
+      # compared with m0.py on every encoding and with llvm-objdump on the kernels' objects,
+      # the Lean effects, flags and conditions with m0.py on every encoding.
       - name: Check the cycle certificates
         run: |
           formalization/.lake/build/bin/crosscheck-check cycle-certificates/cycle-certificates/*.json | tee cycles-checked.txt
           echo "Cycle bounds accepted: $(grep -c '^ACCEPTED' cycles-checked.txt)" >> "$GITHUB_STEP_SUMMARY"
           sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy llvm-18
           python3 benchmarks/cycles/test_ipet.py --checker formalization/.lake/build/bin/crosscheck-check
+          python3 benchmarks/cycles/test_binloops.py --checker formalization/.lake/build/bin/crosscheck-check
+          python3 benchmarks/cycles/test_effect.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_thumb.py --checker formalization/.lake/build/bin/crosscheck-check \
             --objects cycle-certificates/benchmarks/tacle/.cache/work --objdump /usr/lib/llvm-18/bin/llvm-objdump

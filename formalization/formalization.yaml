@@ -1,5 +1,6 @@
-# Machine-readable link between Paper I (paper/theory/crosscheck-theory.tex) and the Lean 4
-# development. Generated from Table 1 of the paper; keep the two in sync.
+# Machine-readable link between the papers and the Lean 4 development: Paper I
+# (paper/theory/crosscheck-theory.tex, Table 1) by default, Paper III
+# (paper/binary/crosscheck-binary.tex, Table tab:lean3) where `paper:` says so. Keep them in sync.
 # NOTE: the schema below is project-defined. It has NOT been validated against
 # any community specification for formalization metadata.
 project: CrossCheck
@@ -111,13 +112,20 @@ statements:
     module: ImperativeOptimization.Stack
     lean: [ActTree, highWater_le_of_bound, highWater_le_depth]
   - paper_labels: [def:cycle-certificate, prop:cycles]
+    paper: paper/binary/crosscheck-binary.tex
     note: "IPET cycle certificates of control-flow graphs (dual potentials and row multipliers; calls by depth induction); the graph, weights and rows are trusted"
     module: ImperativeOptimization.Cycles
     lean: [Run, Walk, checkFn, checkProgram, walk_bound, sum_dot, cycles_sound, program_sound, exLoop_checks, exLoop_tight, exLoop_run]
   - paper_labels: [def:machine-run, thm:machine-cycles]
+    paper: paper/binary/crosscheck-binary.tex
     note: "cycle bounds of Cortex-M0 machine code: decoder and timing table (the trusted specification), graphs built from the code, every run bounded"
     module: ImperativeOptimization.Thumb
     lean: [decode, trans, Step, MRun, buildFn, checkBinary, chain_walk, translate, binary_sound, exBinary_checks, exBinary_tight, exBinary_run]
+  - paper_labels: [def:data-run, def:loop-certificate, lem:cond-facts, thm:machine-loops]
+    paper: paper/binary/crosscheck-binary.tex
+    note: "loop bounds of Cortex-M0 machine code: data semantics (effects on r0-r7 and the flags, the trusted specification), certificates of invariants and potentials checked by Farkas multipliers, the rows of the certified loops hold on every data run"
+    module: ImperativeOptimization.ThumbData
+    lean: [effect, flagsAdd, flagsSub, condHolds, EffOk, DOk, DRun, condFacts_sound, step_ok, chain_ok, chain_rows, drun_mrun, data_sound, exData_checks, exData_tight, exData_sound]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

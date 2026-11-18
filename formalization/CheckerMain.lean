@@ -10,6 +10,7 @@ import ImperativeOptimization.MiniCJumpCore
 import ImperativeOptimization.ResponseCore
 import ImperativeOptimization.CyclesCore
 import ImperativeOptimization.ThumbCore
+import ImperativeOptimization.ThumbDataCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -54,7 +55,12 @@ A file with `"format": "crosscheck-binary-cycles"` holds the machine code itself
 rows on pairs of addresses and a certificate: the checker builds the graphs from the code
 with the verified decoder and runs `Thumb.checkBinary` (theorem `Thumb.binary_sound`: every
 run of the machine code, in the semantics of `Thumb`, on which the rows hold, costs at most
-the bound). `--decode FILE` prints the decoding of the addresses listed in FILE (for
+the bound). Version 2 of the format may add, per function, loop certificates on the
+machine code (`"loops"`, `"kinds"`, `"inv"`, `"proofs"`, and `"abi"` for the program): the
+checker then also runs `Thumb.checkData` (theorem `ThumbData.data_sound`: the rows of the
+certified loops hold on every run of the data semantics, so only the rows left in `"rows"`
+are trusted). The rows of the certified loops are generated here by `Thumb.loopRow`, and
+the graphs are built with them. `--decode FILE` prints the decoding of the addresses listed in FILE (for
 differential tests of the decoder).
 
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
@@ -457,43 +463,124 @@ def parseMRow (j : Json) : Except String ImperativeOptimization.Thumb.MRow := do
     | _ => throw "a row coefficient must be [src, dst, a]"
   pure ⟨coef, ← getInt j "rhs"⟩
 
-/-- A function: entry, instruction addresses, rows, certificate (potentials per address in
-    the order of `nodes`, then the exit). -/
-def parseBFun (f : Json) : Except String (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert) := do
+/-- A sparse vector `[[variable, coefficient], ...]` as a dense one (repetitions add up). -/
+def denseOf (l : List (Nat × Int)) : List Int :=
+  let n := (l.map (·.1 + 1)).foldl max 0
+  (List.range n).map fun v => (l.filter (·.1 == v)).foldl (fun s p => s + p.2) 0
+
+def parseSparse (j : Json) (what : String) : Except String (List (Nat × Int)) := do
+  let ps ← match j.getArr? with
+    | .ok a => pure a.toList
+    | .error _ => throw s!"{what} must be an array of [index, value]"
+  ps.mapM fun p => do
+    match ← intList p what with
+    | [v, k] => if v < 0 then throw s!"{what}: negative index" else pure (v.toNat, k)
+    | _ => throw s!"{what}: [index, value] expected"
+
+/-- A constraint `Σ k·x_v + c ≤ 0` (`{"sv": [[v, k], ...], "c": c}`). -/
+def parseDLin (j : Json) : Except String Lin := do
+  pure ⟨denseOf (← parseSparse (← field j "sv") "sv"), [], ← getInt j "c"⟩
+
+def parseDPExp (j : Json) : Except String PExp := do
+  pure ⟨denseOf (← parseSparse (← field j "sv") "sv"), ← getInt j "c"⟩
+
+def parseKind (j : Json) : Except String ImperativeOptimization.Thumb.FKind :=
+  match j.getStr? with
+  | .ok "none" => pure .none
+  | .ok "add" => pure .add
+  | .ok "sub" => pure .sub
+  | _ => throw "a kind must be \"none\", \"add\" or \"sub\""
+
+def parseLoop (j : Json) : Except String ImperativeOptimization.Thumb.LoopCert := do
+  pure ⟨← getNat j "header", ← natList (← field j "body") "body", ← getNat j "scale", ← getNat j "bound",
+    ← parseArr j "pot" parseDPExp⟩
+
+/-- A Farkas certificate `[mu, [[premise, multiplier], ...]]`. -/
+def parseProof (j : Json) : Except String (Nat × List Nat) := do
+  let a ← match j.getArr? with
+    | .ok a => pure a.toList
+    | .error _ => throw "a proof must be [mu, [[premise, multiplier], ...]]"
+  match a with
+  | [mu, lam] =>
+    let mu ← match mu.getNat? with
+      | .ok n => pure n
+      | .error _ => throw "a proof's mu must be a natural number"
+    let l ← parseSparse lam "multipliers"
+    if l.any (·.2 < 0) then throw "multipliers must be natural numbers"
+    pure (mu, (denseOf l).map Int.toNat)
+  | _ => throw "a proof must be [mu, [[premise, multiplier], ...]]"
+
+def optArr {α : Type} (j : Json) (k : String) (f : Json → Except String α) : Except String (List α) :=
+  match j.getObjVal? k with
+  | .ok _ => parseArr j k f
+  | .error _ => pure []
+
+/-- A function: entry, instruction addresses, trusted rows, certificate (potentials per
+    address in the order of `nodes`, then the exit), and its loop certificate (empty if
+    absent). The rows of the certified loops are added after the trusted ones. -/
+def parseBFun (f : Json) : Except String
+    (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert × ImperativeOptimization.Thumb.DFun) := do
   let c ← field f "certificate"
+  let trusted ← parseArr f "rows" parseMRow
+  let loops ← optArr f "loops" parseLoop
+  let F0 : ImperativeOptimization.Thumb.BFun :=
+    ⟨← getNat f "entry", ← natList (← field f "nodes") "nodes", trusted⟩
   let F : ImperativeOptimization.Thumb.BFun :=
-    ⟨← getNat f "entry", ← natList (← field f "nodes") "nodes", ← parseArr f "rows" parseMRow⟩
+    { F0 with rows := trusted ++ loops.map (ImperativeOptimization.Thumb.loopRow F0) }
   let C : ImperativeOptimization.Cycles.Cert := ⟨← getNat c "scale", ← intList (← field c "pot") "pot",
     ← natList (← field c "mult") "mult", ← getNat c "bound"⟩
-  pure (nameOf f "name", F, C)
+  let D : ImperativeOptimization.Thumb.DFun :=
+    ⟨← optArr f "kinds" parseKind, ← optArr f "inv" (fun l => match l.getArr? with
+        | .ok a => a.toList.mapM parseDLin
+        | .error _ => throw "an invariant must be an array of constraints"),
+     loops, trusted, ← optArr f "proofs" parseProof⟩
+  pure (nameOf f "name", F, C, D)
 
 def parseBinaryFile (j : Json) :
-    Except String (Nat × ImperativeOptimization.Thumb.Code ×
-      List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert))) := do
+    Except String (Nat × Bool × ImperativeOptimization.Thumb.Code ×
+      List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert ×
+        ImperativeOptimization.Thumb.DFun))) := do
   let ver ← getNat j "version"
-  if ver != 1 then throw s!"unsupported version {ver} of crosscheck-binary-cycles (this checker reads version 1)"
+  if ver != 1 && ver != 2 then
+    throw s!"unsupported version {ver} of crosscheck-binary-cycles (this checker reads versions 1 and 2)"
   let progs ← parseArr j "programs" fun p => do
     pure (nameOf p "name", ← parseArr p "functions" parseBFun)
-  pure (← getNat j "mul_cycles", ← parseCode j, progs)
+  let abi := match j.getObjValAs? Bool "abi" with
+    | .ok b => b
+    | .error _ => false
+  pure (← getNat j "mul_cycles", abi, ← parseCode j, progs)
 
-def runBinary (mul : Nat) (code : ImperativeOptimization.Thumb.Code)
-    (progs : List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert))) :
+def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code)
+    (progs : List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert ×
+      ImperativeOptimization.Thumb.DFun))) :
     IO UInt32 := do
   let mut status : UInt32 := 0
   for (pname, funs) in progs do
     let fs := funs.map (·.2.1)
     let entries := fs.map (·.entry)
-    let bounds := funs.map (·.2.2.bound)
-    for (name, F, C) in funs do
+    let bounds := funs.map (·.2.2.1.bound)
+    let Ls := funs.map (·.2.2.2)
+    for (name, F, C, D) in funs do
       match ImperativeOptimization.Thumb.buildFn mul code entries F with
       | none => IO.println s!"REJECTED {name}: the graph cannot be built from the code (an instruction address without code, a stop instruction, a successor or callee missing)"
       | some G =>
         let ok := ImperativeOptimization.Cycles.checkFn bounds G C
         IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({F.nodes.length} instructions, {G.edges.length} edges, {G.rows.length} rows)"
+      if !D.loops.isEmpty || !D.inv.isEmpty then
+        let okD := ImperativeOptimization.Thumb.checkDFun mul abi code F D
+        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations)"
     -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
-    let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2))
-    IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
-    if !okP then status := 1
+    let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
+    let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
+    let nTrust := (Ls.map (·.trusted.length)).foldl (· + ·) 0
+    if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) then
+      -- the decision of the verified `checkData` (theorem `ThumbData.data_sound`)
+      let okD := ImperativeOptimization.Thumb.checkData mul abi code fs Ls
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {if abi then "callees assumed to preserve r4-r7" else "no assumption on callees"}; the decoder, the timing table and the effects of the instructions are trusted)"
+      if !(okP && okD) then status := 1
+    else
+      IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
+      if !okP then status := 1
   return status
 
 def showKind : ImperativeOptimization.Thumb.Kind → String
@@ -512,6 +599,39 @@ def runDecode (j : Json) : Except String (List String) := do
   pure <| addrs.map fun a => match ImperativeOptimization.Thumb.decode mul code a with
     | some i => s!"{a} {i.size} {showKind i.kind} {i.cyc} {i.cycNot}"
     | none => s!"{a} none"
+
+/-- `--effect`: for each case (an address, the low registers, the flags N Z C V), the
+    registers after the instruction as `Thumb.effect` and `Thumb.valOf` give them (`k`:
+    kept, `=v`: that value, `?`: any), the flags after it (`keep`, `any` or four bits) and
+    the fourteen conditions on the flags given (`Thumb.condHolds`), for differential tests. -/
+def runEffect (j : Json) : Except String (List String) := do
+  let code ← parseCode j
+  let abi := match j.getObjValAs? Bool "abi" with
+    | .ok b => b
+    | .error _ => false
+  let cases ← parseArr j "cases" fun c => do
+    pure (← getNat c "a", ← natList (← field c "r") "r", ← natList (← field c "f") "f")
+  let bit (b : Bool) : String := if b then "1" else "0"
+  let showF (f : ImperativeOptimization.Thumb.Flags) : String := bit f.n ++ bit f.z ++ bit f.c ++ bit f.v
+  pure <| cases.map fun (a, r, fl) =>
+    let e := ImperativeOptimization.Thumb.effect abi code a
+    let rf : Nat → Nat := fun i => r.getD i 0
+    let regs := (List.range 8).map fun i => match e.dst.find? (fun p => p.1 == i) with
+      | none => "k"
+      | some (_, v) => match ImperativeOptimization.Thumb.valOf rf v with
+        | some x => s!"={x}"
+        | none => "?"
+    let fs := match e.fl with
+      | .keep => "keep"
+      | .any => "any"
+      | .add x y => showF (ImperativeOptimization.Thumb.flagsAdd (ImperativeOptimization.Thumb.srcVal rf x)
+          (ImperativeOptimization.Thumb.srcVal rf y))
+      | .sub x y => showF (ImperativeOptimization.Thumb.flagsSub (ImperativeOptimization.Thumb.srcVal rf x)
+          (ImperativeOptimization.Thumb.srcVal rf y))
+    let f0 : ImperativeOptimization.Thumb.Flags :=
+      ⟨fl.getD 0 0 == 1, fl.getD 1 0 == 1, fl.getD 2 0 == 1, fl.getD 3 0 == 1⟩
+    let conds := String.join ((List.range 14).map fun cc => bit (ImperativeOptimization.Thumb.condHolds cc f0))
+    s!"{a} {" ".intercalate regs} {fs} {conds}"
 
 /-! ### Printing what was checked -/
 
@@ -584,9 +704,10 @@ open CheckerMain in
 def main (args : List String) : IO UInt32 := do
   let printIt := args.contains "--print"
   let decodeIt := args.contains "--decode"
-  let files := args.filter (fun a => a != "--print" && a != "--decode")
+  let effectIt := args.contains "--effect"
+  let files := args.filter (fun a => a != "--print" && a != "--decode" && a != "--effect")
   if files.isEmpty then
-    IO.eprintln "usage: crosscheck-check [--print | --decode] FILE.json..."
+    IO.eprintln "usage: crosscheck-check [--print | --decode | --effect] FILE.json..."
     return 2
   let mut status : UInt32 := 0
   for path in files do
@@ -596,6 +717,13 @@ def main (args : List String) : IO UInt32 := do
       | .error e => do
         IO.eprintln s!"{path}: {e}"
         return 2
+    if effectIt then
+      match Json.parse text >>= runEffect with
+      | .error e =>
+        IO.eprintln s!"{path}: malformed effect request: {e}"
+        return 2
+      | .ok ls => ls.forM IO.println
+      continue
     if decodeIt then
       match Json.parse text >>= runDecode with
       | .error e =>
@@ -608,8 +736,8 @@ def main (args : List String) : IO UInt32 := do
       | .error e =>
         IO.eprintln s!"{path}: malformed binary cycle certificate file: {e}"
         return 2
-      | .ok (mul, code, progs) =>
-        status := max status (← runBinary mul code progs)
+      | .ok (mul, abi, code, progs) =>
+        status := max status (← runBinary mul abi code progs)
       continue
     if (Json.parse text).toOption.bind (fun j => (j.getObjValAs? String "format").toOption) == some "crosscheck-cycles" then
       match Json.parse text >>= parseCyclesFile with

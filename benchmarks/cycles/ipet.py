@@ -103,13 +103,24 @@ def trans(i):
     raise NoCertificate(f"{i.op} at {i.addr:#x}: no successor in the semantics")
 
 
-def certify_function(an, name, bound_of, base=0):
-    """(JSON of the function, bound); `bound_of`: certified bounds by function address."""
+def certify_function(an, name, bound_of, base=0, cert_loops=()):
+    """(JSON of the function, bound); `bound_of`: certified bounds by function address;
+    `cert_loops`: [(header, body, scale, bound)] of the loops certified on the machine code
+    (`binloops.py`), whose rows the checker generates (after the trusted ones, in this
+    order: `Thumb.loopRow`)."""
     try:
-        entry, blocks, succ = an.cfg(name)
-        _pred, back, loops, _headers, _parent, bound = an.loop_structure(name, entry, blocks, succ)
+        if cert_loops:
+            import binloops
+            entry, blocks, succ, back, loops, _headers, bound = binloops.structure(an, name)
+        else:
+            entry, blocks, succ = an.cfg(name)
+            _pred, back, loops, _headers, _parent, bound = an.loop_structure(name, entry, blocks, succ)
     except wcet.Unbounded as e:
         raise NoCertificate(str(e))
+    done = {h for h, *_ in cert_loops}
+    for h in loops:
+        if h not in done and bound.get(h) is None:
+            raise NoCertificate(f"binary loop at {h:#x} has no bound (neither from the source nor certified)")
     insns = sorted((i for il in blocks.values() for i in il), key=lambda i: i.addr)
     nodes = [i.addr for i in insns]
     idx = {a: k for k, a in enumerate(nodes)}
@@ -128,7 +139,10 @@ def certify_function(an, name, bound_of, base=0):
                 g = an.img.undefined.get(t) or next((n for n, (a, _) in an.img.funcs.items() if a == t), hex(t))
                 raise NoCertificate(f"call to {g}, which has no certificate")
     rows, mrows = [], []
+    certified = {h for h, *_ in cert_loops}
     for h, body in loops.items():
+        if h in certified:
+            continue
         N = bound[h]
         coef = {}
         for u, hh in back:
@@ -141,6 +155,10 @@ def certify_function(an, name, bound_of, base=0):
         rows.append(([[k, coef[p]] for k, p in enumerate(pairs) if p in coef], rhs))
         mrows.append(dict(coef=[[s + base, t + base, a] for (s, t), a in sorted(coef.items())], rhs=rhs,
                           note=f"loop at {h + base:#x}: at most {N} back edges per entry"))
+    for h, body, D, N in cert_loops:
+        B = set(body)
+        coef = [[k, D if s in B else -N] for k, (s, t) in enumerate(pairs) if t == h]
+        rows.append((coef, N if entry in B else 0))
     weights = [w + sum(bound_of[t] for t in cs) for (_u, _v, w, cs) in edges]
     allnodes = list(range(exit_ + 1))
     lam = lp_multipliers(allnodes, edges, rows, idx[entry], exit_, weights)
@@ -168,9 +186,12 @@ def an_preds(blocks, succ, h):
     return [b for b in blocks if h in succ[b]]
 
 
-def certify(an, roots, mul=None):
+def certify(an, roots, mul=None, loops=False, abi=False, stats=None):
     """A certificate on the machine code for the functions reachable from `roots` (callees
-    first); returns (JSON, {function: bound}, {function: reason})."""
+    first); returns (JSON, {function: bound}, {function: reason}). With `loops`, the loop
+    bounds are also certified on the machine code where `binloops.py` finds a certificate
+    (format version 2; `abi`: callees assumed to preserve r4-r7); `stats` (a dict) then
+    receives per function the certified loops and the reasons for the others."""
     img = an.img
     base = getattr(img, "base", 0)
     addr_of = {n: a for n, (a, _) in img.funcs.items()}
@@ -190,7 +211,15 @@ def certify(an, roots, mul=None):
                 for i in il:
                     if i.kind == "call" and i.target in names:
                         visit(names[i.target])
-            fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base)
+            fields, cl = {}, ()
+            if loops:
+                import binloops
+                fields, info, lwhy = binloops.certify_loops(an, name, abi)
+                cl = [(l["header"], l["body"], l["scale"], l["bound"]) for l in fields.get("loops", [])]
+                if stats is not None:
+                    stats[name] = dict(certified=info, other=lwhy)
+            fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base, cl)
+            fn.update(fields)
             funcs.append(fn)
             bounds[name] = B
         except (wcet.Unbounded, NoCertificate) as e:
@@ -204,9 +233,11 @@ def certify(an, roots, mul=None):
     top = max((a + s for a, s in img.funcs.values()), default=0) + 4
     top = min(top + (top % 2), len(img.mem) - (len(img.mem) % 2))
     halfwords = list(struct.unpack_from(f"<{top // 2}H", img.mem, 0)) if top else []
-    doc = {"format": "crosscheck-binary-cycles", "version": 1,
+    doc = {"format": "crosscheck-binary-cycles", "version": 2 if loops else 1,
            "mul_cycles": m0.MUL_CYCLES if mul is None else mul,
            "note": "Cortex-M0 machine code; the checker decodes it (Lean Thumb.decode) and builds the graphs",
            "code": dict(base=base, halfwords=halfwords),
            "programs": [dict(name="program", functions=funcs)] if funcs else []}
+    if loops:
+        doc["abi"] = abi
     return doc, bounds, why

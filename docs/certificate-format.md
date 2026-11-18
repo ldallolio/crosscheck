@@ -251,7 +251,7 @@ Lean `Cycles`, Paper I `prop:cycles`):
 ## Cycle certificates on machine code (`"format": "crosscheck-binary-cycles"`)
 
 The same certificates, but the graph is built by the checker from the machine code
-(Lean `Thumb`, Paper I `thm:machine-cycles`); this is what `benchmarks/cycles/ipet.py`
+(Lean `Thumb`, Paper III `thm:machine-cycles`); this is what `benchmarks/cycles/ipet.py`
 produces for the Cortex-M0:
 
 ```json
@@ -282,6 +282,52 @@ produces for the Cortex-M0:
   decoder and timing table, that the code is the binary's, the rows.
 - `crosscheck-check --decode FILE` prints the decoding of the `addresses` of FILE
   (`mul_cycles`, `code`, `addresses`), for `benchmarks/cycles/test_thumb.py`.
+
+### Version 2: loop bounds certified on the machine code
+
+Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cycles.py
+--certify-loops` or `crosscheck_link.py --certify`; Paper III `thm:machine-loops`, Lean
+`ThumbData.data_sound`) adds optional fields; a version-1 file is read as before.
+
+- `"abi"` (program-wide, default `false`): with `true`, a call may change only `r0`-`r3`
+  and the flags (callees are assumed to preserve `r4`-`r7`, as the AAPCS requires); the
+  verdict says so.
+- Per function, `"rows"` are now the **trusted** rows only; `"loops"` lists the certified
+  loops, whose rows the checker generates (`Thumb.loopRow`) and appends to the trusted
+  ones, in that order (the IPET certificate's `mult` follows that order):
+  `{"header": h, "body": [addresses], "scale": D, "bound": N, "pot": [affine expressions,
+  in the order of body]}`; the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body} N·x(u→h) ≤ N`
+  if the entry is in the body, `≤ 0` otherwise (at most N/D back edges per entry).
+- `"kinds"`: per instruction (order of `nodes`) the operation that set the flags,
+  `"none"`, `"add"` or `"sub"`; `"inv"`: per instruction a list of constraints
+  `{"sv": [[variable, coefficient], ...], "c": c}` meaning `Σ coefficient·x + c ≤ 0`;
+  variables `0`-`7` are `r0`-`r7`, `8` and `9` the operands of the operation that set the
+  flags. Potentials have the same form (an affine expression `Σ coefficient·x + c`).
+- `"proofs"`: one Farkas certificate `[mu, [[premise index, multiplier], ...]]` per
+  obligation, in the order of `Thumb.obligations` (the entry's invariant and the
+  potentials at the entry from the ranges alone; then, for every instruction, every
+  transition, every wrap case of a written sum or difference and every disjunct of the
+  facts of a branch, the successor's invariant and the descent `k + Φ(next) − Φ(here) ≤ 0`
+  of every certified loop). The premises are the disjunct, the wrap case, the
+  instruction's invariant and the ranges `[0, 2^32 − 1]` of the 20 variables (`10`-`17`:
+  registers written with any value, `18`, `19`: fresh ghosts).
+- Accepted (the second line per function, `ACCEPTED f: loop bounds of the machine code`,
+  and the program line): every run of the data semantics (`ThumbData.DRun`: effects of the
+  instructions on `r0`-`r7` and the flags, `Thumb.effect`; a branch taken iff its
+  condition holds, `Thumb.condHolds`) on which the trusted rows hold costs at most the
+  bound. Trusted: the decoder, the timing table, the effects, flags and conditions
+  (compared with `m0.py` by `test_effect.py`), the code, the trusted rows, and the
+  assumption on callees if `"abi"` is true.
+- `crosscheck-check --effect FILE` prints, for each case (`a`, registers `r`, flags `f`),
+  the registers and flags after the instruction as Lean computes them and the fourteen
+  conditions, for `benchmarks/cycles/test_effect.py`.
+
+Example (the counting loop of the version-1 example, its bound proved on the code; no
+trusted row), excerpt:
+
+```json
+{"loops": [{"header": 258, "body": [258, 260, 262, 264], "scale": 1, "bound": 10, "pot": [{"sv": [[0, -1]], "c": 10}, {"sv": [[0, -1]], "c": 10}, {"sv": [[0, -1]], "c": 10}, {"sv": [[0, -1]], "c": 11}]}], "kinds": ["none", "none", "sub", "sub", "add", "sub"], "inv": [[], [{"sv": [[0, 1]], "c": -10}], [{"sv": [[0, 1]], "c": -10}, {"sv": [[0, 1], [8, -1]], "c": 0}, {"sv": [[8, 1]], "c": -10}, {"sv": [[0, -1], [8, 1]], "c": 0}, {"sv": [[9, 1]], "c": -10}, {"sv": [[9, -1]], "c": 10}], "..."]} ...
+```
 
 ## How the plugin produces certificates
 

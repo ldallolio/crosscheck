@@ -101,3 +101,18 @@ requirements:
       - {kind: proof, file: formalization/ImperativeOptimization/Thumb.lean, lean: [binary_sound, translate, chain_walk, exBinary_tight, exBinary_run]}
       - {kind: test, files: [benchmarks/cycles/test_ipet.py, benchmarks/cycles/test_thumb.py]}
       - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_ipet.py, test_thumb.py]}
+  - id: TOR-12
+    text: >
+      For a file of format crosscheck-binary-cycles, version 2, whose functions carry loop
+      certificates, the tool generates the rows of the certified loops (Thumb.loopRow),
+      builds the graphs with them and prints "PROGRAM <name>: ACCEPTED (... loop rows
+      certified on the machine code, ...)" only if, in addition to TOR-11, every run of the
+      data semantics Thumb.DRun (effects of the instructions on r0-r7 and the flags, branch
+      conditions on the flags) on which the rows left in "rows" hold costs at most the
+      stated bound; with "abi": true, callees are assumed to preserve r4-r7, which the
+      verdict states. The effects, flags and conditions are the specification of the
+      processor; they are compared with m0.py on every encoding.
+    evidence:
+      - {kind: proof, file: formalization/ImperativeOptimization/ThumbData.lean, lean: [data_sound, drun_mrun, chain_rows, step_ok, condFacts_sound, exData_tight, exData_sound]}
+      - {kind: test, files: [benchmarks/cycles/test_binloops.py, benchmarks/cycles/test_effect.py]}
+      - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_binloops.py, test_effect.py, --certify-loops]}

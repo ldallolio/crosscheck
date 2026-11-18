@@ -100,7 +100,7 @@ longest paths to the exit. The verified checker decodes the code itself (Lean
 `Thumb.decode`: ARMv6-M Thumb and the Cortex-M0 cycles of `m0.py`), builds the graph (one
 node per instruction, an edge per successor: a conditional branch costs 3 cycles taken,
 1 not taken; `BL` 4 plus the callee's certified bound) and accepts or rejects the
-certificate (Lean `Thumb.binary_sound`, Paper I `thm:machine-cycles`).
+certificate (Lean `Thumb.binary_sound`, Paper III `thm:machine-cycles`).
 
 | | |
 |---|---:|
@@ -135,6 +135,41 @@ cycles) and with llvm-objdump on the 24,285 instructions of the kernels' objects
 size, target): no difference. Tests: `test_ipet.py` (machine code whose worst case is
 known; certificates altered in each part, including the code, must be rejected), in CI,
 where the certificates of all kernels are checked by the Lean checker job.
+
+## Loop bounds certified on the machine code (2026-11-18)
+
+`run_cycles.py --certify DIR --checker ... --certify-loops [--abi]`: the loop bounds are
+also certified on the machine code where `binloops.py` finds a certificate (format
+version 2, `docs/certificate-format.md`; Lean `ThumbData.data_sound`, Paper III
+`thm:machine-loops`). Per instruction, the kind of operation that set the flags and an
+invariant on `r0`-`r7` and the two operands of that operation (a zone analysis of
+differences of registers, widening at loop headers, descending iterations); per loop, a
+potential `±r_i` or `±(r_i − r_j)` plus per-instruction constants, scale 1, 2, 4 or 8; Farkas
+multipliers from shortest paths, negative cycles or a linear program. What cannot be
+proved is dropped; a dropped loop keeps its source row, trusted.
+
+| run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
+|---|---|---|---|---|
+| no assumption on callees | 72 of 403 | 331 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7) | 94 of 403 | 309 + 116 | all | 115 |
+
+No back-edge count of the emulated runs exceeds a certified bound. 38 (48 with `--abi`) of
+the certified bounds are below the source bound (typically by one: the binary counts back
+edges). The 8 functions newly certified are `fac_fac`, `md5_R_RandomInit`, `md5_R_memset`,
+`md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`. Reasons of the 425
+loops not certified with `--abi`: 116 division routines (shifts); 118 a counter written by
+a load (memory is not modelled; counters on the stack around calls at `-O1`) or an
+unmodelled instruction; 52 a compared value that is not a copy of a register; 12 flags set
+by an unmodelled instruction; 127 no potential among the producer's candidates. The run
+takes 3.4 minutes.
+
+Trusted, in addition to the decoder and timing table: the effects of the instructions on
+`r0`-`r7` and the flags, the flags of additions and subtractions and the conditions
+(`Thumb.effect`, `flagsAdd`, `flagsSub`, `condHolds`), compared by `test_effect.py` (CI)
+with `m0.py` on every 16-bit encoding in three random states, with and without the
+assumption on callees: 297,244 executions, no difference. `test_binloops.py` (CI):
+certificates altered in their bounds, scales, potentials, invariants, kinds, multipliers,
+assumption on callees, or code must be rejected.
 
 ## OTAWA on the same binaries (2026-11-16)
 

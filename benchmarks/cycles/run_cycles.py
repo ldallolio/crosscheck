@@ -62,7 +62,7 @@ def runtime_bounds(tool, work, extra):
             for f in rep["functions"] for l in f["loops"]}
 
 
-def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None):
+def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False):
     import subprocess
     r = run_tacle.run_kernel(tool, kernel, work, extra)
     rep = json.loads((work / f"{kernel.name}.json").read_text())
@@ -92,7 +92,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
     if certdir:
         # IPET cycle certificates (ipet.py), checked by the verified checker if given
         # (Lean Cycles.program_sound); without a checker they are compared with the runs only
-        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs))
+        lstats = {}
+        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats)
         cf = pathlib.Path(certdir) / f"{kernel.name}.cycles.json"
         cf.write_text(json.dumps(doc) + "\n")
         certified = dict(ib)
@@ -101,7 +102,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
             out = subprocess.run([checker, str(cf)], capture_output=True, text=True)
             accepted = out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
             output = None if accepted else (out.stdout + out.stderr)[-400:]
-        cert_info = dict(accepted=accepted, why=iwhy, checker_output=output)
+        cert_info = dict(accepted=accepted, why=iwhy, checker_output=output, loops=lstats)
     sa = stackbound.StackAnalysis(img)
     sbound = {n: sa.function(n) for n in sorted(img.funcs)}
     # run, with the checks
@@ -113,6 +114,21 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
         for (h, _lines, N, body) in ls:
             bodies[h] = (body, N, fn)
     count, worst_loop = {}, {}
+    # loops whose bound is certified on the machine code (binloops.py): checked against the runs too
+    cbodies, ccount = {}, {}
+    for fn, st in (cert_info.get("loops") or {}).items():
+        for (h, N, _src) in st["certified"]:
+            ctx_loops = an.loops.get(fn, [])
+            body = next((b for (hh, _l, _n, b) in ctx_loops if hh == h), None)
+            if body is None:
+                import binloops
+                try:
+                    c = binloops.Ctx(an, fn, abi)
+                    body = set(next(b for (hh, b, _n) in c.iloops if hh == h))
+                except Exception:   # noqa: BLE001
+                    body = None
+            if body is not None:
+                cbodies[h] = (body, N, fn)
     stack, observed = [], {}
     viol = []
     mach = m0.Machine(img)
@@ -144,6 +160,14 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                 worst_loop[nxt] = max(worst_loop.get(nxt, 0), count[nxt])
             else:
                 count[nxt] = 0
+        if nxt in cbodies and i is not None:
+            body, N, fn = cbodies[nxt]
+            if i.addr in body:
+                ccount[nxt] = ccount.get(nxt, 0) + 1
+                if ccount[nxt] > N:
+                    viol.append(f"loop {nxt:#x} of {fn}: {ccount[nxt]} back edges > certified bound {N}")
+            else:
+                ccount[nxt] = 0
 
     mach.on_insn = hook
     t0 = time.monotonic()
@@ -190,6 +214,12 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                     not_certified={n: cert_info["why"].get(n, "?") for n in own
                                    if own[n] is not None and n not in certified},
                     certified_compared=sum(1 for fn in compared if certified.get(fn) is not None),
+                    loops_certified=sum(len(v["certified"]) for v in (cert_info.get("loops") or {}).values()),
+                    loops_not_certified=sum(len(v["other"]) for v in (cert_info.get("loops") or {}).values()),
+                    loops_detail={fn: dict(certified=[[h, N, src] for h, N, src in v["certified"]],
+                                           other=[[h, w] for h, w in v["other"]])
+                                  for fn, v in (cert_info.get("loops") or {}).items()},
+                    loops_checked_certified=len(cbodies),
                     certified_main_observed_ratio=(certified["main"] / mach.cyc) if certified.get("main") and ret is not None and mach.cyc else None)))
 
 
@@ -206,6 +236,10 @@ def main():
     ap.add_argument("--certify", metavar="DIR",
                     help="also write IPET cycle certificates (KERNEL.cycles.json) into DIR and compare their bounds with the runs")
     ap.add_argument("--checker", help="crosscheck-check, to check the cycle certificates (with --certify)")
+    ap.add_argument("--certify-loops", action="store_true",
+                    help="with --certify: also certify the loop bounds on the machine code (binloops.py)")
+    ap.add_argument("--abi", action="store_true",
+                    help="with --certify-loops: assume that callees preserve r4-r7 (AAPCS)")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
@@ -220,7 +254,8 @@ def main():
         pathlib.Path(a.certify).mkdir(parents=True, exist_ok=True)
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     for k in kernels:
-        r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker)
+        r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker,
+                    a.certify_loops, a.abi)
         rows.append(r)
         if "error" in r:
             print(f"{k.name:16s} {r['error']}", file=sys.stderr)
@@ -234,7 +269,9 @@ def main():
             cf = r["certified_functions"]
             print(f"{'':16s} certified: {len(cf)} of {r['bounded']} bounded, accepted={r['certificates_accepted']}, "
                   f"main={cf.get('main')} (schema {r['main_bound']}), "
-                  f"lower than the schema: {sum(1 for n, v in cf.items() if v < r['bounded_functions'].get(n, v + 1))}",
+                  f"lower than the schema: {sum(1 for n, v in cf.items() if v < r['bounded_functions'].get(n, v + 1))}"
+                  + (f", loops certified on the code: {r['loops_certified']} of "
+                     f"{r['loops_certified'] + r['loops_not_certified']}" if a.certify_loops else ""),
                   file=sys.stderr)
         for v in r["violations"]:
             print("   VIOLATION " + v, file=sys.stderr)
@@ -263,6 +300,9 @@ def main():
                    certified_equal_schema=sum(1 for _, v, s in cf if s is not None and v == s),
                    certified_above_schema=sum(1 for _, v, s in cf if s is not None and v > s),
                    bounded_not_certified=sum(len(r["not_certified"]) for r in ok))
+        if a.certify_loops:
+            tot.update(loops_certified=sum(r["loops_certified"] for r in ok),
+                       loops_not_certified=sum(r["loops_not_certified"] for r in ok))
     print(json.dumps(tot), file=sys.stderr)
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps(dict(total=tot, kernels=rows), indent=2) + "\n")

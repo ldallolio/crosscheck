@@ -100,6 +100,9 @@ Why the 4 bounded kernel functions without a certificate are not certified:
 
 **What Paper II adds beyond loop bounds** (paragraphs of `sec:implementation`):
 
+The rows on cycles, certified cycle bounds, OTAWA and stack below moved to Paper III
+(`paper/binary/crosscheck-binary.tex`, Section `sec:evaluation`) on 2026-11-18.
+
 | Paragraph | Content | Trusted |
 |---|---|---|
 | Validation against the source | the function exported as mini-C with jumps (`MiniC.cpp`), jumps eliminated and compared with the certificate's program by the checker (`thm:validated`, `thm:validated-jumps`) | the exporter; no signed overflow, no aliasing of tracked variables, no other code writing tracked globals during the function; contracts do not touch the flags |

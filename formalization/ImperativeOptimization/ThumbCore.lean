@@ -160,6 +160,7 @@ def trans (i : Insn) (a : Nat) : List (Option Nat × Nat × List Nat) :=
 structure MRow where
   coef : List (Nat × Nat × Int)
   rhs : Int
+  deriving DecidableEq, Repr
 
 /-- The coefficient of the transition `a → n` in a row. -/
 def coefPair : List (Nat × Nat × Int) → Nat → Option Nat → Int

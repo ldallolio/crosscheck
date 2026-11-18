@@ -272,7 +272,10 @@ flowchart TD
   recursion depth bound gives a stack bound.
 - Not formalised: that a machine program's runs are such trees (the processor model).
 
-### Cycle bounds of a control-flow graph (`subsec:cycles`)
+### Cycle bounds of a control-flow graph (now Paper III, `sec:graphs` and `sec:machine`)
+
+Moved on 2026-11-18 to Paper III (`paper/binary/crosscheck-binary.tex`), with the loop
+bounds certified on the machine code (`thm:machine-loops`, below).
 
 IPET (Li and Malik) as a certificate: weak LP duality, checked without the solver.
 
@@ -298,6 +301,12 @@ flowchart LR
   the decoder/timing table `Thumb.decode` (a specification, like an ISA model). Sewell,
   Kam and Heiser (seL4) proved their decompiled graph against Fox and Myreen's ARM model
   but left the last step (graph given to the WCET tool ↔ binary paths) as future work.
+- Paper III `def:data-run`, `def:loop-certificate`, `thm:machine-loops`
+  (`ThumbData.data_sound`): a data semantics (effects on r0-r7 and the flags, branch taken
+  iff its condition holds); per instruction an invariant on the registers and two ghosts
+  (the operands of the operation that set the flags, `lem:cond-facts`), per loop a
+  potential; every transition: successor's invariant and `κ + Φ(next) − Φ(here) ≤ 0`
+  (Farkas). Telescoping ⇒ the loop's row holds on every run ⇒ not trusted any more.
 
 ## 9. Paper I on one page
 

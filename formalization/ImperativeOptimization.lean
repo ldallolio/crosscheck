@@ -28,6 +28,8 @@ import ImperativeOptimization.Examples
 import ImperativeOptimization.Stack
 import ImperativeOptimization.Cycles
 import ImperativeOptimization.Thumb
+import ImperativeOptimization.ThumbDataCore
+import ImperativeOptimization.ThumbData
 
 /-!
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification
