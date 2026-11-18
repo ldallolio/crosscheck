@@ -62,7 +62,8 @@ def runtime_bounds(tool, work, extra):
             for f in rep["functions"] for l in f["loops"]}
 
 
-def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False):
+def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
+            frame=False):
     import subprocess
     r = run_tacle.run_kernel(tool, kernel, work, extra)
     rep = json.loads((work / f"{kernel.name}.json").read_text())
@@ -93,7 +94,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
         # IPET cycle certificates (ipet.py), checked by the verified checker if given
         # (Lean Cycles.program_sound); without a checker they are compared with the runs only
         lstats = {}
-        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats)
+        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats, frame=frame)
         cf = pathlib.Path(certdir) / f"{kernel.name}.cycles.json"
         cf.write_text(json.dumps(doc) + "\n")
         certified = dict(ib)
@@ -239,7 +240,10 @@ def main():
     ap.add_argument("--certify-loops", action="store_true",
                     help="with --certify: also certify the loop bounds on the machine code (binloops.py)")
     ap.add_argument("--abi", action="store_true",
-                    help="with --certify-loops: assume that callees preserve r4-r7 (AAPCS)")
+                    help="with --certify-loops: assume that callees preserve r4-r7 and SP (AAPCS)")
+    ap.add_argument("--frame", action="store_true",
+                    help="with --certify-loops: for functions that take no address of their frame, assume "
+                         "that stores through other registers and calls do not write it")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
@@ -255,7 +259,7 @@ def main():
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     for k in kernels:
         r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker,
-                    a.certify_loops, a.abi)
+                    a.certify_loops, a.abi, a.frame)
         rows.append(r)
         if "error" in r:
             print(f"{k.name:16s} {r['error']}", file=sys.stderr)

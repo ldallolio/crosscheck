@@ -55,11 +55,34 @@ def EffOk (e : Eff) (σ σ' : MState) : Prop :=
   (∀ i < 8, ∀ p, e.dst.find? (fun p => p.1 == i) = some p → ∀ v, valOf σ.r p.2 = some v → σ'.r i = v) ∧
   flagsOfE σ.r e.fl σ.f σ'.f
 
+/-- The stack pointer and the memory hold words. -/
+def wfStack (σ : MState) : Prop := σ.sp < U ∧ ∀ A, σ.mem A < U
+
+/-- The effect of an instruction on the stack pointer and the memory (`SP₀`: the stack
+    pointer at the entry of the function). A word loaded from `sp + imm` is the word
+    there; a store through SP writes the register; PUSH writes the words below SP; a store
+    through another register or a call may write any word, except, with the assumption
+    `frame`, the words of the function's frame (from SP up to `SP₀`). -/
+def StackOk (frame : Bool) (SP0 : Nat) (s : StackE) (σ σ' : MState) : Prop :=
+  wfStack σ' ∧
+  (match s.sp with
+   | .keep => σ'.sp = σ.sp
+   | .add k => σ'.sp = aOf (σ.sp + k)
+   | .any => True) ∧
+  (match s.mem with
+   | .keep => ∀ A, σ'.mem A = σ.mem A
+   | .storeSP imm rt => σ'.mem (aOf (σ.sp + imm)) = σ.r rt ∧
+       ∀ A, A ≠ aOf (σ.sp + imm) → σ'.mem A = σ.mem A
+   | .push n => ∀ A, (∀ i < n, A ≠ aOf (σ.sp - 4 * ((i : Int) + 1))) → σ'.mem A = σ.mem A
+   | .other => frame = true → ∀ k : Int, 0 < k → k ≤ ((SP0 : Int) - σ.sp) % (U : Int) →
+       σ'.mem (aOf (SP0 - k)) = σ.mem (aOf (SP0 - k))) ∧
+  (∀ p, s.load = some p → σ'.r p.1 = σ.mem (aOf (σ.sp + p.2)))
+
 /-- The instruction at `a`, in state `σ`, allows its `j`-th transition (to `next`, with `w`
     cycles, calling `calls`). -/
 def DOk (mul : Nat) (c : Code) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
     (calls : List Nat) : Prop :=
-  wfState σ ∧ ∃ i, decode mul c a = some i ∧ (trans i a)[j]? = some (next, w, calls) ∧
+  wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧ (trans i a)[j]? = some (next, w, calls) ∧
     (∀ t, i.kind = .cond t → condHolds (ccOf c a) σ.f = (j == 0))
 
 /-- A step of a data run: the step of the machine run, the transition taken, the state
@@ -70,12 +93,19 @@ structure DStep where
   σ : MState
 
 /-- The steps follow each other from the given address until a return, each state being
-    the effect of the previous instruction on the previous state. -/
-def DChain (abi : Bool) (c : Code) : Option Nat → List DStep → Prop
+    the effect of the previous instruction on the previous state (`SP₀`: the stack pointer
+    at the entry). -/
+def DChain (abi frame : Bool) (c : Code) (SP0 : Nat) : Option Nat → List DStep → Prop
   | none, [] => True
-  | some a, x :: t => x.st.a = a ∧ (∀ y ∈ t.head?, EffOk (effect abi c a) x.σ y.σ) ∧
-      DChain abi c x.st.next t
+  | some a, x :: t => x.st.a = a ∧
+      (∀ y ∈ t.head?, EffOk (effect abi c a) x.σ y.σ ∧ StackOk frame SP0 (stackEffect abi c a) x.σ y.σ) ∧
+      DChain abi frame c SP0 x.st.next t
   | _, _ => False
+
+/-- The stack pointer at the first step. -/
+def headSp : List DStep → Nat
+  | x :: _ => x.σ.sp
+  | [] => 0
 
 /-- The function at entry `e` and its certificate. -/
 def dfAt (fs : List BFun) (Ls : List DFun) (e : Nat) : Option (BFun × DFun) :=
@@ -90,7 +120,7 @@ def dfAt (fs : List BFun) (Ls : List DFun) (e : Nat) : Option (BFun × DFun) :=
 def DRun (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) :
     Nat → Nat → Int → Prop
   | 0, _, _ => False
-  | d + 1, e, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧ DChain abi c (some e) s ∧
+  | d + 1, e, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧ DChain abi L.frame c (headSp s) (some e) s ∧
       (∀ x ∈ s, DOk mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
         CallsWith (DRun mul abi c fs Ls d) x.st.calls x.st.x) ∧
       (∀ r ∈ L.trusted, (s.map fun x => coefPair r.coef x.st.a x.st.next).sum ≤ r.rhs) ∧
@@ -246,35 +276,56 @@ theorem dot_congr : ∀ (l : List Int) (f g : Env) (n : Nat), l.length ≤ n →
 
 /-! ### Environments -/
 
-/-- The variables of a state: registers `0`-`7`, the ghosts `8`, `9`. -/
-def envOf (σ : MState) (fa fb : Nat) : Env := fun v =>
-  if v < 8 then (σ.r v : Int) else if v = 8 then (fa : Int) else if v = 9 then (fb : Int) else 0
+/-- The tracked word `j` of the frame: the word at `SP₀ − slots[j]`. -/
+def slotVal (σ : MState) (SP0 : Nat) (slots : List Nat) (j : Nat) : Int :=
+  (σ.mem (aOf ((SP0 : Int) - ((slots.getD j 0 : Nat) : Int))) : Int)
 
-/-- The variables of a transition: those of the state before, then the registers after
-    (`10`-`17`); the fresh ghosts `18`, `19` are `0`. -/
-def envT (σ σ' : MState) (fa fb : Nat) : Env := fun v =>
-  if v < 10 then envOf σ fa fb v else if v < 18 then (σ'.r (v - 10) : Int) else 0
+/-- The variables of a state: registers `0`-`7`, the ghosts `8`, `9`, the tracked words
+    `20`.. of the frame. -/
+def envOf (σ : MState) (fa fb : Nat) (SP0 : Nat) (slots : List Nat) : Env := fun v =>
+  if v < 8 then (σ.r v : Int) else if v = 8 then (fa : Int) else if v = 9 then (fb : Int)
+  else if 20 ≤ v ∧ v < 20 + slots.length then slotVal σ SP0 slots (v - 20) else 0
 
-theorem envT_below (σ σ' : MState) (fa fb v : Nat) (hv : v < 10) :
-    envT σ σ' fa fb v = envOf σ fa fb v := by simp [envT, hv]
+/-- The variables of a transition: those of the state before, the registers after
+    (`10`-`17`), the fresh ghosts `18`, `19` (`0`), the tracked words before, then after
+    (`20 + S`..). -/
+def envT (σ σ' : MState) (fa fb : Nat) (SP0 : Nat) (slots : List Nat) : Env := fun v =>
+  if v < 10 then envOf σ fa fb SP0 slots v else if v < 18 then (σ'.r (v - 10) : Int)
+  else if v < 20 then 0
+  else if v < 20 + slots.length then envOf σ fa fb SP0 slots v
+  else if v < 20 + 2 * slots.length then slotVal σ' SP0 slots (v - 20 - slots.length) else 0
 
-theorem rangesL_holds (σ σ' : MState) (fa fb : Nat) (hσ : wfState σ) (hσ' : wfState σ')
-    (ha : fa < U) (hb : fb < U) (ρ : Env) : holds rangesL ρ (envT σ σ' fa fb) := by
+theorem envT_below (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (hv : v < 10) :
+    envT σ σ' fa fb SP0 slots v = envOf σ fa fb SP0 slots v := by simp [envT, hv]
+
+theorem envT_state (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat)
+    (hv : v < 10 ∨ 20 ≤ v ∧ v < 20 + slots.length) :
+    envT σ σ' fa fb SP0 slots v = envOf σ fa fb SP0 slots v := by
+  rcases hv with hv | hv
+  · simp [envT, hv]
+  · simp only [envT]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv.2]
+
+theorem rangesN_holds (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
+    (hσ' : wfState σ') (hs : wfStack σ) (hs' : wfStack σ') (ha : fa < U) (hb : fb < U) (ρ : Env) :
+    holds (rangesN (nVars slots.length)) ρ (envT σ σ' fa fb SP0 slots) := by
   intro e he
-  simp only [rangesL, List.mem_flatMap, List.mem_range, List.mem_cons, List.mem_singleton,
+  simp only [rangesN, List.mem_flatMap, List.mem_range, List.mem_cons, List.mem_singleton,
     List.not_mem_nil, or_false] at he
-  obtain ⟨v, hv, rfl | rfl⟩ := he
+  obtain ⟨v, _, rfl | rfl⟩ := he
   all_goals
     simp only [mk_eval, List.map_cons, List.map_nil, List.sum_cons, List.sum_nil]
-    have h1 : 0 ≤ envT σ σ' fa fb v ∧ envT σ σ' fa fb v < (U : Int) := by
-      simp only [envT, envOf]
-      split_ifs with h1 h2 h3 h4 h5
-      · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ v h2)⟩
-      · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr ha⟩
-      · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr hb⟩
-      · exact ⟨le_refl _, by simp [U]⟩
-      · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ' _ (by omega))⟩
-      · exact ⟨le_refl _, by simp [U]⟩
+    have h1 : 0 ≤ envT σ σ' fa fb SP0 slots v ∧ envT σ σ' fa fb SP0 slots v < (U : Int) := by
+      simp only [envT, envOf, slotVal]
+      split_ifs
+      all_goals first
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ _ (by omega))⟩
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr ha⟩
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr hb⟩
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ' _ (by omega))⟩
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs.2 _)⟩
+        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs'.2 _)⟩
+        | exact ⟨le_refl _, by simp [U]⟩
     simp only [U] at h1 ⊢
     omega
 
@@ -297,8 +348,8 @@ theorem srcOk_lt (σ : MState) (hσ : wfState σ) (x : Src) (h : srcOk x = true)
   | reg i => simp [srcOk] at h; exact hσ i h
   | imm k => simpa [srcOk] using h
 
-theorem srcE_eval (σ σ' : MState) (fa fb : Nat) (x : Src) (h : srcOk x = true) :
-    (srcE x).eval (envT σ σ' fa fb) = srcVal σ.r x := by
+theorem srcE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (x : Src) (h : srcOk x = true) :
+    (srcE x).eval (envT σ σ' fa fb SP0 slots) = srcVal σ.r x := by
   cases x with
   | reg i =>
     simp [srcOk] at h
@@ -336,16 +387,16 @@ theorem mSel_mem (e : Eff) (σ : MState) (hσ : wfState σ) (h : wfEff e = true)
     | any => simp [mOf]
 
 /-- The value of a sum or difference, in its wrap case, is the value written. -/
-theorem valE_eval (σ σ' : MState) (fa fb : Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
+theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
     (i x : Nat) (hx : valOf σ.r v = some x) :
-    (valE v (mOf σ.r v) i).eval (envT σ σ' fa fb) = x := by
+    (valE v (mOf σ.r v) i).eval (envT σ σ' fa fb SP0 slots) = x := by
   cases v with
   | add a b =>
     simp only [valOk, Bool.and_eq_true] at hv
     have ha := srcOk_lt σ hσ a hv.1
     have hb := srcOk_lt σ hσ b hv.2
     simp only [valOf, Option.some.injEq] at hx
-    simp only [valE, mOf, padd_eval, pconst_eval, srcE_eval σ σ' fa fb a hv.1, srcE_eval σ σ' fa fb b hv.2]
+    simp only [valE, mOf, padd_eval, pconst_eval, srcE_eval σ σ' fa fb SP0 slots a hv.1, srcE_eval σ σ' fa fb SP0 slots b hv.2]
     subst hx
     simp only [U] at ha hb ⊢
     push_cast
@@ -355,8 +406,8 @@ theorem valE_eval (σ σ' : MState) (fa fb : Nat) (hσ : wfState σ) (v : Val) (
     have ha := srcOk_lt σ hσ a hv.1
     have hb := srcOk_lt σ hσ b hv.2
     simp only [valOf, Option.some.injEq] at hx
-    simp only [valE, mOf, padd_eval, psmul_eval, pconst_eval, srcE_eval σ σ' fa fb a hv.1,
-      srcE_eval σ σ' fa fb b hv.2]
+    simp only [valE, mOf, padd_eval, psmul_eval, pconst_eval, srcE_eval σ σ' fa fb SP0 slots a hv.1,
+      srcE_eval σ σ' fa fb SP0 slots b hv.2]
     subst hx
     simp only [U] at ha hb ⊢
     split_ifs <;> push_cast <;> omega
@@ -368,8 +419,8 @@ theorem valOf_op (r : Nat → Nat) (v : Val) (h : isOp v = true) : ∃ x, valOf 
 theorem valOf_lt (r : Nat → Nat) (v : Val) (x : Nat) (h : valOf r v = some x) : x < U := by
   cases v <;> simp only [valOf, Option.some.injEq, reduceCtorEq] at h <;> subst h <;> exact Nat.mod_lt _ (by simp [U])
 
-theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb : Nat) (hσ : wfState σ) (h : wfEff e = true)
-    (ρ : Env) : holds (wrapPrem e (mSel e σ.r)) ρ (envT σ σ' fa fb) := by
+theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (h : wfEff e = true)
+    (ρ : Env) : holds (wrapPrem e (mSel e σ.r)) ρ (envT σ σ' fa fb SP0 slots) := by
   simp only [wrapPrem, mSel]
   cases hp : opOf e with
   | none => intro c hc; simp at hc
@@ -380,7 +431,7 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb : Nat) (hσ : wfState 
     have hv := (wfEff_dst e h (i, v) hm).2
     obtain ⟨x, hx⟩ := valOf_op σ.r v hop
     have hlt := valOf_lt σ.r v x hx
-    have hval := valE_eval σ σ' fa fb hσ v hv i x hx
+    have hval := valE_eval σ σ' fa fb SP0 slots hσ v hv i x hx
     simp only [PExp.eval] at hval
     intro c hc
     simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
@@ -425,20 +476,20 @@ theorem wfEff_fl (e : Eff) (h : wfEff e = true) :
   split <;> simp_all
 
 /-- The value of every variable after the instruction, in the right wrap case. -/
-theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb : Nat) (hσ : wfState σ)
+theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
     (heff : EffOk e σ σ') (v : Nat) (hv : v < 10) :
-    (postE e (mSel e σ.r) v).eval (envT σ σ' fa fb) =
-      envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 v := by
+    (postE e (mSel e σ.r) v).eval (envT σ σ' fa fb SP0 slots) =
+      envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v := by
   obtain ⟨_, hkeep, hwrite, _⟩ := heff
   by_cases h8 : v < 8
-  · have hev : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 v = σ'.r v := by
+  · have hev : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = σ'.r v := by
       simp [envOf, h8]
     rw [hev]
     simp only [postE, h8, if_true]
     cases hf : e.dst.find? (fun p => p.1 == v) with
     | none =>
       simp only
-      rw [pv_eval, envT_below _ _ _ _ _ hv]
+      rw [pv_eval, envT_below _ _ _ _ _ _ _ hv]
       simp [envOf, h8, hkeep v h8 hf]
     | some p =>
       simp only
@@ -448,7 +499,7 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb : Nat
       · have hO := opOf_of_find e h v p hf hop
         obtain ⟨x, hx⟩ := valOf_op σ.r p.2 hop
         rw [show mSel e σ.r = mOf σ.r p.2 by simp [mSel, hO]]
-        rw [valE_eval σ σ' fa fb hσ p.2 hpv v x hx, hwrite v h8 p hf x hx]
+        rw [valE_eval σ σ' fa fb SP0 slots hσ p.2 hpv v x hx, hwrite v h8 p hf x hx]
       · have hany : p.2 = .any := by
           cases hq : p.2 <;> simp_all [isOp]
         rw [hany]
@@ -459,7 +510,7 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb : Nat
     cases hq : e.fl with
     | keep =>
       simp only
-      rw [pv_eval, envT_below _ _ _ _ _ hv]
+      rw [pv_eval, envT_below _ _ _ _ _ _ _ hv]
       rcases hv89 with rfl | rfl <;> simp [envOf]
     | any =>
       simp only
@@ -469,14 +520,14 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb : Nat
       rw [hq] at hfl
       simp only
       rcases hv89 with rfl | rfl
-      · simp only [if_true]; rw [srcE_eval σ σ' fa fb a hfl.1]; simp [envOf]
-      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb b hfl.2]; simp [envOf]
+      · simp only [if_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
+      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
     | sub a b =>
       rw [hq] at hfl
       simp only
       rcases hv89 with rfl | rfl
-      · simp only [if_true]; rw [srcE_eval σ σ' fa fb a hfl.1]; simp [envOf]
-      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb b hfl.2]; simp [envOf]
+      · simp only [if_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
+      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
 
 /-! ### Invariants -/
 
@@ -486,10 +537,12 @@ def flagsAt : FKind → Nat → Nat → Flags → Prop
   | .add, a, b, f => f = flagsAdd a b
   | .sub, a, b, f => f = flagsSub a b
 
-/-- The meaning of the certificate at instruction `a`, with ghosts `fa`, `fb`. -/
-def Inv (f : BFun) (L : DFun) (a : Nat) (σ : MState) (fa fb : Nat) : Prop :=
-  wfState σ ∧ fa < U ∧ fb < U ∧ flagsAt (kindAt f L a) fa fb σ.f ∧
-    holds (invAt f L a) (fun _ => 0) (envOf σ fa fb)
+/-- The meaning of the certificate at instruction `a`, with ghosts `fa`, `fb`, in a run
+    whose stack pointer at the entry is `SP0`. -/
+def Inv (f : BFun) (L : DFun) (SP0 : Nat) (a : Nat) (σ : MState) (fa fb : Nat) : Prop :=
+  wfState σ ∧ wfStack σ ∧ fa < U ∧ fb < U ∧ flagsAt (kindAt f L a) fa fb σ.f ∧
+    (∀ d, spAt f L a = some d → σ.sp = aOf (SP0 + d)) ∧
+    holds (invAt f L a) (fun _ => 0) (envOf σ fa fb SP0 L.slots)
 
 theorem flags_post (ka kn : FKind) (e : Eff) (h : wfEff e = true) (σ σ' : MState) (hσ : wfState σ)
     (fa fb : Nat) (hfa : fa < U) (hfb : fb < U) (hf : flagsAt ka fa fb σ.f)
@@ -526,15 +579,44 @@ theorem flags_post (ka kn : FKind) (e : Eff) (h : wfEff e = true) (σ σ' : MSta
     · simp [flagsAt]
     · exact hfl
 
-theorem lin_congr (g : Lin) (hg : wfLin g = true) (ρ ρ' s s' : Env) (h : ∀ v < 10, s v = s' v) :
-    g.eval ρ s = g.eval ρ' s' := by
-  simp only [wfLin, Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq] at hg
-  simp only [Lin.eval, hg.1, Checker.dot]
-  rw [dot_congr g.sv s s' 10 hg.2 h]
+theorem dot_congr_nz : ∀ (l : List Int) (f g : Env),
+    (∀ v < l.length, l.getD v 0 ≠ 0 → f v = g v) → Checker.dot l f = Checker.dot l g
+  | [], _, _, _ => rfl
+  | a :: l, f, g, h => by
+    simp only [Checker.dot]
+    have h0 : a * f 0 = a * g 0 := by
+      by_cases ha : a = 0
+      · simp [ha]
+      · rw [h 0 (by simp) (by simpa using ha)]
+    rw [h0, dot_congr_nz l (fun i => f (i + 1)) (fun i => g (i + 1))
+      (fun v hv hne => h (v + 1) (by simp; omega) (by simpa using hne))]
 
-theorem pexp_congr (p : PExp) (hp : p.sv.length ≤ 10) (s s' : Env) (h : ∀ v < 10, s v = s' v) :
-    p.eval s = p.eval s' := by
-  simp only [PExp.eval]; rw [dot_congr p.sv s s' 10 hp h]
+theorem wfSv_congr (S : Nat) (sv : List Int) (h : wfSv S sv = true) (f g : Env)
+    (hfg : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → f v = g v) :
+    Checker.dot sv f = Checker.dot sv g := by
+  simp only [wfSv, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range,
+    beq_iff_eq] at h
+  apply dot_congr_nz
+  intro v hv hne
+  apply hfg
+  by_cases h10 : v < 10
+  · exact Or.inl h10
+  · right
+    refine ⟨?_, by omega⟩
+    by_contra h20
+    have := h.2 (v - 10) (by omega)
+    rw [show 10 + (v - 10) = v by omega] at this
+    exact hne this
+
+theorem lin_congr (S : Nat) (g : Lin) (hg : wfLin S g = true) (ρ ρ' s s' : Env)
+    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) : g.eval ρ s = g.eval ρ' s' := by
+  simp only [wfLin, Bool.and_eq_true, List.isEmpty_iff] at hg
+  simp only [Lin.eval, hg.1, Checker.dot]
+  rw [wfSv_congr S g.sv hg.2 s s' h]
+
+theorem pexp_congr (S : Nat) (p : PExp) (hp : wfSv S p.sv = true) (s s' : Env)
+    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) : p.eval s = p.eval s' := by
+  simp only [PExp.eval]; rw [wfSv_congr S p.sv hp s s' h]
 
 theorem holds_append (A B : List Lin) (ρ s : Env) : holds (A ++ B) ρ s ↔ holds A ρ s ∧ holds B ρ s := by
   simp only [holds, List.mem_append]
@@ -559,14 +641,38 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     closed mul c f.entry f.nodes = true ∧ nodupB f.nodes = true ∧
     f.rows = L.trusted ++ L.loops.map (loopRow f) ∧
     (∀ a ∈ f.nodes, nodeOk mul abi c f L a = true) ∧ kindAt f L f.entry = .none ∧
-    (∀ l ∈ L.inv, ∀ g ∈ l, wfLin g = true) ∧ (∀ lc ∈ L.loops, ∀ p ∈ lc.pot, p.sv.length ≤ 10) ∧
+    (spAt f L f.entry = some 0 ∨ spAt f L f.entry = none) ∧ slotsOk L = true ∧
+    (∀ l ∈ L.inv, ∀ g ∈ l, wfLin L.slots.length g = true) ∧
+    (∀ lc ∈ L.loops, ∀ p ∈ lc.pot, wfSv L.slots.length p.sv = true) ∧
     checkObs (obligations mul abi c f L) L.proofs = true := by
-  simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩ := h
-  exact ⟨h1, h2, h3, h4, h5, h6, h7, h8⟩
+  simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
+    Bool.or_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩ := h
+  exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
 
-theorem invAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin g = true) (a : Nat) :
-    ∀ g ∈ invAt f L a, wfLin g = true := by
+theorem slotsOk_spec {L : DFun} (h : slotsOk L = true) :
+    (∀ k ∈ L.slots, 0 < k ∧ k % 4 = 0 ∧ k < 1048576) ∧
+    (∀ o ∈ L.spOff, ∀ d, o = some d → -1048576 ≤ d ∧ d ≤ 1048576) := by
+  simp only [slotsOk, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at h
+  refine ⟨h.1.2, fun o ho d hd => ?_⟩
+  have := h.2 o ho
+  rw [hd] at this
+  simpa using this
+
+theorem spAt_bound {f : BFun} {L : DFun} (h : slotsOk L = true) (a : Nat) (d : Int)
+    (hd : spAt f L a = some d) : -1048576 ≤ d ∧ d ≤ 1048576 := by
+  simp only [spAt] at hd
+  cases hk : find f.nodes a with
+  | none => simp [hk] at hd
+  | some k =>
+    cases ho : L.spOff[k]? with
+    | none => simp [hk, ho] at hd
+    | some o =>
+      simp [hk, ho] at hd
+      exact (slotsOk_spec h).2 o (List.mem_of_getElem? ho) d hd
+
+theorem invAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin L.slots.length g = true)
+    (a : Nat) : ∀ g ∈ invAt f L a, wfLin L.slots.length g = true := by
   intro g hg
   simp only [invAt] at hg
   cases hk : find f.nodes a with
@@ -578,34 +684,39 @@ theorem invAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin
       simp [hk, hl] at hg
       exact hw l (List.mem_of_getElem? hl) g hg
 
-theorem potAt_wf (lc : LoopCert) (hw : ∀ p ∈ lc.pot, p.sv.length ≤ 10) (x : Option Nat) :
-    (potAt lc x).sv.length ≤ 10 := by
+theorem wfSv_nil (S : Nat) : wfSv S [] = true := by
+  simp [wfSv]
+
+theorem potAt_wf (S : Nat) (lc : LoopCert) (hw : ∀ p ∈ lc.pot, wfSv S p.sv = true) (x : Option Nat) :
+    wfSv S (potAt lc x).sv = true := by
   cases x with
-  | none => simp [potAt, pconst]
+  | none => simp [potAt, pconst, wfSv_nil]
   | some a =>
     simp only [potAt]
     cases hk : find lc.body a with
-    | none => simp [pconst]
+    | none => simp [pconst, wfSv_nil]
     | some k =>
       cases hp : lc.pot[k]? with
-      | none => simp [hp, pconst]
+      | none => simp [hp, pconst, wfSv_nil]
       | some p => simp [hp]; exact hw p (List.mem_of_getElem? hp)
 
 theorem nodeOk_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun} {a : Nat}
     (h : nodeOk mul abi c f L a = true) :
-    wfEff (effect abi c a) = true ∧ ∃ i, decode mul c a = some i ∧ ∀ p ∈ trans i a, ∀ n, p.1 = some n →
-      kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n) = true := by
+    wfEff (effect abi c a) = true ∧ stackWf (stackEffect abi c a) = true ∧
+    ∃ i, decode mul c a = some i ∧ ∀ p ∈ trans i a, ∀ n, p.1 = some n →
+      kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n) = true ∧
+      spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n) = true := by
   simp only [nodeOk, Bool.and_eq_true] at h
-  refine ⟨h.1, ?_⟩
-  have h2 := h.2
-  split at h2
-  · cases h2
+  obtain ⟨⟨⟨h1, _⟩, h2⟩, h3⟩ := h
+  refine ⟨h1, h2, ?_⟩
+  split at h3
+  · cases h3
   · rename_i i hi
     refine ⟨i, hi, fun p hp n hn => ?_⟩
-    simp only [List.all_eq_true] at h2
-    have := h2 p hp
+    simp only [List.all_eq_true] at h3
+    have := h3 p hp
     rw [hn] at this
-    exact this
+    simpa only [Bool.and_eq_true] using this
 
 theorem mem_indexed {α : Type} : ∀ (l : List α) (k j : Nat) (x : α), l[j]? = some x → (k + j, x) ∈ indexed k l
   | [], _, _, _, h => by simp at h
@@ -617,11 +728,13 @@ theorem mem_indexed {α : Type} : ∀ (l : List α) (k j : Nat) (x : α), l[j]? 
     rwa [show k + 1 + j = k + (j + 1) by omega] at this
 
 /-- The goals of a transition: the invariant of the successor, the descent of the potentials. -/
-def tGoals (f : BFun) (L : DFun) (e : Eff) (m : Int) (a : Nat) (next : Option Nat) : List Lin :=
+def tGoals (f : BFun) (L : DFun) (e : Eff) (st : StackE) (frame : Bool) (m : Int) (a : Nat)
+    (next : Option Nat) : List Lin :=
   (match next with
-    | some n => (invAt f L n).map fun g => substL g (postE e m)
+    | some n => (invAt f L n).map fun g => substL g (postS e st frame (spAt f L a) L.slots m)
     | none => []) ++
-  L.loops.map fun lc => goalLin (coefStep lc a next) (substP (potAt lc next) (postE e m)) (potAt lc (some a))
+  L.loops.map fun lc => goalLin (coefStep lc a next)
+    (substP (potAt lc next) (postS e st frame (spAt f L a) L.slots m)) (potAt lc (some a))
 
 theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) (i : Insn)
     (j : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) (m : Int) (D : List Lin) (g : Lin)
@@ -630,39 +743,188 @@ theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : N
     (hD : D ∈ (match i.kind with
       | .cond _ => condFacts (kindAt f L a) (ccOf c a) (j == 0)
       | _ => [[]]))
-    (hg : g ∈ tGoals f L (effect abi c a) m a next) :
-    (D ++ wrapPrem (effect abi c a) m ++ invAt f L a ++ rangesL, g) ∈ obsOf mul abi c f L a := by
+    (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next) :
+    (D ++ wrapPrem (effect abi c a) m ++ invAt f L a ++ rangesN (nVars L.slots.length), g) ∈
+      obsOf mul abi c f L a := by
   unfold obsOf
   rw [hdec]
   simp only [List.mem_flatMap, List.mem_map]
   refine ⟨(0 + j, (next, w, calls)), mem_indexed _ 0 j _ hj, m, hm, D, ?_, g, by simpa [tGoals] using hg, rfl⟩
   simpa using hD
 
+/-! ### The stack -/
+
+theorem slotIdx_spec (slots : List Nat) (k : Int) (j : Nat) (h : slotIdx slots k = some j) :
+    0 < k ∧ slots.getD j 0 = k.toNat ∧ j < slots.length := by
+  simp only [slotIdx] at h
+  split at h
+  · rename_i hk
+    have := find_get slots k.toNat j h
+    refine ⟨hk, ?_, ?_⟩
+    · simp [List.getD, this]
+    · exact (List.getElem?_eq_some_iff.mp this).1
+  · cases h
+
+theorem slot_mem (slots : List Nat) (j : Nat) (hj : j < slots.length) : slots.getD j 0 ∈ slots := by
+  simp [List.getD, List.getElem?_eq_getElem hj]
+
+/-- The value of every variable of the state after the instruction, the tracked words of
+    the frame included. -/
+theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (hw : stackWf st = true)
+    (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (δ : Option Int)
+    (hσ : wfState σ) (hSP0 : SP0 < U) (heff : EffOk e σ σ') (hst : StackOk frame SP0 st σ σ')
+    (hsp : ∀ d, δ = some d → σ.sp = aOf (SP0 + d))
+    (hδ : ∀ d, δ = some d → -1048576 ≤ d ∧ d ≤ 1048576)
+    (hslots : ∀ k ∈ slots, 0 < k ∧ k % 4 = 0 ∧ k < 1048576)
+    (v : Nat) (hv : v < 10 ∨ 20 ≤ v ∧ v < 20 + slots.length) :
+    (postS e st frame δ slots (mSel e σ.r) v).eval (envT σ σ' fa fb SP0 slots) =
+      envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v := by
+  obtain ⟨_, _, hmem, hload⟩ := hst
+  simp only [stackWf, Bool.and_eq_true] at hw
+  rcases hv with hv | hv
+  · by_cases h8 : v < 8
+    · simp only [postS, if_pos h8]
+      cases hl : st.load with
+      | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+      | some p =>
+        cases δ with
+        | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+        | some d =>
+          simp only
+          by_cases hp : v = p.1
+          · rw [if_pos hp]
+            cases hj : slotIdx slots (-(d + (p.2 : Int))) with
+            | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+            | some j =>
+              simp only
+              obtain ⟨hk, hkj, hjl⟩ := slotIdx_spec slots _ j hj
+              have hsd := hsp d rfl
+              have hpb : p.2 < 1024 := by
+                have := hw.1; rw [hl] at this; exact (by simpa [stackLoadOk] using this : p.1 < 8 ∧ p.2 < 1024).2
+              rw [pv_eval, envT_state σ σ' fa fb SP0 slots _ (Or.inr ⟨by omega, by omega⟩)]
+              simp only [envOf, h8, if_true, slotVal]
+              rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos ⟨by omega, by omega⟩]
+              rw [hp, hload p hl]
+              congr 2
+              rw [show 20 + j - 20 = j by omega, hkj, hsd]
+              simp only [aOf, U] at *
+              omega
+          · rw [if_neg hp]; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+    · have h20 : ¬ v < 20 → False := fun h' => h' (by omega)
+      simp only [postS, if_neg h8, if_pos (show v < 20 by omega)]
+      exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+  · have hj : v - 20 < slots.length := by omega
+    have hkm := hslots _ (slot_mem slots (v - 20) hj)
+    set k := slots.getD (v - 20) 0 with hkdef
+    have hpost : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = slotVal σ' SP0 slots (v - 20) := by
+      simp only [envOf]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+    have hpre : envT σ σ' fa fb SP0 slots v = slotVal σ SP0 slots (v - 20) := by
+      rw [envT_state σ σ' fa fb SP0 slots v (Or.inr hv)]
+      simp only [envOf]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+    have hfresh : envT σ σ' fa fb SP0 slots (v + slots.length) = slotVal σ' SP0 slots (v - 20) := by
+      simp only [envT]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+      congr 1; omega
+    rw [hpost]
+    simp only [postS, if_neg (show ¬ v < 8 by omega), if_neg (show ¬ v < 20 by omega)]
+    cases hm : st.mem with
+    | keep =>
+      rw [hm] at hmem
+      simp only [pv_eval, hpre, slotVal]
+      rw [hmem]
+    | storeSP imm rt =>
+      rw [hm] at hmem
+      have hsb : imm < 1024 ∧ rt < 8 := by
+        have := hw.2; rw [hm] at this; simpa [stackMemOk] using this
+      cases δ with
+      | none => simp only [pv_eval, hfresh]
+      | some d =>
+        have hsd := hsp d rfl
+        have hdb := hδ d rfl
+        simp only
+        by_cases hk : ((k : Nat) : Int) = -(d + (imm : Int))
+        · rw [if_pos hk, pv_eval]
+          rw [envT_state σ σ' fa fb SP0 slots rt (Or.inl (by omega))]
+          simp only [envOf, show rt < 8 by omega, if_true, slotVal]
+          rw [← hkdef]
+          have : aOf ((SP0 : Int) - (k : Int)) = aOf ((σ.sp : Int) + imm) := by
+            rw [hsd]; simp only [aOf, U] at *; omega
+          rw [this, hmem.1]
+        · rw [if_neg hk, pv_eval, hpre]
+          simp only [slotVal]
+          rw [← hkdef]
+          rw [hmem.2]
+          rw [hsd]; simp only [aOf, U] at *; omega
+    | push n =>
+      rw [hm] at hmem
+      have hnb : n ≤ 16 := by
+        have := hw.2; rw [hm] at this; simpa [stackMemOk] using this
+      cases δ with
+      | none => simp only [pv_eval, hfresh]
+      | some d =>
+        have hsd := hsp d rfl
+        have hdb := hδ d rfl
+        simp only
+        by_cases hr : d - 4 * (n : Int) ≤ -((k : Nat) : Int) ∧ -((k : Nat) : Int) < d
+        · rw [if_pos hr, pv_eval, hfresh]
+        · rw [if_neg hr, pv_eval, hpre]
+          simp only [slotVal]
+          rw [← hkdef]
+          rw [hmem]
+          intro i hi
+          rw [hsd]; simp only [aOf, U] at *; omega
+    | other =>
+      rw [hm] at hmem
+      cases δ with
+      | none => simp only [pv_eval, hfresh]
+      | some d =>
+        have hsd := hsp d rfl
+        have hdb := hδ d rfl
+        simp only
+        by_cases hr : frame = true ∧ ((k : Nat) : Int) ≤ -d
+        · rw [if_pos hr, pv_eval, hpre]
+          simp only [slotVal]
+          rw [← hkdef]
+          symm
+          congr 1
+          apply hmem hr.1 (k : Int) (by omega)
+          rw [hsd]; simp only [aOf, U] at *; omega
+        · rw [if_neg hr, pv_eval, hfresh]
+
+/-! ### One transition -/
+
 /-- One transition: the invariant of the successor holds, and every potential descends by
     the coefficient of the transition in the loop's row. -/
 theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
-    (hc : checkDFun mul abi c f L = true) {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
+    (hc : checkDFun mul abi c f L = true) {SP0 a j : Nat} (hSP0 : SP0 < U) {σ : MState}
+    {next : Option Nat} {w : Nat}
     {calls : List Nat} (ha : a ∈ f.nodes) (hok : DOk mul c a j σ next w calls) {fa fb : Nat}
-    (hinv : Inv f L a σ fa fb) (σ' : MState) (hwf' : wfState σ')
-    (heff : next ≠ none → EffOk (effect abi c a) σ σ') :
+    (hinv : Inv f L SP0 a σ fa fb) (σ' : MState) (hwf' : wfState σ') (hws' : wfStack σ')
+    (heff : next ≠ none → EffOk (effect abi c a) σ σ' ∧ StackOk L.frame SP0 (stackEffect abi c a) σ σ') :
     (∀ n, next = some n →
-      Inv f L n σ' (postG (effect abi c a) σ.r fa fb).1 (postG (effect abi c a) σ.r fa fb).2) ∧
+      Inv f L SP0 n σ' (postG (effect abi c a) σ.r fa fb).1 (postG (effect abi c a) σ.r fa fb).2) ∧
     ∀ lc ∈ L.loops, coefStep lc a next +
-      (potAt lc next).eval (envOf σ' (postG (effect abi c a) σ.r fa fb).1 (postG (effect abi c a) σ.r fa fb).2) -
-      (potAt lc (some a)).eval (envOf σ fa fb) ≤ 0 := by
-  obtain ⟨_, _, _, hnodes, _, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
-  obtain ⟨hσ, i, hdec, hj, hcond⟩ := hok
-  obtain ⟨_, hfa, hfb, hfl, hI⟩ := hinv
-  obtain ⟨hwfe, i', hdec', hkind⟩ := nodeOk_spec (hnodes a ha)
+      (potAt lc next).eval (envOf σ' (postG (effect abi c a) σ.r fa fb).1
+        (postG (effect abi c a) σ.r fa fb).2 SP0 L.slots) -
+      (potAt lc (some a)).eval (envOf σ fa fb SP0 L.slots) ≤ 0 := by
+  obtain ⟨_, _, _, hnodes, _, _, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
+  obtain ⟨hσ, hs, i, hdec, hj, hcond⟩ := hok
+  obtain ⟨_, _, hfa, hfb, hfl, hspa, hI⟩ := hinv
+  obtain ⟨hwfe, hstw, i', hdec', hkind⟩ := nodeOk_spec (hnodes a ha)
   rw [hdec] at hdec'
   cases hdec'
   set e := effect abi c a with he
+  set st := stackEffect abi c a with hst
   set m := mSel e σ.r with hmdef
+  set S := L.slots.length with hS
   have hm : m ∈ mcases e := mSel_mem e σ hσ hwfe
-  set env := envT σ σ' fa fb with henv
+  set env := envT σ σ' fa fb SP0 L.slots with henv
   have h8 : env 8 = fa := by simp [env, envT, envOf]
   have h9 : env 9 = fb := by simp [env, envT, envOf]
-  -- the facts of the branch
+  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → env v = envOf σ fa fb SP0 L.slots v :=
+    fun v hv => envT_state σ σ' fa fb SP0 L.slots v hv
   obtain ⟨D, hD, hDh⟩ : ∃ D ∈ (match i.kind with
       | .cond _ => condFacts (kindAt f L a) (ccOf c a) (j == 0)
       | _ => [[]]), holds D (fun _ => 0) env := by
@@ -674,54 +936,72 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         (by revert hfl; cases kindAt f L a <;> simp [flagsAt]) (ccOf c a) hcc (j == 0)
         (hcond t hk) _ env h8 h9
     | _ => exact ⟨[], by simp, by simp [holds]⟩
-  -- the premises hold
-  have hprem : holds (D ++ wrapPrem e m ++ invAt f L a ++ rangesL) (fun _ => 0) env := by
+  have hprem : holds (D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars S)) (fun _ => 0) env := by
     rw [holds_append, holds_append, holds_append]
-    refine ⟨⟨⟨hDh, wrapPrem_holds e σ σ' fa fb hσ hwfe _⟩, ?_⟩,
-      rangesL_holds σ σ' fa fb hσ hwf' hfa hfb _⟩
+    refine ⟨⟨⟨hDh, wrapPrem_holds e σ σ' fa fb SP0 L.slots hσ hwfe _⟩, ?_⟩,
+      rangesN_holds σ σ' fa fb SP0 L.slots hσ hwf' hs hws' hfa hfb _⟩
     intro g hg
-    rw [lin_congr g (invAt_wf f L hwinv a g hg) _ (fun _ => 0) env (envOf σ fa fb)
-      (fun v hv => envT_below σ σ' fa fb v hv)]
+    rw [lin_congr S g (invAt_wf f L hwinv a g hg) _ (fun _ => 0) env (envOf σ fa fb SP0 L.slots) hstate]
     exact hI g hg
-  -- every goal of the transition holds
-  have hgoal : ∀ g ∈ tGoals f L e m a next, g.eval (fun _ => 0) env ≤ 0 := by
+  have hgoal : ∀ g ∈ tGoals f L e st L.frame m a next, g.eval (fun _ => 0) env ≤ 0 := by
     intro g hg
     have hmem := obs_mem mul abi c f L a i j next w calls m D g hdec hj hm hD hg
-    have hin : (D ++ wrapPrem e m ++ invAt f L a ++ rangesL, g) ∈ obligations mul abi c f L := by
+    have hin : (D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars S), g) ∈
+        obligations mul abi c f L := by
       simp only [obligations, List.mem_append]
       right
       exact List.mem_flatMap.mpr ⟨a, ha, hmem⟩
     obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
     exact entails1_sound hp hprem
-  have hpot_a : ∀ lc ∈ L.loops, (potAt lc (some a)).eval env = (potAt lc (some a)).eval (envOf σ fa fb) :=
-    fun lc hlc => pexp_congr _ (potAt_wf lc (hwpot lc hlc) _) _ _ (fun v hv => envT_below σ σ' fa fb v hv)
+  have hpot_a : ∀ lc ∈ L.loops, (potAt lc (some a)).eval env = (potAt lc (some a)).eval (envOf σ fa fb SP0 L.slots) :=
+    fun lc hlc => pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ hstate
+  have hslots := (slotsOk_spec hslok).1
+  have hpost : next ≠ none → ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+      (postS e st L.frame (spAt f L a) L.slots m v).eval env =
+        envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 L.slots v := fun hn v hv =>
+    postS_eval e st L.frame hwfe hstw σ σ' fa fb SP0 L.slots (spAt f L a) hσ hSP0 (heff hn).1 (heff hn).2
+      hspa (fun d hd => spAt_bound hslok a d hd) hslots v hv
   constructor
   · intro n hn
     subst hn
     have heff' := heff (by simp)
-    have hflE := heff'.2.2.2
-    have hpost : ∀ v < 10, (postE e m v).eval env =
-        envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 v :=
-      fun v hv => postE_eval e hwfe σ σ' fa fb hσ heff' v hv
-    have hk := hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl
-    obtain ⟨hfl', hga, hgb⟩ := flags_post _ _ e hwfe σ σ' hσ fa fb hfa hfb hfl hk hflE
-    refine ⟨hwf', hga, hgb, hfl', ?_⟩
-    intro g hg
-    have := hgoal (substL g (postE e m)) (by
-      simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
-    rw [substL_eval] at this
-    rwa [lin_congr g (invAt_wf f L hwinv n g hg) (fun _ => 0) (fun _ => 0) _ _ hpost] at this
+    have hk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).1
+    have hspk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).2
+    obtain ⟨hfl', hga, hgb⟩ := flags_post _ _ e hwfe σ σ' hσ fa fb hfa hfb hfl hk heff'.1.2.2.2
+    refine ⟨hwf', hws', hga, hgb, hfl', ?_, ?_⟩
+    · intro dn hdn
+      obtain ⟨_, hspE, _, _⟩ := heff'.2
+      rw [hdn] at hspk
+      simp only [spOk] at hspk
+      cases hda : spAt f L a with
+      | none => rw [hda] at hspk; simp at hspk
+      | some d =>
+        rw [hda] at hspk
+        have hsd := hspa d hda
+        cases hsq : st.sp with
+        | keep =>
+          rw [hsq] at hspk hspE
+          simp only [beq_iff_eq] at hspk
+          rw [hspE, hsd, hspk]
+        | add k =>
+          rw [hsq] at hspk hspE
+          simp only [beq_iff_eq] at hspk
+          rw [hspE, hsd, hspk]
+          simp only [aOf, U] at *
+          omega
+        | any => rw [hsq] at hspk; simp at hspk
+    · intro g hg
+      have := hgoal (substL g (postS e st L.frame (spAt f L a) L.slots m)) (by
+        simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
+      rw [substL_eval] at this
+      rwa [lin_congr S g (invAt_wf f L hwinv n g hg) (fun _ => 0) (fun _ => 0) _ _ (hpost (by simp))] at this
   · intro lc hlc
     have := hgoal _ (by simp only [tGoals]; exact List.mem_append_right _ (List.mem_map.mpr ⟨lc, hlc, rfl⟩))
     rw [goalLin_eval, substP_eval, hpot_a lc hlc] at this
     cases next with
     | none => simpa [potAt, pconst_eval] using this
     | some n =>
-      have heff' := heff (by simp)
-      have hpost : ∀ v < 10, (postE e m v).eval env =
-          envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 v :=
-        fun v hv => postE_eval e hwfe σ σ' fa fb hσ heff' v hv
-      rwa [pexp_congr _ (potAt_wf lc (hwpot lc hlc) _) _ _ hpost] at this
+      rwa [pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ (hpost (by simp))] at this
 
 /-! ### Runs -/
 
@@ -731,13 +1011,14 @@ theorem potAt_none (lc : LoopCert) (s : Env) : (potAt lc none).eval s = 0 := by
 /-- Along a chain, the instructions are in the function, the invariants hold, and the sum
     of the coefficients of every loop row is at most the potential at the start. -/
 theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
-    (hc : checkDFun mul abi c f L = true) :
-    ∀ (t : List DStep) (x : DStep) (a fa fb : Nat), DChain abi c (some a) (x :: t) → a ∈ f.nodes →
+    (hc : checkDFun mul abi c f L = true) {SP0 : Nat} (hSP0 : SP0 < U) :
+    ∀ (t : List DStep) (x : DStep) (a fa fb : Nat), DChain abi L.frame c SP0 (some a) (x :: t) →
+      a ∈ f.nodes →
       (∀ y ∈ x :: t, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
-      Inv f L a x.σ fa fb →
+      Inv f L SP0 a x.σ fa fb →
       (∀ y ∈ x :: t, y.st.a ∈ f.nodes) ∧
       ∀ lc ∈ L.loops, ((x :: t).map fun y => coefStep lc y.st.a y.st.next).sum ≤
-        (potAt lc (some a)).eval (envOf x.σ fa fb)
+        (potAt lc (some a)).eval (envOf x.σ fa fb SP0 L.slots)
   | [], x, a, fa, fb, hch, ha, hok, hinv => by
     obtain ⟨hxa, _, hrest⟩ := hch
     cases hn : x.st.next with
@@ -745,7 +1026,7 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     | none =>
       have hok' := hok x (by simp)
       rw [hxa, hn] at hok'
-      obtain ⟨_, hpot⟩ := step_ok hc ha hok' hinv x.σ hinv.1 (fun h => absurd rfl h)
+      obtain ⟨_, hpot⟩ := step_ok hc hSP0 ha hok' hinv x.σ hinv.1 hinv.2.1 (fun h => absurd rfl h)
       refine ⟨fun y hy => by simp at hy; rw [hy, hxa]; exact ha, fun lc hlc => ?_⟩
       have := hpot lc hlc
       rw [potAt_none] at this
@@ -757,20 +1038,21 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     | none => rw [hn] at hrest; simp [DChain] at hrest
     | some n =>
       rw [hn] at hrest
-      have hya : y.st.a = n := hrest.1
       have hok' := hok x (by simp)
       rw [hxa, hn] at hok'
       have hwfy : wfState y.σ := (hok y (by simp)).1
-      have hE : EffOk (effect abi c a) x.σ y.σ := heff y (by simp)
-      obtain ⟨hinvn, hpot⟩ := step_ok hc ha hok' hinv y.σ hwfy (fun _ => hE)
+      have hwsy : wfStack y.σ := (hok y (by simp)).2.1
+      have hE := heff y (by simp)
+      obtain ⟨hinvn, hpot⟩ := step_ok hc hSP0 ha hok' hinv y.σ hwfy hwsy (fun _ => hE)
       have hnn : n ∈ f.nodes := by
         obtain ⟨hcl, _⟩ := (checkDFun_spec hc)
         obtain ⟨_, hcl2⟩ := closed_spec mul c f.entry f.nodes hcl
         obtain ⟨i, hi, _, hsucc⟩ := hcl2 a ha
-        obtain ⟨_, i', hi', hj, _⟩ := hok'
+        obtain ⟨_, _, i', hi', hj, _⟩ := hok'
         rw [hi] at hi'; cases hi'
         exact hsucc _ (List.mem_of_getElem? hj) n rfl
-      obtain ⟨hnodes, hsum⟩ := chain_ok hc t y n _ _ hrest hnn (fun z hz => hok z (by simp [hz])) (hinvn n rfl)
+      obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t y n _ _ hrest hnn
+        (fun z hz => hok z (by simp [hz])) (hinvn n rfl)
       refine ⟨fun z hz => ?_, fun lc hlc => ?_⟩
       · rcases List.mem_cons.mp hz with rfl | hz
         · rw [hxa]; exact ha
@@ -822,35 +1104,47 @@ theorem loopRow_coef (f : BFun) (lc : LoopCert) (hd : nodupB f.nodes = true) (a 
 /-- A certified function: every data run from its entry satisfies the rows of its
     certified loops. -/
 theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
-    (hc : checkDFun mul abi c f L = true) (s : List DStep) (hch : DChain abi c (some f.entry) s)
+    (hc : checkDFun mul abi c f L = true) (s : List DStep)
+    (hch : DChain abi L.frame c (headSp s) (some f.entry) s)
     (hok : ∀ y ∈ s, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) :
     ∀ lc ∈ L.loops, (s.map fun y => coefPair (loopRow f lc).coef y.st.a y.st.next).sum ≤ (loopRow f lc).rhs := by
-  obtain ⟨hcl, hnd, _, _, hke, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
+  obtain ⟨hcl, hnd, _, _, hke, hspe, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
   cases s with
   | nil => simp [DChain] at hch
   | cons x t =>
+    simp only [headSp] at hch
     have hwf : wfState x.σ := (hok x (by simp)).1
+    have hws : wfStack x.σ := (hok x (by simp)).2.1
+    have hSP0 : x.σ.sp < U := hws.1
+    set S := L.slots.length
     have he : f.entry ∈ f.nodes := (closed_spec mul c f.entry f.nodes hcl).1
-    have env0 := rangesL_holds x.σ x.σ 0 0 hwf hwf (by simp [U]) (by simp [U]) (fun _ => 0)
-    have hinv : Inv f L f.entry x.σ 0 0 := by
-      refine ⟨hwf, by simp [U], by simp [U], by rw [hke]; trivial, fun g hg => ?_⟩
-      have hin : (rangesL, g) ∈ obligations mul abi c f L := by
-        simp only [obligations, List.mem_append, List.mem_map]
-        left; left; exact ⟨g, hg, rfl⟩
-      obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
-      have := entails1_sound hp env0
-      rwa [lin_congr g (invAt_wf f L hwinv _ g hg) _ (fun _ => 0) _ (envOf x.σ 0 0)
-        (fun v hv => envT_below x.σ x.σ 0 0 v hv)] at this
-    obtain ⟨hnodes, hsum⟩ := chain_ok hc t x f.entry 0 0 hch he hok hinv
+    have env0 := rangesN_holds x.σ x.σ 0 0 x.σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)
+    have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+        envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
+      fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
+    have hinv : Inv f L x.σ.sp f.entry x.σ 0 0 := by
+      refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_, fun g hg => ?_⟩
+      · intro d hd
+        rcases hspe with hspe | hspe <;> rw [hspe] at hd
+        · cases hd
+          simp only [aOf, U] at *
+          omega
+        · cases hd
+      · have hin : (rangesN (nVars S), g) ∈ obligations mul abi c f L := by
+          simp only [obligations, List.mem_append, List.mem_map]
+          left; left; exact ⟨g, hg, rfl⟩
+        obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
+        have := entails1_sound hp env0
+        rwa [lin_congr S g (invAt_wf f L hwinv _ g hg) _ (fun _ => 0) _ _ hstate] at this
+    obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t x f.entry 0 0 hch he hok hinv
     intro lc hlc
-    have hin : (rangesL, goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0)) ∈
+    have hin : (rangesN (nVars S), goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0)) ∈
         obligations mul abi c f L := by
       simp only [obligations, List.mem_append, List.mem_map]
       left; right; exact ⟨lc, hlc, rfl⟩
     obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
     have h0 := entails1_sound hp env0
-    rw [goalLin_eval, pconst_eval, pexp_congr _ (potAt_wf lc (hwpot lc hlc) _) _ (envOf x.σ 0 0)
-      (fun v hv => envT_below x.σ x.σ 0 0 v hv)] at h0
+    rw [goalLin_eval, pconst_eval, pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ hstate] at h0
     have h1 := hsum lc hlc
     have hsame : ((x :: t).map fun y => coefPair (loopRow f lc).coef y.st.a y.st.next) =
         ((x :: t).map fun y => coefStep lc y.st.a y.st.next) :=
@@ -864,12 +1158,12 @@ theorem callsWith_mono (R1 R2 : Nat → Int → Prop) (h : ∀ g c, R1 g c → R
   | [], _, hx => hx
   | g :: gs, x, ⟨c0, hc, hr⟩ => ⟨c0, h g c0 hc, callsWith_mono R1 R2 h gs (x - c0) hr⟩
 
-theorem dchain_mchain (abi : Bool) (c : Code) :
-    ∀ (s : List DStep) (o : Option Nat), DChain abi c o s → MChain o (s.map (·.st))
+theorem dchain_mchain (abi frame : Bool) (c : Code) (SP0 : Nat) :
+    ∀ (s : List DStep) (o : Option Nat), DChain abi frame c SP0 o s → MChain o (s.map (·.st))
   | [], none, _ => by simp [MChain]
   | [], some _, h => by simp [DChain] at h
   | _ :: _, none, h => by simp [DChain] at h
-  | x :: t, some a, ⟨hxa, _, hrest⟩ => ⟨hxa, dchain_mchain abi c t x.st.next hrest⟩
+  | x :: t, some a, ⟨hxa, _, hrest⟩ => ⟨hxa, dchain_mchain abi frame c SP0 t x.st.next hrest⟩
 
 theorem dfAt_spec {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List DFun}
     (hD : checkData mul abi c fs Ls = true) {e : Nat} {f : BFun} {L : DFun}
@@ -908,10 +1202,10 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
     obtain ⟨f, L, s, hdf, hch, hsteps, htr, htot⟩ := h
     obtain ⟨hfn, hc, hentry⟩ := dfAt_spec hD hdf
     obtain ⟨_, _, hrows, _⟩ := checkDFun_spec hc
-    refine ⟨f, s.map (·.st), hfn, dchain_mchain abi c s _ hch, ?_, ?_, ?_⟩
+    refine ⟨f, s.map (·.st), hfn, dchain_mchain abi L.frame c _ s _ hch, ?_, ?_, ?_⟩
     · intro st hst
       obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hst
-      obtain ⟨⟨_, i, hi, hj, _⟩, hcalls⟩ := hsteps x hx
+      obtain ⟨⟨_, _, i, hi, hj, _⟩, hcalls⟩ := hsteps x hx
       exact ⟨step_of hi (List.mem_of_getElem? hj), callsWith_mono _ _ (ih) _ _ hcalls⟩
     · intro r hr
       rw [hrows] at hr
@@ -1042,7 +1336,7 @@ def exProofs : List (Nat × List Nat) :=
     (1, [])]
 
 
-def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs⟩
+def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false⟩
 
 def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], []⟩
 
@@ -1056,7 +1350,7 @@ theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] = true := by 
 /-- A bound of 9 iterations is refused. -/
 theorem exData_tight :
     checkData 32 false exCode [{ exFunD0 with rows := [loopRow exFunD0 { exLoop with bound := 9 }] }]
-      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs⟩] = false := by decide
+      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false⟩] = false := by decide
 
 /-- Every run of the data semantics of the example costs at most 68 cycles, with no
     trusted row. -/

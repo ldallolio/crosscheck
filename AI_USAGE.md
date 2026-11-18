@@ -1562,6 +1562,44 @@ sentences are unchanged) the lists of what the assistant wrote no longer name th
 work. Paper I: 41 pages, Paper II: 23, Paper III: 13; all three build with no warning.
 `formalization.yaml` gains a `paper:` field; `CLAUDE.md` describes the three papers.
 
+63. "Model stack slots"
+
+What the AI did for 63 (Claude Opus 5.5, 2026-11-18): the data semantics of Paper III
+extended with the stack pointer and memory, so that loop counters kept in the frame can be
+certified.
+- Lean `ThumbDataCore`: `stackEffect` (the effect of each instruction on SP, memory and
+  SP-relative loads: SUB/ADD SP, PUSH, POP, STR/LDR through SP, other stores and calls;
+  whether it puts an address of the frame in a register), `MState` gains `sp` and `mem`;
+  certificates gain per-instruction SP offsets (`spOff`), tracked words of the frame
+  (`slots`, variables `20 + j`) and a per-function assumption `frame`; `postS` (values
+  after an instruction, tracked words included), `spOk`, `slotsOk`, `stackWf`; the checker
+  refuses `frame` for a function that takes an address of its frame. `abi` now also covers
+  SP. `ThumbData`: `StackOk`, `DChain` with the entry SP, `postS_eval` (address arithmetic
+  modulo 2^32 by `omega`), `step_ok`, `chain_ok`, `chain_rows`, `drun_mrun`, `data_sound`
+  redone; 77 theorems in the module, 553 in all; three standard axioms. The example
+  (`exData_*`) unchanged in substance.
+- Checker program: fields `sp`, `slots`, `frame`; `--effect` also prints the stack effect.
+- `test_effect.py`: the stack effects compared with `m0.py` (SP, the memory window around
+  SP, SP-relative loads) on every encoding: 297,244 executions, no difference.
+- Producer `binloops.py` rewritten around post-expressions (registers, ghosts, tracked
+  words): SP offsets by data flow, tracked words accessed through SP in loops, zones over
+  registers and words, potentials over words too; prover restricted to the variables in use.
+  `ipet.certify(frame=...)`, `run_cycles.py --frame`.
+- `test_binloops.py`: 18 tests (counter in a stack slot certified with no assumption; with a
+  call in the loop only under `abi` and `frame`; must-reject: another slot, a wrong SP
+  offset, an entry offset other than 0, a store to another word, `frame` removed, an
+  address of the frame taken).
+- Results (TACLeBench, Cortex-M0): kernels' loops certified on the code 73 (72 before), 105
+  with `abi` (94 before), 107 with `abi` and `frame`; functions with a certified cycle
+  bound 115, 117 with `frame`; all certificates accepted; no run above a certified bound.
+  The gain is limited because `frame` is refused in 192 of 267 functions (191 frame-pointer
+  prologues `add r7, sp, #i`); reported in Paper III and the README, with two options for
+  the author: compile without frame pointers, or refine the escape analysis.
+- Paper III: Definitions `def:data-run` and `def:loop-certificate`, the proof of
+  `thm:machine-loops`, the producer description, the evaluation and the counts updated;
+  Paper I: the development counts (10,300 lines and 451 theorems for Paper I; 2,900 and 102
+  for Paper III's modules).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

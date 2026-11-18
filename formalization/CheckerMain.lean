@@ -533,7 +533,18 @@ def parseBFun (f : Json) : Except String
     ⟨← optArr f "kinds" parseKind, ← optArr f "inv" (fun l => match l.getArr? with
         | .ok a => a.toList.mapM parseDLin
         | .error _ => throw "an invariant must be an array of constraints"),
-     loops, trusted, ← optArr f "proofs" parseProof⟩
+     loops, trusted, ← optArr f "proofs" parseProof,
+     ← optArr f "sp" (fun o => match o with
+        | .null => pure none
+        | _ => match o.getInt? with
+          | .ok d => pure (some d)
+          | .error _ => throw "a stack offset must be an integer or null"),
+     ← match f.getObjVal? "slots" with
+        | .ok v => natList v "slots"
+        | .error _ => pure [],
+     match f.getObjValAs? Bool "frame" with
+        | .ok b => b
+        | .error _ => false⟩
   pure (nameOf f "name", F, C, D)
 
 def parseBinaryFile (j : Json) :
@@ -568,7 +579,7 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
         IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({F.nodes.length} instructions, {G.edges.length} edges, {G.rows.length} rows)"
       if !D.loops.isEmpty || !D.inv.isEmpty then
         let okD := ImperativeOptimization.Thumb.checkDFun mul abi code F D
-        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations)"
+        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked{if D.frame then ", frame written only through SP (assumed)" else ""})"
     -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
     let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
     let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
@@ -576,7 +587,7 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
     if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) then
       -- the decision of the verified `checkData` (theorem `ThumbData.data_sound`)
       let okD := ImperativeOptimization.Thumb.checkData mul abi code fs Ls
-      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {if abi then "callees assumed to preserve r4-r7" else "no assumption on callees"}; the decoder, the timing table and the effects of the instructions are trusted)"
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {if abi then "callees assumed to preserve r4-r7 and SP" else "no assumption on callees"}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
       if !(okP && okD) then status := 1
     else
       IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
@@ -631,7 +642,20 @@ def runEffect (j : Json) : Except String (List String) := do
     let f0 : ImperativeOptimization.Thumb.Flags :=
       ⟨fl.getD 0 0 == 1, fl.getD 1 0 == 1, fl.getD 2 0 == 1, fl.getD 3 0 == 1⟩
     let conds := String.join ((List.range 14).map fun cc => bit (ImperativeOptimization.Thumb.condHolds cc f0))
-    s!"{a} {" ".intercalate regs} {fs} {conds}"
+    let st := ImperativeOptimization.Thumb.stackEffect abi code a
+    let sps := match st.sp with
+      | .keep => "k"
+      | .add k => s!"{k}"
+      | .any => "?"
+    let mems := match st.mem with
+      | .keep => "k"
+      | .storeSP imm rt => s!"s{imm},{rt}"
+      | .push n => s!"p{n}"
+      | .other => "o"
+    let lds := match st.load with
+      | some (rt, imm) => s!"l{rt},{imm}"
+      | none => "-"
+    s!"{a} {" ".intercalate regs} {fs} {conds} {sps} {mems} {lds} {if st.escapes then 1 else 0}"
 
 /-! ### Printing what was checked -/
 

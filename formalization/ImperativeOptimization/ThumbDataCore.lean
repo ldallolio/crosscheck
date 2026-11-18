@@ -152,6 +152,76 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
   -- branches
   else ⟨[], .keep⟩
 
+/-! ### The stack: the stack pointer and the words of the frame -/
+
+/-- The effect on the stack pointer: kept, moved by a constant, any value. -/
+inductive SpE where
+  | keep
+  | add (k : Int)
+  | any
+  deriving DecidableEq, Repr
+
+/-- The effect on memory: none; a word stored at `sp + imm` from register `rt`; the `n`
+    words below the stack pointer written (PUSH); a store through another register or a
+    call (`other`: any word may change, except, with the assumption `frame`, those of the
+    function's frame). -/
+inductive MemE where
+  | keep
+  | storeSP (imm rt : Nat)
+  | push (n : Nat)
+  | other
+  deriving DecidableEq, Repr
+
+/-- The effect of an instruction on the stack: stack pointer, memory, a word loaded from
+    `sp + imm` into register `rt` (`load = some (rt, imm)`), and whether it writes an address
+    of the frame into a register (`escapes`). -/
+structure StackE where
+  sp : SpE
+  mem : MemE
+  load : Option (Nat × Nat)
+  escapes : Bool
+  deriving DecidableEq, Repr
+
+/-- The effect of the instruction at `a` on the stack (the specification; `BL`: the stack
+    pointer is restored by the callee under the assumption `abi`). -/
+def stackEffect (abi : Bool) (c : Code) (a : Nat) : StackE :=
+  match c.get a with
+  | none => ⟨.any, .other, none, true⟩
+  | some h =>
+  let top5 := h >>> 11
+  if top5 = 0b11101 ∨ top5 = 0b11110 ∨ top5 = 0b11111 then
+    ⟨if abi then .keep else .any, .other, none, false⟩
+  -- LDR/STR (SP-relative)
+  else if h >>> 12 = 0b1001 then
+    if (h >>> 11) % 2 = 1 then ⟨.keep, .keep, some ((h >>> 8) % 8, (h % 256) * 4), false⟩
+    else ⟨.keep, .storeSP ((h % 256) * 4) ((h >>> 8) % 8), none, false⟩
+  -- ADD rd, SP, #imm: an address of the frame in a register
+  else if top5 = 0b10101 then ⟨.keep, .keep, none, true⟩
+  -- ADD/SUB SP, #imm
+  else if h >>> 8 = 0b10110000 then
+    ⟨.add (if (h >>> 7) % 2 = 1 then -(((h % 128) * 4 : Nat) : Int) else (((h % 128) * 4 : Nat) : Int)),
+     .keep, none, false⟩
+  -- PUSH, POP
+  else if h >>> 9 = 0b1011010 then
+    ⟨.add (-((4 * (popcount8 h + (h >>> 8) % 2) : Nat) : Int)), .push (popcount8 h + (h >>> 8) % 2), none, false⟩
+  else if h >>> 9 = 0b1011110 then
+    ⟨.add (((4 * (popcount8 h + (h >>> 8) % 2) : Nat) : Int)), .keep, none, false⟩
+  -- high registers: ADD/MOV to SP, ADD/MOV from SP
+  else if h >>> 10 = 0b010001 then
+    let opc := (h >>> 8) % 4
+    let d := ((h >>> 7) % 2) * 8 + h % 8
+    let m := (h >>> 3) % 16
+    ⟨if (opc = 0 ∨ opc = 2) ∧ d = 13 then .any else .keep, .keep, none,
+     decide ((opc = 0 ∨ opc = 2) ∧ m = 13 ∧ d ≠ 13)⟩
+  -- other stores: register offset (STR, STRH, STRB), immediate offset, STM
+  else if (h >>> 12 = 0b0101 ∧ (h >>> 9) % 8 < 3) ∨
+      ((h >>> 13 = 0b011 ∨ h >>> 12 = 0b1000) ∧ (h >>> 11) % 2 = 0) ∨
+      (h >>> 12 = 0b1100 ∧ (h >>> 11) % 2 = 0) then ⟨.keep, .other, none, false⟩
+  else ⟨.keep, .keep, none, false⟩
+
+/-- The address `x mod 2^32`. -/
+def aOf (x : Int) : Nat := (x % (U : Int)).toNat
+
 /-- The condition code of a conditional branch. -/
 def ccOf (c : Code) (a : Nat) : Nat := ((c.get a).getD 0 >>> 8) % 16
 
@@ -167,6 +237,8 @@ structure Flags where
 structure MState where
   r : Nat → Nat
   f : Flags
+  sp : Nat
+  mem : Nat → Nat
 
 /-- The signed value of a word. -/
 def sgn (x : Nat) : Int := if x < 2147483648 then x else (x : Int) - 4294967296
@@ -332,9 +404,48 @@ def wrapPrem (e : Eff) (m : Int) : List Lin :=
 
 def mcases (e : Eff) : List Int := if (opOf e).isSome then [0, 1, -1] else [0]
 
-/-- Every variable in `[0, 2^32 − 1]`. -/
-def rangesL : List Lin :=
-  (List.range 20).flatMap fun v => [mk [(-1, v)] 0, mk [(1, v)] (1 - (U : Int))]
+/-- Every variable below `n` in `[0, 2^32 − 1]`. -/
+def rangesN (n : Nat) : List Lin :=
+  (List.range n).flatMap fun v => [mk [(-1, v)] 0, mk [(1, v)] (1 - (U : Int))]
+
+/-- The variables of a function with `S` tracked words of the frame: `0`-`19` as above,
+    `20`..`20+S-1` the tracked words before the instruction, `20+S`..`20+2S-1` after it
+    when they change with any value. -/
+def nVars (S : Nat) : Nat := 20 + 2 * S
+
+/-- The tracked word of the frame at offset `k` (the word at `SP₀ − k`, `SP₀` the stack
+    pointer at the function's entry). -/
+def slotIdx (slots : List Nat) (k : Int) : Option Nat := if 0 < k then find slots k.toNat else none
+
+/-- The value of variable `i` after the instruction, with the stack: as `postE`, except a
+    word loaded from a tracked slot, and the tracked slots themselves (`δ`: the offset of
+    the stack pointer from its value at the entry, if known). -/
+def postS (e : Eff) (s : StackE) (frame : Bool) (δ : Option Int) (slots : List Nat) (m : Int)
+    (i : Nat) : PExp :=
+  if i < 8 then
+    match s.load, δ with
+    | some p, some d =>
+      if i = p.1 then
+        match slotIdx slots (-(d + (p.2 : Int))) with
+        | some j => pv (20 + j)
+        | none => postE e m i
+      else postE e m i
+    | _, _ => postE e m i
+  else if i < 20 then postE e m i
+  else
+    let S := slots.length
+    let k : Int := ((slots.getD (i - 20) 0 : Nat) : Int)
+    match s.mem with
+    | .keep => pv i
+    | .storeSP imm rt => match δ with
+      | some d => if k = -(d + (imm : Int)) then pv rt else pv i
+      | none => pv (i + S)
+    | .push n => match δ with
+      | some d => if d - 4 * (n : Int) ≤ -k ∧ -k < d then pv (i + S) else pv i
+      | none => pv (i + S)
+    | .other => match δ with
+      | some d => if frame = true ∧ k ≤ -d then pv i else pv (i + S)
+      | none => pv (i + S)
 
 /-- Registers below 8, constants below `2^32`, at most one written sum or difference. -/
 def srcOk : Src → Bool
@@ -353,6 +464,18 @@ def wfEff (e : Eff) : Bool :=
    | .add a b => srcOk a && srcOk b
    | .sub a b => srcOk a && srcOk b
    | _ => true)
+
+/-- Registers below 8, offsets below 1024, at most 16 words pushed. -/
+def stackLoadOk : Option (Nat × Nat) → Bool
+  | none => true
+  | some p => decide (p.1 < 8 ∧ p.2 < 1024)
+
+def stackMemOk : MemE → Bool
+  | .storeSP imm rt => decide (imm < 1024 ∧ rt < 8)
+  | .push n => decide (n ≤ 16)
+  | _ => true
+
+def stackWf (s : StackE) : Bool := stackLoadOk s.load && stackMemOk s.mem
 
 /-- The kind of operation after the instruction may be the one it sets, or unknown. -/
 def kindOk (ka : FKind) (fl : FEff) (kn : FKind) : Bool :=
@@ -384,6 +507,9 @@ structure DFun where
   loops : List LoopCert
   trusted : List MRow
   proofs : List (Nat × List Nat)
+  spOff : List (Option Int) := []
+  slots : List Nat := []
+  frame : Bool := false
   deriving Repr
 
 def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
@@ -391,6 +517,10 @@ def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
 
 def invAt (f : BFun) (L : DFun) (a : Nat) : List Lin :=
   ((find f.nodes a).bind fun k => L.inv[k]?).getD []
+
+/-- The offset of the stack pointer from its value at the entry, at instruction `a`. -/
+def spAt (f : BFun) (L : DFun) (a : Nat) : Option Int :=
+  ((find f.nodes a).bind fun k => L.spOff[k]?).getD none
 
 def potAt (lc : LoopCert) : Option Nat → PExp
   | none => pconst 0
@@ -414,6 +544,7 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
   | none => []
   | some i =>
     let e := effect abi c a
+    let st := stackEffect abi c a
     let ka := kindAt f L a
     (indexed 0 (trans i a)).flatMap fun p =>
       let next := p.2.1
@@ -421,8 +552,8 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
         | .cond _ => condFacts ka (ccOf c a) (p.1 == 0)
         | _ => [[]]
       (mcases e).flatMap fun m => facts.flatMap fun D =>
-        let prem := D ++ wrapPrem e m ++ invAt f L a ++ rangesL
-        let σ := postE e m
+        let prem := D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars L.slots.length)
+        let σ := postS e st L.frame (spAt f L a) L.slots m
         let invGoals := match next with
           | some n => (invAt f L n).map fun g => substL g σ
           | none => []
@@ -432,9 +563,11 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
 
 /-- All obligations: the invariant and the potentials at the entry (from the ranges
     alone), then those of every transition. -/
-def obligations (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : List (List Lin × Lin) :=
-  (invAt f L f.entry).map (fun g => (rangesL, g)) ++
-  L.loops.map (fun lc => (rangesL, goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0))) ++
+def obligations (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) :
+    List (List Lin × Lin) :=
+  (invAt f L f.entry).map (fun g => (rangesN (nVars L.slots.length), g)) ++
+  L.loops.map (fun lc => (rangesN (nVars L.slots.length),
+    goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0))) ++
   f.nodes.flatMap (obsOf mul abi c f L)
 
 def checkObs : List (List Lin × Lin) → List (Nat × List Nat) → Bool
@@ -447,15 +580,38 @@ def nodupB : List Nat → Bool
   | [] => true
   | x :: xs => !(xs.contains x) && nodupB xs
 
-def wfLin (g : Lin) : Bool := g.lv.isEmpty && decide (g.sv.length ≤ 10)
+/-- A constraint or potential on the variables of a state: registers, ghosts and the `S`
+    tracked words (not on the variables `10`-`19` of a transition). -/
+def wfSv (S : Nat) (sv : List Int) : Bool :=
+  decide (sv.length ≤ 20 + S) && (List.range 10).all fun v => sv.getD (10 + v) 0 == 0
+
+def wfLin (S : Nat) (g : Lin) : Bool := g.lv.isEmpty && wfSv S g.sv
+
+/-- The stack pointer after the instruction: unknown, or the offset the effect gives. -/
+def spOk (da : Option Int) (s : SpE) (dn : Option Int) : Bool :=
+  match dn with
+  | none => true
+  | some n => match da, s with
+    | some d, .keep => n == d
+    | some d, .add k => n == d + k
+    | _, _ => false
+
+/-- Tracked words: distinct positive multiples of 4 below `2^20`; offsets of the stack
+    pointer within `±2^20`. -/
+def slotsOk (L : DFun) : Bool :=
+  nodupB L.slots && L.slots.all (fun k => decide (0 < k ∧ k % 4 = 0 ∧ k < 1048576)) &&
+  L.spOff.all fun o => match o with
+    | some d => decide (-1048576 ≤ d ∧ d ≤ 1048576)
+    | none => true
 
 /-- The checks that do not involve Farkas certificates, at instruction `a`. -/
 def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
-  wfEff (effect abi c a) &&
+  wfEff (effect abi c a) && !(L.frame && (stackEffect abi c a).escapes) && stackWf (stackEffect abi c a) &&
   match decode mul c a with
   | none => false
   | some i => (trans i a).all fun p => match p.1 with
-    | some n => kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n)
+    | some n => kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n) &&
+        spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n)
     | none => true
 
 /-- The check of the loop certificates of a function. -/
@@ -463,10 +619,15 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   closed mul c f.entry f.nodes && nodupB f.nodes &&
   decide (f.rows = L.trusted ++ L.loops.map (loopRow f)) &&
   f.nodes.all (nodeOk mul abi c f L) && kindAt f L f.entry == .none &&
-  L.inv.all (·.all wfLin) && L.loops.all (fun lc => lc.pot.all fun p => decide (p.sv.length ≤ 10)) &&
+  (spAt f L f.entry == some 0 || spAt f L f.entry == none) && slotsOk L &&
+  L.inv.all (·.all (wfLin L.slots.length)) &&
+  L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
   checkObs (obligations mul abi c f L) L.proofs
 
-/-- The check of the loop certificates of all functions (aligned with the functions). -/
+/-- The check of the loop certificates of all functions (aligned with the functions);
+    `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`
+    assumes that no store through a register other than SP, and no call, writes the
+    function's frame, and the function must not put an address of its frame in a register. -/
 def checkData (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
   fs.length == Ls.length && (fs.zip Ls).all fun p => checkDFun mul abi c p.1 p.2
 

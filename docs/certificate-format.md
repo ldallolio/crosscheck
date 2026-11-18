@@ -290,8 +290,18 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
 `ThumbData.data_sound`) adds optional fields; a version-1 file is read as before.
 
 - `"abi"` (program-wide, default `false`): with `true`, a call may change only `r0`-`r3`
-  and the flags (callees are assumed to preserve `r4`-`r7`, as the AAPCS requires); the
-  verdict says so.
+  and the flags (callees are assumed to preserve `r4`-`r7` and SP, as the AAPCS requires);
+  the verdict says so.
+- Per function, the stack (Lean `Thumb.stackEffect`, `StackOk`): `"sp"`: per instruction
+  (order of `nodes`) the offset of SP from its value at the entry, or `null` (unknown; the
+  entry's offset must be `0` or `null`; the checker verifies every transition against the
+  effect: `PUSH`/`POP`/`ADD SP`/`SUB SP` move SP by their constants); `"slots"`: tracked
+  words of the frame, distinct positive multiples of 4 below 2^20 (`k`: the word at
+  `SP₀ − k`), certificate variables `20 + j` (and `20 + S + j` for their fresh values
+  after an instruction; `S` the number of slots, `nVars = 20 + 2S`); `"frame"` (default
+  `false`): assume that stores through registers other than SP and calls do not write the
+  function's frame (words between SP and `SP₀`); refused if the function puts an address
+  derived from SP into a register (`ADD rd, SP, #i`, `MOV rd, SP`, `ADD rd, SP`).
 - Per function, `"rows"` are now the **trusted** rows only; `"loops"` lists the certified
   loops, whose rows the checker generates (`Thumb.loopRow`) and appends to the trusted
   ones, in that order (the IPET certificate's `mult` follows that order):
@@ -309,8 +319,9 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   transition, every wrap case of a written sum or difference and every disjunct of the
   facts of a branch, the successor's invariant and the descent `k + Φ(next) − Φ(here) ≤ 0`
   of every certified loop). The premises are the disjunct, the wrap case, the
-  instruction's invariant and the ranges `[0, 2^32 − 1]` of the 20 variables (`10`-`17`:
-  registers written with any value, `18`, `19`: fresh ghosts).
+  instruction's invariant and the ranges `[0, 2^32 − 1]` of the `20 + 2S` variables
+  (`10`-`17`: registers written with any value, `18`, `19`: fresh ghosts, then the
+  tracked words before and after).
 - Accepted (the second line per function, `ACCEPTED f: loop bounds of the machine code`,
   and the program line): every run of the data semantics (`ThumbData.DRun`: effects of the
   instructions on `r0`-`r7` and the flags, `Thumb.effect`; a branch taken iff its

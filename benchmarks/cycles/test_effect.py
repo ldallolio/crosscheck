@@ -31,7 +31,13 @@ import m0  # noqa: E402
 ROOT = HERE.parent.parent
 MEM = 1 << 16
 BASE = 1 << 20          # the code, above the memory that loads and stores reach
-NOWRITE = ("bcond", "b", "bl", "push", "bx", "blx", "nop")
+NOWRITE = ("bcond", "b", "bl", "bx", "blx", "nop")
+SP = 0x8000             # the stack pointer of every case
+WIN = (SP - 256, SP + 1100)
+
+
+def window(mem):
+    return bytes(mem[WIN[0]:WIN[1]])
 
 
 def lean_effects(checker, hws, cases, abi):
@@ -44,24 +50,37 @@ def lean_effects(checker, hws, cases, abi):
 
 
 def run_m0(img, i, r, f):
-    """Registers r0-r7 and flags after the instruction, or None (not executable here)."""
+    """(registers r0-r7, flags, stack pointer, memory window before, after) after the
+    instruction, or None (not executable here). The memory is restored afterwards."""
     mach = m0.Machine(img)
-    mach.r = list(r) + [0] * 5 + [0x8000, 0, 0]
-    mach.r[13] = 0x8000
+    mach.r = list(r) + [0] * 5 + [SP, 0, 0]
     mach.n, mach.z, mach.c, mach.v = f
-    if i.op in NOWRITE:
-        return list(r), tuple(f)
-    if i.op == "pop":
-        out = list(r)
-        for k in i.a[0]:
-            if k < 8:
-                out[k] = None          # any value
-        return out, tuple(f)
+    before = window(img.mem)
+    snap = bytes(img.mem[:WIN[1] + 4096])
     try:
-        mach.execute(i, i.addr)
+        if i.op in NOWRITE:
+            pass
+        elif i.op == "push":
+            regs = i.a[0]
+            sp = mach.r[13] - 4 * len(regs)
+            for k, reg in enumerate(regs):
+                mach.wr32(sp + 4 * k, mach.r[reg])
+            mach.r[13] = sp
+        elif i.op == "pop":
+            sp = mach.r[13]
+            for k, reg in enumerate(i.a[0]):
+                if reg != 15:
+                    mach.r[reg] = mach.rd32(sp + 4 * k)
+            mach.r[13] = sp + 4 * len(i.a[0])
+        else:
+            mach.execute(i, i.addr)
     except (m0.Stop, struct.error, IndexError):
+        img.mem[:WIN[1] + 4096] = snap
         return None
-    return [x & 0xFFFFFFFF for x in mach.r[:8]], (mach.n, mach.z, mach.c, mach.v)
+    after = window(img.mem)
+    img.mem[:WIN[1] + 4096] = snap
+    return ([x & 0xFFFFFFFF for x in mach.r[:8]], (mach.n, mach.z, mach.c, mach.v), mach.r[13] & 0xFFFFFFFF,
+            before, after)
 
 
 def main():
@@ -109,9 +128,29 @@ def main():
             got = run_m0(img, i, r, f)
             if got is None:
                 continue
-            post, pf = got
+            post, pf, psp, before, after = got
             checked += 1
             ok = True
+            sps, mems, lds = line[11], line[12], line[13]
+            if sps == "k":
+                ok &= psp == SP
+            elif sps != "?":
+                ok &= psp == (SP + int(sps)) % (1 << 32)
+            word = lambda buf, ad: struct.unpack_from("<I", buf, ad - WIN[0])[0]
+            if mems == "k":
+                ok &= before == after
+            elif mems.startswith("s"):
+                imm, rt = (int(x) for x in mems[1:].split(","))
+                ad = SP + imm
+                ok &= word(after, ad) == r[rt]
+                ok &= before[:ad - WIN[0]] == after[:ad - WIN[0]] and before[ad - WIN[0] + 4:] == after[ad - WIN[0] + 4:]
+            elif mems.startswith("p"):
+                n = int(mems[1:])
+                lo_, hi_ = SP - 4 * n - WIN[0], SP - WIN[0]
+                ok &= before[:lo_] == after[:lo_] and before[hi_:] == after[hi_:]
+            if lds != "-":
+                rt, imm = (int(x) for x in lds[1:].split(","))
+                ok &= post[rt] == word(before, SP + imm)
             for k in range(8):
                 if regs[k] == "k":
                     ok &= post[k] is not None and post[k] == r[k]
@@ -126,7 +165,7 @@ def main():
             if not ok:
                 bad += 1
                 if bad <= 10:
-                    print(f"{i} (halfword {(addr - BASE) // 4:#06x}) regs {r} flags {f}: m0.py {post} {pf}; Lean {line[1:10]}")
+                    print(f"{i} (halfword {(addr - BASE) // 4:#06x}) regs {r} flags {f}: m0.py {post} {pf} sp {psp:#x}; Lean {line[1:10]} {line[11:]}")
     print(f"effects: {checked} executions compared, {bad} differences")
     if bad:
         sys.exit("effect differences")

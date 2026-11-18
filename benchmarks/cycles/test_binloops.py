@@ -32,6 +32,13 @@ CHECKER = os.environ.get("CROSSCHECK_CHECKER",
 # f at 0x100: movs r4,#0; bl g; adds r4,#1; cmp r4,#10; blt 0x102; bx lr   g at 0x120: bx lr
 # (the counter lives in r4 across the call: certified only if callees preserve r4)
 CALLLOOP = {0x100: [0x2400, 0xF000, 0xF80D, 0x3401, 0x2C0A, 0xDBFA, 0x4770], 0x120: [0x4770]}
+# f at 0x100: sub sp,#8; movs r0,#0; str r0,[sp,#4]; L: ldr r0,[sp,#4]; cmp r0,#10; bge out;
+# adds r0,#1; str r0,[sp,#4]; b L; out: add sp,#8; bx lr   (the counter lives in a stack slot)
+STACKLOOP = {0x100: [0xB082, 0x2000, 0x9001, 0x9801, 0x280A, 0xDA02, 0x3001, 0x9001, 0xE7F9, 0xB002, 0x4770]}
+# the same with a call in the loop: certified only if callees preserve SP (abi) and do not
+# write the caller's frame (frame)
+CALLSTACK = {0x100: [0xB082, 0x2000, 0x9001, 0xF000, 0xF81B, 0x9801, 0x3001, 0x9001, 0x280A, 0xDBF8,
+                     0xB002, 0x4770], 0x140: [0x4770]}
 
 
 def loop_doc(**kw):
@@ -45,6 +52,20 @@ def callloop_doc(abi):
     an = test_ipet.analysis(CALLLOOP, {"f": (0x100, 14), "g": (0x120, 2)}, range(0x102, 0x10c, 2), 10)
     st = {}
     doc, bounds, why = ipet.certify(an, ["f"], mul=32, loops=True, abi=abi, stats=st)
+    return doc, bounds, st
+
+
+def stack_doc():
+    an = test_ipet.analysis(STACKLOOP, {"f": (0x100, 22)}, range(0x106, 0x112, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
+
+
+def callstack_doc(abi, frame):
+    an = test_ipet.analysis(CALLSTACK, {"f": (0x100, 24), "g": (0x140, 2)}, range(0x106, 0x114, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, abi=abi, frame=frame, stats=st)
     return doc, bounds, st
 
 
@@ -76,6 +97,55 @@ class Producer(unittest.TestCase):
         self.assertEqual(st["f"]["certified"], [])
         _, b, st = callloop_doc(abi=True)
         self.assertEqual([x[0] for x in st["f"]["certified"]], [0x102])
+
+
+class Stack(unittest.TestCase):
+    def test_counter_in_a_stack_slot(self):
+        doc, bounds, st = stack_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x106, 10)])
+        f = doc["programs"][0]["functions"][0]
+        self.assertEqual(f["slots"], [4])
+        self.assertEqual(f["sp"][0], 0)
+        self.assertEqual(f["sp"][3], -8)
+
+    def test_call_needs_both_assumptions(self):
+        for abi, frame, ok in ((False, False, False), (True, False, False), (True, True, True)):
+            _, _, st = callstack_doc(abi, frame)
+            self.assertEqual(bool(st["f"]["certified"]), ok, (abi, frame))
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc, _, _ = stack_doc()
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 words of the frame tracked", out)
+
+        def rejected(change):
+            d = copy.deepcopy(doc)
+            change(d["programs"][0]["functions"][0], d)
+            code, out = check(d)
+            self.assertEqual(code, 1, out)
+
+        rejected(lambda f, d: f.update(slots=[8]))                       # another word of the frame
+        rejected(lambda f, d: f["sp"].__setitem__(3, -4))                 # a wrong offset of SP
+        rejected(lambda f, d: f["sp"].__setitem__(0, -8))                 # the entry is not at offset 0
+        # the store of the incremented counter goes to another word: the loop no longer ends
+        rejected(lambda f, d: d["code"]["halfwords"].__setitem__(0x10E // 2, 0x9002))
+
+    def test_frame_assumption(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc, _, st = callstack_doc(True, True)
+        self.assertEqual(check(doc)[0], 0)
+        d = copy.deepcopy(doc)
+        for f in d["programs"][0]["functions"]:
+            f["frame"] = False
+        self.assertEqual(check(d)[0], 1)
+        # an address of the frame in a register (add r1, sp, #0) forbids the assumption
+        d = copy.deepcopy(doc)
+        d["code"]["halfwords"][0x102 // 2] = 0xA900
+        self.assertEqual(check(d)[0], 1)
 
 
 class Checker(unittest.TestCase):

@@ -150,18 +150,24 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 72 of 403 | 331 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7) | 94 of 403 | 309 + 116 | all | 115 |
+| no assumption on callees | 73 of 403 | 330 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 105 of 403 | 298 + 116 | all | 115 |
+| `--abi --frame` (frames written only through SP) | 107 of 403 | 296 + 116 | all | 117 |
 
-No back-edge count of the emulated runs exceeds a certified bound. 38 (48 with `--abi`) of
+Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
+offsets per instruction, `slots`); without them the counts were 72 and 94. `--frame` is
+refused by the checker for functions that put an address of their frame in a register:
+192 of the 267 functions, 191 of them because of the frame-pointer prologue
+`add r7, sp, #i` (compiled without `-fomit-frame-pointer`), many also passing addresses of
+local arrays to callees. Remaining failures with `--abi --frame` (kernels' own loops): 210
+counter tracked but no potential (mostly counters in a frame whose address is taken), 42
+compared value not tracked, 24 SP offset unknown, 12 flags from an unmodelled
+instruction, 8 mixed. Runs take 4 to 8 minutes.
+
+No back-edge count of the emulated runs exceeds a certified bound. 39 (49 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges). The 8 functions newly certified are `fac_fac`, `md5_R_RandomInit`, `md5_R_memset`,
-`md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`. Reasons of the 425
-loops not certified with `--abi`: 116 division routines (shifts); 118 a counter written by
-a load (memory is not modelled; counters on the stack around calls at `-O1`) or an
-unmodelled instruction; 52 a compared value that is not a copy of a register; 12 flags set
-by an unmodelled instruction; 127 no potential among the producer's candidates. The run
-takes 3.4 minutes.
+edges). The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
+`md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`.
 
 Trusted, in addition to the decoder and timing table: the effects of the instructions on
 `r0`-`r7` and the flags, the flags of additions and subtractions and the conditions

@@ -186,11 +186,13 @@ def an_preds(blocks, succ, h):
     return [b for b in blocks if h in succ[b]]
 
 
-def certify(an, roots, mul=None, loops=False, abi=False, stats=None):
+def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False):
     """A certificate on the machine code for the functions reachable from `roots` (callees
     first); returns (JSON, {function: bound}, {function: reason}). With `loops`, the loop
     bounds are also certified on the machine code where `binloops.py` finds a certificate
-    (format version 2; `abi`: callees assumed to preserve r4-r7); `stats` (a dict) then
+    (format version 2; `abi`: callees assumed to preserve r4-r7 and SP; `frame`: for the
+    functions that take no address of their frame, stores through other registers and calls
+    assumed not to write it); `stats` (a dict) then
     receives per function the certified loops and the reasons for the others."""
     img = an.img
     base = getattr(img, "base", 0)
@@ -214,7 +216,7 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None):
             fields, cl = {}, ()
             if loops:
                 import binloops
-                fields, info, lwhy = binloops.certify_loops(an, name, abi)
+                fields, info, lwhy = binloops.certify_loops(an, name, abi, frame=frame)
                 cl = [(l["header"], l["body"], l["scale"], l["bound"]) for l in fields.get("loops", [])]
                 if stats is not None:
                     stats[name] = dict(certified=info, other=lwhy)

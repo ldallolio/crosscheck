@@ -40,9 +40,10 @@ def structure(an, name):
 
 U = 1 << 32
 H = 1 << 31
-NV = 20          # variables: 0-7 registers, 8-9 ghosts, 10-17 written registers, 18-19 fresh ghosts
-Z = 10           # the zero node of the difference graphs (analysis)
+# variables of the certificate: 0-7 registers, 8-9 ghosts, 10-17 written registers, 18-19 fresh
+# ghosts, 20.. the tracked words of the frame, then their fresh values (Lean `nVars`)
 INF = 1 << 62
+ZERO = -1        # the zero node of the difference graphs
 
 
 # ----------------------------------------------------------------------------------------
@@ -220,6 +221,79 @@ def post_e(eff, m, i):
     return src_e(fl[1] if i == 8 else fl[2])
 
 
+def popcount8(h):
+    return bin(h & 0xFF).count("1")
+
+
+def stack_effect(abi, get, a):
+    """(sp, mem, load, escapes), as Lean `Thumb.stackEffect`: sp = "keep" | ("add", k) | "any";
+    mem = "keep" | ("store", imm, rt) | ("push", n) | "other"; load = (rt, imm) or None."""
+    h = get(a)
+    if h is None:
+        return "any", "other", None, True
+    top5 = h >> 11
+    if top5 in (0b11101, 0b11110, 0b11111):
+        return ("keep" if abi else "any"), "other", None, False
+    if h >> 12 == 0b1001:
+        if (h >> 11) % 2 == 1:
+            return "keep", "keep", ((h >> 8) % 8, (h % 256) * 4), False
+        return "keep", ("store", (h % 256) * 4, (h >> 8) % 8), None, False
+    if top5 == 0b10101:
+        return "keep", "keep", None, True
+    if h >> 8 == 0b10110000:
+        k = (h % 128) * 4
+        return ("add", -k if (h >> 7) % 2 == 1 else k), "keep", None, False
+    if h >> 9 == 0b1011010:
+        n = popcount8(h) + (h >> 8) % 2
+        return ("add", -4 * n), ("push", n), None, False
+    if h >> 9 == 0b1011110:
+        n = popcount8(h) + (h >> 8) % 2
+        return ("add", 4 * n), "keep", None, False
+    if h >> 10 == 0b010001:
+        opc, d, m = (h >> 8) % 4, ((h >> 7) % 2) * 8 + h % 8, (h >> 3) % 16
+        sp = "any" if opc in (0, 2) and d == 13 else "keep"
+        return sp, "keep", None, (opc in (0, 2) and m == 13 and d != 13)
+    if ((h >> 12 == 0b0101 and (h >> 9) % 8 < 3) or
+            ((h >> 13 == 0b011 or h >> 12 == 0b1000) and (h >> 11) % 2 == 0) or
+            (h >> 12 == 0b1100 and (h >> 11) % 2 == 0)):
+        return "keep", "other", None, False
+    return "keep", "keep", None, False
+
+
+def slot_idx(slots, k):
+    return slots.index(k) if k > 0 and k in slots else None
+
+
+def post_s(eff, st, frame, delta, slots, m, i):
+    """As Lean `Thumb.postS`."""
+    _sp, mem, load, _esc = st
+    S = len(slots)
+    if i < 8:
+        if load is not None and delta is not None and i == load[0]:
+            j = slot_idx(slots, -(delta + load[1]))
+            if j is not None:
+                return pv(20 + j)
+        return post_e(eff, m, i)
+    if i < 20:
+        return post_e(eff, m, i)
+    jj = i - 20
+    k = slots[jj] if jj < S else 0
+    if mem == "keep":
+        return pv(i)
+    if mem[0] == "store":
+        if delta is None:
+            return pv(i + S)
+        return pv(mem[2]) if k == -(delta + mem[1]) else pv(i)
+    if mem[0] == "push":
+        if delta is None:
+            return pv(i + S)
+        return pv(i + S) if delta - 4 * mem[1] <= -k < delta else pv(i)
+    # other
+    if delta is not None and frame and k <= -delta:
+        return pv(i)
+    return pv(i + S)
+
+
 def subst(g, sigma):
     """Simultaneous substitution of `sigma(v)` for every variable of `g`."""
     out = ({}, g[1])
@@ -251,7 +325,12 @@ def mcases(eff):
     return [0, 1, -1] if op_of(eff) is not None else [0]
 
 
-RANGES = [c for v in range(NV) for c in (lin([(-1, v)], 0), lin([(1, v)], 1 - U))]
+def nvars(S):
+    return 20 + 2 * S
+
+
+def ranges_n(n):
+    return [c for v in range(n) for c in (lin([(-1, v)], 0), lin([(1, v)], 1 - U))]
 
 
 class Loop:
@@ -276,15 +355,16 @@ def row_rhs(entry, lc):
 def obligations_of(ctx, a, inv, kinds, loops):
     """The obligations of the instruction at `a`, grouped by premises:
     [(premises, [(goal, tag)])], tag = ("inv", successor, index) | ("loop", index)."""
-    i, eff = ctx.insn[a], ctx.eff[a]
+    i, eff, st = ctx.insn[a], ctx.eff[a], ctx.st[a]
     ka = kinds.get(a, "none")
     out = []
+    rng = ranges_n(nvars(len(ctx.slots)))
     for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
         facts = cond_facts(ka, ctx.cc[a], j == 0) if i.kind == "cond" else [[]]
         for m in mcases(eff):
             for D in facts:
-                prem = D + wrap_prem(eff, m) + inv.get(a, []) + RANGES
-                sigma = (lambda m: lambda v: post_e(eff, m, v))(m)
+                prem = D + wrap_prem(eff, m) + inv.get(a, []) + rng
+                sigma = (lambda m: lambda v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v))(m)
                 goals = []
                 if nxt is not None:
                     goals += [(subst(g, sigma), ("inv", nxt, k)) for k, g in enumerate(inv.get(nxt, []))]
@@ -313,15 +393,15 @@ def entails(prem, g, cert):
 # Farkas certificates
 
 def _diff_edge(p):
-    """A premise `x_a − x_b ≤ w` as an edge (b, a, w) of the difference graph (node Z = 0)."""
+    """A constraint `x_a − x_b ≤ w` as an edge (b, a, w) (ZERO: the constant)."""
     d, c = p
     items = list(d.items())
     if len(items) == 1:
         v, k = items[0]
         if k == 1:
-            return (Z, v, -c)
+            return (ZERO, v, -c)
         if k == -1:
-            return (v, Z, -c)
+            return (v, ZERO, -c)
     elif len(items) == 2:
         (v1, k1), (v2, k2) = items
         if k1 == 1 and k2 == -1:
@@ -332,24 +412,32 @@ def _diff_edge(p):
 
 
 class Prover:
-    """Farkas certificates for one set of premises: shortest paths in the graph of its
-    difference constraints, a linear program otherwise."""
+    """Farkas certificates for one set of premises (the last `2·nv` are the ranges):
+    shortest paths in the graph of the difference constraints on the variables that occur
+    in the other premises or in the goals, a linear program otherwise."""
 
-    def __init__(self, prem):
-        self.prem = prem
-        n = NV + 1
-        self.zn = NV                      # the zero node
+    def __init__(self, prem, nv, goals=()):
+        self.prem, self.nv = prem, nv
+        nr = len(prem) - 2 * nv
+        vs = {ZERO}
+        for p in prem[:nr]:
+            vs |= set(p[0])
+        for g in goals:
+            vs |= set(g[0])
+        self.ix = {v: k for k, v in enumerate(sorted(vs))}
+        n = len(self.ix)
+        self.n = n
+        self.edges = []
         dist = [[INF] * n for _ in range(n)]
-        via = [[None] * n for _ in range(n)]   # (premise index) of a direct edge, or k
+        via = [[None] * n for _ in range(n)]
         for x in range(n):
             dist[x][x] = 0
         for idx, p in enumerate(prem):
             e = _diff_edge(p)
-            if e is None:
+            if e is None or e[0] not in self.ix or e[1] not in self.ix:
                 continue
-            b, a, w = e
-            b = self.zn if b == Z else b
-            a = self.zn if a == Z else a
+            b, a, w = self.ix[e[0]], self.ix[e[1]], e[2]
+            self.edges.append((b, a, w, idx))
             if w < dist[b][a]:
                 dist[b][a] = w
                 via[b][a] = ("e", idx)
@@ -365,39 +453,32 @@ class Prover:
                         di[j] = dik + dk[j]
                         via[i][j] = ("k", k)
         self.dist, self.via = dist, via
-        self.neg = next((x for x in range(n) if dist[x][x] < 0), None)
+        self.neg = any(dist[x][x] < 0 for x in range(n))
         self.rng = {}
-        for idx, p in enumerate(prem):
-            if idx >= len(prem) - len(RANGES):
-                v, k = next(iter(p[0].items()))
-                self.rng[(v, k)] = idx
+        for idx in range(nr, len(prem)):
+            v, k = next(iter(prem[idx][0].items()))
+            self.rng[(v, k)] = idx
 
     def _path(self, i, j, out, depth=0):
         if i == j or depth > 64:
             return
         w = self.via[i][j]
+        if w is None:
+            return
         if w[0] == "e":
             out[w[1]] = out.get(w[1], 0) + 1
         else:
             self._path(i, w[1], out, depth + 1)
             self._path(w[1], j, out, depth + 1)
 
-    def _cycle(self, x, out):
-        """A negative cycle of the difference graph (Bellman-Ford on the premises' edges);
-        `x` unused."""
-        n = NV + 1
-        edges = []
-        for idx, p in enumerate(self.prem):
-            e = _diff_edge(p)
-            if e is not None:
-                b, a, w = e
-                edges.append((self.zn if b == Z else b, self.zn if a == Z else a, w, idx))
+    def _cycle(self, out):
+        n = self.n
         dist = [0] * n
         pred = [None] * n
         last = None
         for _ in range(n):
             last = None
-            for b, a, w, idx in edges:
+            for b, a, w, idx in self.edges:
                 if dist[b] + w < dist[a]:
                     dist[a] = dist[b] + w
                     pred[a] = (b, idx)
@@ -421,21 +502,19 @@ class Prover:
         if not d and c <= 0:
             return (1, [])
         for idx, p in enumerate(self.prem):
-            if not p[0] and p[1] > 0:       # a premise `c ≤ 0` with c > 0
+            if not p[0] and p[1] > 0:
                 cert = self._from_cycle(g, {idx: 1})
                 if cert:
                     return cert
-        if self.neg is not None:
+        if self.neg:
             cyc = {}
-            if self._cycle(self.neg, cyc):
+            if self._cycle(cyc):
                 cert = self._from_cycle(g, cyc)
                 if cert:
                     return cert
         e = _diff_edge(g)
-        if e is not None:
-            b, a, w = e
-            b = self.zn if b == Z else b
-            a = self.zn if a == Z else a
+        if e is not None and e[0] in self.ix and e[1] in self.ix:
+            b, a, w = self.ix[e[0]], self.ix[e[1]], e[2]
             if self.dist[b][a] <= w:
                 out = {}
                 self._path(b, a, out)
@@ -446,20 +525,16 @@ class Prover:
 
     def _from_cycle(self, g, cyc):
         lam = dict(cyc)
-        const = sum(n * self.prem[i][1] for i, n in lam.items())   # the cycle: const ≤ 0, const > 0
+        const = sum(n * self.prem[i][1] for i, n in lam.items())
         if const <= 0:
             return None
         rest = 0
         for v, k in g[0].items():
-            if k > 0:
-                idx = self.rng.get((v, 1))
-                lam[idx] = lam.get(idx, 0) + k
-                rest += k * self.prem[idx][1]
-            else:
-                idx = self.rng.get((v, -1))
-                lam[idx] = lam.get(idx, 0) - k
-                rest += -k * self.prem[idx][1]
-        # g − (ranges) − K·cycle: constant g.c − rest − K·const ≤ 0
+            idx = self.rng.get((v, 1 if k > 0 else -1))
+            if idx is None:
+                return None
+            lam[idx] = lam.get(idx, 0) + abs(k)
+            rest += abs(k) * self.prem[idx][1]
         need = g[1] - rest
         K = max(1, -(-need // const)) if need > 0 else 1
         for i, n in cyc.items():
@@ -475,75 +550,79 @@ class Prover:
         import numpy as np
         from scipy.optimize import linprog
         prem = self.prem
-        vars_ = sorted(set(g[0]) | {v for p in prem for v in p[0]})
-        if not vars_:
+        # premises on the variables of the goal and of the non-range premises only
+        keep = [i for i, p in enumerate(prem) if set(p[0]) <= set(self.ix) - {ZERO}]
+        vars_ = sorted(set(g[0]) | {v for i in keep for v in prem[i][0]})
+        if not vars_ or not set(g[0]) <= set(vars_):
             return None
-        P = len(prem)
-        # unknowns: lam_0..lam_{P-1}, mu
+        P = len(keep)
         A_eq = np.zeros((len(vars_), P + 1))
         for r, v in enumerate(vars_):
-            for i, p in enumerate(prem):
-                A_eq[r, i] = p[0].get(v, 0)
+            for col, i in enumerate(keep):
+                A_eq[r, col] = prem[i][0].get(v, 0)
             A_eq[r, P] = -g[0].get(v, 0)
         A_ub = np.zeros((1, P + 1))
-        for i, p in enumerate(prem):
-            A_ub[0, i] = -p[1]
+        for col, i in enumerate(keep):
+            A_ub[0, col] = -prem[i][1]
         A_ub[0, P] = g[1]
-        big = max([abs(p[1]) for p in prem] + [abs(g[1]), 1])
+        big = max([abs(prem[i][1]) for i in keep] + [abs(g[1]), 1])
         for margin in (max(1.0, 1e-6 * big), 0.0):
             res = linprog(np.r_[np.ones(P), 0.0], A_ub=A_ub, b_ub=[-margin], A_eq=A_eq,
                           b_eq=np.zeros(len(vars_)), bounds=[(0, None)] * P + [(1, None)], method="highs")
             if res.status != 0:
                 continue
-            cert = self._round(res.x, P, g)
-            if cert:
-                return cert
-        return None
-
-    def _round(self, x, P, g):
-        prem = self.prem
-        res = type("R", (), {"x": x})
-        for limit in (1, 100, 10 ** 4, 10 ** 6):
-            fr = [Fraction(x).limit_denominator(limit) for x in res.x]
-            D = math.lcm(*[f.denominator for f in fr])
-            vals = [int(f * D) for f in fr]
-            if vals[P] <= 0:
-                continue
-            lam = {i: x for i, x in enumerate(vals[:P]) if x > 0}
-            cert = self._dense(vals[P], lam)
-            if entails(prem, g, cert):
-                return cert
+            for limit in (1, 100, 10 ** 4, 10 ** 6):
+                fr = [Fraction(x).limit_denominator(limit) for x in res.x]
+                D = math.lcm(*[f.denominator for f in fr])
+                vals = [int(f * D) for f in fr]
+                if vals[P] <= 0:
+                    continue
+                lam = {keep[col]: x for col, x in enumerate(vals[:P]) if x > 0}
+                cert = self._dense(vals[P], lam)
+                if entails(prem, g, cert):
+                    return cert
         return None
 
 
 # ----------------------------------------------------------------------------------------
-# The analysis: zones (differences of registers and ghosts)
+# The analysis: zones on the registers, the ghosts and the tracked words of the frame
+# (analysis variable 10 + j is the word j, certificate variable 20 + j; the last index is
+# the zero node)
 
-def top():
-    M = [[INF] * 11 for _ in range(11)]
-    for x in range(11):
-        M[x][x] = 0
-    for v in range(10):
-        M[v][Z] = U - 1
-        M[Z][v] = 0
-    return M
+class Zones:
+    def __init__(self, S):
+        self.S = S
+        self.n = 11 + S          # 0-7, 8-9, slots, zero
+        self.Z = 10 + S
 
+    def top(self):
+        n, Z = self.n, self.Z
+        M = [[INF] * n for _ in range(n)]
+        for x in range(n):
+            M[x][x] = 0
+        for v in range(n - 1):
+            M[v][Z] = U - 1
+            M[Z][v] = 0
+        return M
 
-def close(M):
-    n = 11
-    for k in range(n):
-        Mk = M[k]
-        for i in range(n):
-            mik = M[i][k]
-            if mik >= INF:
-                continue
-            Mi = M[i]
-            for j in range(n):
-                if Mk[j] < INF and mik + Mk[j] < Mi[j]:
-                    Mi[j] = mik + Mk[j]
-    if any(M[x][x] < 0 for x in range(n)):
-        return None
-    return M
+    def close(self, M):
+        n = self.n
+        for k in range(n):
+            Mk = M[k]
+            for i in range(n):
+                mik = M[i][k]
+                if mik >= INF:
+                    continue
+                Mi = M[i]
+                for j in range(n):
+                    if Mk[j] < INF and mik + Mk[j] < Mi[j]:
+                        Mi[j] = mik + Mk[j]
+        if any(M[x][x] < 0 for x in range(n)):
+            return None
+        return M
+
+    def lohi(self, M, v):
+        return -M[self.Z][v], M[v][self.Z]
 
 
 def copy(M):
@@ -570,117 +649,120 @@ def widen(old, new, thresholds):
     if old is None:
         return new
     out = copy(new)
-    for i in range(11):
-        for j in range(11):
+    for i in range(len(new)):
+        for j in range(len(new)):
             if new[i][j] > old[i][j]:
-                t = next((t for t in thresholds if t >= new[i][j]), INF)
-                out[i][j] = t
+                out[i][j] = next((t for t in thresholds if t >= new[i][j]), INF)
     return out
 
 
-def havoc(M, d):
-    for x in range(11):
-        M[d][x] = INF
-        M[x][d] = INF
-    M[d][d] = 0
-    M[d][Z] = U - 1
-    M[Z][d] = 0
-
-
-def lohi(M, v):
-    return -M[Z][v], M[v][Z]
-
-
-def assign_shift(M, d, s, k):
-    """x_d := x_s + k (exact)."""
-    if d == s:
-        for x in range(11):
-            if x != d:
-                if M[d][x] < INF:
-                    M[d][x] += k
-                if M[x][d] < INF:
-                    M[x][d] -= k
-        return
-    havoc(M, d)
-    M[d][s] = min(M[d][s], k)
-    M[s][d] = min(M[s][d], -k)
-
-
-def assign_const(M, d, k):
-    havoc(M, d)
-    M[d][Z] = k
-    M[Z][d] = -k
-
-
-def guard(M, p):
-    """Adds the constraint `p` (over the ghosts) to a closed zone; None if empty."""
+def guard(Zd, M, p):
+    """Adds the constraint `p` (over the ghosts 8, 9) to a closed zone; None if empty."""
     M = copy(M)
     d, c = p
+    Z = Zd.Z
     e = _diff_edge(p)
     if e is not None:
         b, a, w = e
+        b = Z if b == ZERO else b
+        a = Z if a == ZERO else a
         M[a][b] = min(M[a][b], w)
     elif set(d) == {8, 9} and d[8] == d[9] and abs(d[8]) == 1:
-        s = d[8]
-        l8, h8 = lohi(M, 8)
-        l9, h9 = lohi(M, 9)
-        if s == 1:       # x8 + x9 ≤ −c
+        l8, h8 = Zd.lohi(M, 8)
+        l9, h9 = Zd.lohi(M, 9)
+        if d[8] == 1:
             M[8][Z] = min(M[8][Z], -c - l9)
             M[9][Z] = min(M[9][Z], -c - l8)
-        else:            # x8 + x9 ≥ c
+        else:
             M[Z][8] = min(M[Z][8], h9 - c)
             M[Z][9] = min(M[Z][9], h8 - c)
     else:
         return M
-    return close(M)
+    return Zd.close(M)
 
 
-def apply_effect(M, eff):
-    """The zone after an instruction, from the zone before (closed); exact writes only
-    when no wrap is possible."""
+def post_exprs(ctx, a, M):
+    """For each analysis variable, its value after the instruction at `a` as ("shift", w,
+    c) (`w + c`, w an analysis variable or the zero node) or "any", from the zone `M`
+    before it (a sum or difference only when no wrap is possible)."""
+    Zd, eff, st = ctx.zones, ctx.eff[a], ctx.st[a]
+    Z = Zd.Z
     dst, fl = eff
-    M = copy(M)
-    pre = copy(M)
-    # ghosts first (they read the registers before the instruction)
-    if fl == "any":
-        havoc(M, 8)
-        havoc(M, 9)
-    elif fl != "keep":
-        for gv, s in ((8, fl[1]), (9, fl[2])):
-            if s[0] == "reg":
-                assign_shift(M, gv, s[1], 0)
-            else:
-                assign_const(M, gv, s[1])
-        M = close(M)
-    seen = set()
+    _sp, mem, load, _e = st
+    delta = ctx.sp.get(a)
+    out = {}
+    first = {}
     for r, v in dst:
-        if r in seen:
-            continue
-        seen.add(r)
-        if v == "any":
-            havoc(M, r)
-            continue
-        op, a, b = v
-        if a[0] == "imm" and b[0] == "imm":
-            val = a[1] + b[1] if op == "add" else a[1] - b[1]
-            if 0 <= val < U:
-                assign_const(M, r, val)
-            else:
-                havoc(M, r)
-        elif a[0] == "reg" and b[0] == "imm":
-            k = b[1] if op == "add" else -b[1]
-            l, h = lohi(pre, a[1])
-            if l + k >= 0 and h + k <= U - 1:
-                assign_shift(M, r, a[1], k)
-            else:
-                havoc(M, r)
+        first.setdefault(r, v)
+    for r in range(8):
+        v = first.get(r)
+        if v is None:
+            out[r] = ("shift", r, 0)
+        elif v == "any":
+            out[r] = "any"
         else:
-            havoc(M, r)
-    return close(M)
+            op, x, y = v
+            if x[0] == "imm" and y[0] == "imm":
+                val = x[1] + y[1] if op == "add" else x[1] - y[1]
+                out[r] = ("shift", Z, val) if 0 <= val < U else "any"
+            elif x[0] == "reg" and y[0] == "imm":
+                k = y[1] if op == "add" else -y[1]
+                l, h = Zd.lohi(M, x[1])
+                out[r] = ("shift", x[1], k) if l + k >= 0 and h + k <= U - 1 else "any"
+            else:
+                out[r] = "any"
+    if load is not None and delta is not None:
+        j = slot_idx(ctx.slots, -(delta + load[1]))
+        if j is not None:
+            out[load[0]] = ("shift", 10 + j, 0)
+    for gv, idx in ((8, 1), (9, 2)):
+        if fl == "keep":
+            out[gv] = ("shift", gv, 0)
+        elif fl == "any":
+            out[gv] = "any"
+        else:
+            sv = fl[idx]
+            out[gv] = ("shift", sv[1], 0) if sv[0] == "reg" else ("shift", Z, sv[1])
+    for jj, k in enumerate(ctx.slots):
+        x = 10 + jj
+        if mem == "keep":
+            out[x] = ("shift", x, 0)
+        elif mem[0] == "store":
+            if delta is None:
+                out[x] = "any"
+            else:
+                out[x] = ("shift", mem[2], 0) if k == -(delta + mem[1]) else ("shift", x, 0)
+        elif mem[0] == "push":
+            out[x] = "any" if delta is None or delta - 4 * mem[1] <= -k < delta else ("shift", x, 0)
+        else:
+            out[x] = ("shift", x, 0) if (delta is not None and ctx.frame and k <= -delta) else "any"
+    return out
+
+
+def apply_post(Zd, M, ex):
+    """The zone after the instruction: the image of `M` by the post-expressions."""
+    n, Z = Zd.n, Zd.Z
+    N = Zd.top()
+    ex = dict(ex)
+    ex[Z] = ("shift", Z, 0)
+    for x in range(n):
+        ex_x = ex.get(x, "any")
+        if ex_x == "any":
+            continue
+        _, wx, cx = ex_x
+        for y in range(n):
+            ex_y = ex.get(y, "any")
+            if ex_y == "any" or x == y:
+                continue
+            _, wy, cy = ex_y
+            b = M[wx][wy]
+            if b < INF:
+                N[x][y] = min(N[x][y], b + cx - cy)
+    return Zd.close(N)
 
 
 class Ctx:
-    def __init__(self, an, name, abi, base=0):
+    def __init__(self, an, name, abi, frame=False):
         self.an, self.name, self.abi = an, name, abi
         mem = an.img.mem
         self.get = lambda a: (int.from_bytes(mem[a:a + 2], "little") if 0 <= a and a + 2 <= len(mem) else None)
@@ -690,33 +772,69 @@ class Ctx:
         self.nodes = [i.addr for i in insns]
         self.insn = {i.addr: i for i in insns}
         self.eff = {a: effect(abi, self.get, a) for a in self.nodes}
+        self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
         self.out = {a: ipet.trans(self.insn[a]) for a in self.nodes}
-        self.pred = {a: [] for a in self.nodes}
-        for a in self.nodes:
-            for n, _w, _c in self.out[a]:
-                if n is not None:
-                    self.pred[n].append(a)
-        imms = {0, 1, U - 1}
-        for a in self.nodes:
-            for _r, v in self.eff[a][0]:
-                if v != "any":
-                    for s in v[1:]:
-                        if s[0] == "imm":
-                            imms |= {s[1], s[1] - 1, s[1] + 1}
-            fl = self.eff[a][1]
-            if fl not in ("keep", "any"):
-                for s in fl[1:]:
-                    if s[0] == "imm":
-                        imms |= {s[1], s[1] - 1, s[1] + 1}
-        self.thresholds = sorted(t for t in imms if 0 <= t < U) + [U - 1]
-        thr = set(self.thresholds)
-        self.thresholds = sorted(thr | {-t for t in thr})
-        # loops at the level of instructions: header address, body addresses
+        self.frame = frame and not any(self.st[a][3] for a in self.nodes)
         self.iloops = []
         for h in self.headers:
             body = sorted(i.addr for b in self.loops[h] for i in self.blocks[b])
             self.iloops.append((h, body, self.bound.get(h)))
+        self.sp = sp_offsets(self)
+        # tracked words: those accessed through SP inside a loop, at a known offset
+        inloop = {a for _h, b, _n in self.iloops for a in b}
+        slots = set()
+        for a in inloop:
+            d = self.sp.get(a)
+            _sp, m, ld, _e = self.st[a]
+            for imm in ([ld[1]] if ld else []) + ([m[1]] if m not in ("keep", "other") and m[0] == "store" else []):
+                if d is not None:
+                    k = -(d + imm)
+                    if 0 < k < 1048576 and k % 4 == 0:
+                        slots.add(k)
+        self.slots = sorted(slots)
+        self.zones = Zones(len(self.slots))
+        imms = {0, 1, U - 1}
+        for a in self.nodes:
+            for _r, v in self.eff[a][0]:
+                if v != "any":
+                    for x in v[1:]:
+                        if x[0] == "imm":
+                            imms |= {x[1], x[1] - 1, x[1] + 1}
+            fl = self.eff[a][1]
+            if fl not in ("keep", "any"):
+                for x in fl[1:]:
+                    if x[0] == "imm":
+                        imms |= {x[1], x[1] - 1, x[1] + 1}
+        thr = {t for t in imms if 0 <= t < U} | {U - 1}
+        self.thresholds = sorted(thr | {-t for t in thr})
+
+
+def sp_offsets(ctx):
+    """The offset of SP from its value at the entry, per instruction (None: unknown)."""
+    sp = {ctx.entry: 0}
+    known = dict(sp)
+    work = [ctx.entry]
+    bad = set()
+    while work:
+        a = work.pop()
+        d = known.get(a)
+        e = ctx.st[a][0]
+        nd = None
+        if d is not None and a not in bad:
+            nd = d if e == "keep" else (d + e[1] if e != "any" else None)
+        for n, _w, _c in ctx.out[a]:
+            if n is None:
+                continue
+            if n not in known:
+                known[n] = nd
+                work.append(n)
+            elif known[n] != nd and n not in bad:
+                bad.add(n)
+                known[n] = None
+                work.append(n)
+    return {a: (d if d is not None and a not in bad and -1048576 <= d <= 1048576 else None)
+            for a, d in known.items()}
 
 
 def kinds_of(ctx):
@@ -740,30 +858,30 @@ def kinds_of(ctx):
 
 
 def transfer(ctx, kind, a, M):
-    """[(j, D index, zone with the facts before the effect, zone after)] of the
-    transitions of `a`."""
-    i, eff = ctx.insn[a], ctx.eff[a]
+    """[(j, zone with the facts before the effect, post-expressions, zone after)]."""
+    Zd = ctx.zones
+    i = ctx.insn[a]
     res = []
     for j, (nxt, _w, _cs) in enumerate(ctx.out[a]):
         facts = cond_facts(kind.get(a, "none"), ctx.cc[a], j == 0) if i.kind == "cond" else [[]]
-        for di, D in enumerate(facts):
+        for D in facts:
             Mf = M
             for p in D:
-                Mf = guard(Mf, p) if Mf is not None else None
+                Mf = guard(Zd, Mf, p) if Mf is not None else None
             if Mf is None:
                 continue
-            post = apply_effect(Mf, eff)
-            if post is not None and nxt is not None and kind.get(nxt, "none") == "none":
-                post = copy(post)
-                havoc(post, 8)
-                havoc(post, 9)
-            res.append((j, di, Mf, post))
+            ex = post_exprs(ctx, a, Mf)
+            if nxt is not None and kind.get(nxt, "none") == "none":
+                ex[8] = ex[9] = "any"
+            post = apply_post(Zd, Mf, ex)
+            res.append((j, Mf, ex, post))
     return res
 
 
 def analyse(ctx, kind):
+    Zd = ctx.zones
     state = {a: None for a in ctx.nodes}
-    state[ctx.entry] = top()
+    state[ctx.entry] = Zd.top()
     heads = {h for h, _b, _n in ctx.iloops}
     order = {a: k for k, a in enumerate(ctx.nodes)}
     work = [ctx.entry]
@@ -774,7 +892,7 @@ def analyse(ctx, kind):
         M = state[a]
         if M is None:
             continue
-        for j, _di, _Mf, post in transfer(ctx, kind, a, M):
+        for j, _Mf, _ex, post in transfer(ctx, kind, a, M):
             n = ctx.out[a][j][0]
             if n is None or post is None:
                 continue
@@ -783,30 +901,31 @@ def analyse(ctx, kind):
                 visits[n] = visits.get(n, 0) + 1
                 if visits[n] > 2:
                     new = widen(state[n], new, ctx.thresholds)
-            new = close(new) if new is not None else None
+            new = Zd.close(new) if new is not None else None
             if not leq(new, state[n]):
                 state[n] = new
                 if n not in work:
                     work.append(n)
-    for _ in range(3):      # descending iterations (from a post-fixpoint: still inductive)
+    for _ in range(3):
         new = {a: None for a in ctx.nodes}
-        new[ctx.entry] = top()
+        new[ctx.entry] = Zd.top()
         for a in ctx.nodes:
             if state[a] is None:
                 continue
-            for j, _di, _Mf, post in transfer(ctx, kind, a, state[a]):
+            for j, _Mf, _ex, post in transfer(ctx, kind, a, state[a]):
                 n = ctx.out[a][j][0]
                 if n is not None and post is not None:
                     new[n] = join(new[n], post)
-        state = {a: (close(m) if m is not None else None) for a, m in new.items()}
+        state = {a: (Zd.close(m) if m is not None else None) for a, m in new.items()}
     return state
 
 
 # ----------------------------------------------------------------------------------------
-# Potentials
+# Potentials (over analysis variables)
 
-def bound_of(M, phi):
+def bound_of(Zd, M, phi):
     """Upper bound of `Σ k·x_v` (k = ±1 on at most two variables) on a zone."""
+    Z = Zd.Z
     items = list(phi.items())
     if len(items) == 1:
         v, k = items[0]
@@ -819,49 +938,39 @@ def bound_of(M, phi):
     return INF
 
 
-def delta(eff, phi, Mf):
-    """Upper bound of φ(after) − φ(before) on the zone `Mf` (before the effect)."""
-    change = {}
-    dst = {}
-    for r, v in eff[0]:
-        dst.setdefault(r, v)
+def delta_phi(Zd, phi, ex, Mf):
+    """Upper bound of φ(after) − φ(before) on the zone `Mf` before the instruction."""
+    Z = Zd.Z
     total = 0
     for v, k in phi.items():
-        if v not in dst:
-            continue
-        w = dst[v]
-        if w == "any":
+        e = ex.get(v, "any")
+        if e == "any":
             return INF
-        op, a, b = w
-        if a[0] == "reg" and a[1] == v and b[0] == "imm":
-            sh = b[1] if op == "add" else -b[1]
-            l, h = lohi(Mf, v)
-            if not (l + sh >= 0 and h + sh <= U - 1):
-                return INF
-            total += k * sh
-        elif a[0] == "imm" and b[0] == "imm":
-            val = a[1] + b[1] if op == "add" else a[1] - b[1]
-            l, h = lohi(Mf, v)
-            total += k * val - (k * l if k > 0 else k * h)
+        _, w, c = e
+        if w == v:
+            total += k * c
         else:
-            return INF
-        change[v] = True
+            b = (Mf[w][v] + c) if k == 1 else (Mf[v][w] - c)
+            if b >= INF // 2:
+                return INF
+            total += b
     return total
 
 
-def synth(ctx, kind, state, h, body, prems_cache):
-    """The best potential of the loop at `h`: (bound N, [potentials of the body]) or None."""
+def synth(ctx, kind, state, h, body, cache):
+    """The best potential of the loop at `h`: (N, [potentials], D) or None."""
+    Zd = ctx.zones
     B = set(body)
+    nv = 10 + len(ctx.slots)
     cands = []
-    for r in range(8):
+    for r in list(range(8)) + list(range(10, nv)):
         cands += [{r: 1}, {r: -1}]
-    # differences of the registers compared at the exits of the loop
     for a in body:
         M = state[a]
         if M is None or ctx.insn[a].kind != "cond" or kind.get(a, "none") == "none":
             continue
-        ra = [r for r in range(8) if M[8][r] == 0 and M[r][8] == 0]
-        rb = [r for r in range(8) if M[9][r] == 0 and M[r][9] == 0]
+        ra = [r for r in list(range(8)) + list(range(10, nv)) if M[8][r] == 0 and M[r][8] == 0]
+        rb = [r for r in list(range(8)) + list(range(10, nv)) if M[9][r] == 0 and M[r][9] == 0]
         for r in ra:
             for q in rb:
                 if r != q:
@@ -869,113 +978,122 @@ def synth(ctx, kind, state, h, body, prems_cache):
                         if phi not in cands:
                             cands.append(phi)
     best = None
-    for phi, D in [(phi, D) for phi in cands for D in (1, 2, 4, 8)]:
-        cmin = {a: -INF for a in body}
-        edges = []         # (a, n, w): c_a ≥ c_n + w
-        entry_terms = []   # (zone after, at the header)
-        ok = True
-        for a in ctx.nodes:
-            if state[a] is None:
-                continue
-            for j, _di, Mf, post in prems_cache[a]:
-                n = ctx.out[a][j][0]
-                if a in B:
-                    if n is not None and n in B:
-                        dl = delta(ctx.eff[a], phi, Mf)
-                        if dl >= INF:
+    for phi in cands:
+        for D in (1, 2, 4, 8):
+            cmin = {a: -INF for a in body}
+            edges = []
+            entry_terms = []
+            ok = True
+            for a in ctx.nodes:
+                if state[a] is None:
+                    continue
+                for j, Mf, ex, post in cache[a]:
+                    n = ctx.out[a][j][0]
+                    if a in B:
+                        if n is not None and n in B:
+                            dl = delta_phi(Zd, phi, ex, Mf)
+                            if dl >= INF // 2:
+                                ok = False
+                                break
+                            edges.append((a, n, (D if n == h else 0) + dl))
+                        else:
+                            mb = bound_of(Zd, Mf, {v: -k for v, k in phi.items()})
+                            if mb >= INF // 2:
+                                ok = False
+                                break
+                            cmin[a] = max(cmin[a], mb)
+                    elif n == h:
+                        if post is None:
+                            continue
+                        mb = bound_of(Zd, post, phi)
+                        if mb >= INF // 2:
                             ok = False
                             break
-                        edges.append((a, n, (D if n == h else 0) + dl))
-                    else:
-                        # leaving the loop: Φ_a ≥ 0, i.e. c_a ≥ max(−φ) on Mf
-                        mb = bound_of(Mf, {v: -k for v, k in phi.items()})
-                        if mb >= INF:
-                            ok = False
-                            break
-                        cmin[a] = max(cmin[a], mb)
-                elif n == h:
-                    if post is None:
-                        continue
-                    mb = bound_of(post, phi)
-                    if mb >= INF:
-                        ok = False
-                        break
-                    entry_terms.append(mb)
+                        entry_terms.append(mb)
+                if not ok:
+                    break
             if not ok:
                 break
-        if not ok:
-            continue
-        c = dict(cmin)
-        stable = False
-        for _ in range(len(body) + 2):
-            changed = False
-            for a, n, w in edges:
-                if c[n] > -INF and c[n] + w > c[a]:
-                    c[a] = c[n] + w
-                    changed = True
-            if not changed:
-                stable = True
-                break
-        if not stable or any(c[a] <= -INF for a in body):
-            continue
-        if h == ctx.entry:
-            mb = bound_of(top(), phi)
-            entry_terms.append(mb)
-        N = max([c[h] + t for t in entry_terms], default=0)
-        N = max(N, 0)
-        if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
-            best = (N, [padd(({v: k for v, k in phi.items()}, 0), pconst(c[a])) for a in body], D)
+            c = dict(cmin)
+            stable = False
+            for _ in range(len(body) + 2):
+                changed = False
+                for a, n, w in edges:
+                    if c[n] > -INF and c[n] + w > c[a]:
+                        c[a] = c[n] + w
+                        changed = True
+                if not changed:
+                    stable = True
+                    break
+            if not stable or any(c[a] <= -INF for a in body):
+                continue
+            if h == ctx.entry:
+                entry_terms.append(bound_of(Zd, Zd.top(), phi))
+            N = max(0, max([c[h] + t for t in entry_terms], default=0))
+            if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
+                cphi = {(v if v < 10 else 20 + (v - 10)): k for v, k in phi.items()}
+                best = (N, [padd((dict(cphi), 0), pconst(c[a])) for a in body], D)
     return best
 
 
 # ----------------------------------------------------------------------------------------
 # The certificate of a function
 
-def zone_constraints(M, keep):
-    """The constraints of a closed zone on the variables `keep` (and the zero node),
-    without those that the ranges imply."""
+def zone_constraints(Zd, M, keep):
+    """The constraints of a closed zone on the analysis variables `keep`, in the variables
+    of the certificate, without those that the ranges imply."""
+    Z = Zd.Z
+    cv = lambda v: v if v < 10 else 20 + (v - 10)
     out = []
     vs = sorted(keep)
     for i in vs:
         if M[i][Z] < U - 1:
-            out.append(lin([(1, i)], -M[i][Z]))
+            out.append(lin([(1, cv(i))], -M[i][Z]))
         if M[Z][i] < 0:
-            out.append(lin([(-1, i)], -M[Z][i]))
+            out.append(lin([(-1, cv(i))], -M[Z][i]))
         for j in vs:
             if i != j and M[i][j] < U - 1 and M[i][j] < M[i][Z] + M[Z][j]:
-                out.append(lin([(1, i), (-1, j)], -M[i][j]))
+                out.append(lin([(1, cv(i)), (-1, cv(j))], -M[i][j]))
     return out
 
 
 def relevant(ctx, loops):
+    """Analysis variables that the potentials and the loop tests need, closed under the
+    copies that define them."""
     R = set()
     for lc in loops:
         for p in lc.pot:
-            R |= set(p[0])
-    for h, body, _N in ctx.iloops:
+            R |= {v if v < 20 else 10 + (v - 20) for v in p[0]}
+    for _h, body, _N in ctx.iloops:
         for a in body:
             fl = ctx.eff[a][1]
             if fl not in ("keep", "any"):
-                R |= {s[1] for s in fl[1:] if s[0] == "reg"}
+                R |= {x[1] for x in fl[1:] if x[0] == "reg"}
+    R |= set(range(10, 10 + len(ctx.slots)))
     changed = True
     while changed:
         changed = False
         for a in ctx.nodes:
             for r, v in ctx.eff[a][0]:
                 if r in R and v != "any":
-                    for s in v[1:]:
-                        if s[0] == "reg" and s[1] not in R:
-                            R.add(s[1])
+                    for x in v[1:]:
+                        if x[0] == "reg" and x[1] not in R:
+                            R.add(x[1])
                             changed = True
-    return {r for r in R if r < 8}
+            st = ctx.st[a]
+            if st[2] is not None and st[2][0] not in R:
+                pass
+            if st[1] not in ("keep", "other") and st[1][0] == "store" and st[1][2] not in R:
+                R.add(st[1][2])
+                changed = True
+    return {r for r in R if r < 10 + len(ctx.slots) and r not in (8, 9)}
 
 
-def certify_loops(an, name, abi=False, prefer_source=True):
-    """The loop certificate of a function: (dict of JSON fields, [(header, N, source N)]
-    of the certified loops, [(header, reason)] of the others). Raises nothing: a function
-    without certified loops gets no fields."""
+def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
+    """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
+    N)] of the certified loops, [(header, reason)] of the others)."""
     try:
-        ctx = Ctx(an, name, abi)
+        ctx = Ctx(an, name, abi, frame)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return {}, [], [(None, str(e))]
     if not ctx.iloops:
@@ -1002,10 +1120,10 @@ def certify_loops(an, name, abi=False, prefer_source=True):
     inv = {}
     for a in ctx.nodes:
         if state[a] is None:
-            inv[a] = [({}, 1)]          # unreachable: 1 ≤ 0
+            inv[a] = [({}, 1)]
             continue
         keep = set(R) | ({8, 9} if kind.get(a, "none") != "none" else set())
-        inv[a] = zone_constraints(state[a], keep)
+        inv[a] = zone_constraints(ctx.zones, state[a], keep)
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:
         why.append((h, "an obligation of its potential could not be proved"))
@@ -1017,6 +1135,9 @@ def certify_loops(an, name, abi=False, prefer_source=True):
         inv=[[js_lin(g) for g in inv.get(a, [])] for a in ctx.nodes],
         loops=[dict(header=lc.header, body=lc.body, scale=lc.scale, bound=lc.bound,
                     pot=[js_lin(p) for p in lc.pot]) for lc in loops],
+        sp=[ctx.sp.get(a) for a in ctx.nodes],
+        slots=ctx.slots,
+        frame=ctx.frame,
         proofs=proofs)
     return fields, info, why
 
@@ -1036,12 +1157,15 @@ def prove_all(ctx, kind, inv, loops):
     inv = {a: list(v) for a, v in inv.items()}
     alive = list(range(len(loops)))
     dropped = []
+    nv = nvars(len(ctx.slots))
+    rng = ranges_n(nv)
     while True:
         cur = [loops[i] for i in alive]
         failed_inv, failed_loop = set(), set()
         proofs = []
-        # entry obligations
-        pr = Prover(RANGES)
+        entry_goals = list(inv.get(ctx.entry, [])) + [
+            goal_lin(-row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)) for lc in cur]
+        pr = Prover(rng, nv, entry_goals)
         for k, g in enumerate(inv.get(ctx.entry, [])):
             cert = pr.prove(g)
             if cert is None:
@@ -1054,7 +1178,7 @@ def prove_all(ctx, kind, inv, loops):
             proofs.append(cert)
         for a in ctx.nodes:
             for prem, goals in obligations_of(ctx, a, inv, kind, cur):
-                pr = Prover(prem)
+                pr = Prover(prem, nv, [g for g, _t in goals])
                 for g, tag in goals:
                     cert = pr.prove(g)
                     if cert is None:
