@@ -1,6 +1,23 @@
-# Part 4 — The Clang plugin, inside
+# Part 6 — The Clang plugin, inside
 
-`clang-plugin/`, about 5,000 lines of C++ (`src/`) and 1,250 lines of tests. User manual:
+**Before reading.** This part assumes Part 2: symbolic values and facts (sections 2.4 and
+2.7), invariants by guess-and-check (2.3), potentials synthesised with Z3 and Farkas (2.2,
+2.5, 2.7), intervals and calling contexts (2.8), Fourier–Motzkin in the certificate
+generator (2.9), the timing schema (2.12). Words used below:
+
+| Word | Meaning |
+|---|---|
+| symbol (`SymId`) | an unknown value with a name and a range, e.g. the parameter `n` on entry; never changes |
+| `LinExpr` | an affine expression over symbols, e.g. `2·n + i₀ + 3` |
+| fact (`Constraint`) | a linear constraint `e ≤ 0` over symbols, true on the current path |
+| poison | "not affine / unknown": the expression is replaced by a fresh symbol, losing information but never adding false facts |
+| `State` | the map from program variables to `LinExpr`, plus the facts, along one path |
+| `Summary` | the result for a function: bound, parameters, requirements, potentials, report |
+| context | one interval per integer parameter (section 2.8) |
+| `Sat` | saturating natural numbers with ∞ (for costs) |
+| `ACmd` / `CertNode` | a node of a certificate program (Part 3, section 3.6) |
+
+`clang-plugin/`, about 9,500 lines of C++ (`src/`) and its tests (183 in `ctest`). User manual:
 `clang-plugin/README.md`; certificate format: `docs/certificate-format.md`.
 
 ## 1. One example, end to end
@@ -40,7 +57,7 @@ flowchart TB
   REP --> DIFF["scripts/cost_diff.py (CI)"]
   AN --> CORE["core: LinExpr, Sat, Cost"]
   AN --> SOL["core: Solver<br/>entails, boundsOf, potentials"]
-  AN --> CERT["core: Cert<br/>dense constraints, FM, Farkas, JSON"]
+  AN --> CERT["core: Cert<br/>dense constraints, Fourier–Motzkin,<br/>Farkas, JSON"]
   SOL --> Z3[("Z3")]
   CERT --> Z3
   CERT -->|"certificates.json"| CHK["crosscheck-check (Lean)"]
@@ -302,7 +319,7 @@ What is easy to get wrong, and why the code is as it is:
 | AST → certificate's program (lowering) | trusted C++ |
 | Z3 | trusted for uncertified bounds only |
 
-## 9. Tests (181)
+## 9. Tests (183 in ctest)
 
 | Suite | Count | Checks |
 |---|---|---|

@@ -57,6 +57,16 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return `<pre class="code"><code>${lines}</code></pre>\n`;
 };
 
+// Images: the guide writes "img/x.svg"; the HTML is written in tools/, one level down.
+const defaultImage = md.renderer.rules.image;
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const t = tokens[idx];
+  const src = t.attrGet('src');
+  if (src && src.startsWith('img/')) t.attrSet('src', '../' + src);
+  t.attrSet('style', 'max-width:100%');
+  return defaultImage(tokens, idx, options, env, self);
+};
+
 // Inline code: allow line breaks after _ . / , :: so that long identifiers in narrow
 // table columns break at sensible places instead of letter by letter.
 md.renderer.rules.code_inline = (tokens, idx) => {

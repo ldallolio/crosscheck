@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+<rect width="640" height="400" fill="white"/>
+<text x="320.0" y="24" font-size="16" text-anchor="middle" font-weight="bold">Halving loop  while (x &gt; 0) x = x / 2  from x = 1000</text>
+<line x1="70.0" y1="340.0" x2="70.0" y2="40.0" stroke="#eee"/>
+<text x="70.0" y="358" font-size="12" text-anchor="middle">0</text>
+<line x1="119.1" y1="340.0" x2="119.1" y2="40.0" stroke="#eee"/>
+<text x="119.1" y="358" font-size="12" text-anchor="middle">1</text>
+<line x1="168.2" y1="340.0" x2="168.2" y2="40.0" stroke="#eee"/>
+<text x="168.2" y="358" font-size="12" text-anchor="middle">2</text>
+<line x1="217.3" y1="340.0" x2="217.3" y2="40.0" stroke="#eee"/>
+<text x="217.3" y="358" font-size="12" text-anchor="middle">3</text>
+<line x1="266.4" y1="340.0" x2="266.4" y2="40.0" stroke="#eee"/>
+<text x="266.4" y="358" font-size="12" text-anchor="middle">4</text>
+<line x1="315.5" y1="340.0" x2="315.5" y2="40.0" stroke="#eee"/>
+<text x="315.5" y="358" font-size="12" text-anchor="middle">5</text>
+<line x1="364.5" y1="340.0" x2="364.5" y2="40.0" stroke="#eee"/>
+<text x="364.5" y="358" font-size="12" text-anchor="middle">6</text>
+<line x1="413.6" y1="340.0" x2="413.6" y2="40.0" stroke="#eee"/>
+<text x="413.6" y="358" font-size="12" text-anchor="middle">7</text>
+<line x1="462.7" y1="340.0" x2="462.7" y2="40.0" stroke="#eee"/>
+<text x="462.7" y="358" font-size="12" text-anchor="middle">8</text>
+<line x1="511.8" y1="340.0" x2="511.8" y2="40.0" stroke="#eee"/>
+<text x="511.8" y="358" font-size="12" text-anchor="middle">9</text>
+<line x1="560.9" y1="340.0" x2="560.9" y2="40.0" stroke="#eee"/>
+<text x="560.9" y="358" font-size="12" text-anchor="middle">10</text>
+<line x1="610.0" y1="340.0" x2="610.0" y2="40.0" stroke="#eee"/>
+<text x="610.0" y="358" font-size="12" text-anchor="middle">11</text>
+<line x1="70.0" y1="340.0" x2="610.0" y2="340.0" stroke="#eee"/>
+<text x="62" y="344.0" font-size="12" text-anchor="end">0</text>
+<line x1="70.0" y1="285.5" x2="610.0" y2="285.5" stroke="#eee"/>
+<text x="62" y="289.5" font-size="12" text-anchor="end">200</text>
+<line x1="70.0" y1="230.9" x2="610.0" y2="230.9" stroke="#eee"/>
+<text x="62" y="234.9" font-size="12" text-anchor="end">400</text>
+<line x1="70.0" y1="176.4" x2="610.0" y2="176.4" stroke="#eee"/>
+<text x="62" y="180.4" font-size="12" text-anchor="end">600</text>
+<line x1="70.0" y1="121.8" x2="610.0" y2="121.8" stroke="#eee"/>
+<text x="62" y="125.8" font-size="12" text-anchor="end">800</text>
+<line x1="70.0" y1="67.3" x2="610.0" y2="67.3" stroke="#eee"/>
+<text x="62" y="71.3" font-size="12" text-anchor="end">1000</text>
+<line x1="70" y1="340.0" x2="610" y2="340.0" stroke="#333"/>
+<line x1="70" y1="40" x2="70" y2="340" stroke="#333"/>
+<text x="340.0" y="384" font-size="13" text-anchor="middle">iterations done so far</text>
+<text x="16" y="190.0" font-size="13" text-anchor="middle" transform="rotate(-90 16 190.0)">value of x</text>
+<path d="M70.0,67.3 L119.1,67.3 L119.1,203.6 L168.2,203.6 L168.2,271.8 L217.3,271.8 L217.3,305.9 L266.4,305.9 L266.4,323.1 L315.5,323.1 L315.5,331.5 L364.5,331.5 L364.5,335.9 L413.6,335.9 L413.6,338.1 L462.7,338.1 L462.7,339.2 L511.8,339.2 L511.8,339.7 L560.9,339.7 L560.9,340.0" fill="none" stroke="#1f6fb2" stroke-width="2.2"/>
+<circle cx="70.0" cy="67.3" r="3.5" fill="#1f6fb2"/>
+<circle cx="119.1" cy="203.6" r="3.5" fill="#1f6fb2"/>
+<circle cx="168.2" cy="271.8" r="3.5" fill="#1f6fb2"/>
+<circle cx="217.3" cy="305.9" r="3.5" fill="#1f6fb2"/>
+<circle cx="266.4" cy="323.1" r="3.5" fill="#1f6fb2"/>
+<circle cx="315.5" cy="331.5" r="3.5" fill="#1f6fb2"/>
+<circle cx="364.5" cy="335.9" r="3.5" fill="#1f6fb2"/>
+<circle cx="413.6" cy="338.1" r="3.5" fill="#1f6fb2"/>
+<circle cx="462.7" cy="339.2" r="3.5" fill="#1f6fb2"/>
+<circle cx="511.8" cy="339.7" r="3.5" fill="#1f6fb2"/>
+<circle cx="560.9" cy="340.0" r="3.5" fill="#1f6fb2"/>
+<text x="241.8" y="132.7" font-size="12" fill="#d1495b" text-anchor="start">an affine potential (x itself, dropping by ≥ 1)</text>
+<text x="241.8" y="146.4" font-size="12" fill="#d1495b" text-anchor="start">proves only 1000 iterations;</text>
+<text x="241.8" y="170.9" font-size="12" fill="#1f6fb2" text-anchor="start">the logarithmic potential floor(log2 x) + 1</text>
+<text x="241.8" y="184.5" font-size="12" fill="#1f6fb2" text-anchor="start">drops by 1 per iteration: 10 iterations</text>
+<rect x="354" y="38" width="250" height="24" fill="white" fill-opacity="0.85" stroke="#ccc"/>
+<line x1="360" y1="50" x2="384" y2="50" stroke="#1f6fb2" stroke-width="2.5"/>
+<text x="390" y="54" font-size="12">x along the run (halves each time)</text>
+</svg>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+<rect width="640" height="400" fill="white"/>
+<text x="320.0" y="24" font-size="16" text-anchor="middle" font-weight="bold">A data-dependent body: V = n − i drops by 1 or by 3</text>
+<line x1="70.0" y1="340.0" x2="70.0" y2="40.0" stroke="#eee"/>
+<text x="70.0" y="358" font-size="12" text-anchor="middle">0</text>
+<line x1="137.5" y1="340.0" x2="137.5" y2="40.0" stroke="#eee"/>
+<text x="137.5" y="358" font-size="12" text-anchor="middle">1</text>
+<line x1="205.0" y1="340.0" x2="205.0" y2="40.0" stroke="#eee"/>
+<text x="205.0" y="358" font-size="12" text-anchor="middle">2</text>
+<line x1="272.5" y1="340.0" x2="272.5" y2="40.0" stroke="#eee"/>
+<text x="272.5" y="358" font-size="12" text-anchor="middle">3</text>
+<line x1="340.0" y1="340.0" x2="340.0" y2="40.0" stroke="#eee"/>
+<text x="340.0" y="358" font-size="12" text-anchor="middle">4</text>
+<line x1="407.5" y1="340.0" x2="407.5" y2="40.0" stroke="#eee"/>
+<text x="407.5" y="358" font-size="12" text-anchor="middle">5</text>
+<line x1="475.0" y1="340.0" x2="475.0" y2="40.0" stroke="#eee"/>
+<text x="475.0" y="358" font-size="12" text-anchor="middle">6</text>
+<line x1="542.5" y1="340.0" x2="542.5" y2="40.0" stroke="#eee"/>
+<text x="542.5" y="358" font-size="12" text-anchor="middle">7</text>
+<line x1="610.0" y1="340.0" x2="610.0" y2="40.0" stroke="#eee"/>
+<text x="610.0" y="358" font-size="12" text-anchor="middle">8</text>
+<line x1="70.0" y1="326.4" x2="610.0" y2="326.4" stroke="#eee"/>
+<text x="62" y="330.4" font-size="12" text-anchor="end">0</text>
+<line x1="70.0" y1="258.2" x2="610.0" y2="258.2" stroke="#eee"/>
+<text x="62" y="262.2" font-size="12" text-anchor="end">5</text>
+<line x1="70.0" y1="190.0" x2="610.0" y2="190.0" stroke="#eee"/>
+<text x="62" y="194.0" font-size="12" text-anchor="end">10</text>
+<line x1="70.0" y1="121.8" x2="610.0" y2="121.8" stroke="#eee"/>
+<text x="62" y="125.8" font-size="12" text-anchor="end">15</text>
+<line x1="70.0" y1="53.6" x2="610.0" y2="53.6" stroke="#eee"/>
+<text x="62" y="57.6" font-size="12" text-anchor="end">20</text>
+<line x1="70" y1="340.0" x2="610" y2="340.0" stroke="#333"/>
+<line x1="70" y1="40" x2="70" y2="340" stroke="#333"/>
+<text x="340.0" y="384" font-size="13" text-anchor="middle">iterations done so far</text>
+<text x="16" y="190.0" font-size="13" text-anchor="middle" transform="rotate(-90 16 190.0)">value of V = 20 − i</text>
+<polygon points="70.0,340.0 610.0,340.0 610.0,312.7 70.0,312.7" fill="#d1495b" fill-opacity="0.07" stroke="none"/>
+<path d="M70.0,53.6 L137.5,53.6 L137.5,67.3 L205.0,67.3 L205.0,108.2 L272.5,108.2 L272.5,121.8 L340.0,121.8 L340.0,162.7 L407.5,162.7 L407.5,203.6 L475.0,203.6 L475.0,217.3 L542.5,217.3 L542.5,258.2 L610.0,258.2 L610.0,271.8" fill="none" stroke="#1f6fb2" stroke-width="2.2"/>
+<circle cx="70.0" cy="53.6" r="3.5" fill="#1f6fb2"/>
+<circle cx="137.5" cy="67.3" r="3.5" fill="#1f6fb2"/>
+<circle cx="205.0" cy="108.2" r="3.5" fill="#1f6fb2"/>
+<circle cx="272.5" cy="121.8" r="3.5" fill="#1f6fb2"/>
+<circle cx="340.0" cy="162.7" r="3.5" fill="#1f6fb2"/>
+<circle cx="407.5" cy="203.6" r="3.5" fill="#1f6fb2"/>
+<circle cx="475.0" cy="217.3" r="3.5" fill="#1f6fb2"/>
+<circle cx="542.5" cy="258.2" r="3.5" fill="#1f6fb2"/>
+<circle cx="610.0" cy="271.8" r="3.5" fill="#1f6fb2"/>
+<path d="M70.0,53.6 L137.5,67.3 L205.0,80.9 L272.5,94.5 L340.0,108.2 L407.5,121.8 L475.0,135.5 L542.5,149.1 L610.0,162.7" fill="none" stroke="#d1495b" stroke-width="1.8" stroke-dasharray="6,4"/>
+<text x="90.2" y="310.0" font-size="12" fill="#555555" text-anchor="start">bound: V(start) = 20 iterations at most; this run stops earlier</text>
+<rect x="354" y="38" width="250" height="42" fill="white" fill-opacity="0.85" stroke="#ccc"/>
+<line x1="360" y1="50" x2="384" y2="50" stroke="#1f6fb2" stroke-width="2.5"/>
+<text x="390" y="54" font-size="12">an actual run (steps of 1 or 3)</text>
+<line x1="360" y1="68" x2="384" y2="68" stroke="#d1495b" stroke-width="2.5" stroke-dasharray="6,4"/>
+<text x="390" y="72" font-size="12">worst case assumed: drop of exactly 1</text>
+</svg>

@@ -1,4 +1,4 @@
-# Part 7 — Talking to experts
+# Part 9 — Talking to experts
 
 Short answers to say, then point to a label or a Lean name. Where the honest answer is a
 limitation, it says so.
@@ -12,8 +12,11 @@ limitation, it says so.
 > for a small language with procedures and contracts is proved sound, including for
 > diverging runs. Its linear instance has certificates that a small verified checker
 > validates with integer arithmetic. A Clang plugin emits such certificates for real-time
-> C/C++: on the TACLeBench kernels, 158 of 162 bounded functions are certified. The ingredients are
-> classical; the contribution is the end-to-end, machine-checked chain."
+> C/C++: on the TACLeBench kernels, 161 of 165 bounded functions are certified. On the compiled
+> binaries for a Cortex-M0, cycle bounds are certified on the machine code itself, the
+> checker decoding the code and, for many loops, re-proving the loop bounds on the
+> instructions. The ingredients are classical; the contribution is the end-to-end,
+> machine-checked chain."
 
 ## 2. Semantics and programming languages
 
@@ -91,12 +94,13 @@ limitation, it says so.
   hardware.
 - **"Why the timing schema and not IPET?"** Structured code and compositionality. It
   ignores infeasible paths — although certificates do exclude some (`__kernel_cosf`).
-- **"Evaluation?"** TACLeBench kernels without annotations: in context, 141 of 220 loops
+- **"Evaluation?"** TACLeBench kernels without annotations: in context, 142 of 220 loops
   bounded, 131 equal to the flow facts; no bound below an observed loop count; identical
-  to oRange on all 114 loops both bound; ScalarEvolution, KoAT2, CoFloCo and Infer compared
+  to oRange on 114 of the 115 loops both bound; ScalarEvolution, KoAT2, CoFloCo and Infer compared
   too. Caveats: small kernels, untuned tools, flow facts that hold for one input.
 - **"oRange gives a wrong bound?"** On `filterbank` (`while (n-- > 0)` with `n = 2`, it
-  reports 1): an observation to confirm with its authors, not an attack.
+  reports 1): an observation, stated as such in Paper II; the author chose not to contact
+  oRange's authors before the paper is reviewed.
 - **"Interrupts, preemption, multicore?"** Interrupts: handlers annotated
   `CROSSCHECK_INTERRUPT(T)` give each other function a response time (the classical
   response-time equation, mechanized as `response_time_bound`; the checker verifies the
@@ -112,7 +116,7 @@ limitation, it says so.
 - **"What exactly is machine-checked?"** Everything in Paper I's Table `tab:lean`: the
   equivalences, orders and envelopes, the cost logic (`soundness`), the checker
   (`check_sound`), validation against mini-C (`validated_sound`), response times under interrupts (`response_time_bound`), Graham's
-  fork-join bound (`greedy_bound`), logarithmic loops in the checker (`logloop_sound`, `growloop_sound`), the examples. 279 theorems, no `sorry`, three standard axioms.
+  fork-join bound (`greedy_bound`), logarithmic loops in the checker (`logloop_sound`, `growloop_sound`), the examples; and, for Paper III, the cycle certificates (`cycles_sound`), the machine-code graph (`binary_sound`) and the loop bounds on the code (`data_sound`). 553 theorems in all (451 for Paper I, 102 for Paper III), no `sorry`, three standard axioms.
 - **"What is not?"** General arity for the tree order; termination for relations; the
   equation rules; Farkas completeness; the parallelism paragraph; lex/log as rules; the
   translation from C/C++ (to certificates, or to mini-C for validated ones); the plugin.
@@ -127,7 +131,35 @@ limitation, it says so.
 - **"Is this proof-carrying code?"** For cost bounds, yes in structure: an untrusted
   producer and a small verified consumer.
 
-## 6. C++ and compiler engineering
+## 6. Machine code (Paper III)
+
+- **"Is your processor model validated?"** Against our own interpreter on every 16-bit
+  encoding (decoder, cycles, effects, flags, conditions, stack effects: no difference) and
+  against llvm-objdump for decoding; the cycle table against Arm's manual row by row. Not
+  against hardware. A validated ISA model (Fox and Myreen, HOL4) is the standard to aim at.
+- **"How do you know the code in the certificate is the binary?"** We don't prove it: the
+  certificate carries a copy of the code region; a deployment would compare it with the
+  flashed image (a hash).
+- **"Your loop bounds come from the source; the compiler may change loops."** For the loops
+  certified on the code, no: the bound is proved on the instructions. For the others, the
+  match through debug lines is trusted and checked on emulated runs.
+- **"Why not CompCert, like Maroneze et al.?"** Their guarantees hold for CompCert's output;
+  ours for any compiler's binary, relative to a processor specification. Their analysis is
+  verified; our checker is, and the analysis is not.
+- **"How does this compare with seL4's WCET work (Sewell, Kam, Heiser)?"** They prove loop
+  bounds of the seL4 binary with SMT solvers inside a translation-validation toolchain, with
+  C-level facts; we check certificates with a small verified checker, with less of memory
+  and no C-level facts. Different trade-off: theirs is more complete on seL4, ours trusts no
+  SMT solver.
+- **"What are `abi` and `frame`?"** Stated assumptions: callees preserve `r4`–`r7` and SP
+  (the calling convention); no other code writes a function's frame (true of C without
+  undefined behaviour when the function never takes an address of its frame, which the
+  checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
+- **"Why so few loops certified on the code (73–107 of 403)?"** Counters kept in a frame
+  whose address is taken (the frame-pointer prologue at `-O1` in 191 of 267 functions),
+  computed conditions, shifts. The rest keep their source bounds as stated assumptions.
+
+## 7. C++ and compiler engineering
 
 - **"Why a plugin?"** It sees templates, `constexpr` and inline library code, and it fails
   the build. Calls are followed into their definitions, standard library headers included.
@@ -138,19 +170,19 @@ limitation, it says so.
 - **"Industrial code?"** A MISRA- or AUTOSAR-style subset is the realistic target; globals,
   structs, pointers as iterators and floats are not tracked yet.
 
-## 7. AI use
+## 8. AI use
 
 Most code, proofs and text were written by an AI assistant at the author's request; every
 prompt is in `AI_USAGE.md`; the papers carry `\authortodo` marks wherever the author must
 verify, and must not be submitted while one remains. On 2026-11-16 the assistant did the
 checks that a script or a document could settle (definitions against Lean, the Cortex-M0
 timing table, the loop instrumentation, parts of 14 cited papers; `AI_USAGE.md`, prompt 45
-and section 3, item 33). The marks that remain: the two statements of responsibility,
-the papers that could not be obtained (Nielson 1987, Necula 1997, Joseph and Pandya 1986
-and a few of Paper II), the descriptions of KoAT2, CoFloCo and oRange, and the fairness
-of the TPDB harness.
+and section 3, item 33). By 2026-11-18 the author had provided
+copies of the papers that could not be obtained, the assistant had read them, and the author
+had written the statements of responsibility of Papers I and II; Paper III still carries
+one `\authortodo` (responsibility, and three attributions).
 
-## 8. Known weak points, ranked
+## 9. Known weak points, ranked
 
 1. **Translation gap**: certificates are checked; the C++ → certificate lowering is not.
    For the functions whose certificate is validated against their mini-C export, the
@@ -165,8 +197,9 @@ of the TPDB harness.
    constant inner bound, amortisation only for two triangular shapes in certificates.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
+7. **Processor model** (Paper III): ours, compared with our interpreter, not with hardware.
 
-## 9. Phrases
+## 10. Phrases
 
 | Prefer | Avoid |
 |---|---|
@@ -177,10 +210,11 @@ of the TPDB harness.
 | "the timing schema read in (max,+)" | "our tropical algebra" |
 | "a time Hoare logic in the tradition of Nielson" | "a new logic" |
 
-## 10. Glossary
+## 11. Glossary
 
 | Term | Meaning |
 |---|---|
+| `abi`, `frame` | Paper III's assumptions on callees and on writes to a function's frame |
 | Activation | one execution of a function call |
 | Affine | linear plus a constant |
 | Big-step semantics | initial state ⇓ final state, by inference rules |
@@ -192,14 +226,18 @@ of the TPDB harness.
 | Farkas multipliers | `(μ, λ)` with `μ·g = Σ λᵢ pᵢ + r` and a constant `r ≤ 0` |
 | Flow fact | a loop bound or path constraint for a WCET analyser |
 | Logical (ghost) variable | a variable of assertions that no program changes (`γⱼ`) |
+| Ghost operands | Paper III: the two operands of the last flag-setting operation, kept as variables |
 | Havoc | assignment of an unknown value |
 | Houdini | drop non-inductive candidates until a fixed point |
 | In context / for every call | bound for the program's actual calls / for any admissible call |
+| IPET | implicit path enumeration: the longest path as a linear program over edge counts |
 | Inductive invariant | holds initially and is preserved by an iteration |
 | Order-by-composition ⊑ | prefix order on traces (and trees) |
 | Prefix (`Pre`) | a possibly unfinished execution |
 | Ranking potential | decreases by ≥ 1 per step, and is ≥ 1 while running |
 | Size potential | `U(x) ≥ 1 + Σ U(children)`: bounds the number of calls |
+| Telescoping | a sum of differences `Σ (π(next) − π(here))` that collapses to `π(end) − π(start)` |
 | Timing schema | sum / max / bound × body |
 | Tropical semiring | ⊕ = max, ⊗ = + |
 | Weaken | consequence rule: stronger precondition, weaker postcondition, larger bound |
+| Zone | a set of difference constraints `x − y ≤ c`, closed by shortest paths |

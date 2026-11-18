@@ -1600,6 +1600,34 @@ certified.
   Paper I: the development counts (10,300 lines and 451 theorems for Paper I; 2,900 and 102
   for Paper III's modules).
 
+64. (sent while 63 was running) "While you wait for results, I need you to redo the guide : I cannot follow it, the previous version was better. Too many details are missing, paragraphs make almost no sense to a prophan. Many thongs are not explained. Some parts could have graphic examples such as potential dominance using math functions ? What are the underlying bricks, Farkas checks, z3 intervals, Fourier etc ? Make a better, even if lengthier, work here please"
+
+What the AI did for 64 (Claude Opus 5.5, 2026-11-18): the companion guide rewritten for a
+non-specialist (about 1,650 → 3,300 lines, 9 parts).
+- New Part 1 (the big picture, the FIR example followed from source to checker output, run
+  for the purpose: 331 units, potential `16 − k`, `3 + 339·n`; the trust table) and Part 2
+  (the toolbox: one section per building block with intuition, worked numbers, where it is
+  in the code and pitfalls: potentials, invariants and Houdini, linear constraints,
+  Farkas' Lemma and the checker's `entails1`, LP duality and IPET with its dual, Z3's three
+  uses read from `Solver.cpp` (entailment, intervals re-proved by entailment, potential
+  synthesis through Farkas), intervals and calling contexts, Fourier–Motzkin, zones and
+  shortest paths, abstract interpretation and widening, the timing schema and envelopes,
+  recursion, certificates and Lean, the Cortex-M0).
+- Papers I, II and III each explained in their own part (Part 5 new: the 68-cycle example
+  checked edge by edge, the loop certificate of the same code checked by hand); plugin,
+  Lean, bibliography and expert parts renamed and updated (Lean modules `ThumbDataCore`,
+  `ThumbData`; the bibliography's "Read" column regenerated from `references/README.md`;
+  machine-code questions; stale numbers fixed).
+- Nine figures drawn by `docs/guide/tools/figures.py` (plain SVG: potentials along runs, a
+  data-dependent step, cost envelopes of a triangular nest, a logarithmic loop, Farkas in
+  the plane, calling contexts, widening, the potentials of a cycle certificate, execution
+  times and bounds); the PDF builder rewrites image paths.
+- Found while checking the code: the certificate generator does use Fourier–Motzkin
+  (`eliminate` in `Cert.cpp`, capped at 64 constraints) — the previous guide said "FM" in a
+  diagram without explanation; the new Part 2 says where and why. Paper II's abstract still
+  said 103 of 553 TPDB programs certified where its text says 147 (the count before
+  quadratic bounds): corrected.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

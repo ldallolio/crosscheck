@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+<rect width="640" height="400" fill="white"/>
+<text x="320.0" y="24" font-size="16" text-anchor="middle" font-weight="bold">Execution times of one function, and its bounds</text>
+<line x1="70.0" y1="340.0" x2="70.0" y2="40.0" stroke="#eee"/>
+<text x="70.0" y="358" font-size="12" text-anchor="middle">0</text>
+<line x1="111.5" y1="340.0" x2="111.5" y2="40.0" stroke="#eee"/>
+<text x="111.5" y="358" font-size="12" text-anchor="middle">10</text>
+<line x1="153.1" y1="340.0" x2="153.1" y2="40.0" stroke="#eee"/>
+<text x="153.1" y="358" font-size="12" text-anchor="middle">20</text>
+<line x1="194.6" y1="340.0" x2="194.6" y2="40.0" stroke="#eee"/>
+<text x="194.6" y="358" font-size="12" text-anchor="middle">30</text>
+<line x1="236.2" y1="340.0" x2="236.2" y2="40.0" stroke="#eee"/>
+<text x="236.2" y="358" font-size="12" text-anchor="middle">40</text>
+<line x1="277.7" y1="340.0" x2="277.7" y2="40.0" stroke="#eee"/>
+<text x="277.7" y="358" font-size="12" text-anchor="middle">50</text>
+<line x1="319.2" y1="340.0" x2="319.2" y2="40.0" stroke="#eee"/>
+<text x="319.2" y="358" font-size="12" text-anchor="middle">60</text>
+<line x1="360.8" y1="340.0" x2="360.8" y2="40.0" stroke="#eee"/>
+<text x="360.8" y="358" font-size="12" text-anchor="middle">70</text>
+<line x1="402.3" y1="340.0" x2="402.3" y2="40.0" stroke="#eee"/>
+<text x="402.3" y="358" font-size="12" text-anchor="middle">80</text>
+<line x1="443.8" y1="340.0" x2="443.8" y2="40.0" stroke="#eee"/>
+<text x="443.8" y="358" font-size="12" text-anchor="middle">90</text>
+<line x1="485.4" y1="340.0" x2="485.4" y2="40.0" stroke="#eee"/>
+<text x="485.4" y="358" font-size="12" text-anchor="middle">100</text>
+<line x1="526.9" y1="340.0" x2="526.9" y2="40.0" stroke="#eee"/>
+<text x="526.9" y="358" font-size="12" text-anchor="middle">110</text>
+<line x1="568.5" y1="340.0" x2="568.5" y2="40.0" stroke="#eee"/>
+<text x="568.5" y="358" font-size="12" text-anchor="middle">120</text>
+<line x1="610.0" y1="340.0" x2="610.0" y2="40.0" stroke="#eee"/>
+<text x="610.0" y="358" font-size="12" text-anchor="middle">130</text>
+<line x1="70.0" y1="340.0" x2="610.0" y2="340.0" stroke="#eee"/>
+<text x="62" y="344.0" font-size="12" text-anchor="end">0</text>
+<line x1="70.0" y1="290.0" x2="610.0" y2="290.0" stroke="#eee"/>
+<text x="62" y="294.0" font-size="12" text-anchor="end">10</text>
+<line x1="70.0" y1="240.0" x2="610.0" y2="240.0" stroke="#eee"/>
+<text x="62" y="244.0" font-size="12" text-anchor="end">20</text>
+<line x1="70.0" y1="190.0" x2="610.0" y2="190.0" stroke="#eee"/>
+<text x="62" y="194.0" font-size="12" text-anchor="end">30</text>
+<line x1="70.0" y1="140.0" x2="610.0" y2="140.0" stroke="#eee"/>
+<text x="62" y="144.0" font-size="12" text-anchor="end">40</text>
+<line x1="70.0" y1="90.0" x2="610.0" y2="90.0" stroke="#eee"/>
+<text x="62" y="94.0" font-size="12" text-anchor="end">50</text>
+<line x1="70.0" y1="40.0" x2="610.0" y2="40.0" stroke="#eee"/>
+<text x="62" y="44.0" font-size="12" text-anchor="end">60</text>
+<line x1="70" y1="340.0" x2="610" y2="340.0" stroke="#333"/>
+<line x1="70" y1="40" x2="70" y2="340" stroke="#333"/>
+<text x="340.0" y="384" font-size="13" text-anchor="middle">execution time (µs)</text>
+<text x="16" y="190.0" font-size="13" text-anchor="middle" transform="rotate(-90 16 190.0)">number of runs</text>
+<polygon points="144.8,340.0 155.6,340.0 155.6,337.2 144.8,337.2" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="157.2,340.0 168.0,340.0 168.0,328.9 157.2,328.9" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="169.7,340.0 180.5,340.0 180.5,301.1 169.7,301.1" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="182.2,340.0 193.0,340.0 193.0,298.3 182.2,298.3" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="194.6,340.0 205.4,340.0 205.4,262.2 194.6,262.2" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="207.1,340.0 217.9,340.0 217.9,237.2 207.1,237.2" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="219.5,340.0 230.3,340.0 230.3,156.7 219.5,156.7" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="232.0,340.0 242.8,340.0 242.8,142.8 232.0,142.8" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="244.5,340.0 255.3,340.0 255.3,115.0 244.5,115.0" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="256.9,340.0 267.7,340.0 267.7,120.6 256.9,120.6" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="269.4,340.0 280.2,340.0 280.2,167.8 269.4,167.8" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="281.8,340.0 292.6,340.0 292.6,162.2 281.8,162.2" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="294.3,340.0 305.1,340.0 305.1,251.1 294.3,251.1" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="306.8,340.0 317.6,340.0 317.6,267.8 306.8,267.8" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="319.2,340.0 330.0,340.0 330.0,301.1 319.2,301.1" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="331.7,340.0 342.5,340.0 342.5,328.9 331.7,328.9" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<polygon points="344.2,340.0 355.0,340.0 355.0,334.4 344.2,334.4" fill="#1f6fb2" fill-opacity="0.55" stroke="none"/>
+<path d="M356.6,340.0 L356.6,80.0" fill="none" stroke="#2a9d5b" stroke-width="2" stroke-dasharray="4,3"/>
+<path d="M468.8,340.0 L468.8,80.0" fill="none" stroke="#d1495b" stroke-width="2.2"/>
+<path d="M535.2,340.0 L535.2,80.0" fill="none" stroke="#7b4bb7" stroke-width="2.6"/>
+<text x="144.8" y="95.0" font-size="12" fill="#1f6fb2" text-anchor="start">measured runs (tests)</text>
+<text x="364.9" y="190.0" font-size="12" fill="#d1495b" text-anchor="start">never observed</text>
+<text x="477.1" y="240.0" font-size="12" fill="#7b4bb7" text-anchor="start">safety margin</text>
+<rect x="354" y="38" width="250" height="60" fill="white" fill-opacity="0.85" stroke="#ccc"/>
+<line x1="360" y1="50" x2="384" y2="50" stroke="#2a9d5b" stroke-width="2.5" stroke-dasharray="4,3"/>
+<text x="390" y="54" font-size="12">largest measured time (69)</text>
+<line x1="360" y1="68" x2="384" y2="68" stroke="#d1495b" stroke-width="2.5"/>
+<text x="390" y="72" font-size="12">true worst case (unknown, 96)</text>
+<line x1="360" y1="86" x2="384" y2="86" stroke="#7b4bb7" stroke-width="2.5"/>
+<text x="390" y="90" font-size="12">guaranteed upper bound (112)</text>
+</svg>
