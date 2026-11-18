@@ -1679,6 +1679,10 @@ Crossref, text not obtained: attribution flagged in Paper III's `\authortodo`).
   producer, evaluation, `tab:lean3`, related work), `benchmarks/cycles/README.md`,
   `docs/certificate-format.md`, the guide (Part 2: a section on congruences with a figure;
   Parts 5 and 9) and `references/README.md` updated.
+- Without frame pointers, with congruences: `frame` refused in 25 of 265 functions (190 in the
+  default build); loops certified 120 / 173 / 202; 118 functions with a certified cycle
+  bound; all accepted, no violation. Reported in Paper III and the README as a separate
+  build; the default build's figures are unchanged (OTAWA runs not redone).
 
 ### Earlier work
 

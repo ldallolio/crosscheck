@@ -174,6 +174,13 @@ address is taken; 118 of them exit on equality), 42 compared value not tracked, 
 offset unknown, 12 flags from an unmodelled instruction, 8 mixed (before congruences: 210,
 42, 24, 12, 8). Runs take 6 to 12 minutes.
 
+Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
+separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
+producer analyses (190 in the default build); kernel loops certified 120 / 167→173 /
+169→202 (no assumption / `--abi` / `--abi --frame`), 118 functions with a certified cycle
+bound; all certificates accepted, no emulated run above a bound. Before congruences that
+build gave 77 / 109 / 129.
+
 No back-edge count of the emulated runs exceeds a certified bound. 64 (90 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
 edges), none above (the producer keeps the source row then), and 52 (77 with `--abi`)

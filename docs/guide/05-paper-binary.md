@@ -283,7 +283,9 @@ was tracked but had no potential left the loop on equality with a step above 1.
 Why not more? Most remaining loops (151 with a tracked counter but no potential) keep their
 counter in the frame of a function where `frame` is refused: 192 of the 267 functions put an address of the frame in a register,
 191 of them only because Clang's `-O1` prologue sets up a frame pointer (`add r7, sp, #12`).
-Two ways forward: compile without frame pointers, or refine the escape check. The
+Compiled with `-fomit-frame-pointer`, `frame` is refused in only 25 of 265 functions,
+and 202 loops are certified with both assumptions (instead of 169): for certification on
+the machine code, omitting the frame pointer is worth a compilation option. The
 specification of effects, flags, conditions and stack effects is compared with the
 interpreter on every 16-bit encoding (297 244 executions, no difference); 18 tests check that
 altered certificates are refused.
