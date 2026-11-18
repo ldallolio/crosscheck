@@ -681,6 +681,55 @@ more round to it gives something inside it.
 > (narrowing) rounds (`analyse` in `benchmarks/cycles/binloops.py`). In both cases the
 > result is untrusted: the checker re-proves the invariants.
 
+### Congruences: what intervals and zones cannot see
+
+Compilers like to turn `for (j = 0; j < 20; j++) a[j] = …` into a loop on a byte offset
+that **exits on equality**:
+
+```
+      movs r4, #0
+L:    …             (store into a[r4/4])
+      adds r4, #4
+      cmp  r4, #80
+      bne  L        (loop again while r4 ≠ 80)
+```
+
+The exit test is `r4 ≠ 80`. Suppose an analysis knows `r4 ≤ 80` at the back edge. Together
+with `r4 ≠ 80` it gets `r4 ≤ 79` (an inequality `≠` splits into `<` or `>`, and `>` is
+impossible). But 79 is not a multiple of 4, and to bound the loop we need the next value
+`r4 + 4` to stay at most 80, i.e. `r4 ≤ 76`. Zones (section 2.10) cannot express "a
+multiple of 4", so the bound is lost — and in the TACLeBench binaries most loops that
+CrossCheck could not bound on the machine code exit on `≠` or `=`.
+
+A **congruence** says `x ≡ r (mod m)`: `x` leaves remainder `r` when divided by `m`. It is
+an abstract domain of its own (Granger, 1989): `x = 0` gives `x ≡ 0 (mod 2³²)` (exactly 0);
+`x + 4` keeps `x ≡ 0 (mod 4)`; joining `x ≡ 0 (mod 8)` and `x ≡ 4 (mod 8)` gives
+`x ≡ 0 (mod 4)`. CrossCheck uses only **powers of two** as moduli, for a machine reason:
+registers wrap around modulo 2³², and wrapping adds or removes a multiple of 2³², which is
+a multiple of every power of two up to 2³². So the congruence survives overflow.
+
+How it is used: if the two operands compared by `cmp` (here `r4` and the constant 80) are
+**both** `≡ 0 (mod 4)`, their difference is a multiple of 4. A fact "difference ≤ −1"
+then becomes "difference ≤ −4" — **rounding to the next multiple**, the same trick as the
+"cutting planes" of integer programming. So `r4 ≠ 80` with `r4 ≤ 80` gives `r4 ≤ 76`, and
+the ordinary linear machinery (zones, potentials, Farkas) does the rest.
+
+![a counter stepped by 4: what zones see, and what congruences add](img/congruence.svg)
+
+> **In the code.** `congruences` in `benchmarks/cycles/binloops.py` (untrusted) computes the
+> congruences of every register, ghost and tracked stack word; the Lean checker
+> (`congOk` in `ThumbDataCore.lean`) re-checks them along every edge **without** Farkas
+> certificates — it only needs divisibility tests — and rounds the facts of a branch with
+> them (`tightenL`, `condFactsM`). Soundness: `congPE_sound`, `condFactsM_sound`; the
+> example `exStep_sound` proves the 52-cycle bound of the loop above with step 4 and limit
+> 40, and `exStep_needs_cong` shows the same certificate is refused without congruences.
+
+> **Pitfall.** The congruence must hold for **both** operands of the comparison. With
+> `r4 ≡ 0 (mod 4)` but a limit of 81, the rounding does not apply (81 is not a multiple
+> of 4) — and rightly so: `r4` takes the values 0, 4, 8, … and wraps around without ever
+> being 81, so the loop never ends and no certificate can be accepted (the test suite
+> checks this case: `test_binloops.py`, a step of 3 instead of 4).
+
 ---
 
 ## 2.12 Composing costs: the timing schema and cost envelopes

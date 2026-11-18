@@ -1641,6 +1641,45 @@ the certified bound is attained (8 theorems; 561 in all). Paper III, Table `tab:
 and `--tag` to measure another build (here `-fomit-frame-pointer`) without replacing the
 published one.
 
+Second part (same prompt, 2026-11-18): **congruences modulo powers of two** in the loop
+certificates of machine code. Of the loops the producer could not bound on the code, 177 of
+210 left their loop on equality (`bne`): a counter stepped by 4 that exits at 80 is not
+bounded by zones, since `x ≤ 80 ∧ x ≠ 80` gives `x ≤ 79`, not `x ≤ 76`. The well-known remedy
+is Granger's congruence analysis (Int. J. Computer Mathematics 30, 1989; metadata checked on
+Crossref, text not obtained: attribution flagged in Paper III's `\authortodo`).
+- Lean (`ThumbDataCore`, `ThumbData`): certificates carry congruences `x ≡ r (mod 2^e)`,
+  `e ≤ 32` (so that wrapping modulo 2^32 keeps them), checked along every transition and wrap
+  case by divisibility on the post-expressions, without Farkas certificates (`congOk`,
+  `congPE_sound`); none at the entry; at a branch, the facts on the difference of the ghost
+  operands are rounded to multiples of `2^e` (`gExp_dvd`, `tightenL_holds`,
+  `condFactsM_sound`); `Inv` carries the congruences, `step_ok` and the entry updated,
+  `data_sound` unchanged in its statement. Example `exStep_*`: `movs r0,#0; L: adds r0,#4;
+  cmp r0,#40; bne L` certified at 52 cycles (the worst case), the same certificate without
+  congruences rejected, by `decide`. 581 theorems; only the three standard axioms.
+- Checker program: field `"cong"` parsed and reported.
+- Producer (`binloops.py`): congruences computed on the checker's own post-expressions (so
+  that the checker accepts what is derived), used to round branch facts in the zone analysis
+  and in the obligations. Tests (`test_binloops.py`, class `Congruence`): the loop is
+  certified only with congruences; six mutations rejected (no congruence, wrong residue, one
+  at the entry, exponent 33, a variable of a transition, the step changed from 4 to 3 in the
+  code, which makes the loop endless).
+- Found while testing: `ipet.py` rounded the LP's multipliers up first and kept them if
+  feasible, which is loose for rows of scale above 1 (79 instead of 52 cycles on the
+  example); it now keeps the smallest feasible bound among the rounded and the exact
+  fractional multipliers (sound either way: the checker decides). On the kernels it lowers
+  10 certified bounds (up to 8 %) and raises none.
+- Measured: `-fomit-frame-pointer` build (separate objects, `--tag .nofp`), before
+  congruences: loops certified on the code 77 / 109 / 129 (none / abi / abi+frame) instead
+  of 73 / 105 / 107, functions with a certified cycle bound 118 instead of 117.
+- Results with congruences (default build): kernel loops certified on the code 116 / 167 /
+  169 of 403 (none / abi / abi+frame; before: 73 / 105 / 107); every certificate accepted;
+  no emulated run above a certified bound; remaining failures with abi+frame 151 / 42 / 21
+  / 12 / 8 (counter without potential / compared value not tracked / SP offset unknown /
+  unmodelled flags / mixed). Paper III (definition, rounding after `lem:cond-facts`,
+  producer, evaluation, `tab:lean3`, related work), `benchmarks/cycles/README.md`,
+  `docs/certificate-format.md`, the guide (Part 2: a section on congruences with a figure;
+  Parts 5 and 9) and `references/README.md` updated.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

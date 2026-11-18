@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+<rect width="640" height="400" fill="white"/>
+<text x="320.0" y="24" font-size="16" text-anchor="middle" font-weight="bold">r0 at the back edge of: r0 = 0; do r0 += 4; while (r0 != 40)</text>
+<line x1="92.5" y1="340.0" x2="92.5" y2="40.0" stroke="#eee"/>
+<text x="92.5" y="358" font-size="12" text-anchor="middle">0</text>
+<line x1="137.5" y1="340.0" x2="137.5" y2="40.0" stroke="#eee"/>
+<text x="137.5" y="358" font-size="12" text-anchor="middle">4</text>
+<line x1="182.5" y1="340.0" x2="182.5" y2="40.0" stroke="#eee"/>
+<text x="182.5" y="358" font-size="12" text-anchor="middle">8</text>
+<line x1="227.5" y1="340.0" x2="227.5" y2="40.0" stroke="#eee"/>
+<text x="227.5" y="358" font-size="12" text-anchor="middle">12</text>
+<line x1="272.5" y1="340.0" x2="272.5" y2="40.0" stroke="#eee"/>
+<text x="272.5" y="358" font-size="12" text-anchor="middle">16</text>
+<line x1="317.5" y1="340.0" x2="317.5" y2="40.0" stroke="#eee"/>
+<text x="317.5" y="358" font-size="12" text-anchor="middle">20</text>
+<line x1="362.5" y1="340.0" x2="362.5" y2="40.0" stroke="#eee"/>
+<text x="362.5" y="358" font-size="12" text-anchor="middle">24</text>
+<line x1="407.5" y1="340.0" x2="407.5" y2="40.0" stroke="#eee"/>
+<text x="407.5" y="358" font-size="12" text-anchor="middle">28</text>
+<line x1="452.5" y1="340.0" x2="452.5" y2="40.0" stroke="#eee"/>
+<text x="452.5" y="358" font-size="12" text-anchor="middle">32</text>
+<line x1="497.5" y1="340.0" x2="497.5" y2="40.0" stroke="#eee"/>
+<text x="497.5" y="358" font-size="12" text-anchor="middle">36</text>
+<line x1="542.5" y1="340.0" x2="542.5" y2="40.0" stroke="#eee"/>
+<text x="542.5" y="358" font-size="12" text-anchor="middle">40</text>
+<line x1="587.5" y1="340.0" x2="587.5" y2="40.0" stroke="#eee"/>
+<text x="587.5" y="358" font-size="12" text-anchor="middle">44</text>
+<line x1="70" y1="340.0" x2="610" y2="340.0" stroke="#333"/>
+<line x1="70" y1="40" x2="70" y2="340" stroke="#333"/>
+<text x="340.0" y="384" font-size="13" text-anchor="middle">value of r0</text>
+<text x="16" y="190.0" font-size="13" text-anchor="middle" transform="rotate(-90 16 190.0)"></text>
+<path d="M92.5,115.0 L531.2,115.0" fill="none" stroke="#1f6fb2" stroke-width="6"/>
+<circle cx="553.8" cy="115.0" r="5" fill="#d1495b"/>
+<circle cx="92.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="137.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="182.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="227.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="272.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="317.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="362.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="407.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="452.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="497.5" cy="220.0" r="5" fill="#2a9d5b"/>
+<circle cx="542.5" cy="220.0" r="5" fill="#d1495b"/>
+<text x="549.2" y="253.8" font-size="12" fill="#d1495b" text-anchor="start">40: exit</text>
+<text x="92.5" y="302.5" font-size="12" fill="#555555" text-anchor="start">the next value is r0 + 4 &lt;= 40: the loop has a potential (40 - r0)/4</text>
+<rect x="354" y="38" width="250" height="60" fill="white" fill-opacity="0.85" stroke="#ccc"/>
+<line x1="360" y1="50" x2="384" y2="50" stroke="#1f6fb2" stroke-width="2.5"/>
+<text x="390" y="54" font-size="12">zones alone: r0 &lt;= 39</text>
+<circle cx="370" cy="68" r="4" fill="#d1495b"/>
+<text x="390" y="72" font-size="12">r0 &gt;= 41: excluded</text>
+<circle cx="370" cy="86" r="4" fill="#2a9d5b"/>
+<text x="390" y="90" font-size="12">with r0 = 0 mod 4: r0 &lt;= 36</text>
+</svg>

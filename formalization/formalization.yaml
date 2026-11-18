@@ -125,7 +125,7 @@ statements:
     paper: paper/binary/crosscheck-binary.tex
     note: "loop bounds of Cortex-M0 machine code: data semantics (effects on r0-r7 and the flags, the trusted specification), certificates of invariants and potentials checked by Farkas multipliers, the rows of the certified loops hold on every data run"
     module: ImperativeOptimization.ThumbData
-    lean: [effect, flagsAdd, flagsSub, condHolds, EffOk, DOk, DRun, condFacts_sound, step_ok, chain_ok, chain_rows, drun_mrun, data_sound, exData_checks, exData_tight, exData_sound, effOkB_sound, chainB_sound, dOkB_sound, exData_run]
+    lean: [effect, flagsAdd, flagsSub, condHolds, EffOk, DOk, DRun, condFacts_sound, step_ok, chain_ok, chain_rows, drun_mrun, data_sound, exData_checks, exData_tight, exData_sound, effOkB_sound, chainB_sound, dOkB_sound, exData_run, congOk, congPE_sound, gExp_dvd, tightenL_holds, condFactsM_sound, exStep_checks, exStep_needs_cong, exStep_sound]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

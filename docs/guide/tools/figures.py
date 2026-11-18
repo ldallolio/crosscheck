@@ -264,6 +264,19 @@ def wcet_distribution():
     save("wcet-distribution.svg", p.svg(range(0, 131, 10), range(0, 61, 10)))
 
 
+def congruence():
+    """What zones see of a counter stepped by 4 that exits at 40, and what congruences add."""
+    p = Plot(-2, 46, 0, 4, "r0 at the back edge of: r0 = 0; do r0 += 4; while (r0 != 40)",
+             "value of r0", "", legend_at="tr")
+    p.line([(0, 3), (39, 3)], 0, 6, label="zones alone: r0 <= 39")
+    p.dots([(41, 3)], 1, 5, label="r0 >= 41: excluded")
+    p.dots([(v, 1.6) for v in range(0, 37, 4)], 2, 5, label="with r0 = 0 mod 4: r0 <= 36")
+    p.dots([(40, 1.6)], 1, 5)
+    p.text(40.6, 1.15, "40: exit", 1, 12)
+    p.text(0, 0.5, "the next value is r0 + 4 <= 40: the loop has a potential (40 - r0)/4", 5, 12)
+    save("congruence.svg", p.svg(range(0, 45, 4), []))
+
+
 if __name__ == "__main__":
     countdown()
     uneven()
@@ -274,4 +287,5 @@ if __name__ == "__main__":
     widening()
     telescoping()
     wcet_distribution()
+    congruence()
     print("figures written to", OUT)

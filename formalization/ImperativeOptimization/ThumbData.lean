@@ -537,12 +537,17 @@ def flagsAt : FKind → Nat → Nat → Flags → Prop
   | .add, a, b, f => f = flagsAdd a b
   | .sub, a, b, f => f = flagsSub a b
 
+/-- The congruences hold. -/
+def CongHolds (cs : List Cong) (s : Env) : Prop :=
+  ∀ x ∈ cs, s x.1 % ((2 ^ x.2.1 : Nat) : Int) = (x.2.2 : Int) % ((2 ^ x.2.1 : Nat) : Int)
+
 /-- The meaning of the certificate at instruction `a`, with ghosts `fa`, `fb`, in a run
     whose stack pointer at the entry is `SP0`. -/
 def Inv (f : BFun) (L : DFun) (SP0 : Nat) (a : Nat) (σ : MState) (fa fb : Nat) : Prop :=
   wfState σ ∧ wfStack σ ∧ fa < U ∧ fb < U ∧ flagsAt (kindAt f L a) fa fb σ.f ∧
     (∀ d, spAt f L a = some d → σ.sp = aOf (SP0 + d)) ∧
-    holds (invAt f L a) (fun _ => 0) (envOf σ fa fb SP0 L.slots)
+    holds (invAt f L a) (fun _ => 0) (envOf σ fa fb SP0 L.slots) ∧
+    CongHolds (congAt f L a) (envOf σ fa fb SP0 L.slots)
 
 theorem flags_post (ka kn : FKind) (e : Eff) (h : wfEff e = true) (σ σ' : MState) (hσ : wfState σ)
     (fa fb : Nat) (hfa : fa < U) (hfb : fb < U) (hf : flagsAt ka fa fb σ.f)
@@ -647,8 +652,162 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     checkObs (obligations mul abi c f L) L.proofs = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, _⟩ := h
   exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
+
+theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
+    (h : checkDFun mul abi c f L = true) :
+    congAt f L f.entry = [] ∧ (∀ l ∈ L.cong, ∀ x ∈ l, wfCong L.slots.length x = true) ∧
+    ∀ a ∈ f.nodes, congOk mul abi c f L a = true := by
+  simp only [checkDFun, Bool.and_eq_true] at h
+  have h' := h.2
+  simp only [congChecks, Bool.and_eq_true, List.all_eq_true, List.isEmpty_iff] at h'
+  exact ⟨h'.1.1, h'.1.2, h'.2⟩
+
+/-! ### Congruences -/
+
+theorem congOf_sound (cs : List Cong) (s : Env) (h : CongHolds cs s) (v : Nat) :
+    s v % ((2 ^ (congOf cs v).1 : Nat) : Int) = ((congOf cs v).2 : Int) % ((2 ^ (congOf cs v).1 : Nat) : Int) := by
+  unfold congOf
+  split
+  · rename_i x hf
+    have hx := List.mem_of_find?_eq_some hf
+    have hv : x.1 = v := by simpa using List.find?_some hf
+    rw [← hv]
+    exact h x hx
+  · simp [Int.emod_one]
+
+theorem congOf_dvd (cs : List Cong) (s : Env) (h : CongHolds cs s) (v : Nat) :
+    ((2 ^ (congOf cs v).1 : Nat) : Int) ∣ s v - (congOf cs v).2 :=
+  Int.ModEq.dvd (congOf_sound cs s h v).symm
+
+theorem foldl_max_mem : ∀ (l : List Nat) (acc : Nat), l.foldl max acc = acc ∨ l.foldl max acc ∈ l
+  | [], acc => Or.inl rfl
+  | x :: l, acc => by
+    rcases foldl_max_mem l (max acc x) with h | h
+    · simp only [List.foldl_cons, h]
+      rcases Nat.le_total acc x with hx | hx
+      · right; simp [Nat.max_eq_right hx]
+      · left; exact Nat.max_eq_left hx
+    · right; simp only [List.foldl_cons]; exact List.mem_cons_of_mem _ h
+
+theorem gExp_dvd (cs : List Cong) (s : Env) (h : CongHolds cs s) :
+    ((2 ^ gExp cs : Nat) : Int) ∣ s 8 - s 9 := by
+  unfold gExp
+  rcases foldl_max_mem ((List.range 33).filter fun e => decide (e ≤ (congOf cs 8).1 ∧ e ≤ (congOf cs 9).1 ∧
+      ((congOf cs 8).2 : Int) % (2 ^ e : Nat) = ((congOf cs 9).2 : Int) % (2 ^ e : Nat))) 0 with h0 | hm
+  · simp only at h0 ⊢
+    rw [h0]; simp
+  · simp only at hm ⊢
+    set e := List.foldl max 0 _ with he
+    simp only [List.mem_filter, decide_eq_true_eq] at hm
+    obtain ⟨h8, h9, hr⟩ := hm.2
+    have d8 : ((2 ^ e : Nat) : Int) ∣ ((2 ^ (congOf cs 8).1 : Nat) : Int) :=
+      Int.natCast_dvd_natCast.mpr (Nat.pow_dvd_pow 2 h8)
+    have d9 : ((2 ^ e : Nat) : Int) ∣ ((2 ^ (congOf cs 9).1 : Nat) : Int) :=
+      Int.natCast_dvd_natCast.mpr (Nat.pow_dvd_pow 2 h9)
+    have a8 := dvd_trans d8 (congOf_dvd cs s h 8)
+    have a9 := dvd_trans d9 (congOf_dvd cs s h 9)
+    have ar : ((2 ^ e : Nat) : Int) ∣ ((congOf cs 8).2 : Int) - (congOf cs 9).2 :=
+      Int.ModEq.dvd hr.symm
+    have : s 8 - s 9 = (s 8 - (congOf cs 8).2) - (s 9 - (congOf cs 9).2) + (((congOf cs 8).2 : Int) - (congOf cs 9).2) := by ring
+    rw [this]
+    exact dvd_add (dvd_sub a8 a9) ar
+
+theorem dle_sv (s : Env) : Checker.dot (dle 0).sv s = s 8 - s 9 := by
+  have h := dle_eval 0 (fun _ => 0) s
+  have hlv : (dle 0).lv = [] := rfl
+  have hc : (dle 0).c = 0 := rfl
+  simp only [Checker.Lin.eval, hlv, hc, Checker.dot] at h
+  linarith
+
+theorem dge_sv (s : Env) : Checker.dot (dge 0).sv s = s 9 - s 8 := by
+  have h := dge_eval 0 (fun _ => 0) s
+  have hlv : (dge 0).lv = [] := rfl
+  have hc : (dge 0).c = 0 := rfl
+  simp only [Checker.Lin.eval, hlv, hc, Checker.dot] at h
+  linarith
+
+theorem round_le (M d c : Int) (hM : 0 < M) (hd : M ∣ d) (h : d + c ≤ 0) :
+    d + -((-c) / M * M) ≤ 0 := by
+  obtain ⟨q, rfl⟩ := hd
+  have : q ≤ (-c) / M := (Int.le_ediv_iff_mul_le hM).mpr (by linarith [mul_comm M q])
+  nlinarith
+
+theorem tightenL_holds (e : Nat) (g : Lin) (ρ s : Env)
+    (hd : ((2 ^ e : Nat) : Int) ∣ s 8 - s 9) (h : g.eval ρ s ≤ 0) : (tightenL e g).eval ρ s ≤ 0 := by
+  unfold tightenL
+  split
+  · rename_i hc
+    obtain ⟨_, hlv, hsv⟩ := hc
+    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pos_pow_of_pos e (by norm_num)
+    simp only [Checker.Lin.eval, Checker.dot, add_zero] at h ⊢
+    rw [hlv] at h
+    simp only [Checker.dot, add_zero] at h
+    rcases hsv with hsv | hsv
+    · rw [hsv, dle_sv s] at h ⊢
+      exact round_le _ _ _ hM hd h
+    · rw [hsv, dge_sv s] at h ⊢
+      exact round_le _ _ _ hM (by simpa using hd.neg_right) h
+  · exact h
+
+theorem condFactsM_sound (k : FKind) (a b : Nat) (ha : a < U) (hb : b < U) (f : Flags)
+    (hf : match k with | .none => True | .add => f = flagsAdd a b | .sub => f = flagsSub a b)
+    (cc : Nat) (hcc : cc < 16) (taken : Bool) (h : condHolds cc f = taken) (ρ s : Env)
+    (h8 : s 8 = a) (h9 : s 9 = b) (e : Nat) (hd : ((2 ^ e : Nat) : Int) ∣ s 8 - s 9) :
+    ∃ D ∈ condFactsM k cc taken e, holds D ρ s := by
+  obtain ⟨D, hD, hh⟩ := condFacts_sound k a b ha hb f hf cc hcc taken h ρ s h8 h9
+  refine ⟨D.map (tightenL e), List.mem_map.mpr ⟨D, hD, rfl⟩, fun g hg => ?_⟩
+  obtain ⟨g0, hg0, rfl⟩ := List.mem_map.mp hg
+  exact tightenL_holds e g0 ρ s hd (hh g0 hg0)
+
+theorem congSv_sound (cs : List Cong) (s : Env) (hC : CongHolds cs s) (e : Nat) :
+    ∀ (l : List Int) (v : Nat) (t : Int) (g : Env), (∀ i, g i = s (v + i)) →
+      congSv cs e v l = some t → ((2 ^ e : Nat) : Int) ∣ Checker.dot l g - t
+  | [], v, t, g, _, h => by simp [congSv] at h; subst h; simp [Checker.dot]
+  | k :: l, v, t, g, hg, h => by
+    simp only [congSv] at h
+    cases hb : congSv cs e (v + 1) l with
+    | none => rw [hb] at h; simp at h
+    | some b =>
+      rw [hb] at h
+      simp only at h
+      split at h
+      · rename_i hk
+        simp only [Option.some.injEq] at h
+        subst h
+        have ih := congSv_sound cs s hC e l (v + 1) b (fun i => g (i + 1))
+          (fun i => by show g (i + 1) = _; rw [hg]; congr 1; omega) hb
+        have hv := congOf_dvd cs s hC v
+        have hk' : ((2 ^ e : Nat) : Int) ∣ k * ((2 ^ (congOf cs v).1 : Nat) : Int) :=
+          Int.dvd_of_emod_eq_zero hk
+        have h1 : ((2 ^ e : Nat) : Int) ∣ k * (s v - (congOf cs v).2) := by
+          obtain ⟨q, hq⟩ := hv
+          rw [hq, ← mul_assoc]
+          exact Dvd.dvd.mul_right hk' q
+        have hg0 : g 0 = s v := by rw [hg, Nat.add_zero]
+        simp only [Checker.dot, hg0]
+        have : k * s v + Checker.dot l (fun i => g (i + 1)) - (k * ↑(congOf cs v).2 + b) =
+            k * (s v - (congOf cs v).2) + (Checker.dot l (fun i => g (i + 1)) - b) := by ring
+        rw [this]
+        exact dvd_add h1 ih
+      · simp at h
+
+theorem congPE_sound (cs : List Cong) (s : Env) (hC : CongHolds cs s) (e r : Nat) (P : PExp)
+    (h : congPE cs e r P = true) :
+    P.eval s % ((2 ^ e : Nat) : Int) = (r : Int) % ((2 ^ e : Nat) : Int) := by
+  unfold congPE at h
+  cases ht : congSv cs e 0 P.sv with
+  | none => rw [ht] at h; simp at h
+  | some t =>
+    rw [ht] at h
+    simp only [decide_eq_true_eq] at h
+    have hd := congSv_sound cs s hC e P.sv 0 t s (fun i => by simp) ht
+    simp only [Checker.PExp.eval]
+    rw [← h]
+    exact (Int.ModEq.symm ((Int.modEq_iff_dvd).mpr (by
+      rw [show Checker.dot P.sv s + P.c - (t + P.c) = Checker.dot P.sv s - t by ring]
+      exact hd)))
 
 theorem slotsOk_spec {L : DFun} (h : slotsOk L = true) :
     (∀ k ∈ L.slots, 0 < k ∧ k % 4 = 0 ∧ k < 1048576) ∧
@@ -670,6 +829,43 @@ theorem spAt_bound {f : BFun} {L : DFun} (h : slotsOk L = true) (a : Nat) (d : I
     | some o =>
       simp [hk, ho] at hd
       exact (slotsOk_spec h).2 o (List.mem_of_getElem? ho) d hd
+
+theorem congAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.cong, ∀ x ∈ l, wfCong L.slots.length x = true)
+    (a : Nat) : ∀ x ∈ congAt f L a, wfCong L.slots.length x = true := by
+  intro x hx
+  simp only [congAt] at hx
+  cases hk : find f.nodes a with
+  | none => simp [hk] at hx
+  | some k =>
+    cases hl : L.cong[k]? with
+    | none => simp [hk, hl] at hx
+    | some l =>
+      simp [hk, hl] at hx
+      exact hw l (List.mem_of_getElem? hl) x hx
+
+theorem wfCong_var {S : Nat} {x : Cong} (h : wfCong S x = true) : x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 20 + S := by
+  simp only [wfCong, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact h.1
+
+theorem congHolds_congr (S : Nat) (cs : List Cong) (hw : ∀ x ∈ cs, wfCong S x = true) (s s' : Env)
+    (hs : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) (h : CongHolds cs s') : CongHolds cs s := by
+  intro x hx
+  rw [hs x.1 (wfCong_var (hw x hx))]
+  exact h x hx
+
+theorem congOk_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun} {a : Nat} {i : Insn}
+    (h : congOk mul abi c f L a = true) (hdec : decode mul c a = some i)
+    {p : Option Nat × Nat × List Nat} (hp : p ∈ trans i a) {n : Nat} (hn : p.1 = some n)
+    {m : Int} (hm : m ∈ mcases (effect abi c a)) {x : Cong} (hx : x ∈ congAt f L n) :
+    congPE (congAt f L a) x.2.1 x.2.2
+      (postS (effect abi c a) (stackEffect abi c a) L.frame (spAt f L a) L.slots m x.1) = true := by
+  unfold congOk at h
+  rw [hdec] at h
+  simp only [List.all_eq_true] at h
+  have := h p hp
+  rw [hn] at this
+  simp only [List.all_eq_true] at this
+  exact this m hm x hx
 
 theorem invAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin L.slots.length g = true)
     (a : Nat) : ∀ g ∈ invAt f L a, wfLin L.slots.length g = true := by
@@ -741,7 +937,7 @@ theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : N
     (hdec : decode mul c a = some i) (hj : (trans i a)[j]? = some (next, w, calls))
     (hm : m ∈ mcases (effect abi c a))
     (hD : D ∈ (match i.kind with
-      | .cond _ => condFacts (kindAt f L a) (ccOf c a) (j == 0)
+      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
       | _ => [[]]))
     (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next) :
     (D ++ wrapPrem (effect abi c a) m ++ invAt f L a ++ rangesN (nVars L.slots.length), g) ∈
@@ -911,7 +1107,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       (potAt lc (some a)).eval (envOf σ fa fb SP0 L.slots) ≤ 0 := by
   obtain ⟨_, _, _, hnodes, _, _, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
   obtain ⟨hσ, hs, i, hdec, hj, hcond⟩ := hok
-  obtain ⟨_, _, hfa, hfb, hfl, hspa, hI⟩ := hinv
+  obtain ⟨_, _, hfa, hfb, hfl, hspa, hI, hC⟩ := hinv
   obtain ⟨hwfe, hstw, i', hdec', hkind⟩ := nodeOk_spec (hnodes a ha)
   rw [hdec] at hdec'
   cases hdec'
@@ -925,16 +1121,20 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   have h9 : env 9 = fb := by simp [env, envT, envOf]
   have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → env v = envOf σ fa fb SP0 L.slots v :=
     fun v hv => envT_state σ σ' fa fb SP0 L.slots v hv
+  have hgd : ((2 ^ gExp (congAt f L a) : Nat) : Int) ∣ env 8 - env 9 := by
+    have := gExp_dvd _ _ hC
+    rw [h8, h9]
+    simpa [envOf] using this
   obtain ⟨D, hD, hDh⟩ : ∃ D ∈ (match i.kind with
-      | .cond _ => condFacts (kindAt f L a) (ccOf c a) (j == 0)
+      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
       | _ => [[]]), holds D (fun _ => 0) env := by
     cases hk : i.kind with
     | cond t =>
       simp only
       have hcc : ccOf c a < 16 := Nat.mod_lt _ (by omega)
-      exact condFacts_sound (kindAt f L a) fa fb hfa hfb σ.f
+      exact condFactsM_sound (kindAt f L a) fa fb hfa hfb σ.f
         (by revert hfl; cases kindAt f L a <;> simp [flagsAt]) (ccOf c a) hcc (j == 0)
-        (hcond t hk) _ env h8 h9
+        (hcond t hk) _ env h8 h9 _ hgd
     | _ => exact ⟨[], by simp, by simp [holds]⟩
   have hprem : holds (D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars S)) (fun _ => 0) env := by
     rw [holds_append, holds_append, holds_append]
@@ -968,7 +1168,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have hk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).1
     have hspk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).2
     obtain ⟨hfl', hga, hgb⟩ := flags_post _ _ e hwfe σ σ' hσ fa fb hfa hfb hfl hk heff'.1.2.2.2
-    refine ⟨hwf', hws', hga, hgb, hfl', ?_, ?_⟩
+    refine ⟨hwf', hws', hga, hgb, hfl', ?_, ?_, ?_⟩
     · intro dn hdn
       obtain ⟨_, hspE, _, _⟩ := heff'.2
       rw [hdn] at hspk
@@ -995,6 +1195,14 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
       rw [substL_eval] at this
       rwa [lin_congr S g (invAt_wf f L hwinv n g hg) (fun _ => 0) (fun _ => 0) _ _ (hpost (by simp))] at this
+    · intro x hx
+      obtain ⟨_, hwc, hcok⟩ := checkDFun_cong hc
+      have hwx := congAt_wf f L hwc n x hx
+      have hCa : CongHolds (congAt f L a) env :=
+        congHolds_congr S _ (congAt_wf f L hwc a) env _ hstate hC
+      have h1 := congPE_sound _ env hCa x.2.1 x.2.2 _
+        (congOk_spec (hcok a ha) hdec (List.mem_of_getElem? hj) rfl hm hx)
+      rwa [hpost (by simp) x.1 (wfCong_var hwx)] at h1
   · intro lc hlc
     have := hgoal _ (by simp only [tGoals]; exact List.mem_append_right _ (List.mem_map.mpr ⟨lc, hlc, rfl⟩))
     rw [goalLin_eval, substP_eval, hpot_a lc hlc] at this
@@ -1123,7 +1331,7 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
       fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
     have hinv : Inv f L x.σ.sp f.entry x.σ 0 0 := by
-      refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_, fun g hg => ?_⟩
+      refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_, fun g hg => ?_, ?_⟩
       · intro d hd
         rcases hspe with hspe | hspe <;> rw [hspe] at hd
         · cases hd
@@ -1136,6 +1344,9 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
         have := entails1_sound hp env0
         rwa [lin_congr S g (invAt_wf f L hwinv _ g hg) _ (fun _ => 0) _ _ hstate] at this
+      · intro x hx
+        rw [(checkDFun_cong hc).1] at hx
+        cases hx
     obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t x f.entry 0 0 hch he hok hinv
     intro lc hlc
     have hin : (rangesN (nVars S), goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0)) ∈
@@ -1336,7 +1547,7 @@ def exProofs : List (Nat × List Nat) :=
     (1, [])]
 
 
-def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false⟩
+def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, []⟩
 
 def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], []⟩
 
@@ -1350,7 +1561,7 @@ theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] = true := by 
 /-- A bound of 9 iterations is refused. -/
 theorem exData_tight :
     checkData 32 false exCode [{ exFunD0 with rows := [loopRow exFunD0 { exLoop with bound := 9 }] }]
-      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false⟩] = false := by decide
+      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false, []⟩] = false := by decide
 
 /-- Every run of the data semantics of the example costs at most 68 cycles, with no
     trusted row. -/
@@ -1514,5 +1725,113 @@ theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 68 := by
       intro hy; rcases hy with (rfl | ⟨v, _, hv⟩) | hv <;> (try rcases hv with rfl | rfl | rfl | rfl) <;> simp
     simp only [toD, this.1, this.2, CallsWith]
   · intro r hr; simp [exDFun] at hr
+
+open ImperativeOptimization.Checker (Lin) in
+section
+
+/-! ### An example that needs congruences
+
+`movs r0, #0; L: adds r0, #4; cmp r0, #40; bne L; bx lr`: the counter is stepped by 4 and
+the loop exits on equality, so `r0 ≤ 40` and `r0 ≠ 40` do not give `r0 ≤ 36` without the
+congruence `r0 ≡ 0 (mod 4)`. The certificate (made by `benchmarks/cycles/binloops.py`)
+carries that congruence at the loop's instructions; the bound, 52 cycles, is the worst
+case (ten iterations), with no trusted row. Without the congruences the same certificate
+is rejected (`exStep_needs_cong`). -/
+
+def exStepCode : Code := ⟨0x100, #[0x2000, 0x3004, 0x2828, 0xd1fc, 0x4770]⟩
+
+def exStepKinds : List FKind := [.none, .none, .add, .sub, .sub]
+
+def exStepInv : List (List Lin) :=
+  [[],
+    [⟨[1], [], -36⟩],
+    [⟨[1], [], -40⟩, ⟨[-1], [], 4⟩, ⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -36⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩],
+    [⟨[1], [], -40⟩, ⟨[-1], [], 4⟩, ⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩],
+    [⟨[1], [], -40⟩, ⟨[-1], [], 40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩]]
+
+def exStepLoop : LoopCert := ⟨258, [258, 260, 262], 4, 36, [⟨[-1], 36⟩, ⟨[-1], 40⟩, ⟨[-1], 40⟩]⟩
+
+def exStepProofs : List (Nat × List Nat) :=
+  [(1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 4294967260]),
+    (1, []),
+    (1, []),
+    (1, [1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, []),
+    (1, [0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 1717986911, 0, 1717986911, 1]),
+    (1, [0, 1, 0, 2]),
+    (1, [0, 858993460, 0, 858993460]),
+    (1, [0, 858993452, 0, 858993452, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [1, 0, 1, 0, 1]),
+    (1, [2, 0, 2, 1]),
+    (1, []),
+    (1, [2, 0, 2, 0, 1]),
+    (1, [2, 0, 2]),
+    (1, []),
+    (1, []),
+    (1, [2, 0, 2]),
+    (1, [1]),
+    (1, [0, 1]),
+    (1, []),
+    (1, [1]),
+    (1, [0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [1, 0, 0, 1, 0, 0, 0, 1]),
+    (1, []),
+    (1, [1073741815, 0, 0, 0, 1073741815, 0, 0, 0, 1073741815, 0, 1]),
+    (1, []),
+    (1, [0, 0, 1]),
+    (1, [0, 1, 0, 0, 0, 0, 0, 1, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [])]
+
+def exStepCong : List (List (Nat × Nat × Nat)) :=
+  [[], [(0, 2, 0)], [(0, 2, 0), (8, 2, 0), (9, 32, 4)], [(0, 2, 0), (8, 2, 0), (9, 32, 40)], [(0, 2, 0), (8, 2, 0), (9, 32, 40)]]
+
+def exStepFun0 : BFun := ⟨0x100, [256, 258, 260, 262, 264], []⟩
+
+def exStepFun : BFun := { exStepFun0 with rows := [loopRow exStepFun0 exStepLoop] }
+
+def exStepCert : Cert := ⟨4, [208, 24, 20, 16, 12, 0], [5], 52⟩
+
+def exStepDFun : DFun :=
+  ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong⟩
+
+theorem exStep_binary : checkBinary 32 exStepCode [exStepFun] [exStepCert] = true := by decide
+
+theorem exStep_checks : checkData 32 false exStepCode [exStepFun] [exStepDFun] = true := by decide
+
+/-- The same certificate without its congruences is rejected. -/
+theorem exStep_needs_cong :
+    checkData 32 false exStepCode [exStepFun] [{ exStepDFun with cong := [] }] = false := by decide
+
+/-- Every run of the data semantics of the stepped loop costs at most 52 cycles, with no
+    trusted row. -/
+theorem exStep_sound (d : Nat) (tot : Int)
+    (h : DRun 32 false exStepCode [exStepFun] [exStepDFun] d 0x100 tot) : tot ≤ 52 :=
+  data_sound 32 false exStepCode [exStepFun] [exStepCert] [exStepDFun] exStep_binary exStep_checks
+    d 0x100 0 tot h (by decide)
+
+end
 
 end ImperativeOptimization.Thumb

@@ -143,30 +143,41 @@ also certified on the machine code where `binloops.py` finds a certificate (form
 version 2, `docs/certificate-format.md`; Lean `ThumbData.data_sound`, Paper III
 `thm:machine-loops`). Per instruction, the kind of operation that set the flags and an
 invariant on `r0`-`r7` and the two operands of that operation (a zone analysis of
-differences of registers, widening at loop headers, descending iterations); per loop, a
+differences of registers, widening at loop headers, descending iterations) and congruences
+modulo powers of two (Granger), with which the facts of a branch are rounded (a counter
+stepped by 4 that leaves its loop at 80 gets `≤ 76`; checked by `congOk`, Lean
+`congPE_sound`, `condFactsM_sound`); per loop, a
 potential `±r_i` or `±(r_i − r_j)` plus per-instruction constants, scale 1, 2, 4 or 8; Farkas
 multipliers from shortest paths, negative cycles or a linear program. What cannot be
 proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 73 of 403 | 330 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 105 of 403 | 298 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP) | 107 of 403 | 296 + 116 | all | 117 |
+| no assumption on callees | 116 of 403 | 287 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 167 of 403 | 236 + 116 | all | 115 |
+| `--abi --frame` (frames written only through SP) | 169 of 403 | 234 + 116 | all | 117 |
+
+Congruences (2026-11-18) raised these counts from 73, 105 and 107: most loops left
+uncertified exited on equality (`bne`), which zones alone cannot bound when the counter
+steps by more than 1. The same day, `ipet.py` stopped rounding the LP's multipliers up
+when exact fractions give a smaller bound (rows of scale above 1): 10 certified cycle
+bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
 offsets per instruction, `slots`); without them the counts were 72 and 94. `--frame` is
 refused by the checker for functions that put an address of their frame in a register:
 192 of the 267 functions, 191 of them because of the frame-pointer prologue
 `add r7, sp, #i` (compiled without `-fomit-frame-pointer`), many also passing addresses of
-local arrays to callees. Remaining failures with `--abi --frame` (kernels' own loops): 210
-counter tracked but no potential (mostly counters in a frame whose address is taken), 42
-compared value not tracked, 24 SP offset unknown, 12 flags from an unmodelled
-instruction, 8 mixed. Runs take 4 to 8 minutes.
+local arrays to callees. Remaining failures with `--abi --frame` (kernels' own loops, with
+congruences): 151 counter tracked but no potential (mostly counters in a frame whose
+address is taken; 118 of them exit on equality), 42 compared value not tracked, 21 SP
+offset unknown, 12 flags from an unmodelled instruction, 8 mixed (before congruences: 210,
+42, 24, 12, 8). Runs take 6 to 12 minutes.
 
-No back-edge count of the emulated runs exceeds a certified bound. 39 (49 with `--abi`) of
+No back-edge count of the emulated runs exceeds a certified bound. 64 (90 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges). The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
+edges), none above (the producer keeps the source row then), and 52 (77 with `--abi`)
+certified loops have no source bound at all. The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
 `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`.
 
 Trusted, in addition to the decoder and timing table: the effects of the instructions on

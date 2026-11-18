@@ -25,6 +25,9 @@ import ipet
 import wcet
 
 
+CONG = True
+
+
 def structure(an, name):
     """(entry, blocks, succ, back edges, loop bodies, headers innermost first, source bound
     by header or None): the loops of the binary even when no source loop bounds them."""
@@ -169,11 +172,109 @@ def add_facts(c):
             9: [[sumc(1, -U)]]}.get(c, [[]])
 
 
-def cond_facts(kind, cc, taken):
+def cond_facts(kind, cc, taken, m=1):
+    """The facts of a condition, as a disjunction of conjunctions. With `m` > 1 (a power
+    of two such that the two ghost operands are congruent modulo `m`), the difference facts
+    of a comparison are rounded to multiples of `m` (Granger's congruences)."""
     c = cc if taken else cc ^ 1
     if kind == "none":
         return [[]]
-    return sub_facts(c) if kind == "sub" else add_facts(c)
+    if kind != "sub":
+        return add_facts(c)
+    return [[tighten(f, m) for f in D] for D in sub_facts(c)]
+
+
+def tighten(f, m):
+    """`g8 - g9 + c <= 0` (or `g9 - g8 + c <= 0`) when `g8 - g9` is a multiple of `m`:
+    `c` rounded up to a multiple of `m`."""
+    d, c = f
+    if m > 1 and d in ({8: 1, 9: -1}, {8: -1, 9: 1}):
+        return (d, -(-c // m) * m)
+    return f
+
+
+# ----------------------------------------------------------------------------------------
+# Congruences modulo powers of two (Granger 1989): variable `v` of the certificate is `r`
+# modulo `2^e`, `e` at most 32, so that wrapping modulo 2^32 keeps them. Mirror of
+# `congOf`, `gExp`, `tightenL`, `congSv` in `ThumbDataCore` (keep identical).
+
+def cong_of(C, v):
+    return C.get(v, (0, 0)) if C else (0, 0)
+
+
+def g_exp(C):
+    """The largest `e` such that the ghost operands are congruent modulo `2^e`."""
+    e8, r8 = cong_of(C, 8)
+    e9, r9 = cong_of(C, 9)
+    return max([e for e in range(33) if e <= e8 and e <= e9 and (r8 - r9) % (1 << e) == 0], default=0)
+
+
+def cong_sv(C, e, P):
+    """The residue of `P` modulo `2^e`, or None (`congSv` + constant)."""
+    t = P[1]
+    for v, k in P[0].items():
+        ev, rv = cong_of(C, v)
+        if (k * (1 << ev)) % (1 << e):
+            return None
+        t += k * rv
+    return t
+
+
+def cong_best(C, Ps):
+    """The finest congruence `(e, r)` of a value given by every expression of `Ps` (one per
+    wrap case), or None."""
+    for e in range(32, 0, -1):
+        ts = [cong_sv(C, e, P) for P in Ps]
+        if all(t is not None for t in ts) and len({t % (1 << e) for t in ts}) == 1:
+            return (e, ts[0] % (1 << e))
+    return None
+
+
+def cjoin(x, y):
+    e = min(x[0], y[0])
+    while e > 0 and (x[1] - y[1]) % (1 << e):
+        e -= 1
+    return (e, x[1] % (1 << e))
+
+
+def congruences(ctx):
+    """The congruences of the variables of the certificate (registers, ghosts, tracked
+    words `20 + j`) before each instruction: a fixpoint over the transitions, from the
+    entry where nothing is known."""
+    S = len(ctx.slots)
+    vs = list(range(10)) + [20 + j for j in range(S)]
+    C = {a: None for a in ctx.nodes}
+    C[ctx.entry] = {}
+    work = [ctx.entry]
+    while work:
+        a = work.pop()
+        Ca = C[a]
+        eff, st = ctx.eff[a], ctx.st[a]
+        for nxt, _w, _cs in ipet.trans(ctx.insn[a]):
+            if nxt is None or nxt not in C:
+                continue
+            post = {}
+            for v in vs:
+                Ps = [post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for m in mcases(eff)]
+                b = cong_best(Ca, Ps)
+                if b is not None:
+                    post[v] = b
+            old = C[nxt]
+            new = post if old is None else {v: cjoin(old[v], post[v]) for v in old if v in post}
+            new = {v: x for v, x in new.items() if x[0] > 0}
+            if nxt == ctx.entry:
+                new = {}
+            if new != old:
+                C[nxt] = new
+                work.append(nxt)
+    return {a: (c or {}) for a, c in C.items()}
+
+
+def cmod(C, a):
+    """`2^e`, `e` the exponent of the ghost operands before `a` (1 when unknown)."""
+    if C is None:
+        return 1
+    return 1 << g_exp(C.get(a))
 
 
 def padd(a, b):
@@ -360,7 +461,7 @@ def obligations_of(ctx, a, inv, kinds, loops):
     out = []
     rng = ranges_n(nvars(len(ctx.slots)))
     for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
-        facts = cond_facts(ka, ctx.cc[a], j == 0) if i.kind == "cond" else [[]]
+        facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
         for m in mcases(eff):
             for D in facts:
                 prem = D + wrap_prem(eff, m) + inv.get(a, []) + rng
@@ -794,6 +895,7 @@ class Ctx:
                         slots.add(k)
         self.slots = sorted(slots)
         self.zones = Zones(len(self.slots))
+        self.cong = None
         imms = {0, 1, U - 1}
         for a in self.nodes:
             for _r, v in self.eff[a][0]:
@@ -863,7 +965,7 @@ def transfer(ctx, kind, a, M):
     i = ctx.insn[a]
     res = []
     for j, (nxt, _w, _cs) in enumerate(ctx.out[a]):
-        facts = cond_facts(kind.get(a, "none"), ctx.cc[a], j == 0) if i.kind == "cond" else [[]]
+        facts = cond_facts(kind.get(a, "none"), ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
         for D in facts:
             Mf = M
             for p in D:
@@ -1100,6 +1202,9 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         return {}, [], []
     kind = kinds_of(ctx)
     state = analyse(ctx, kind)
+    if CONG:
+        ctx.cong = congruences(ctx)
+        state = analyse(ctx, kind)
     cache = {a: (transfer(ctx, kind, a, state[a]) if state[a] is not None else []) for a in ctx.nodes}
     loops, info, why = [], [], []
     for h, body, Nsrc in ctx.iloops:
@@ -1138,6 +1243,7 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         sp=[ctx.sp.get(a) for a in ctx.nodes],
         slots=ctx.slots,
         frame=ctx.frame,
+        cong=[[[v, e, r] for v, (e, r) in sorted((ctx.cong or {}).get(a, {}).items())] for a in ctx.nodes],
         proofs=proofs)
     return fields, info, why
 

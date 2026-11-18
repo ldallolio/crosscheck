@@ -155,9 +155,11 @@ limitation, it says so.
   (the calling convention); no other code writes a function's frame (true of C without
   undefined behaviour when the function never takes an address of its frame, which the
   checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
-- **"Why so few loops certified on the code (73–107 of 403)?"** Counters kept in a frame
-  whose address is taken (the frame-pointer prologue at `-O1` in 191 of 267 functions),
-  computed conditions, shifts. The rest keep their source bounds as stated assumptions.
+- **"Why not all loops certified on the code (116–169 of 403)?"** Counters kept in a
+  frame whose address is taken (the frame-pointer prologue at `-O1` in 191 of 267
+  functions), computed conditions, shifts. The rest keep their source bounds as stated
+  assumptions. Congruences (Granger) raised the count from 73–107: compilers turn `i < n`
+  into an exit on equality with a byte offset stepped by 4.
 
 ## 7. C++ and compiler engineering
 

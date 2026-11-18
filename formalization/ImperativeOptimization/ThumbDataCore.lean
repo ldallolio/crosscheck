@@ -510,6 +510,8 @@ structure DFun where
   spOff : List (Option Int) := []
   slots : List Nat := []
   frame : Bool := false
+  /-- Per instruction: congruences `(v, e, r)`, "variable `v` is `r` modulo `2^e`". -/
+  cong : List (List (Nat × Nat × Nat)) := []
   deriving Repr
 
 def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
@@ -521,6 +523,65 @@ def invAt (f : BFun) (L : DFun) (a : Nat) : List Lin :=
 /-- The offset of the stack pointer from its value at the entry, at instruction `a`. -/
 def spAt (f : BFun) (L : DFun) (a : Nat) : Option Int :=
   ((find f.nodes a).bind fun k => L.spOff[k]?).getD none
+
+/-! ### Congruences modulo powers of two
+
+Granger's congruences, restricted to moduli `2^e`: a counter stepped by 4 from 0 stays a
+multiple of 4. They are checked without Farkas certificates, along every transition, on the
+same post-expressions as the invariants, and used in one place: at a conditional branch,
+when the two ghost operands are congruent modulo `2^e`, the facts of the condition on
+their difference are rounded to multiples of `2^e` (`x ≠ 80` and `x ≤ 80`, `x` a multiple
+of 4, give `x ≤ 76`). -/
+
+abbrev Cong := Nat × Nat × Nat
+
+def congAt (f : BFun) (L : DFun) (a : Nat) : List Cong :=
+  ((find f.nodes a).bind fun k => L.cong[k]?).getD []
+
+/-- The congruence of variable `v` in `cs`: `(e, r)`, or `(0, 0)` (nothing known). -/
+def congOf (cs : List Cong) (v : Nat) : Nat × Nat :=
+  match cs.find? (fun x => x.1 == v) with
+  | some x => (x.2.1, x.2.2)
+  | none => (0, 0)
+
+/-- The largest `e` (at most 32) such that the two ghost operands are congruent modulo `2^e`. -/
+def gExp (cs : List Cong) : Nat :=
+  let x := congOf cs 8
+  let y := congOf cs 9
+  ((List.range 33).filter fun e => decide (e ≤ x.1 ∧ e ≤ y.1 ∧
+    (x.2 : Int) % (2 ^ e : Nat) = (y.2 : Int) % (2 ^ e : Nat))).foldl max 0
+
+/-- A difference fact `±(g₈ − g₉) + c ≤ 0` with `c` rounded up to a multiple of `2^e`. -/
+def tightenL (e : Nat) (g : Lin) : Lin :=
+  if 0 < e ∧ g.lv = [] ∧ (g.sv = (dle 0).sv ∨ g.sv = (dge 0).sv) then
+    ⟨g.sv, [], -(((-g.c) / ((2 ^ e : Nat) : Int)) * ((2 ^ e : Nat) : Int))⟩
+  else g
+
+/-- The facts of a condition, rounded with the congruence of the ghost operands. -/
+def condFactsM (k : FKind) (cc : Nat) (taken : Bool) (e : Nat) : List (List Lin) :=
+  (condFacts k cc taken).map (·.map (tightenL e))
+
+/-- `Σ k_v·x_v` (from variable `v`) modulo `2^e` under `cs`: each term must be determined
+    modulo `2^e` (`2^e` divides `k_v·2^{e_v}`); its residue. -/
+def congSv (cs : List Cong) (e : Nat) : Nat → List Int → Option Int
+  | _, [] => some 0
+  | v, k :: t =>
+    match congSv cs e (v + 1) t with
+    | some b =>
+      if (k * ((2 ^ (congOf cs v).1 : Nat) : Int)) % ((2 ^ e : Nat) : Int) = 0 then
+        some (k * (congOf cs v).2 + b)
+      else none
+    | none => none
+
+/-- The expression `P` is `r` modulo `2^e` under the congruences `cs`. -/
+def congPE (cs : List Cong) (e r : Nat) (P : PExp) : Bool :=
+  match congSv cs e 0 P.sv with
+  | some t => decide ((t + P.c) % ((2 ^ e : Nat) : Int) = (r : Int) % ((2 ^ e : Nat) : Int))
+  | none => false
+
+/-- Congruences on the variables of a state, with exponents at most 32. -/
+def wfCong (S : Nat) (x : Cong) : Bool :=
+  decide (x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 20 + S) && decide (x.2.1 ≤ 32)
 
 def potAt (lc : LoopCert) : Option Nat → PExp
   | none => pconst 0
@@ -549,7 +610,7 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
     (indexed 0 (trans i a)).flatMap fun p =>
       let next := p.2.1
       let facts := match i.kind with
-        | .cond _ => condFacts ka (ccOf c a) (p.1 == 0)
+        | .cond _ => condFactsM ka (ccOf c a) (p.1 == 0) (gExp (congAt f L a))
         | _ => [[]]
       (mcases e).flatMap fun m => facts.flatMap fun D =>
         let prem := D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars L.slots.length)
@@ -614,6 +675,21 @@ def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
         spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n)
     | none => true
 
+/-- The congruences after every transition of the instruction at `a`, in every wrap case. -/
+def congOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
+  match decode mul c a with
+  | none => true
+  | some i => (trans i a).all fun p => match p.1 with
+    | some n => (mcases (effect abi c a)).all fun m => (congAt f L n).all fun x =>
+        congPE (congAt f L a) x.2.1 x.2.2
+          (postS (effect abi c a) (stackEffect abi c a) L.frame (spAt f L a) L.slots m x.1)
+    | none => true
+
+/-- The checks of the congruences: none at the entry, well formed, preserved. -/
+def congChecks (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :=
+  (congAt f L f.entry).isEmpty && L.cong.all (·.all (wfCong L.slots.length)) &&
+  f.nodes.all (congOk mul abi c f L)
+
 /-- The check of the loop certificates of a function. -/
 def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :=
   closed mul c f.entry f.nodes && nodupB f.nodes &&
@@ -622,7 +698,7 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   (spAt f L f.entry == some 0 || spAt f L f.entry == none) && slotsOk L &&
   L.inv.all (·.all (wfLin L.slots.length)) &&
   L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
-  checkObs (obligations mul abi c f L) L.proofs
+  checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L
 
 /-- The check of the loop certificates of all functions (aligned with the functions);
     `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`

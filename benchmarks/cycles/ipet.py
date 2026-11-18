@@ -162,21 +162,31 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
     weights = [w + sum(bound_of[t] for t in cs) for (_u, _v, w, cs) in edges]
     allnodes = list(range(exit_ + 1))
     lam = lp_multipliers(allnodes, edges, rows, idx[entry], exit_, weights)
+    # Candidate multipliers: the LP's rounded up to integers, and its fractions (scale D =
+    # their common denominator). Rows of loops certified with a scale above 1 have
+    # fractional multipliers, which rounding up makes loose: the smallest feasible bound is
+    # kept (any feasible choice is sound: the checker decides).
+    best = None
     for limit in (1, 10**3, 10**6):
         fr = [Fraction(x).limit_denominator(limit) for x in lam]
         D = math.lcm(*[f.denominator for f in fr]) if fr else 1
         mult = [math.ceil(x - 1e-6) for x in lam] if limit == 1 else [int(f * D) for f in fr]
+        if limit > 1 and any(m < 0 for m in mult):
+            continue
         L = [0] * len(edges)
         for r, (coef, _rhs) in enumerate(rows):
             for e, a in coef:
                 L[e] += mult[r] * a
         pot = potentials(allnodes, edges, exit_, [D * weights[k] - L[k] for k in range(len(edges))])
-        if pot is not None:
-            break
-    else:
+        if pot is None:
+            continue
+        total = pot[idx[entry]] - pot[exit_] + sum(mult[r] * rows[r][1] for r in range(len(rows)))
+        B = max(0, -(-total // D))
+        if best is None or B < best[0]:
+            best = (B, D, mult, pot)
+    if best is None:
         raise NoCertificate("no feasible integer multipliers (a cycle without a loop bound?)")
-    total = pot[idx[entry]] - pot[exit_] + sum(mult[r] * rows[r][1] for r in range(len(rows)))
-    B = max(0, -(-total // D))
+    B, D, mult, pot = best
     fn = dict(name=name, entry=entry + base, nodes=[a + base for a in nodes], rows=mrows,
               certificate=dict(scale=D, pot=[pot[v] for v in allnodes], mult=mult, bound=B))
     return fn, B

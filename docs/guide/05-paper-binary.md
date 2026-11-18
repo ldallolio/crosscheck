@@ -250,32 +250,38 @@ checker's verdict, cover the usual case:
 1. **Offsets of SP** by data flow from the entry (an offset is dropped where two paths
    disagree).
 2. **Kinds** of flags by data flow.
-3. **Invariants** by abstract interpretation over **zones** (Part 2, sections 2.10–2.11): for
+3. **Congruences** modulo powers of two (Part 2, end of section 2.11), computed on the
+   checker's own post-expressions, so that the checker accepts exactly what was derived.
+4. **Invariants** by abstract interpretation over **zones** (Part 2, sections 2.10–2.11): for
    registers, ghosts and tracked words; widening at loop headers to thresholds from the
-   code's constants; three narrowing rounds.
-4. **Potentials** by trying `±x` for every register and tracked word and `±(x − y)` for the
+   code's constants; three narrowing rounds; the facts of each branch rounded with the
+   congruences (a counter stepped by 4 that exits at 80 gets `≤ 76`).
+5. **Potentials** by trying `±x` for every register and tracked word and `±(x − y)` for the
    variables compared at the exits, with per-instruction constants computed as longest paths,
    and a scale `D` in {1, 2, 4, 8}.
-5. **Farkas certificates** for every obligation: shortest paths in the difference graph, a
+6. **Farkas certificates** for every obligation: shortest paths in the difference graph, a
    negative cycle for contradictory cases, a linear program otherwise.
-6. Anything that cannot be proved is **dropped** (an invariant constraint, or a loop, whose
+7. Anything that cannot be proved is **dropped** (an invariant constraint, or a loop, whose
    row then stays trusted). The checker decides.
 
 ### Results (`sec:evaluation`)
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 73 | 115 |
-| `abi` | 105 | 115 |
-| `abi` and `frame` | 107 | 117 |
+| no assumption | 116 (73 without congruences) | 115 |
+| `abi` | 167 (105) | 115 |
+| `abi` and `frame` | 169 (107) | 117 |
 
 None of the 116 loops of the division routines (they shift) is certified. Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
 gained over the 107 of 5.3 have loops that the source analysis does not bound but the binary
 analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`).
 
-Why not more? Most remaining loops keep their counter in the frame of a function where
-`frame` is refused: 192 of the 267 functions put an address of the frame in a register,
+Congruences made the largest difference: before them, 177 of the 210 loops whose counter
+was tracked but had no potential left the loop on equality with a step above 1.
+
+Why not more? Most remaining loops (151 with a tracked counter but no potential) keep their
+counter in the frame of a function where `frame` is refused: 192 of the 267 functions put an address of the frame in a register,
 191 of them only because Clang's `-O1` prologue sets up a frame pointer (`add r7, sp, #12`).
 Two ways forward: compile without frame pointers, or refine the escape check. The
 specification of effects, flags, conditions and stack effects is compared with the
@@ -333,5 +339,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 115–117 functions get a certified cycle
-bound and 73–107 of 403 loops are bounded on the code with nothing trusted about them; the
+bound and 116–169 of 403 loops are bounded on the code with nothing trusted about them; the
 rest keep their source bounds as assumptions.

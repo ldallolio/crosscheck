@@ -40,6 +40,10 @@ STACKLOOP = {0x100: [0xB082, 0x2000, 0x9001, 0x9801, 0x280A, 0xDA02, 0x3001, 0x9
 CALLSTACK = {0x100: [0xB082, 0x2000, 0x9001, 0xF000, 0xF81B, 0x9801, 0x3001, 0x9001, 0x280A, 0xDBF8,
                      0xB002, 0x4770], 0x140: [0x4770]}
 
+# f at 0x100: movs r0,#0; L: adds r0,#4; cmp r0,#40; bne L; bx lr   (a counter stepped by 4
+# that exits on equality: bounded only with the congruence r0 = 0 modulo 4)
+STEPLOOP = {0x100: [0x2000, 0x3004, 0x2828, 0xD1FC, 0x4770]}
+
 
 def loop_doc(**kw):
     an = test_ipet.analysis(test_ipet.LOOP, {"f": (0x100, 12)}, range(0x102, 0x10a, 2), 10)
@@ -97,6 +101,50 @@ class Producer(unittest.TestCase):
         self.assertEqual(st["f"]["certified"], [])
         _, b, st = callloop_doc(abi=True)
         self.assertEqual([x[0] for x in st["f"]["certified"]], [0x102])
+
+
+def step_doc(code=STEPLOOP):
+    an = test_ipet.analysis(code, {"f": (0x100, 10)}, range(0x102, 0x108, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
+
+
+class Congruence(unittest.TestCase):
+    def test_needs_congruences(self):
+        try:
+            binloops.CONG = False
+            _, b, st = step_doc()
+            self.assertEqual(st["f"]["certified"], [])
+        finally:
+            binloops.CONG = True
+        doc, b, st = step_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x102, 9)])   # back edges
+        self.assertEqual(b["f"], 52)                          # the worst case: 10 iterations
+        f = doc["programs"][0]["functions"][0]
+        self.assertEqual(f["rows"], [])
+        self.assertIn([0, 2, 0], f["cong"][1])                # r0 = 0 modulo 4 at the header
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc, _, _ = step_doc()
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+
+        def rejected(change):
+            d = copy.deepcopy(doc)
+            change(d["programs"][0]["functions"][0], d)
+            code, out = check(d)
+            self.assertEqual(code, 1, out)
+
+        rejected(lambda f, d: f.update(cong=[]))                                 # no congruence
+        rejected(lambda f, d: f["cong"][1].__setitem__(0, [0, 2, 2]))            # a wrong residue
+        rejected(lambda f, d: f["cong"].__setitem__(0, [[0, 2, 0]]))             # one at the entry
+        rejected(lambda f, d: f["cong"][1].append([1, 33, 0]))                   # exponent above 32
+        rejected(lambda f, d: f["cong"][1].append([12, 1, 0]))                   # not a variable of a state
+        # step 3 instead of 4: the counter never equals 40 before it wraps
+        rejected(lambda f, d: d["code"]["halfwords"].__setitem__(0x102 // 2, 0x3003))
 
 
 class Stack(unittest.TestCase):

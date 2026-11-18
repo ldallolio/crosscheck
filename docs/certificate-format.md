@@ -313,6 +313,16 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   `{"sv": [[variable, coefficient], ...], "c": c}` meaning `Σ coefficient·x + c ≤ 0`;
   variables `0`-`7` are `r0`-`r7`, `8` and `9` the operands of the operation that set the
   flags. Potentials have the same form (an affine expression `Σ coefficient·x + c`).
+- `"cong"` (optional, default none): per instruction (order of `nodes`) a list of
+  congruences `[v, e, r]`, "variable `v` is `r` modulo `2^e`", `e ≤ 32`, `v` a variable of
+  a state (`0`-`9` or a tracked word `20 + j`); none at the entry. The checker verifies
+  them without Farkas certificates (Lean `congOk`): after every transition, in every wrap
+  case, the post-expression `Σ k_v·x_v + c` of `v` (the same as for the invariants) must
+  have, for each term, `2^e` dividing `k_v·2^{e_v}` (`e_v` from the congruences before the
+  instruction, `0` if none), and `Σ k_v·r_v + c ≡ r (mod 2^e)`. At a conditional branch,
+  if the ghosts `8` and `9` are congruent modulo `2^e` (largest such `e`, Lean `gExp`),
+  the facts `±(x₈ − x₉) + c ≤ 0` of the condition are rounded to `c` a multiple of `2^e`
+  (`tightenL`) before they become premises (Paper III, after `lem:cond-facts`).
 - `"proofs"`: one Farkas certificate `[mu, [[premise index, multiplier], ...]]` per
   obligation, in the order of `Thumb.obligations` (the entry's invariant and the
   potentials at the entry from the ranges alone; then, for every instruction, every

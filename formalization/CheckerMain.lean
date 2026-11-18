@@ -544,7 +544,13 @@ def parseBFun (f : Json) : Except String
         | .error _ => pure [],
      match f.getObjValAs? Bool "frame" with
         | .ok b => b
-        | .error _ => false⟩
+        | .error _ => false,
+     ← optArr f "cong" (fun l => match l.getArr? with
+        | .ok a => a.toList.mapM fun x => do
+            match ← natList x "a congruence" with
+            | [v, e, r] => pure (v, e, r)
+            | _ => throw "a congruence must be [variable, exponent, residue]"
+        | .error _ => throw "the congruences of an instruction must be an array")⟩
   pure (nameOf f "name", F, C, D)
 
 def parseBinaryFile (j : Json) :
@@ -579,7 +585,7 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
         IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({F.nodes.length} instructions, {G.edges.length} edges, {G.rows.length} rows)"
       if !D.loops.isEmpty || !D.inv.isEmpty then
         let okD := ImperativeOptimization.Thumb.checkDFun mul abi code F D
-        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked{if D.frame then ", frame written only through SP (assumed)" else ""})"
+        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked, {(D.cong.map List.length).foldl (· + ·) 0} congruences{if D.frame then ", frame written only through SP (assumed)" else ""})"
     -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
     let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
     let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
