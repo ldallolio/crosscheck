@@ -258,7 +258,17 @@ checker's verdict, cover the usual case:
    congruences (a counter stepped by 4 that exits at 80 gets `≤ 76`).
 5. **Potentials** by trying `±x` for every register and tracked word and `±(x − y)` for the
    variables compared at the exits, with per-instruction constants computed as longest paths,
-   and a scale `D` in {1, 2, 4, 8}.
+   and a scale `D` in {1, 2, 4, 8}. If that fails, **one linear program** looks for a
+   potential with a *different* linear part at each instruction (Part 2, sections on Farkas
+   and LP duality): the unknowns are the potentials' coefficients, the bound and the Farkas
+   multipliers of every obligation; since the invariants are already fixed, every obligation
+   is linear in these unknowns, and the program minimizes the bound (Colón & Sipma 2001;
+   Alias et al. 2010 for one function per control point). Why it is needed: in
+   `countnegative`, the loop counter lives in a register at some instructions and in a stack
+   word at others, so no single expression `±x` decreases all along the loop. The solution
+   is rational; it is rounded, scaled to integers (the scale becomes `D`) and proved again
+   exactly. The solver (HiGHS) gets at most 5 s per program: the first runs without a limit
+   hung for hours on one badly scaled program (constants up to 2³²).
 6. **Farkas certificates** for every obligation: shortest paths in the difference graph, a
    negative cycle for contradictory cases, a linear program otherwise.
 7. Anything that cannot be proved is **dropped** (an invariant constraint, or a loop, whose
@@ -268,9 +278,9 @@ checker's verdict, cover the usual case:
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 116 (73 without congruences) | 115 |
-| `abi` | 167 (105) | 115 |
-| `abi` and `frame` | 169 (107) | 117 |
+| no assumption | 121 (116 without the linear programs, 73 without congruences) | 115 |
+| `abi` | 173 (167, 105) | 115 |
+| `abi` and `frame` | 175 (169, 107) | 117 |
 
 None of the 116 loops of the division routines (they shift) is certified. Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
@@ -280,14 +290,15 @@ analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`).
 Congruences made the largest difference: before them, 177 of the 210 loops whose counter
 was tracked but had no potential left the loop on equality with a step above 1.
 
-Why not more? Most remaining loops (151 with a tracked counter but no potential) keep their
+Why not more? Most remaining loops (145 with a tracked counter but no potential) keep their
 counter in the frame of a function where `frame` is refused: 192 of the 267 functions put an address of the frame in a register,
 191 of them only because Clang's `-O1` prologue sets up a frame pointer (`add r7, sp, #12`).
 Compiled with `-fomit-frame-pointer`, `frame` is refused in only 25 of 265 functions,
-and 202 loops are certified with both assumptions (instead of 169): for certification on
+and 216 loops are certified with both assumptions (instead of 175; 202 without the linear
+programs): for certification on
 the machine code, omitting the frame pointer is worth a compilation option. The
 specification of effects, flags, conditions and stack effects is compared with the
-interpreter on every 16-bit encoding (297 244 executions, no difference); 18 tests check that
+interpreter on every 16-bit encoding (297 244 executions, no difference); 22 tests check that
 altered certificates are refused.
 
 ## 5.7 The rest of Paper III's evaluation
@@ -341,5 +352,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 115–117 functions get a certified cycle
-bound and 116–169 of 403 loops are bounded on the code with nothing trusted about them; the
+bound and 121–175 of 403 loops are bounded on the code (216 built without frame pointers) with nothing trusted about them; the
 rest keep their source bounds as assumptions.

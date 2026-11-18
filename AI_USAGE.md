@@ -1707,7 +1707,15 @@ about six hours, because HiGHS did not terminate on a badly scaled linear progra
 `jfdctint` (constants up to 2^32) and no time limit had been set; the runs were stopped, the
 cause found by dumping the stack, and each solve is now limited to 5 s (a loop whose program
 times out stays uncertified; soundness is unaffected, the checker decides). The runs were
-restarted; their results are recorded below when complete.
+restarted. Results (all certificates accepted, no emulated run above a certified bound, no
+loop lost, no certified bound higher): kernel loops certified on the code 121 / 173 / 175 of
+403 (none / abi / abi+frame; before 116 / 167 / 169), and 123 / 176 / 216 in the build
+without frame pointers (before 120 / 173 / 202); remaining failures with abi+frame 145 / 42 /
+21 / 12 / 8. Runs now take 11 to 70 minutes (5 to 32 before; `pm` alone up to 55). Paper III
+(abstract, which still quoted the counts from before congruences, 73 / 105 / 107; producer;
+evaluation), `benchmarks/cycles/README.md`, the guide (Parts 5 and 9), CLAUDE.md updated.
+The new loops of `isqrt_usqrt` keep their counter in a register: why the single-linear-part
+search fails there was not analysed, and the paper does not claim a reason for them.
 
 What the AI did for 68 (Claude Opus 5.5, 2026-11-18): read the four papers in full (copies
 supplied by the author, not committed) and adapted Paper III: `cullmann2007data` (counters in

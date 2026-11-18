@@ -147,15 +147,23 @@ differences of registers, widening at loop headers, descending iterations) and c
 modulo powers of two (Granger), with which the facts of a branch are rounded (a counter
 stepped by 4 that leaves its loop at 80 gets `≤ 76`; checked by `congOk`, Lean
 `congPE_sound`, `condFactsM_sound`); per loop, a
-potential `±r_i` or `±(r_i − r_j)` plus per-instruction constants, scale 1, 2, 4 or 8; Farkas
-multipliers from shortest paths, negative cycles or a linear program. What cannot be
+potential `±r_i` or `±(r_i − r_j)` plus per-instruction constants, scale 1, 2, 4 or 8, or,
+when none is found, a potential with its own linear part at each instruction from one
+linear program over the checker's obligations (`synth_lp`: Colón–Sipma, Alias et al.;
+HiGHS, at most 5 s per program, rounded and proved again exactly); Farkas multipliers from
+shortest paths, negative cycles or a linear program. What cannot be
 proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 116 of 403 | 287 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 167 of 403 | 236 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP) | 169 of 403 | 234 + 116 | all | 117 |
+| no assumption on callees | 121 of 403 | 282 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 173 of 403 | 230 + 116 | all | 115 |
+| `--abi --frame` (frames written only through SP) | 175 of 403 | 228 + 116 | all | 117 |
+
+Potentials per instruction by linear programming (2026-11-18) raised these counts from 116,
+167 and 169 (loops of `countnegative` and `isqrt`); no loop lost, no bound higher. A first
+run without a time limit on HiGHS hung on a linear program of `jfdctint` (constants up to
+2^32): hence `LP_SECONDS`.
 
 Congruences (2026-11-18) raised these counts from 73, 105 and 107: most loops left
 uncertified exited on equality (`bne`), which zones alone cannot bound when the counter
@@ -169,19 +177,21 @@ refused by the checker for functions that put an address of their frame in a reg
 192 of the 267 functions, 191 of them because of the frame-pointer prologue
 `add r7, sp, #i` (compiled without `-fomit-frame-pointer`), many also passing addresses of
 local arrays to callees. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences): 151 counter tracked but no potential (mostly counters in a frame whose
-address is taken; 118 of them exit on equality), 42 compared value not tracked, 21 SP
-offset unknown, 12 flags from an unmodelled instruction, 8 mixed (before congruences: 210,
-42, 24, 12, 8). Runs take 6 to 12 minutes.
+congruences and potentials per instruction): 145 counter tracked but no potential (mostly
+counters in a frame whose address is taken; 112 of them exit on equality), 42 compared
+value not tracked, 21 SP offset unknown, 12 flags from an unmodelled instruction, 8 mixed
+(before congruences: 210, 42, 24, 12, 8; before the linear programs: 151, 42, 21, 12, 8).
+Runs take 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
 
 Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
 separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
-producer analyses (190 in the default build); kernel loops certified 120 / 173 / 202
-(no assumption / `--abi` / `--abi --frame`; default build: 116 / 167 / 169), 118 functions with a certified cycle
+producer analyses (190 in the default build); kernel loops certified 123 / 176 / 216
+(no assumption / `--abi` / `--abi --frame`; default build: 121 / 173 / 175; without the
+linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 118 functions with a certified cycle
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
 
-No back-edge count of the emulated runs exceeds a certified bound. 64 (90 with `--abi`) of
+No back-edge count of the emulated runs exceeds a certified bound. 69 (96 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
 edges), none above (the producer keeps the source row then), and 52 (77 with `--abi`)
 certified loops have no source bound at all. The functions newly certified include `fac_fac`, `md5_R_RandomInit`,

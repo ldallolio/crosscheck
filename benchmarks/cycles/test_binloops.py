@@ -43,6 +43,10 @@ CALLSTACK = {0x100: [0xB082, 0x2000, 0x9001, 0xF000, 0xF81B, 0x9801, 0x3001, 0x9
 # f at 0x100: movs r0,#0; L: adds r0,#4; cmp r0,#40; bne L; bx lr   (a counter stepped by 4
 # that exits on equality: bounded only with the congruence r0 = 0 modulo 4)
 STEPLOOP = {0x100: [0x2000, 0x3004, 0x2828, 0xD1FC, 0x4770]}
+# f at 0x100: sub sp,#8; movs r1,#0; L: str r1,[sp,#4]; ldr r1,[r0]; ldr r1,[sp,#4];
+# adds r1,#1; cmp r1,#10; bne L; add sp,#8; bx lr  (the counter goes from r1 to the frame
+# and back: no potential with the same linear part at every instruction)
+ROTLOOP = {0x100: [0xB082, 0x2100, 0x9101, 0x6801, 0x9901, 0x3101, 0x290A, 0xD1F9, 0xB002, 0x4770]}
 
 
 def loop_doc(**kw):
@@ -108,6 +112,50 @@ def step_doc(code=STEPLOOP):
     st = {}
     doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
     return doc, bounds, st
+
+
+def rot_doc(code=ROTLOOP):
+    an = test_ipet.analysis(code, {"f": (0x100, 20)}, range(0x104, 0x110, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
+
+
+class PotentialsPerInstruction(unittest.TestCase):
+    def test_needs_the_linear_program(self):
+        try:
+            binloops.LP = False
+            _, b, st = rot_doc()
+            self.assertEqual(st["f"]["certified"], [])
+            self.assertEqual(b["f"], 125)                     # with the trusted source row
+        finally:
+            binloops.LP = True
+        doc, b, st = rot_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x104, 9)])   # back edges
+        self.assertEqual(b["f"], 114)
+        f = doc["programs"][0]["functions"][0]
+        self.assertEqual(f["rows"], [])
+        pots = f["loops"][0]["pot"]
+        self.assertGreater(len({tuple(map(tuple, p["sv"])) for p in pots}), 1)   # several linear parts
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc, _, _ = rot_doc()
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+
+        def rejected(change):
+            d = copy.deepcopy(doc)
+            change(d["programs"][0]["functions"][0]["loops"][0], d)
+            code, out = check(d)
+            self.assertEqual(code, 1, out)
+
+        rejected(lambda lc, d: lc.update(bound=8))                              # one back edge too few
+        rejected(lambda lc, d: lc["pot"].__setitem__(1, lc["pot"][0]))          # the header's potential everywhere
+        rejected(lambda lc, d: lc["pot"][2].update(c=lc["pot"][2]["c"] - 1))    # a constant too small
+        # the loop's own store removed (str r1,[sp,#4] -> mov r8,r8): the counter never advances
+        rejected(lambda lc, d: d["code"]["halfwords"].__setitem__(0x104 // 2, 0x46C0))
 
 
 class Congruence(unittest.TestCase):

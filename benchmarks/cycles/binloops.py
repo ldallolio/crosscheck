@@ -26,6 +26,8 @@ import wcet
 
 
 CONG = True
+LP = True            # potentials per instruction by a linear program (`synth_lp`)
+LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
 
 
 def structure(an, name):
@@ -1138,6 +1140,149 @@ def synth(ctx, kind, state, h, body, cache):
     return best
 
 
+def synth_lp(ctx, kind, inv, h, body):
+    """A potential per instruction of the loop, each with its own linear part, found by one
+    linear program over the checker's own obligations (the potentials and the Farkas
+    multipliers are the unknowns: Colon & Sipma 2001, Podelski & Rybalchenko 2004, and
+    per control point as in Alias, Darte, Feautrier & Gonnord 2010). Needed when the counter
+    moves between a register and a word of the frame inside the loop. The potentials are rounded to rationals and proved again
+    by `prove_all` (whatever this finds is checked). Returns candidates [(N, [potentials], D)]
+    (from coarser to finer roundings), [] if none."""
+    import numpy as np
+    from scipy.optimize import linprog
+    from scipy.sparse import coo_matrix
+    B = set(body)
+    S = len(ctx.slots)
+    nv = nvars(S)
+    rng = ranges_n(nv)
+    V = list(range(10)) + [20 + j for j in range(S)]
+    col = {}
+
+    def var(key):
+        if key not in col:
+            col[key] = len(col)
+        return col[key]
+
+    NB = var("N")
+    for a in body:
+        for v in V:
+            var(("p", a, v))
+        var(("c", a))
+    eq_rows, ub_rows = [], []    # rows: ({column: coefficient}, rhs)
+
+    def add_oblig(prem, gd, gc):
+        # gd: {program variable: {column: coef}}, gc: ({column: coef}, constant)
+        # exists lam >= 0: gd[u] = sum lam_i prem_i[u], gc - sum lam_i c_i <= 0
+        used = set(gd)
+        main = [p for p in prem[:len(prem) - len(rng)]]
+        for p in main:
+            used |= set(p[0])
+        ps = main + [r for r in rng if set(r[0]) <= used]
+        lam = [var(("l", len(col))) for _ in ps]
+        for u in used:
+            row = dict(gd.get(u, {}))
+            for li, p in zip(lam, ps):
+                k = p[0].get(u, 0)
+                if k:
+                    row[li] = row.get(li, 0) - k
+            if row:
+                eq_rows.append((row, 0.0))
+        row = dict(gc[0])
+        for li, p in zip(lam, ps):
+            if p[1]:
+                row[li] = row.get(li, 0) - p[1]
+        ub_rows.append((row, -gc[1]))
+
+    for a in ctx.nodes:
+        i, eff, st = ctx.insn[a], ctx.eff[a], ctx.st[a]
+        ka = kind.get(a, "none")
+        for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
+            if a not in B and nxt not in B:
+                continue
+            facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
+            for m in mcases(eff):
+                sig = {v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for v in V}
+                for D in facts:
+                    prem = D + wrap_prem(eff, m) + inv.get(a, []) + rng
+                    gd, gcc, gk = {}, {}, 0
+                    if nxt == h:
+                        if a in B:
+                            gk += 1
+                        else:
+                            gcc[NB] = gcc.get(NB, 0) - 1
+                    if nxt in B:
+                        for v in V:
+                            pc = col[("p", nxt, v)]
+                            dv, cv = sig[v]
+                            for u, k in dv.items():
+                                gd.setdefault(u, {})
+                                gd[u][pc] = gd[u].get(pc, 0) + k
+                            if cv:
+                                gcc[pc] = gcc.get(pc, 0) + cv
+                        cc_ = col[("c", nxt)]
+                        gcc[cc_] = gcc.get(cc_, 0) + 1
+                    if a in B:
+                        for v in V:
+                            pc = col[("p", a, v)]
+                            gd.setdefault(v, {})
+                            gd[v][pc] = gd[v].get(pc, 0) - 1
+                        cc_ = col[("c", a)]
+                        gcc[cc_] = gcc.get(cc_, 0) - 1
+                    add_oblig(prem, gd, (gcc, gk))
+    if ctx.entry == h:
+        gd = {}
+        for v in V:
+            gd.setdefault(v, {})[col[("p", h, v)]] = 1
+        add_oblig(list(rng), gd, ({col[("c", h)]: 1, NB: -1}, 0))
+    n = len(col)
+
+    def mat(rows):
+        r, c, d = [], [], []
+        for k, (row, _b) in enumerate(rows):
+            for cc_, x in row.items():
+                r.append(k)
+                c.append(cc_)
+                d.append(float(x))
+        return coo_matrix((d, (r, c)), shape=(len(rows), n)).tocsr(), np.array([b for _r, b in rows])
+
+    Aeq, beq = mat(eq_rows)
+    Aub, bub = mat(ub_rows)
+    bounds = [(None, None)] * n
+    for key, k in col.items():
+        if key == "N":
+            bounds[k] = (0, None)
+        elif key[0] == "p":
+            bounds[k] = (-16, 16)
+        elif key[0] == "c":
+            bounds[k] = (None, None)
+        else:
+            bounds[k] = (0, None)
+    cost = np.zeros(n)
+    cost[NB] = 1.0
+    sols = []
+    for meth in ("highs-ds", "highs-ipm"):     # the constants reach 2^32: either may fail
+        try:
+            res = linprog(cost, A_ub=Aub, b_ub=bub, A_eq=Aeq, b_eq=beq, bounds=bounds, method=meth,
+                          options={"time_limit": LP_SECONDS})
+        except ValueError:
+            continue
+        if res.status == 0:
+            sols.append(res.x)
+    out = []
+    for x, limit in ((x, limit) for x in sols for limit in (1, 4, 16, 64)):
+        fr = {key: Fraction(float(x[k])).limit_denominator(limit) for key, k in col.items()
+              if key == "N" or key[0] in ("p", "c")}
+        L = math.lcm(*[f.denominator for key, f in fr.items() if key != "N" and key[0] == "p"] + [1])
+        pots = []
+        for a in body:
+            d = {v: int(fr[("p", a, v)] * L) for v in V if fr[("p", a, v)] != 0}
+            pots.append((d, math.ceil(fr[("c", a)] * L)))
+        N = math.ceil(Fraction(float(x[NB])) * L - Fraction(1, 10 ** 6))
+        if (N, pots, L) not in out:
+            out.append((N, pots, L))
+    return out
+
+
 # ----------------------------------------------------------------------------------------
 # The certificate of a function
 
@@ -1206,14 +1351,35 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         ctx.cong = congruences(ctx)
         state = analyse(ctx, kind)
     cache = {a: (transfer(ctx, kind, a, state[a]) if state[a] is not None else []) for a in ctx.nodes}
+
+    def invariants(R):
+        inv = {}
+        for a in ctx.nodes:
+            if state[a] is None:
+                inv[a] = [({}, 1)]
+                continue
+            keep = set(R) | ({8, 9} if kind.get(a, "none") != "none" else set())
+            inv[a] = zone_constraints(ctx.zones, state[a], keep)
+        return inv
+
     loops, info, why = [], [], []
+    full = None             # invariants on every variable, for the linear programs
     for h, body, Nsrc in ctx.iloops:
         s = synth(ctx, kind, state, h, body, cache)
+        eff_n = -(-s[0] // s[2]) if s is not None else None
+        if LP and (s is None or (Nsrc is not None and eff_n > Nsrc)):
+            if full is None:
+                full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+            for N, pots, D in synth_lp(ctx, kind, full, h, body):
+                if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
+                    continue
+                if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots)])[0]:
+                    s, eff_n = (N, pots, D), -(-N // D)
+                    break
         if s is None:
             why.append((h, "no potential found"))
             continue
         N, pots, D = s
-        eff_n = -(-N // D)
         if prefer_source and Nsrc is not None and eff_n > Nsrc:
             why.append((h, f"certified bound {eff_n} above the source bound {Nsrc}"))
             continue
@@ -1221,14 +1387,7 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         info.append((h, eff_n, Nsrc))
     if not loops:
         return {}, [], why
-    R = relevant(ctx, loops)
-    inv = {}
-    for a in ctx.nodes:
-        if state[a] is None:
-            inv[a] = [({}, 1)]
-            continue
-        keep = set(R) | ({8, 9} if kind.get(a, "none") != "none" else set())
-        inv[a] = zone_constraints(ctx.zones, state[a], keep)
+    inv = full if full is not None else invariants(relevant(ctx, loops))
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:
         why.append((h, "an obligation of its potential could not be proved"))
