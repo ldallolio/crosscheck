@@ -665,9 +665,81 @@ def slotsOk (L : DFun) : Bool :=
     | some d => decide (-1048576 ≤ d ∧ d ≤ 1048576)
     | none => true
 
+/-! ### The frame pointer
+
+The usual prologue `PUSH {.., r7, lr}; ADD r7, SP, #imm` puts an address of the frame in
+`r7`. The assumption `frame` (stores through registers other than SP, and calls, do not
+write the frame) is trusted, not proved; the checks below only restrict the code it may be
+used on: an address of the frame may be in no register but SP and, after the prologue,
+`r7`, and `r7` may then be read only as the base address of a load or by a `PUSH` at the
+entry. Over-approximation: every register field an encoding may read is counted. The
+soundness proof does not use these checks. -/
+
+/-- `ADD r7, SP, #imm`. -/
+def fpSetup (c : Code) (a : Nat) : Bool :=
+  match c.get a with
+  | some h => h >>> 11 == 0b10101 && (h >>> 8) % 8 == 7
+  | none => false
+
+/-- `PUSH`. -/
+def isPush (c : Code) (a : Nat) : Bool :=
+  match c.get a with
+  | some h => h >>> 9 == 0b1011010
+  | none => false
+
+/-- The registers an instruction may read, other than the base register of a load
+    (an over-approximation, by encoding: destinations of some encodings are included). -/
+def regsRead (h : Nat) : List Nat :=
+  let f0 := h % 8
+  let f3 := (h >>> 3) % 8
+  let f6 := (h >>> 6) % 8
+  let f8 := (h >>> 8) % 8
+  let top5 := h >>> 11
+  -- 32-bit instructions (only BL is decoded): none
+  if top5 = 0b11101 ∨ top5 = 0b11110 ∨ top5 = 0b11111 then []
+  -- ADD/SUB register or 3-bit immediate
+  else if top5 = 0b00011 then (if (h >>> 10) % 2 = 0 then [f3, f6] else [f3])
+  -- shifts by an immediate
+  else if h >>> 13 = 0 then [f3]
+  -- MOV/CMP/ADD/SUB 8-bit immediate
+  else if h >>> 13 = 0b001 then [f8]
+  -- data processing
+  else if h >>> 10 = 0b010000 then [f0, f3]
+  -- high registers, BX, BLX
+  else if h >>> 10 = 0b010001 then [((h >>> 7) % 2) * 8 + f0, (h >>> 3) % 16]
+  -- LDR literal
+  else if top5 = 0b01001 then []
+  -- load/store, register offset: a store reads Rt, Rn, Rm; a load Rm
+  else if h >>> 12 = 0b0101 then (if (h >>> 9) % 8 < 3 then [f0, f3, f6] else [f6])
+  -- load/store, immediate offset (word, byte, halfword): a store reads Rt and Rn
+  else if h >>> 13 = 0b011 ∨ h >>> 12 = 0b1000 then (if (h >>> 11) % 2 = 0 then [f0, f3] else [])
+  -- STR/LDR SP-relative
+  else if h >>> 12 = 0b1001 then (if (h >>> 11) % 2 = 0 then [f8] else [])
+  -- ADR, ADD rd, SP
+  else if h >>> 12 = 0b1010 then []
+  -- PUSH: the registers of the list
+  else if h >>> 9 = 0b1011010 then (List.range 8).filter fun r => (h >>> r) % 2 = 1
+  -- POP, ADD/SUB SP: none; other miscellaneous instructions (extensions, REV): Rm
+  else if h >>> 9 = 0b1011110 ∨ h >>> 8 = 0b10110000 then []
+  else if h >>> 12 = 0b1011 then [f3]
+  -- STM: base and list; LDM: none
+  else if h >>> 11 = 0b11000 then f8 :: (List.range 8).filter fun r => (h >>> r) % 2 = 1
+  else []
+
+/-- The instruction at `a` may read `r7` (not counting the base register of a load). -/
+def readsR7 (c : Code) (a : Nat) : Bool :=
+  match c.get a with
+  | some h => (regsRead h).contains 7
+  | none => true
+
+/-- The code the assumption `frame` may be used on: see above. -/
+def frameUseOk (c : Code) (f : BFun) (a : Nat) : Bool :=
+  (!(stackEffect false c a).escapes || fpSetup c a) &&
+  (!(f.nodes.any (fpSetup c)) || !(readsR7 c a) || (a == f.entry && isPush c a))
+
 /-- The checks that do not involve Farkas certificates, at instruction `a`. -/
 def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
-  wfEff (effect abi c a) && !(L.frame && (stackEffect abi c a).escapes) && stackWf (stackEffect abi c a) &&
+  wfEff (effect abi c a) && !(L.frame && !frameUseOk c f a) && stackWf (stackEffect abi c a) &&
   match decode mul c a with
   | none => false
   | some i => (trans i a).all fun p => match p.1 with

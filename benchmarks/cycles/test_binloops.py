@@ -39,6 +39,9 @@ STACKLOOP = {0x100: [0xB082, 0x2000, 0x9001, 0x9801, 0x280A, 0xDA02, 0x3001, 0x9
 # write the caller's frame (frame)
 CALLSTACK = {0x100: [0xB082, 0x2000, 0x9001, 0xF000, 0xF81B, 0x9801, 0x3001, 0x9001, 0x280A, 0xDBF8,
                      0xB002, 0x4770], 0x140: [0x4770]}
+# the same behind the usual prologue with a frame pointer: push {r7,lr}; add r7,sp,#0;
+# mov r8,r8 (replaced by the tests); ...; pop {r7,pc}   (g at 0x146)
+FPSTACK = {0x100: [0xB580, 0xAF00, 0x46C0] + CALLSTACK[0x100][:-1] + [0xBD80], 0x146: [0x4770]}
 
 # f at 0x100: movs r0,#0; L: adds r0,#4; cmp r0,#40; bne L; bx lr   (a counter stepped by 4
 # that exits on equality: bounded only with the congruence r0 = 0 modulo 4)
@@ -74,6 +77,16 @@ def callstack_doc(abi, frame):
     an = test_ipet.analysis(CALLSTACK, {"f": (0x100, 24), "g": (0x140, 2)}, range(0x106, 0x114, 2), 10)
     st = {}
     doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, abi=abi, frame=frame, stats=st)
+    return doc, bounds, st
+
+
+def fpstack_doc(change=None):
+    code = copy.deepcopy(FPSTACK)
+    if change:
+        code[0x100][2] = change
+    an = test_ipet.analysis(code, {"f": (0x100, 30), "g": (0x146, 2)}, range(0x10C, 0x11A, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, abi=True, frame=True, stats=st)
     return doc, bounds, st
 
 
@@ -242,6 +255,40 @@ class Stack(unittest.TestCase):
         d = copy.deepcopy(doc)
         d["code"]["halfwords"][0x102 // 2] = 0xA900
         self.assertEqual(check(d)[0], 1)
+
+
+class FramePointer(unittest.TestCase):
+    """`add r7, sp, #imm` puts an address of the frame in r7: the assumption `frame` may still
+    be used if r7 is read only as the base address of loads (Lean `Thumb.frameUseOk`)."""
+
+    def test_producer(self):
+        _, _, st = fpstack_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x10C, 9)])
+        _, _, st = fpstack_doc(0x6839)          # ldr r1, [r7, #0]: a load through r7
+        self.assertTrue(st["f"]["certified"])
+        for h in (0x4639, 0x6039, 0x1C39):      # mov r1, r7; str r1, [r7, #0]; adds r1, r7, #0
+            _, _, st = fpstack_doc(h)
+            self.assertFalse(st["f"]["certified"], hex(h))
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        # the replaced instruction takes 1 cycle (mov r8, r8) or 2 (ldr r1, [r7, #0]); each
+        # replacement keeps the cycles, so that only the use of r7 can make the check fail
+        for base, ok, bad in ((None, [0x46B0], [0x46B8, 0x44B8]),
+                              (0x6839, [0x6031, 0x6839], [0x6039, 0x603F, 0xC701])):
+            doc, _, _ = fpstack_doc(base)
+            self.assertEqual(check(doc)[0], 0, check(doc)[1])
+            # ok: mov r8, r6; str r1, [r6]; ldr r1, [r7]; bad: mov r8, r7; add r8, r7;
+            # str r1, [r7]; str r7, [r7]; stm r7!, {r0}
+            for h in ok + bad:
+                d = copy.deepcopy(doc)
+                d["code"]["halfwords"][0x104 // 2] = h
+                self.assertEqual(check(d)[0], 0 if h in ok else 1, hex(h))
+            d = copy.deepcopy(doc)
+            for f in d["programs"][0]["functions"]:
+                f["frame"] = False
+            self.assertEqual(check(d)[0], 1)
 
 
 class Checker(unittest.TestCase):

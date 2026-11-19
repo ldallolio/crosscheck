@@ -280,7 +280,7 @@ checker's verdict, cover the usual case:
 |---|---|---|
 | no assumption | 121 (116 without the linear programs, 73 without congruences) | 115 |
 | `abi` | 173 (167, 105) | 115 |
-| `abi` and `frame` | 175 (169, 107) | 117 |
+| `abi` and `frame` | 215 (175 before the frame-pointer exception, 169, 107) | 117 |
 
 None of the 116 loops of the division routines (they shift) is certified. Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
@@ -290,15 +290,20 @@ analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`).
 Congruences made the largest difference: before them, 177 of the 210 loops whose counter
 was tracked but had no potential left the loop on equality with a step above 1.
 
-Why not more? Most remaining loops (145 with a tracked counter but no potential) keep their
-counter in the frame of a function where `frame` is refused: 192 of the 267 functions put an address of the frame in a register,
-191 of them only because Clang's `-O1` prologue sets up a frame pointer (`add r7, sp, #12`).
-Compiled with `-fomit-frame-pointer`, `frame` is refused in only 25 of 265 functions,
-and 216 loops are certified with both assumptions (instead of 175; 202 without the linear
-programs): for certification on
-the machine code, omitting the frame pointer is worth a compilation option. The
+The frame pointer. Clang's `-O1` prologue sets up a frame pointer (`add r7, sp, #12`): r7
+then holds an address of the frame. Until 2026-11-19 the checker refused `frame` for every
+such function (190 of 265), and `frame` added only 2 loops. A pointer to the frame is only
+dangerous if something can store through it, so the checker now allows that one instruction
+provided r7 is never read afterwards except as the base address of a load (reading stack
+arguments) or by the prologue's `PUSH` (which saves the caller's r7). The assumption itself
+is unchanged, and the Lean proof never depended on this check: it only decides where the
+assumption may be stated. `frame` is now refused in 26 functions (those that pass a local
+array's address to a callee) and 215 loops are certified with both assumptions (175 before);
+compiled with `-fomit-frame-pointer`, 216. Of the 188 kernel loops still not certified, 106
+have a tracked counter but no potential (89 of them in functions where `frame` is allowed:
+another cause, not analysed yet). The
 specification of effects, flags, conditions and stack effects is compared with the
-interpreter on every 16-bit encoding (297 244 executions, no difference); 22 tests check that
+interpreter on every 16-bit encoding (297 244 executions, no difference); 24 tests check that
 altered certificates are refused.
 
 ## 5.7 The rest of Paper III's evaluation
@@ -352,5 +357,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 115–117 functions get a certified cycle
-bound and 121–175 of 403 loops are bounded on the code (216 built without frame pointers) with nothing trusted about them; the
+bound and 121–215 of 403 loops are bounded on the code (216 built without frame pointers) with nothing trusted about them; the
 rest keep their source bounds as assumptions.

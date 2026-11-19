@@ -363,6 +363,68 @@ def stack_effect(abi, get, a):
     return "keep", "keep", None, False
 
 
+def fp_setup(get, a):
+    """`ADD r7, SP, #imm`, as Lean `Thumb.fpSetup`."""
+    h = get(a)
+    return h is not None and h >> 11 == 0b10101 and (h >> 8) % 8 == 7
+
+
+def is_push(get, a):
+    h = get(a)
+    return h is not None and h >> 9 == 0b1011010
+
+
+def regs_read(h):
+    """As Lean `Thumb.regsRead`: the registers an instruction may read, not counting the
+    base register of a load (over-approximated by encoding)."""
+    f0, f3, f6, f8 = h % 8, (h >> 3) % 8, (h >> 6) % 8, (h >> 8) % 8
+    top5 = h >> 11
+    lst = [r for r in range(8) if (h >> r) % 2 == 1]
+    if top5 in (0b11101, 0b11110, 0b11111):
+        return []
+    if top5 == 0b00011:
+        return [f3, f6] if (h >> 10) % 2 == 0 else [f3]
+    if h >> 13 == 0:
+        return [f3]
+    if h >> 13 == 0b001:
+        return [f8]
+    if h >> 10 == 0b010000:
+        return [f0, f3]
+    if h >> 10 == 0b010001:
+        return [((h >> 7) % 2) * 8 + f0, (h >> 3) % 16]
+    if top5 == 0b01001:
+        return []
+    if h >> 12 == 0b0101:
+        return [f0, f3, f6] if (h >> 9) % 8 < 3 else [f6]
+    if h >> 13 == 0b011 or h >> 12 == 0b1000:
+        return [f0, f3] if (h >> 11) % 2 == 0 else []
+    if h >> 12 == 0b1001:
+        return [f8] if (h >> 11) % 2 == 0 else []
+    if h >> 12 == 0b1010:
+        return []
+    if h >> 9 == 0b1011010:
+        return lst
+    if h >> 9 == 0b1011110 or h >> 8 == 0b10110000:
+        return []
+    if h >> 12 == 0b1011:
+        return [f3]
+    if top5 == 0b11000:
+        return [f8] + lst
+    return []
+
+
+def reads_r7(get, a):
+    h = get(a)
+    return h is None or 7 in regs_read(h)
+
+
+def frame_use_ok(ctx, a):
+    """As Lean `Thumb.frameUseOk`: the code the assumption `frame` may be used on."""
+    fp = any(fp_setup(ctx.get, b) for b in ctx.nodes)
+    return ((not ctx.st[a][3] or fp_setup(ctx.get, a)) and
+            (not fp or not reads_r7(ctx.get, a) or (a == ctx.entry and is_push(ctx.get, a))))
+
+
 def slot_idx(slots, k):
     return slots.index(k) if k > 0 and k in slots else None
 
@@ -878,7 +940,7 @@ class Ctx:
         self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
         self.out = {a: ipet.trans(self.insn[a]) for a in self.nodes}
-        self.frame = frame and not any(self.st[a][3] for a in self.nodes)
+        self.frame = frame and all(frame_use_ok(self, a) for a in self.nodes)
         self.iloops = []
         for h in self.headers:
             body = sorted(i.addr for b in self.loops[h] for i in self.blocks[b])

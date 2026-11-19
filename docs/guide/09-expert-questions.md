@@ -153,11 +153,12 @@ limitation, it says so.
   SMT solver.
 - **"What are `abi` and `frame`?"** Stated assumptions: callees preserve `r4`–`r7` and SP
   (the calling convention); no other code writes a function's frame (true of C without
-  undefined behaviour when the function never takes an address of its frame, which the
-  checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
-- **"Why not all loops certified on the code (121–175 of 403, 216 without frame pointers)?"** Counters kept in a
-  frame whose address is taken (the frame-pointer prologue at `-O1` in 191 of 267
-  functions), computed conditions, shifts. The rest keep their source bounds as stated
+  undefined behaviour when the function never takes an address of its frame other than the
+  frame pointer r7, used only to load, which the checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
+- **"Why not all loops certified on the code (121–215 of 403, 216 without frame pointers)?"** Counters kept in a
+  frame whose address is passed to callees (26 of 265 functions), computed conditions,
+  shifts, and 89 loops with a tracked counter whose cause is not analysed yet. Allowing the
+  frame-pointer prologue (`add r7, sp, #i`) when r7 only serves loads raised the count from 175. The rest keep their source bounds as stated
   assumptions. Congruences (Granger) raised the count from 73–107: compilers turn `i < n`
   into an exit on equality with a byte offset stepped by 4. Potentials with a different
   linear part at each instruction, found by linear programming, added 5–14 more.

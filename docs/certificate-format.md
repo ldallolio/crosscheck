@@ -301,7 +301,9 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   after an instruction; `S` the number of slots, `nVars = 20 + 2S`); `"frame"` (default
   `false`): assume that stores through registers other than SP and calls do not write the
   function's frame (words between SP and `SP₀`); refused if the function puts an address
-  derived from SP into a register (`ADD rd, SP, #i`, `MOV rd, SP`, `ADD rd, SP`).
+  derived from SP into a register (`ADD rd, SP, #i`, `MOV rd, SP`, `ADD rd, SP`), except
+  the frame pointer `ADD r7, SP, #i`, provided no instruction may then read r7 other than
+  as the base address of a load or a `PUSH` at the entry (`Thumb.frameUseOk`).
 - Per function, `"rows"` are now the **trusted** rows only; `"loops"` lists the certified
   loops, whose rows the checker generates (`Thumb.loopRow`) and appends to the trusted
   ones, in that order (the IPET certificate's `mult` follows that order):

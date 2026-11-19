@@ -1737,6 +1737,40 @@ evaluation of prompt 66 when it is written) is not covered by it until the autho
 `references/README.md` (four rows), the guide (Part 2 rounding paragraph, Part 8 map)
 updated. Papers I, II and III build without warnings (Paper III: 16 pages).
 
+69. "proceed with the next logical step"
+
+What the AI did for 69 (Claude Opus 5.5, 2026-11-19): diagnosed the 145 loops "counter
+tracked, no potential" of the default build: 139 are in functions where `frame` is refused,
+almost always only because of the frame-pointer prologue `add r7, sp, #i`; r7 is otherwise
+read in 14 instructions of all kernels' code (loads of stack arguments `ldr rX, [r7, #i]`,
+and `subs r6, r7, #i`). An experiment on those 68 functions, treating that instruction as not
+escaping, certified 16 more loops (`fir2dim`, `ludcmp`, `minver`). Lean change (checker
+only): `ThumbDataCore.frameUseOk` replaces the condition "no instruction escapes" by "no
+instruction escapes except `ADD r7, SP, #i`, and, in a function with that instruction, no
+instruction may read r7 (`regsRead`, an over-approximation by encoding) except as the base
+address of a load or a `PUSH` at the entry". This condition only restricts where the trusted
+assumption `frame` may be stated; the soundness proof (`data_sound`) never used the escape
+condition, and the meaning of `frame` (`StackOk`) is unchanged; `lake build` clean, no new
+axioms. The producer mirrors it (`binloops.frame_use_ok`, `regs_read`). Test `FramePointer`
+(`test_binloops.py`): a counter in the frame across a call behind the prologue is certified
+(9 back edges); the checker accepts the certificate with the placeholder replaced by
+instructions of the same cycles that do not read r7 or read it as a load base, and rejects it
+when r7 is read otherwise (`mov r8, r7`, `add r8, r7`, `str r1, [r7]`, `str r7, [r7]`,
+`stm r7!, {r0}`) or when `frame` is removed. The Python and Lean versions of `regsRead` are
+not compared on every encoding (they are not part of the soundness argument). Results
+(full runs with `--abi --frame`, checker rebuilt): kernel loops certified on the code 175 ->
+215 of 403 in the default build (12 kernels; `minver` 10 -> 22, `countnegative` 6 -> 12, `pm`
+29 -> 34), 216 unchanged in the build without frame pointers; no loop lost, no certified bound
+higher, every certificate accepted, no emulated run above a bound; 117 functions with a
+certified cycle bound (unchanged). `frame` refused in 26 of the 265 functions the producer
+analyses (190 before). Remaining failures 106 / 42 / 21 / 12 / 7; of the 106, 89 are in
+functions where `frame` is allowed, and their causes were not analysed. The run takes 58
+minutes (32 before). Paper III (the rule in Section `sec:loops`, abstract, evaluation,
+limitations, conclusion: the earlier remark that omitting the frame pointer is worth a
+compilation option was removed, the two builds now differ by one loop), the cycles README,
+the guide (Parts 5 and 9), CLAUDE.md updated. This text of Paper III is new since the
+author's statement on the use of AI.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

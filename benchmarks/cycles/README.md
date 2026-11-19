@@ -158,7 +158,18 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 |---|---|---|---|---|
 | no assumption on callees | 121 of 403 | 282 + 116 (division routines) | all | 115 (107 before) |
 | `--abi` (callees preserve r4-r7 and SP) | 173 of 403 | 230 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP) | 175 of 403 | 228 + 116 | all | 117 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 215 of 403 | 188 + 116 | all | 117 |
+
+Frame pointer (2026-11-19): `--frame` is no longer refused because of the prologue
+`add r7, sp, #i` alone; the checker (`frameUseOk`) then requires that no instruction may
+read r7 except as the base address of a load or a `PUSH` at the entry (`regsRead`,
+over-approximated by encoding). The assumption itself (`StackOk`) and the proof are
+unchanged: the check only restricts where it may be stated. With both assumptions, 175 → 215
+loops (12 kernels: `minver` 10 → 22, `countnegative` 6 → 12, `pm` 29 → 34, ...), none lost,
+no bound higher; `--frame` is refused in 26 of the 265 functions the producer analyses
+(190 before), those that put another address of their frame in a register. The build
+without frame pointers is unchanged (216). The run with both assumptions takes 58 minutes
+(32 before; `pm` 48).
 
 Potentials per instruction by linear programming (2026-11-18) raised these counts from 116,
 167 and 169 (loops of `countnegative` and `isqrt`); no loop lost, no bound higher. A first
@@ -172,21 +183,18 @@ when exact fractions give a smaller bound (rows of scale above 1): 10 certified 
 bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
-offsets per instruction, `slots`); without them the counts were 72 and 94. `--frame` is
-refused by the checker for functions that put an address of their frame in a register:
-192 of the 267 functions, 191 of them because of the frame-pointer prologue
-`add r7, sp, #i` (compiled without `-fomit-frame-pointer`), many also passing addresses of
-local arrays to callees. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences and potentials per instruction): 145 counter tracked but no potential (mostly
-counters in a frame whose address is taken; 112 of them exit on equality), 42 compared
-value not tracked, 21 SP offset unknown, 12 flags from an unmodelled instruction, 8 mixed
-(before congruences: 210, 42, 24, 12, 8; before the linear programs: 151, 42, 21, 12, 8).
+offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
+congruences, potentials per instruction and the frame pointer): 106 counter tracked but no
+potential (79 of them exit on equality; 89 in functions where `--frame` is allowed, causes
+not analysed further), 42 compared value not tracked, 21 SP offset unknown, 12 flags from an
+unmodelled instruction, 7 mixed (before congruences: 210, 42, 24, 12, 8; before the linear
+programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 Runs take 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
 
 Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
 separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
 producer analyses (190 in the default build); kernel loops certified 123 / 176 / 216
-(no assumption / `--abi` / `--abi --frame`; default build: 121 / 173 / 175; without the
+(no assumption / `--abi` / `--abi --frame`; default build: 121 / 173 / 215, 175 before the frame pointer; without the
 linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 118 functions with a certified cycle
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
