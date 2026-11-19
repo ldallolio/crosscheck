@@ -1771,6 +1771,26 @@ compilation option was removed, the two builds now differ by one loop), the cycl
 the guide (Parts 5 and 9), CLAUDE.md updated. This text of Paper III is new since the
 author's statement on the use of AI.
 
+70. "Proceed by classifying the remaining cases to identify the next steps"
+
+What the AI did for 70 (Claude Opus 5.5, 2026-11-19): wrote `benchmarks/cycles/classify_loops.py`
+(heuristic diagnosis, untrusted, proves nothing): for each exit of an uncertified loop, the
+instruction that set the flags and the definitions reaching its operands along paths inside
+the loop, through registers and tracked words of the frame; for counters, the definitions of
+the initial value. A first version that merged all definitions of a register in the loop was
+discarded as too coarse (registers are reused). On the run with `--abi --frame` (default
+build), the 188 kernel loops fall into: 69 counter against a constant or bounded limit (initial
+value from a frame word 12, built by LSL 10, LSR of an argument 9, argument 6, MVN 5, literal
+pool 4, through STM 4, ...), 27 counter against an unbounded limit (a parameter), 22 exit on a
+call's result (mostly soft-float comparisons), 17 exit on loaded data, 12 exit on the flags of
+a shift, 11 shifted counters (logarithmic), 11 other, 10 untracked frame words, 9 values through
+approximated instructions (STM, ADCS, ANDS). An experiment in the producer only (no checker
+change, nothing committed in `binloops.py`) with exact effects for STM/LDM write-back, MVN,
+NEGS and literal-pool loads found potentials for 15 more loops and lost 3, not analysed. A
+first version of the experiment was flawed: it gave every loop a placeholder source bound of 5,
+so that the producer discarded larger certified bounds; it was rerun without that filter.
+The cycles README records the table; Paper III is unchanged.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

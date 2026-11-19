@@ -189,6 +189,30 @@ potential (79 of them exit on equality; 89 in functions where `--frame` is allow
 not analysed further), 42 compared value not tracked, 21 SP offset unknown, 12 flags from an
 unmodelled instruction, 7 mixed (before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
+
+Classification of the 188 kernel loops not certified with `--abi --frame` (2026-11-19,
+`classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
+definitions reaching its operands inside the loop; heuristic, for diagnosis only):
+
+| group | loops | what would be needed |
+|---|---|---|
+| A counter against a constant or a bounded limit | 69 | the counter's initial value: from a word of the frame (12), built by `LSL` (10, e.g. `movs r0,#1; lsls r1,r0,#10`), by `LSR` of an argument (9), from an argument (6), by `MVN` (5), from the literal pool (4), through `STM` (4), ... |
+| B counter against a limit without a bound (a parameter) | 27 | bounds in the parameters, or calling contexts, on the binary |
+| D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
+| F exit on data loaded from memory | 17 | invariants on memory (string and search loops) |
+| C exit on the flags of a shift | 12 | `x >>= 8` until zero (`bitcount`, `sqrtf`): logarithmic potentials on the code |
+| E counter shifted | 11 | logarithmic potentials (binary search, bit reversal) |
+| I other (two counters, sums of registers) | 11 | |
+| G word of the frame not tracked | 10 | SP offsets where they are unknown |
+| H value through an approximated instruction | 9 | exact effects of `STM` (5), `ADCS` (3), `ANDS` (1) |
+
+The producer's own reasons: no potential found for 181, a potential whose bound (2^31 or
+2^32) exceeds the source bound for 7. An experiment with exact effects, in the producer only
+(not in the checker), for `STM`/`LDM` (base advanced by 4 per register; STM does not
+write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
+from the literal pool (the word of the code), found potentials for 15 more loops (`bitonic`,
+`fft`, `fir2dim`, `matrix1`, `quicksort`, `minver`; whether each is below its source bound was
+not checked) and lost 3 (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e; not analysed).
 Runs take 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
 
 Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
