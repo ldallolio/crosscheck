@@ -1791,6 +1791,42 @@ first version of the experiment was flawed: it gave every loop a placeholder sou
 so that the producer discarded larger certified bounds; it was rerun without that filter.
 The cycles README records the table; Paper III is unchanged.
 
+71. "I agree start with step 1"
+
+What the AI did for 71 (Claude Opus 5.5, 2026-11-19): step 1 of the plan proposed after prompt
+70, exact effects for `NEGS`, `MVNS`, the write-back of `STM`/`LDM` and literal-pool loads, in
+the checker's specification and in the producer. First, the 3 losses of the experiment of 70
+were analysed: in all three, HiGHS stopped with a numerical failure (status 4) on linear
+programs whose zone invariants contained literal constants (addresses close to 2^32, `jpeg`
+constants). Lean change (`ThumbDataCore.effect`, trusted specification): `NEGS` = `0 - rn` with
+the flags of that subtraction; `MVNS` = `(2^32 - 1) - rn`, flags any; `STM` advances its base by
+4 per listed register and writes no register of its list; `LDM` does the same when the base is
+not in its list (its list any), otherwise its list any; an empty list makes the base any;
+`LDR rt, [pc, #i]` gives the word `l + 65536 u` of the certificate's code at the aligned address
+when both halfwords exist and are below 2^16, otherwise any. New trusted assumption, stated in
+`ThumbData`, Paper III, `docs/certificate-format.md`: the code is not written during a run. The
+proof `data_sound` needed no change (it is generic in the effect); `lake build` and the checker
+build clean, no new axioms. Producer (`binloops.py`, `ipet.code_top`): mirror of the effects
+(the literal region limited to the checker's code); its own analysis (`aeff`) ignores constants
+above `BIG` = 2^20 in zones, handles `imm - reg` with a constant register, tries coarse linear
+programs (large constants as variables) after exact ones, and retries a function with literal
+loads as any value when a loop is left without a potential, keeping the result that certifies
+more loops. A first coarse fallback alone did not recover the losses; the retry did. Tests:
+`test_effect.py` 297,244 executions, 0 differences (Lean vs `m0.py`, including literal loads);
+`test_binloops.py` class `ExactEffects`: five small loops certified only through the new
+effects, and 10 mutations (literal word changed two ways, literal outside the code, `STM`
+replaced by `LDM` loading the base or the counter, `NEGS`/`MVNS` operands changed; one `LDM`
+variant that must be accepted). Results (all certificates accepted, no emulated run above a
+bound, no loop lost, no certified bound changed): kernel loops certified 121 / 173 / 215 ->
+131 / 183 / 229 (none / abi / abi+frame; `bitonic`, `fft`, `fir2dim`, `quicksort`, `matrix1`;
+6 of the 14 with both assumptions have no source bound), without frame pointers 123 / 176 /
+216 -> 135 / 188 / 233; functions with a certified cycle bound unchanged (115 / 115 / 117, 118
+without frame pointers). Remaining failures with both assumptions 98 / 36 / 21 / 12 / 7 (before
+106 / 42 / 21 / 12 / 7). Runs took 32 to 156 minutes, two at a time on the same machine.
+Paper III (effects paragraph, trusted list, abstract, evaluation), the cycles README, the guide
+(Parts 5 and 9), `docs/certificate-format.md`, CLAUDE.md updated. This text of Paper III is new
+since the author's statement on the use of AI.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2073,3 +2109,9 @@ is whether each Lean statement says what the paper says, and everything outside 
     (`cullmann2007data`, `crary2000resource`, `sewell2016complete`), complete its statement
     on the use of AI, and check that Papers I and II still read well without the moved
     material.
+45. **Exact effects (prompt 71).** Read the new cases of `ThumbDataCore.effect` (`NEGS`,
+    `MVNS`, `STM`/`LDM` write-back, `LDR rt, [pc, #i]`) against the ARMv6-M Architecture
+    Reference Manual (A6.7: RSBS with #0 and its flags, MVNS, STM/LDM with write-back and the
+    base in the list, the literal address `Align(PC, 4) + imm8 * 4`), and decide whether the new
+    trusted assumption "the code is not written during a run" holds for your targets (code in
+    flash, no self-modifying code, no writes to the literal pool).

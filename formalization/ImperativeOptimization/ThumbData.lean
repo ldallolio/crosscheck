@@ -16,8 +16,10 @@ program counter: it goes to the successor allowed by `decode`/`trans` (for a con
 branch, the taken one if and only if the condition holds on the flags, `condHolds`), with
 the effect `effect` on the registers and flags (`EffOk`): sums and differences modulo
 `2^32`, the flags of an addition (`flagsAdd`) or a subtraction (`flagsSub`) as ARM's
-AddWithCarry computes them, any value where the effect says so. Memory is not modelled: a
-load gives any value. A call is one step, whose effect is that of `BL` in `effect`.
+AddWithCarry computes them, any value where the effect says so. The stack pointer and the
+memory follow `stackEffect` (`StackOk`): a load through SP gives the word stored there, a
+load from the literal pool the word of the code, any other load any value. A call is one
+step, whose effect is that of `BL` in `effect`.
 
 `data_sound`: if `checkBinary` and `checkData` accept, every run in this semantics costs at
 most the certified bound; only the rows the certificate leaves as trusted are assumed. The
@@ -27,7 +29,8 @@ semantics is a run of `Thumb.MRun` (`drun_mrun`).
 
 Trusted, as the specification of the processor: `decode` and `effect`, the flags and the
 conditions, the semantics above (no interrupts; a callee changes only the registers that
-`effect` lets a call change); and that the code is that of the binary.
+`effect` lets a call change); and that the code is that of the binary and is not written
+during a run (a load from the literal pool gives the word of the code, `effect`).
 -/
 
 namespace ImperativeOptimization.Thumb

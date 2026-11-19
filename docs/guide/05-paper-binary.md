@@ -159,6 +159,11 @@ the memory. Each instruction has an **effect** (`Thumb.effect`, `Thumb.stackEffe
 | `MOVS rd, #k` | `rd := k`; flags: any |
 | `MOV rd, rm` (low registers) | `rd := rm`; flags kept |
 | `CMP rn, #k`, `CMP rn, rm`, `CMN` | registers kept; flags of `rn − k` (or `rn + rm`) |
+| `NEGS rd, rm` | `rd := (0 − rm) mod 2³²`; flags of that subtraction |
+| `MVNS rd, rm` | `rd := 2³² − 1 − rm` (all bits flipped); flags: any |
+| `STM rn!, {list}` | `rn := rn + 4·(number of registers)`; the registers of the list are kept |
+| `LDM rn!, {list}` | the registers of the list: any; `rn := rn + 4·n` if `rn` is not in the list |
+| `LDR rt, [pc, #i]` (literal pool) | `rt :=` the word of the code at that address (the code is assumed not to be written while the program runs) |
 | `LDR rt, [sp, #i]` | `rt :=` the word at `sp + i` |
 | `STR rt, [sp, #i]` | the word at `sp + i` `:= rt` |
 | `SUB sp, #k`, `ADD sp, #k`, `PUSH`, `POP` | `sp` moved by the constant; `PUSH` writes the words just below `sp` |
@@ -278,9 +283,9 @@ checker's verdict, cover the usual case:
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 121 (116 without the linear programs, 73 without congruences) | 115 |
-| `abi` | 173 (167, 105) | 115 |
-| `abi` and `frame` | 215 (175 before the frame-pointer exception, 169, 107) | 117 |
+| no assumption | 131 (121 without the exact effects below, 116 without the linear programs, 73 without congruences) | 115 |
+| `abi` | 183 (173, 167, 105) | 115 |
+| `abi` and `frame` | 229 (215, 175 before the frame-pointer exception, 169, 107) | 117 |
 
 None of the 116 loops of the division routines (they shift) is certified. Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
@@ -298,10 +303,20 @@ provided r7 is never read afterwards except as the base address of a load (readi
 arguments) or by the prologue's `PUSH` (which saves the caller's r7). The assumption itself
 is unchanged, and the Lean proof never depended on this check: it only decides where the
 assumption may be stated. `frame` is now refused in 26 functions (those that pass a local
-array's address to a callee) and 215 loops are certified with both assumptions (175 before);
-compiled with `-fomit-frame-pointer`, 216. Of the 188 kernel loops still not certified, 106
-have a tracked counter but no potential (89 of them in functions where `frame` is allowed:
-another cause, not analysed yet). The
+array's address to a callee) and 215 loops were certified with both assumptions (175 before).
+
+Exact effects (2026-11-19). Some instructions used to give "any value" although their result
+is simple: `NEGS r0, r1` computes 0 − r1, `MVNS r0, r1` computes 2^32 − 1 − r1, `STM r0!, {...}`
+and `LDM r0!, {...}` advance the base register by 4 bytes per listed register, and
+`LDR r0, [pc, #i]` loads a constant stored in the code itself (the "literal pool"). These are
+now exact in the Lean specification and in the producer. The literal load needs one new
+trusted assumption: the code is not written while the program runs. Result: 229 loops with
+both assumptions (233 without frame pointers); no loop lost, no bound changed. One snag:
+the literal constants include addresses near 2^32, and with such numbers HiGHS (the LP
+solver) sometimes gives up. The producer therefore retries a function, treating literal loads
+as unknown again, when a loop is left uncertified, and keeps the better result; the checker
+does not care how the certificate was found. Of the 174 kernel loops still not certified, 98
+have a tracked counter but no potential (71 of them leave on equality). The
 specification of effects, flags, conditions and stack effects is compared with the
 interpreter on every 16-bit encoding (297 244 executions, no difference); 24 tests check that
 altered certificates are refused.
@@ -357,5 +372,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 115–117 functions get a certified cycle
-bound and 121–215 of 403 loops are bounded on the code (216 built without frame pointers) with nothing trusted about them; the
+bound and 131–229 of 403 loops are bounded on the code (233 built without frame pointers) with nothing trusted about them; the
 rest keep their source bounds as assumptions.

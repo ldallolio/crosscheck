@@ -8,8 +8,9 @@ crosscheck-check (`Thumb.checkData`, theorem `ThumbData.data_sound`).
 
 A counting loop is certified with no trusted row and the cycle bound of its worst case;
 certificates altered in each part (bound, scale, potential, invariant, kind of flags,
-multipliers, the code, the assumption on callees) must be rejected. The checker is skipped
-if not built.
+multipliers, the code, the assumption on callees) must be rejected; loops whose counter is
+set by a literal load, STM/LDM write-back, NEGS or MVNS are certified, and a change of the
+value these produce is rejected. The checker is skipped if not built.
 """
 import copy
 import json
@@ -50,6 +51,30 @@ STEPLOOP = {0x100: [0x2000, 0x3004, 0x2828, 0xD1FC, 0x4770]}
 # adds r1,#1; cmp r1,#10; bne L; add sp,#8; bx lr  (the counter goes from r1 to the frame
 # and back: no potential with the same linear part at every instruction)
 ROTLOOP = {0x100: [0xB082, 0x2100, 0x9101, 0x6801, 0x9901, 0x3101, 0x290A, 0xD1F9, 0xB002, 0x4770]}
+
+# Exact effects (Lean `Thumb.effect`, 2026-11-19); each counter is set by the instruction
+# under test, so the loop is certified only if its value is known:
+# f at 0x100: ldr r0,[pc,#4]; L: subs r0,#1; bne L; bx lr; .word 10   (literal pool)
+LITLOOP = {0x100: [0x4801, 0x3801, 0xD1FD, 0x4770, 0x000A, 0x0000]}
+# f at 0x100: movs r0,#0; L: stm r0!,{r1}; cmp r0,#40; bne L; bx lr   (STM write-back)
+STMLOOP = {0x100: [0x2000, 0xC002, 0x2828, 0xD1FC, 0x4770]}
+# f at 0x100: movs r1,#0; L: stm r0!,{r1}; adds r1,#1; cmp r1,#10; blt L; bx lr
+# (STM writes no register of its list: the counter r1 survives it)
+STMKEEP = {0x100: [0x2100, 0xC002, 0x3101, 0x290A, 0xDBFB, 0x4770]}
+# f at 0x100: movs r1,#10; negs r1,r1; negs r0,r1; L: subs r0,#1; bne L; bx lr  (r0 = 10)
+NEGLOOP = {0x100: [0x210A, 0x4249, 0x4248, 0x3801, 0xD1FD, 0x4770]}
+# the same with mvns twice: r1 = 2^32 - 11, r0 = 10
+MVNLOOP = {0x100: [0x210A, 0x43C9, 0x43C8, 0x3801, 0xD1FD, 0x4770]}
+EXACT = {"lit": (LITLOOP, 12, 0x102), "stm": (STMLOOP, 10, 0x102), "keep": (STMKEEP, 12, 0x102),
+         "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106)}
+
+
+def exact_doc(name):
+    code, size, h = EXACT[name]
+    an = test_ipet.analysis(code, {"f": (0x100, size)}, range(h, h + 4, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
 
 
 def loop_doc(**kw):
@@ -289,6 +314,41 @@ class FramePointer(unittest.TestCase):
             for f in d["programs"][0]["functions"]:
                 f["frame"] = False
             self.assertEqual(check(d)[0], 1)
+
+
+class ExactEffects(unittest.TestCase):
+    """Literal loads, STM/LDM write-back, NEGS and MVNS have exact effects: the loops whose
+    counter they set are certified, and a change of the value they produce is rejected."""
+
+    def test_producer(self):
+        for name, (_code, _size, h) in EXACT.items():
+            doc, _, st = exact_doc(name)
+            self.assertEqual([x[:2] for x in st["f"]["certified"]], [(h, 9)], name)
+            self.assertEqual(doc["programs"][0]["functions"][0]["rows"], [], name)
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        # (program, halfword index, replacement with the same cycles, accepted?)
+        cases = [
+            ("lit", 4, 0x000B, False),      # the literal is 11: 11 iterations
+            ("lit", 5, 0x0001, False),      # the literal is 2^16 + 10
+            ("lit", 0, 0x48FF, False),      # a literal beyond the code: any value
+            ("stm", 1, 0xC802, True),       # ldm r0!,{r1}: the base still advances by 4
+            ("stm", 1, 0xC801, False),      # ldm r0!,{r0}: the base is loaded, any value
+            ("keep", 1, 0xC802, False),     # ldm r0!,{r1}: the counter is loaded
+            ("neg", 0, 0x210B, False),      # movs r1,#11: r0 = 11
+            ("neg", 2, 0x4008, False),      # ands r0,r1: any value
+            ("mvn", 0, 0x210B, False),      # r0 = 11
+            ("mvn", 2, 0x4248, False),      # negs r0,r1: r0 = 11 (r1 = 2^32 - 11)
+        ]
+        docs = {name: exact_doc(name)[0] for name in EXACT}
+        for name, doc in docs.items():
+            self.assertEqual(check(doc)[0], 0, (name, check(doc)[1]))
+        for name, k, h, ok in cases:
+            d = copy.deepcopy(docs[name])
+            d["code"]["halfwords"][0x100 // 2 + k] = h
+            self.assertEqual(check(d)[0], 0 if ok else 1, (name, k, hex(h)))
 
 
 class Checker(unittest.TestCase):

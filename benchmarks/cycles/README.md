@@ -156,15 +156,35 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 121 of 403 | 282 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 173 of 403 | 230 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 215 of 403 | 188 + 116 | all | 117 |
+| no assumption on callees | 131 of 403 | 272 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 183 of 403 | 220 + 116 | all | 115 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 229 of 403 | 174 + 116 | all | 117 |
+
+Exact effects (2026-11-19): `NEGS` (0 − x, flags of that subtraction), `MVNS`
+(2^32 − 1 − x, flags any), the write-back of `STM`/`LDM` (base + 4 per register; `STM`
+writes no register of its list; `LDM` gives any value to its list, base included if listed)
+and the literal load `LDR rt, [pc, #i]` (the word of the certificate's code at that address;
+assumes the code is not written during a run) are now exact in the checker's specification
+(`ThumbDataCore.effect`; `data_sound` unchanged) and in the producer's mirror. Counts 121 /
+173 / 215 → 131 / 183 / 229 (+10 / +10 / +14 in `bitonic`, `fft`, `fir2dim`, `quicksort`,
+and `matrix1` with both assumptions; 6 of the 14 without a source bound); without frame
+pointers 123 / 176 / 216 → 135 / 188 / 233 (also `isqrt`, `ludcmp`, `minver`). No loop
+lost, no certified bound changed, every certificate accepted, no emulated run above a bound.
+The literal constants (addresses near 2^32) made HiGHS fail numerically (status 4) on three
+loops certified before (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e, the losses of
+the earlier experiment): the producer's own analysis now ignores constants above `BIG` =
+2^20 in its zones, tries coarse linear programs (large constants as variables) after the
+exact ones, and, when a loop of a function stays without a potential, analyses the function
+again with literal loads as any value (`lit_any`), keeping the result with more loops.
+Must-reject tests `ExactEffects` (`test_binloops.py`): a literal word changed (two ways), a
+literal outside the code, an `STM` replaced by an `LDM` that loads the counter or the base,
+an operand of `NEGS` or `MVNS` changed (and an `LDM` that does not load the base, accepted). The four runs took 32 to 156 minutes each, two at a time.
 
 Frame pointer (2026-11-19): `--frame` is no longer refused because of the prologue
 `add r7, sp, #i` alone; the checker (`frameUseOk`) then requires that no instruction may
 read r7 except as the base address of a load or a `PUSH` at the entry (`regsRead`,
 over-approximated by encoding). The assumption itself (`StackOk`) and the proof are
-unchanged: the check only restricts where it may be stated. With both assumptions, 175 → 215
+unchanged: the check only restricts where it may be stated. With both assumptions, 175 → 215 (before the exact effects)
 loops (12 kernels: `minver` 10 → 22, `countnegative` 6 → 12, `pm` 29 → 34, ...), none lost,
 no bound higher; `--frame` is refused in 26 of the 265 functions the producer analyses
 (190 before), those that put another address of their frame in a register. The build
@@ -184,13 +204,12 @@ bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
 offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences, potentials per instruction and the frame pointer): 106 counter tracked but no
-potential (79 of them exit on equality; 89 in functions where `--frame` is allowed, causes
-not analysed further), 42 compared value not tracked, 21 SP offset unknown, 12 flags from an
-unmodelled instruction, 7 mixed (before congruences: 210, 42, 24, 12, 8; before the linear
+congruences, potentials per instruction, the frame pointer and exact effects): 98 counter tracked but no
+potential (71 of them exit on equality), 36 compared value not tracked, 21 SP offset unknown, 12 flags from an
+unmodelled instruction, 7 mixed (before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 
-Classification of the 188 kernel loops not certified with `--abi --frame` (2026-11-19,
+Classification of the 188 kernel loops not certified with `--abi --frame` before the exact effects (2026-11-19,
 `classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
 definitions reaching its operands inside the loop; heuristic, for diagnosis only):
 
@@ -208,24 +227,24 @@ definitions reaching its operands inside the loop; heuristic, for diagnosis only
 
 The producer's own reasons: no potential found for 181, a potential whose bound (2^31 or
 2^32) exceeds the source bound for 7. An experiment with exact effects, in the producer only
-(not in the checker), for `STM`/`LDM` (base advanced by 4 per register; STM does not
+(not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
 write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
 from the literal pool (the word of the code), found potentials for 15 more loops (`bitonic`,
 `fft`, `fir2dim`, `matrix1`, `quicksort`, `minver`; whether each is below its source bound was
-not checked) and lost 3 (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e; not analysed).
-Runs take 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
+not checked) and lost 3 (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e; analysed since: HiGHS).
+Before the exact effects, runs took 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
 
 Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
 separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
-producer analyses (190 in the default build); kernel loops certified 123 / 176 / 216
-(no assumption / `--abi` / `--abi --frame`; default build: 121 / 173 / 215, 175 before the frame pointer; without the
+producer analyses (190 in the default build); kernel loops certified 135 / 188 / 233
+(no assumption / `--abi` / `--abi --frame`; 123 / 176 / 216 before the exact effects; default build: 131 / 183 / 229, 175 before the frame pointer; without the
 linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 118 functions with a certified cycle
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
 
-No back-edge count of the emulated runs exceeds a certified bound. 69 (96 with `--abi`) of
+No back-edge count of the emulated runs exceeds a certified bound. 74 (101 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges), none above (the producer keeps the source row then), and 52 (77 with `--abi`)
+edges), none above (the producer keeps the source row then), and 57 (82 with `--abi`)
 certified loops have no source bound at all. The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
 `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`.
 

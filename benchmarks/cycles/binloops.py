@@ -27,6 +27,7 @@ import wcet
 
 CONG = True
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
+BIG = 1 << 20       # constants above this are left out of a coarse linear program
 LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
 
 
@@ -98,6 +99,10 @@ def effect(abi, get, a):
             return [], ("add", reg(rd), reg(rn))
         if opc == 8:
             return [], "any"
+        if opc == 9:
+            return [(rd, ("sub", imm(0), reg(rn)))], ("sub", imm(0), reg(rn))
+        if opc == 15:
+            return [(rd, ("sub", imm(U - 1), reg(rn)))], "any"
         return [(rd, "any")], "any"
     if h >> 10 == 0b010001:
         opc, d, m = (h >> 8) % 4, ((h >> 7) % 2) * 8 + h % 8, (h >> 3) % 16
@@ -109,6 +114,10 @@ def effect(abi, get, a):
             return ([(d, ("add", reg(m), imm(0)) if m < 8 else "any")] if d < 8 else []), "keep"
         return [], "keep"
     if top5 == 0b01001:
+        ad = (a + 4) // 4 * 4 + 4 * (h % 256)
+        lo_, hi_ = get(ad), get(ad + 2)
+        if lo_ is not None and hi_ is not None and lo_ < 65536 and hi_ < 65536:
+            return [((h >> 8) % 8, ("add", imm(lo_ + 65536 * hi_), imm(0)))], "keep"
         return [((h >> 8) % 8, "any")], "keep"
     if h >> 12 == 0b0101:
         return ([(rd, "any")] if (h >> 9) % 8 >= 3 else []), "keep"
@@ -125,7 +134,14 @@ def effect(abi, get, a):
             return [(i, "any") for i in lowlist(h)], "keep"
         return [], "keep"
     if h >> 12 == 0b1100:
-        return [(i, "any") for i in [(h >> 8) % 8] + lowlist(h)], "keep"
+        b, lst = (h >> 8) % 8, lowlist(h)
+        if not lst:
+            return [(b, "any")], "keep"
+        if (h >> 11) % 2 == 0:
+            return [(b, ("add", reg(b), imm(4 * len(lst))))], "keep"
+        if b in lst:
+            return [(i, "any") for i in lst], "keep"
+        return [(b, ("add", reg(b), imm(4 * len(lst))))] + [(i, "any") for i in lst], "keep"
     return [], "keep"
 
 
@@ -251,7 +267,7 @@ def congruences(ctx):
     while work:
         a = work.pop()
         Ca = C[a]
-        eff, st = ctx.eff[a], ctx.st[a]
+        eff, st = ctx.aeff[a], ctx.st[a]
         for nxt, _w, _cs in ipet.trans(ctx.insn[a]):
             if nxt is None or nxt not in C:
                 continue
@@ -850,7 +866,7 @@ def post_exprs(ctx, a, M):
     """For each analysis variable, its value after the instruction at `a` as ("shift", w,
     c) (`w + c`, w an analysis variable or the zero node) or "any", from the zone `M`
     before it (a sum or difference only when no wrap is possible)."""
-    Zd, eff, st = ctx.zones, ctx.eff[a], ctx.st[a]
+    Zd, eff, st = ctx.zones, ctx.aeff[a], ctx.st[a]
     Z = Zd.Z
     dst, fl = eff
     _sp, mem, load, _e = st
@@ -869,11 +885,17 @@ def post_exprs(ctx, a, M):
             op, x, y = v
             if x[0] == "imm" and y[0] == "imm":
                 val = x[1] + y[1] if op == "add" else x[1] - y[1]
-                out[r] = ("shift", Z, val) if 0 <= val < U else "any"
+                # constants above BIG (addresses from the literal pool) are not tracked:
+                # with them, HiGHS fails numerically on the linear programs (untrusted choice)
+                out[r] = ("shift", Z, val) if 0 <= val <= BIG else "any"
             elif x[0] == "reg" and y[0] == "imm":
                 k = y[1] if op == "add" else -y[1]
                 l, h = Zd.lohi(M, x[1])
                 out[r] = ("shift", x[1], k) if l + k >= 0 and h + k <= U - 1 else "any"
+            elif x[0] == "imm" and y[0] == "reg" and op == "sub":
+                # NEGS, MVNS: a constant only when the register holds one
+                l, h = Zd.lohi(M, y[1])
+                out[r] = ("shift", Z, (x[1] - l) % U) if l == h else "any"
             else:
                 out[r] = "any"
     if load is not None and delta is not None:
@@ -927,7 +949,7 @@ def apply_post(Zd, M, ex):
 
 
 class Ctx:
-    def __init__(self, an, name, abi, frame=False):
+    def __init__(self, an, name, abi, frame=False, lit_any=False):
         self.an, self.name, self.abi = an, name, abi
         mem = an.img.mem
         self.get = lambda a: (int.from_bytes(mem[a:a + 2], "little") if 0 <= a and a + 2 <= len(mem) else None)
@@ -936,7 +958,18 @@ class Ctx:
         insns = sorted((i for il in self.blocks.values() for i in il), key=lambda i: i.addr)
         self.nodes = [i.addr for i in insns]
         self.insn = {i.addr: i for i in insns}
-        self.eff = {a: effect(abi, self.get, a) for a in self.nodes}
+        top = ipet.code_top(an.img)
+        # the checker sees only the code region of the certificate (literal loads beyond it: any)
+        cget = lambda a: self.get(a) if a + 2 <= top else None  # noqa: E731
+        self.eff = {a: effect(abi, cget, a) for a in self.nodes}
+        # the effects used by the producer's own analysis (zones, congruences, linear
+        # programs): with `lit_any`, literal loads give any value, as before 2026-11-19
+        self.aeff = dict(self.eff)
+        if lit_any:
+            for a in self.nodes:
+                h = self.get(a)
+                if h >> 11 == 0b01001:
+                    self.aeff[a] = ([((h >> 8) % 8, "any")], "keep")
         self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
         self.out = {a: ipet.trans(self.insn[a]) for a in self.nodes}
@@ -962,7 +995,7 @@ class Ctx:
         self.cong = None
         imms = {0, 1, U - 1}
         for a in self.nodes:
-            for _r, v in self.eff[a][0]:
+            for _r, v in self.aeff[a][0]:
                 if v != "any":
                     for x in v[1:]:
                         if x[0] == "imm":
@@ -1202,14 +1235,20 @@ def synth(ctx, kind, state, h, body, cache):
     return best
 
 
-def synth_lp(ctx, kind, inv, h, body):
+def synth_lp(ctx, kind, inv, h, body, coarse=False):
     """A potential per instruction of the loop, each with its own linear part, found by one
     linear program over the checker's own obligations (the potentials and the Farkas
     multipliers are the unknowns: Colon & Sipma 2001, Podelski & Rybalchenko 2004, and
     per control point as in Alias, Darte, Feautrier & Gonnord 2010). Needed when the counter
     moves between a register and a word of the frame inside the loop. The potentials are rounded to rationals and proved again
     by `prove_all` (whatever this finds is checked). Returns candidates [(N, [potentials], D)]
-    (from coarser to finer roundings), [] if none."""
+    (from coarser to finer roundings), [] if none.
+
+    `coarse`: constants above `BIG` (addresses and other words from the literal pool) make
+    HiGHS fail numerically; in this mode a register given such a constant is treated as
+    written with any value, and the invariant constraints with such constants are left
+    out. A potential found this way satisfies the exact obligations too (they have more
+    premises, and the value written is one of the values allowed); `prove_all` checks it."""
     import numpy as np
     from scipy.optimize import linprog
     from scipy.sparse import coo_matrix
@@ -1256,7 +1295,7 @@ def synth_lp(ctx, kind, inv, h, body):
         ub_rows.append((row, -gc[1]))
 
     for a in ctx.nodes:
-        i, eff, st = ctx.insn[a], ctx.eff[a], ctx.st[a]
+        i, eff, st = ctx.insn[a], ctx.aeff[a], ctx.st[a]
         ka = kind.get(a, "none")
         for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
             if a not in B and nxt not in B:
@@ -1264,8 +1303,13 @@ def synth_lp(ctx, kind, inv, h, body):
             facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
             for m in mcases(eff):
                 sig = {v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for v in V}
+                ia, wp = inv.get(a, []), wrap_prem(eff, m)
+                if coarse:
+                    wp = [g for g in wp if g[0] or abs(g[1]) <= BIG]
+                    sig = {v: (pv(10 + v) if v < 8 and not e[0] and abs(e[1]) > BIG else e) for v, e in sig.items()}
+                    ia = [g for g in ia if abs(g[1]) <= BIG]
                 for D in facts:
-                    prem = D + wrap_prem(eff, m) + inv.get(a, []) + rng
+                    prem = D + wp + ia + rng
                     gd, gcc, gk = {}, {}, 0
                     if nxt == h:
                         if a in B:
@@ -1400,9 +1444,22 @@ def relevant(ctx, loops):
 
 def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
-    N)] of the certified loops, [(header, reason)] of the others)."""
+    N)] of the certified loops, [(header, reason)] of the others). If a loop is left
+    uncertified, the function is analysed again with the literal loads giving any value in
+    the producer's own analysis (the constants of the literal pool can make the linear
+    programs fail numerically); the certificate that certifies more loops is kept. The
+    checker's obligations use the exact effects in both."""
+    res = _certify_loops(an, name, abi, prefer_source, frame, False)
+    if res[2] and any(w == "no potential found" for _h, w in res[2]):
+        alt = _certify_loops(an, name, abi, prefer_source, frame, True)
+        if len(alt[1]) > len(res[1]):
+            return alt
+    return res
+
+
+def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
     try:
-        ctx = Ctx(an, name, abi, frame)
+        ctx = Ctx(an, name, abi, frame, lit_any)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return {}, [], [(None, str(e))]
     if not ctx.iloops:
@@ -1432,7 +1489,8 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         if LP and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
                 full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
-            for N, pots, D in synth_lp(ctx, kind, full, h, body):
+            cands = (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse))
+            for N, pots, D in cands:
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
                     continue
                 if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots)])[0]:

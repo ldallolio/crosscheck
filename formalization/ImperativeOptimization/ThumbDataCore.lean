@@ -15,9 +15,15 @@ the loop rows of `ThumbCore` need not be trusted:
 * `effect`: the effect of an instruction on the low registers `r0`-`r7` and on the flags
   (`Eff`): a register gets the sum or difference of two operands modulo `2^32`, or any
   value; the flags are kept, become those of an addition or subtraction (`FEff`), or any.
-  Only ADDS, SUBS, MOVS (immediate), CMP, CMN and MOV/ADD between low registers are
-  modelled exactly; every other instruction writes the registers it may write with any
-  value, and changes the flags with any value if it may change them. A call (`BL`) may
+  Modelled exactly: ADDS, SUBS, MOVS (immediate), CMP, CMN and MOV/ADD between low
+  registers; MVNS (`(2^32 − 1) − x`; the flags any) and NEGS (`0 − x`, the flags of the
+  subtraction); the write-back of STM and LDM (the base advances by four bytes per
+  register; STM writes no register of its list; LDM with the base in its list writes the
+  base with any value; an empty list, unpredictable in ARMv6-M, writes any value); LDR
+  (literal), which loads the word of the code at its address when both halfwords are
+  code (assumption: the code is not written during a run; otherwise any value). Every
+  other instruction writes the registers it may write with any value, and changes the
+  flags with any value if it may change them. A call (`BL`) may
   change `r0`-`r3` and the flags or, without the assumption `abi` (the AAPCS: a callee
   preserves `r4`-`r7`), every low register. This is a part of the specification of the
   processor, trusted as `decode` is.
@@ -115,6 +121,9 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
     if opc = 10 then ⟨[], .sub (.reg rd) (.reg rn)⟩
     else if opc = 11 then ⟨[], .add (.reg rd) (.reg rn)⟩
     else if opc = 8 then ⟨[], .any⟩
+    -- NEGS (RSBS rd, rn, #0) and MVNS
+    else if opc = 9 then ⟨[(rd, .sub (.imm 0) (.reg rn))], .sub (.imm 0) (.reg rn)⟩
+    else if opc = 15 then ⟨[(rd, .sub (.imm (U - 1)) (.reg rn))], .any⟩
     else ⟨[(rd, .any)], .any⟩
   -- high registers: ADD, CMP, MOV (ADD and MOV keep the flags), BX/BLX
   else if h >>> 10 = 0b010001 then
@@ -129,8 +138,14 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
       (if d < 8 then (if m < 8 then ⟨[(d, .add (.reg m) (.imm 0))], .keep⟩ else ⟨[(d, .any)], .keep⟩)
        else ⟨[], .keep⟩)
     else ⟨[], .keep⟩
-  -- LDR (literal)
-  else if top5 = 0b01001 then ⟨[((h >>> 8) % 8, .any)], .keep⟩
+  -- LDR (literal): the word of the code at `Align(a + 4, 4) + 4·imm8`
+  else if top5 = 0b01001 then
+    let ad := (a + 4) / 4 * 4 + 4 * (h % 256)
+    match c.get ad, c.get (ad + 2) with
+    | some l, some u =>
+      if l < 65536 ∧ u < 65536 then ⟨[((h >>> 8) % 8, .add (.imm (l + 65536 * u)) (.imm 0))], .keep⟩
+      else ⟨[((h >>> 8) % 8, .any)], .keep⟩
+    | _, _ => ⟨[((h >>> 8) % 8, .any)], .keep⟩
   -- loads and stores, register offset (opcodes 3-7 load)
   else if h >>> 12 = 0b0101 then
     (if (h >>> 9) % 8 ≥ 3 then ⟨[(rd, .any)], .keep⟩ else ⟨[], .keep⟩)
@@ -147,8 +162,14 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
     if h >>> 8 = 0b10110010 ∨ h >>> 8 = 0b10111010 then ⟨[(rd, .any)], .keep⟩
     else if h >>> 9 = 0b1011110 then ⟨anyRegs (lowList h), .keep⟩
     else ⟨[], .keep⟩
-  -- STM (base written back), LDM (list and base)
-  else if h >>> 12 = 0b1100 then ⟨anyRegs ((h >>> 8) % 8 :: lowList h), .keep⟩
+  -- STM (the base written back), LDM (the list, and the base written back if not in it)
+  else if h >>> 12 = 0b1100 then
+    let b := (h >>> 8) % 8
+    let l := lowList h
+    if l = [] then ⟨anyRegs [b], .keep⟩
+    else if (h >>> 11) % 2 = 0 then ⟨[(b, .add (.reg b) (.imm (4 * l.length)))], .keep⟩
+    else if l.contains b then ⟨anyRegs l, .keep⟩
+    else ⟨(b, .add (.reg b) (.imm (4 * l.length))) :: anyRegs l, .keep⟩
   -- branches
   else ⟨[], .keep⟩
 

@@ -196,6 +196,13 @@ def an_preds(blocks, succ, h):
     return [b for b in blocks if h in succ[b]]
 
 
+def code_top(img):
+    """The end of the code region of a certificate: up to the end of the last function
+    (the RAM of the image is not code)."""
+    top = max((a + s for a, s in img.funcs.values()), default=0) + 4
+    return min(top + (top % 2), len(img.mem) - (len(img.mem) % 2))
+
+
 def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False):
     """A certificate on the machine code for the functions reachable from `roots` (callees
     first); returns (JSON, {function: bound}, {function: reason}). With `loops`, the loop
@@ -241,9 +248,7 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
 
     for r in roots:
         visit(r)
-    # the code region: up to the end of the last function (the RAM of the image is not code)
-    top = max((a + s for a, s in img.funcs.values()), default=0) + 4
-    top = min(top + (top % 2), len(img.mem) - (len(img.mem) % 2))
+    top = code_top(img)
     halfwords = list(struct.unpack_from(f"<{top // 2}H", img.mem, 0)) if top else []
     doc = {"format": "crosscheck-binary-cycles", "version": 2 if loops else 1,
            "mul_cycles": m0.MUL_CYCLES if mul is None else mul,
