@@ -209,24 +209,24 @@ potential (71 of them exit on equality), 36 compared value not tracked, 21 SP of
 unmodelled instruction, 7 mixed (before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 
-Classification of the 188 kernel loops not certified with `--abi --frame` before the exact effects (2026-11-19,
+Classification of the 174 kernel loops not certified with `--abi --frame` (2026-11-19, after the exact effects; 188 before,
 `classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
 definitions reaching its operands inside the loop; heuristic, for diagnosis only):
 
 | group | loops | what would be needed |
 |---|---|---|
-| A counter against a constant or a bounded limit | 69 | the counter's initial value: from a word of the frame (12), built by `LSL` (10, e.g. `movs r0,#1; lsls r1,r0,#10`), by `LSR` of an argument (9), from an argument (6), by `MVN` (5), from the literal pool (4), through `STM` (4), ... |
-| B counter against a limit without a bound (a parameter) | 27 | bounds in the parameters, or calling contexts, on the binary |
+| A counter against a constant or a bounded limit | 62 (69 before) | the counter's initial value: from a word of the frame (12), a constant (11: potential not found, cause not analysed), built by `LSL` (10, e.g. `movs r0,#1; lsls r1,r0,#10`), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
+| B counter against a limit without a bound (a parameter) | 26 (27) | bounds in the parameters, or calling contexts, on the binary |
 | D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
-| F exit on data loaded from memory | 17 | invariants on memory (string and search loops) |
+| F exit on data loaded from memory | 16 (17) | invariants on memory (string and search loops) |
 | C exit on the flags of a shift | 12 | `x >>= 8` until zero (`bitcount`, `sqrtf`): logarithmic potentials on the code |
 | E counter shifted | 11 | logarithmic potentials (binary search, bit reversal) |
 | I other (two counters, sums of registers) | 11 | |
 | G word of the frame not tracked | 10 | SP offsets where they are unknown |
-| H value through an approximated instruction | 9 | exact effects of `STM` (5), `ADCS` (3), `ANDS` (1) |
+| H value through an approximated instruction | 4 (9) | exact effects of `ADCS` (3), `ANDS` (1) |
 
-The producer's own reasons: no potential found for 181, a potential whose bound (2^31 or
-2^32) exceeds the source bound for 7. An experiment with exact effects, in the producer only
+The producer's own reasons: no potential found for 166 (181 before), a potential whose bound (2^31 or
+2^32) exceeds the source bound for 8 (7 before). An experiment with exact effects, in the producer only
 (not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
 write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
 from the literal pool (the word of the code), found potentials for 15 more loops (`bitonic`,
