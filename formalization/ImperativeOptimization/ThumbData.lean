@@ -338,6 +338,7 @@ theorem rangesN_holds (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (h�
 def mOf (r : Nat → Nat) : Val → Int
   | .add a b => -(((srcVal r a + srcVal r b) / U : Nat) : Int)
   | .sub a b => if srcVal r b ≤ srcVal r a then 0 else 1
+  | .shl a k => if srcVal r a * 2 ^ k < U then 0 else 1
   | .any => 0
 
 def mSel (e : Eff) (r : Nat → Nat) : Int :=
@@ -387,13 +388,15 @@ theorem mSel_mem (e : Eff) (σ : MState) (hσ : wfState σ) (h : wfEff e = true)
       simp only [U] at ha hb ⊢
       omega
     | sub a b => simp only [mOf]; split_ifs <;> simp
+    | shl a k => simp only [mOf]; split_ifs <;> simp
     | any => simp [mOf]
 
 /-- The value of a sum or difference, in its wrap case, is the value written. -/
-theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
-    (i x : Nat) (hx : valOf σ.r v = some x) :
+theorem valE_eval_ar (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
+    (hs : ¬ ∃ a k, v = .shl a k) (i x : Nat) (hx : valOf σ.r v = some x) :
     (valE v (mOf σ.r v) i).eval (envT σ σ' fa fb SP0 slots) = x := by
   cases v with
+  | shl a k => exact absurd ⟨a, k, rfl⟩ hs
   | add a b =>
     simp only [valOk, Bool.and_eq_true] at hv
     have ha := srcOk_lt σ hσ a hv.1
@@ -416,6 +419,23 @@ theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : 
     split_ifs <;> push_cast <;> omega
   | any => simp [valOf] at hx
 
+/-- The value of a sum, difference or shift, in its wrap case, is the value written. -/
+theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
+    (i x : Nat) (hx : valOf σ.r v = some x) (hi : i < 8) (hw : σ'.r i = x) :
+    (valE v (mOf σ.r v) i).eval (envT σ σ' fa fb SP0 slots) = x := by
+  by_cases hs : ∃ a k, v = .shl a k
+  · obtain ⟨a, k, rfl⟩ := hs
+    simp only [valOk, Bool.and_eq_true, decide_eq_true_eq] at hv
+    simp only [valOf, Option.some.injEq] at hx
+    by_cases h1 : srcVal σ.r a * 2 ^ k < U
+    · simp only [valE, mOf, h1, if_true]
+      rw [psmul_eval, srcE_eval σ σ' fa fb SP0 slots a hv.1, ← hx, Nat.mod_eq_of_lt h1]
+      push_cast; ring
+    · simp only [valE, mOf, h1, if_false, show (1 : Int) ≠ 0 by decide]
+      rw [pv_eval]
+      simp [envT, show ¬ (10 + i < 10) by omega, show 10 + i < 18 by omega, hw]
+  · exact valE_eval_ar σ σ' fa fb SP0 slots hσ v hv hs i x hx
+
 theorem valOf_op (r : Nat → Nat) (v : Val) (h : isOp v = true) : ∃ x, valOf r v = some x := by
   cases v <;> simp_all [valOf, isOp]
 
@@ -432,14 +452,49 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
     simp only
     obtain ⟨hm, hop⟩ := opOf_mem e (i, v) hp
     have hv := (wfEff_dst e h (i, v) hm).2
+    have hi := (wfEff_dst e h (i, v) hm).1
     obtain ⟨x, hx⟩ := valOf_op σ.r v hop
     have hlt := valOf_lt σ.r v x hx
-    have hval := valE_eval σ σ' fa fb SP0 slots hσ v hv i x hx
-    simp only [PExp.eval] at hval
-    intro c hc
-    simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
-    simp only [U] at hlt
-    rcases hc with rfl | rfl <;> simp only [Lin.eval, dot_vsmul, Checker.dot, U] <;> push_cast at hval ⊢ <;> omega
+    cases v with
+    | shl a k =>
+      simp only [valOk, Bool.and_eq_true, decide_eq_true_eq] at hv
+      have hae := srcE_eval σ σ' fa fb SP0 slots a hv.1
+      simp only [PExp.eval] at hae
+      have key : ((2 ^ k : Nat) : Int) * Checker.dot (srcE a).sv (envT σ σ' fa fb SP0 slots) +
+          ((2 ^ k : Nat) : Int) * (srcE a).c = ((srcVal σ.r a * 2 ^ k : Nat) : Int) := by
+        rw [← mul_add, hae]; push_cast; ring
+      have hN := Int.natCast_nonneg (srcVal σ.r a * 2 ^ k)
+      intro c hc
+      by_cases h1 : srcVal σ.r a * 2 ^ k < U
+      · simp only [mOf, h1, if_true, valE, List.mem_cons, List.mem_singleton,
+          List.not_mem_nil, or_false] at hc
+        have h1' : ((srcVal σ.r a * 2 ^ k : Nat) : Int) < (U : Int) := by exact_mod_cast h1
+        rcases hc with rfl | rfl <;>
+          simp only [Lin.eval, dot_vsmul, Checker.dot, psmul] <;>
+          simp only [Checker.dot, dot_vsmul] at key ⊢ <;> simp only [U] at h1' ⊢ <;> push_cast at key h1' hN ⊢ <;> linarith
+      · simp only [mOf, h1, if_false, show (1 : Int) ≠ 0 by decide, List.mem_cons,
+          List.mem_singleton, List.not_mem_nil, or_false] at hc
+        have h1' : (U : Int) ≤ ((srcVal σ.r a * 2 ^ k : Nat) : Int) := by exact_mod_cast not_lt.mp h1
+        subst hc
+        simp only [Lin.eval, dot_vsmul, Checker.dot, psmul] at key ⊢
+        simp only [U] at h1' ⊢
+        push_cast at key h1' ⊢
+        linarith
+    | add a b =>
+      have hval := valE_eval_ar σ σ' fa fb SP0 slots hσ _ hv (by simp) i x hx
+      simp only [PExp.eval] at hval
+      intro c hc
+      simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
+      simp only [U] at hlt
+      rcases hc with rfl | rfl <;> simp only [Lin.eval, dot_vsmul, Checker.dot, U] <;> push_cast at hval ⊢ <;> omega
+    | sub a b =>
+      have hval := valE_eval_ar σ σ' fa fb SP0 slots hσ _ hv (by simp) i x hx
+      simp only [PExp.eval] at hval
+      intro c hc
+      simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
+      simp only [U] at hlt
+      rcases hc with rfl | rfl <;> simp only [Lin.eval, dot_vsmul, Checker.dot, U] <;> push_cast at hval ⊢ <;> omega
+    | any => simp [isOp] at hop
 
 /-! ### The values after an instruction -/
 
@@ -502,7 +557,7 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 :
       · have hO := opOf_of_find e h v p hf hop
         obtain ⟨x, hx⟩ := valOf_op σ.r p.2 hop
         rw [show mSel e σ.r = mOf σ.r p.2 by simp [mSel, hO]]
-        rw [valE_eval σ σ' fa fb SP0 slots hσ p.2 hpv v x hx, hwrite v h8 p hf x hx]
+        rw [valE_eval σ σ' fa fb SP0 slots hσ p.2 hpv v x hx h8 (hwrite v h8 p hf x hx), hwrite v h8 p hf x hx]
       · have hany : p.2 = .any := by
           cases hq : p.2 <;> simp_all [isOp]
         rw [hany]

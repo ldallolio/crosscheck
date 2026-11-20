@@ -65,8 +65,10 @@ STMKEEP = {0x100: [0x2100, 0xC002, 0x3101, 0x290A, 0xDBFB, 0x4770]}
 NEGLOOP = {0x100: [0x210A, 0x4249, 0x4248, 0x3801, 0xD1FD, 0x4770]}
 # the same with mvns twice: r1 = 2^32 - 11, r0 = 10
 MVNLOOP = {0x100: [0x210A, 0x43C9, 0x43C8, 0x3801, 0xD1FD, 0x4770]}
+# f at 0x100: movs r0,#5; lsls r1,r0,#1; L: subs r1,#1; bne L; bx lr  (LSLS: r1 = 10)
+SHLLOOP = {0x100: [0x2005, 0x0041, 0x3901, 0xD1FD, 0x4770]}
 EXACT = {"lit": (LITLOOP, 12, 0x102), "stm": (STMLOOP, 10, 0x102), "keep": (STMKEEP, 12, 0x102),
-         "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106)}
+         "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106), "shl": (SHLLOOP, 10, 0x104)}
 
 
 def exact_doc(name):
@@ -317,7 +319,7 @@ class FramePointer(unittest.TestCase):
 
 
 class ExactEffects(unittest.TestCase):
-    """Literal loads, STM/LDM write-back, NEGS and MVNS have exact effects: the loops whose
+    """Literal loads, STM/LDM write-back, NEGS, MVNS and LSLS have exact effects: the loops whose
     counter they set are certified, and a change of the value they produce is rejected."""
 
     def test_producer(self):
@@ -341,6 +343,11 @@ class ExactEffects(unittest.TestCase):
             ("neg", 2, 0x4008, False),      # ands r0,r1: any value
             ("mvn", 0, 0x210B, False),      # r0 = 11
             ("mvn", 2, 0x4248, False),      # negs r0,r1: r0 = 11 (r1 = 2^32 - 11)
+            ("shl", 1, 0x0081, False),      # lsls r1,r0,#2: r1 = 20
+            ("shl", 0, 0x2006, False),      # movs r0,#6: r1 = 12
+            ("shl", 1, 0x07C1, False),      # lsls r1,r0,#31: overflow, any value
+            ("shl", 1, 0x0841, False),      # lsrs r1,r0,#1: any value
+            ("shl", 1, 0x0001, False),      # lsls r1,r0,#0 (movs r1,r0): r1 = 5, odd
         ]
         docs = {name: exact_doc(name)[0] for name in EXACT}
         for name, doc in docs.items():

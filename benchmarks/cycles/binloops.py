@@ -76,6 +76,10 @@ def effect(abi, get, a):
     top5, rd, rn = h >> 11, h % 8, (h >> 3) % 8
     if top5 in (0b11101, 0b11110, 0b11111):
         return [(i, "any") for i in ([0, 1, 2, 3] if abi else range(8))], "any"
+    if top5 == 0:
+        # LSLS rd, rm, #s: (rm * 2^s) mod 2^32 (s = 0 is MOVS rd, rm)
+        s = (h >> 6) % 32
+        return [(rd, ("add", reg(rn), imm(0)) if s == 0 else ("shl", reg(rn), s))], "any"
     if top5 <= 2:
         return [(rd, "any")], "any"
     if top5 == 3:
@@ -318,10 +322,18 @@ def src_e(s):
     return pv(s[1]) if s[0] == "reg" else pconst(s[1])
 
 
+def val_srcs(v):
+    """The operands of a written value (the shift amount of `shl` is not one)."""
+    return v[1:2] if v[0] == "shl" else v[1:]
+
+
 def val_e(v, m, i):
     if v == "any":
         return pv(10 + i)
     op, a, b = v
+    if op == "shl":
+        # no overflow (m = 0): a * 2^b; overflow: any value
+        return psmul(1 << b, src_e(a)) if m == 0 else pv(10 + i)
     e = padd(src_e(a), src_e(b)) if op == "add" else padd(src_e(a), psmul(-1, src_e(b)))
     return padd(e, pconst(m * U))
 
@@ -498,6 +510,10 @@ def wrap_prem(eff, m):
     o = op_of(eff)
     if o is None:
         return []
+    if o[1][0] == "shl" and m != 0:
+        # overflow: a * 2^b >= 2^32
+        x = psmul(1 << o[1][2], src_e(o[1][1]))
+        return [padd(pconst(U), psmul(-1, x))]
     x = val_e(o[1], m, o[0])
     return [psmul(-1, x), padd(x, pconst(-(U - 1)))]
 
@@ -733,6 +749,10 @@ class Prover:
         prem = self.prem
         # premises on the variables of the goal and of the non-range premises only
         keep = [i for i, p in enumerate(prem) if set(p[0]) <= set(self.ix) - {ZERO}]
+        # and the ranges of the goal's variables (a goal follows from contradictory premises
+        # only with them: the checker requires a positive multiplier of the goal)
+        keep += [self.rng[(v, s)] for v in sorted(g[0]) for s in (1, -1)
+                 if (v, s) in self.rng and self.rng[(v, s)] not in keep]
         vars_ = sorted(set(g[0]) | {v for i in keep for v in prem[i][0]})
         if not vars_ or not set(g[0]) <= set(vars_):
             return None
@@ -762,7 +782,48 @@ class Prover:
                 cert = self._dense(vals[P], lam)
                 if entails(prem, g, cert):
                     return cert
+            # rounding fails when multipliers are tiny (constants near 2^32): solve exactly
+            # on the premises the solver used
+            for tight in (True, False):
+                cert = self._exact(g, [keep[col] for col in range(P) if res.x[col] > 1e-12], tight)
+                if cert is not None:
+                    return cert
         return None
+
+    def _exact(self, g, S, tight):
+        """Multipliers of the premises `S` with the goal's multiplier 1, by exact
+        elimination (free multipliers 0; with `tight`, the constant of the combination is
+        also required to be 0), scaled to integers; None if not a proof."""
+        prem = self.prem
+        vars_ = sorted(set(g[0]) | {v for i in S for v in prem[i][0]})
+        rows = [[Fraction(prem[i][0].get(v, 0)) for i in S] + [Fraction(g[0].get(v, 0))] for v in vars_]
+        if tight:
+            rows.append([Fraction(prem[i][1]) for i in S] + [Fraction(g[1])])
+        n, piv, r = len(S), [], 0
+        for c in range(n):
+            k = next((i for i in range(r, len(rows)) if rows[i][c] != 0), None)
+            if k is None:
+                continue
+            rows[r], rows[k] = rows[k], rows[r]
+            p = rows[r][c]
+            rows[r] = [x / p for x in rows[r]]
+            for i in range(len(rows)):
+                if i != r and rows[i][c] != 0:
+                    f = rows[i][c]
+                    rows[i] = [x - f * y for x, y in zip(rows[i], rows[r])]
+            piv.append(c)
+            r += 1
+        if any(all(x == 0 for x in row[:n]) and row[n] != 0 for row in rows):
+            return None
+        lamf = [Fraction(0)] * n
+        for i, c in enumerate(piv):
+            lamf[c] = rows[i][n]
+        if any(x < 0 for x in lamf):
+            return None
+        D = math.lcm(*[x.denominator for x in lamf])
+        lam = {S[c]: int(x * D) for c, x in enumerate(lamf) if x > 0}
+        cert = self._dense(D, lam)
+        return cert if entails(prem, g, cert) else None
 
 
 # ----------------------------------------------------------------------------------------
@@ -883,7 +944,12 @@ def post_exprs(ctx, a, M):
             out[r] = "any"
         else:
             op, x, y = v
-            if x[0] == "imm" and y[0] == "imm":
+            if op == "shl":
+                # a constant only when the register holds one and no overflow
+                l, hh = Zd.lohi(M, x[1])
+                val = l << y if l == hh else None
+                out[r] = ("shift", Z, val) if val is not None and 0 <= val <= BIG else "any"
+            elif x[0] == "imm" and y[0] == "imm":
                 val = x[1] + y[1] if op == "add" else x[1] - y[1]
                 # constants above BIG (addresses from the literal pool) are not tracked:
                 # with them, HiGHS fails numerically on the linear programs (untrusted choice)
@@ -963,13 +1029,17 @@ class Ctx:
         cget = lambda a: self.get(a) if a + 2 <= top else None  # noqa: E731
         self.eff = {a: effect(abi, cget, a) for a in self.nodes}
         # the effects used by the producer's own analysis (zones, congruences, linear
-        # programs): with `lit_any`, literal loads give any value, as before 2026-11-19
+        # programs): with `lit_any`, literal loads and shifts give any value, as before
+        # 2026-11-19
         self.aeff = dict(self.eff)
         if lit_any:
             for a in self.nodes:
                 h = self.get(a)
                 if h >> 11 == 0b01001:
                     self.aeff[a] = ([((h >> 8) % 8, "any")], "keep")
+                elif any(v != "any" and v[0] == "shl" for _r, v in self.eff[a][0]):
+                    self.aeff[a] = ([(r, "any" if v != "any" and v[0] == "shl" else v)
+                                     for r, v in self.eff[a][0]], self.eff[a][1])
         self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
         self.out = {a: ipet.trans(self.insn[a]) for a in self.nodes}
@@ -997,7 +1067,7 @@ class Ctx:
         for a in self.nodes:
             for _r, v in self.aeff[a][0]:
                 if v != "any":
-                    for x in v[1:]:
+                    for x in val_srcs(v):
                         if x[0] == "imm":
                             imms |= {x[1], x[1] - 1, x[1] + 1}
             fl = self.eff[a][1]
@@ -1429,7 +1499,7 @@ def relevant(ctx, loops):
         for a in ctx.nodes:
             for r, v in ctx.eff[a][0]:
                 if r in R and v != "any":
-                    for x in v[1:]:
+                    for x in val_srcs(v):
                         if x[0] == "reg" and x[1] not in R:
                             R.add(x[1])
                             changed = True
@@ -1445,8 +1515,8 @@ def relevant(ctx, loops):
 def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
     N)] of the certified loops, [(header, reason)] of the others). If a loop is left
-    uncertified, the function is analysed again with the literal loads giving any value in
-    the producer's own analysis (the constants of the literal pool can make the linear
+    uncertified, the function is analysed again with the literal loads and the shifts giving
+    any value in the producer's own analysis (the constants of the literal pool can make the linear
     programs fail numerically); the certificate that certifies more loops is kept. The
     checker's obligations use the exact effects in both."""
     res = _certify_loops(an, name, abi, prefer_source, frame, False)

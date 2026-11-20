@@ -159,6 +159,7 @@ the memory. Each instruction has an **effect** (`Thumb.effect`, `Thumb.stackEffe
 | `MOVS rd, #k` | `rd := k`; flags: any |
 | `MOV rd, rm` (low registers) | `rd := rm`; flags kept |
 | `CMP rn, #k`, `CMP rn, rm`, `CMN` | registers kept; flags of `rn − k` (or `rn + rm`) |
+| `LSLS rd, rm, #s` | `rd := rm·2^s` if that is below 2³², otherwise any value (two cases in every proof); flags: any. `LSLS rd, rm, #0` is `MOVS rd, rm`: `rd := rm` |
 | `NEGS rd, rm` | `rd := (0 − rm) mod 2³²`; flags of that subtraction |
 | `MVNS rd, rm` | `rd := 2³² − 1 − rm` (all bits flipped); flags: any |
 | `STM rn!, {list}` | `rn := rn + 4·(number of registers)`; the registers of the list are kept |
@@ -283,14 +284,15 @@ checker's verdict, cover the usual case:
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 131 (121 without the exact effects below, 116 without the linear programs, 73 without congruences) | 115 |
-| `abi` | 183 (173, 167, 105) | 115 |
-| `abi` and `frame` | 229 (215, 175 before the frame-pointer exception, 169, 107) | 117 |
+| no assumption | 136 (131 without the exact shift below, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 115 |
+| `abi` | 193 (183, 173, 167, 105) | 115 |
+| `abi` and `frame` | 246 (229, 215, 175 before the frame-pointer exception, 169, 107) | 120 |
 
 None of the 116 loops of the division routines (they shift) is certified. Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
 gained over the 107 of 5.3 have loops that the source analysis does not bound but the binary
-analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`).
+analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`); with both assumptions,
+three functions of `bitcount` too.
 
 Congruences made the largest difference: before them, 177 of the 210 loops whose counter
 was tracked but had no potential left the loop on equality with a step above 1.
@@ -315,10 +317,25 @@ both assumptions (233 without frame pointers); no loop lost, no bound changed. O
 the literal constants include addresses near 2^32, and with such numbers HiGHS (the LP
 solver) sometimes gives up. The producer therefore retries a function, treating literal loads
 as unknown again, when a loop is left uncertified, and keeps the better result; the checker
-does not care how the certificate was found. Of the 174 kernel loops still not certified, 98
-have a tracked counter but no potential (71 of them leave on equality). The
+does not care how the certificate was found.
+
+Exact shift (2026-11-20). `LSLS r1, r0, #10` multiplies r0 by 2^10. Compilers use it to build
+constants (`movs r0, #1; lsls r1, r0, #10` makes 1024, a loop limit in `fft`) and
+byte offsets. The result is exact as long as it fits in 32 bits; when it does not, the new
+value is unknown. The checker treats the two cases like the wrap-around of a sum: the
+certificate proves its claim once assuming no overflow and once assuming overflow (where
+the value is any word). In Lean this is a new kind of value, `shl`, and the soundness proof
+covers it; no new trusted assumption. The producer also got an exact fallback for Farkas
+multipliers: when the LP returns multipliers too small to round, it solves
+the same system exactly over the rationals. Result: 136 / 193 / 246 loops (251 without frame
+pointers), in `fft`, `st`, `filterbank` and `bitcount`; no loop lost, no bound higher. A
+first run lost one `jfdctint` loop (HiGHS again, on the constant 2^14), so the retry above
+now also treats shifts as unknown.
+
+Of the 157 kernel loops still not certified, 92
+have a tracked counter but no potential (67 of them leave on equality). The
 specification of effects, flags, conditions and stack effects is compared with the
-interpreter on every 16-bit encoding (297 244 executions, no difference); 24 tests check that
+interpreter on every 16-bit encoding (297 244 executions, no difference); 26 tests check that
 altered certificates are refused.
 
 ## 5.7 The rest of Paper III's evaluation
@@ -371,6 +388,6 @@ Cycle bounds of compiled code can be certified: a dual solution of the IPET prog
 code and builds the graph itself, so the analysis of the binary leaves the trusted base. The
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
-instructions' effects. On TACLeBench for a Cortex-M0, 115–117 functions get a certified cycle
-bound and 131–229 of 403 loops are bounded on the code (233 built without frame pointers) with nothing trusted about them; the
+instructions' effects. On TACLeBench for a Cortex-M0, 115–120 functions get a certified cycle
+bound and 136–246 of 403 loops are bounded on the code (251 built without frame pointers) with nothing trusted about them; the
 rest keep their source bounds as assumptions.

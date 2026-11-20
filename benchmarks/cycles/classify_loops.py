@@ -69,6 +69,7 @@ def origin(ctx, body, h, node, var, P):
                     out.add("load" if m in LOADS else "shift" if m in SHIFTS else {"mul": "mul", "bl": "call", "ldrlit": "const"}.get(m, "other:" + m))
                     continue
                 op, x, y = dfn
+                if op == "shl": out.add("shift"); continue
                 srcs = [t for t in (x, y) if t[0] == "reg"]
                 if not srcs: out.add("const"); continue
                 if len(srcs) == 2:
@@ -102,7 +103,7 @@ def entry_def(ctx, h, Bs, r, P):
             if p == ctx.entry: out.add("arg"); continue
             work += [(q, v) for q in P[p]]; continue
         if d == "any": out.add(mn(ctx, p)); continue
-        srcs = [t for t in d[1:] if t[0] == "reg"]
+        srcs = [t for t in B.val_srcs(d) if t[0] == "reg"]
         if not srcs: out.add("imm"); continue
         if len(srcs) == 2: out.add("sum2"); continue
         work += [(q, srcs[0][1]) for q in P[p]] if p != ctx.entry else []

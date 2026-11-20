@@ -1827,6 +1827,51 @@ Paper III (effects paragraph, trusted list, abstract, evaluation), the cycles RE
 (Parts 5 and 9), `docs/certificate-format.md`, CLAUDE.md updated. This text of Paper III is new
 since the author's statement on the use of AI.
 
+72. "Proceed"
+
+What the AI did for 72 (Claude Opus 5.5, 2026-11-19 to 2026-11-20): the next step after the
+classification of the uncertified loops (group A, counters against a constant or a bounded
+limit). Diagnosis of its "constant initial value" loops: in 7 loops (`fft` x2, `fir2dim` x3,
+`bsort` x2) Clang counts from `mvns r1, #7` (2^32 - 8) up by 4 to zero (wrap-to-zero); the
+current certificate format cannot express it (the invariant at the exit would need a
+disjunction or a relational congruence, Granger 1991); not done, noted as a future option.
+Then the counters and limits built by `LSL`: Lean change (`ThumbDataCore`, trusted
+specification): new value kind `Val.shl a k` (`a * 2^k mod 2^32`); `LSLS rd, rm, #s` gives
+`shl` for `s > 0` and the move `rm + 0` for `s = 0` (flags any, as before); its linear form
+(`valE`) is `2^k * a` without overflow and the register's new value (a fresh variable)
+with it; `wrapPrem` gives the premise of each case (`0 <= 2^k a <= 2^32 - 1`, or
+`2^k a >= 2^32`). Proof (`ThumbData`): `mOf`, `mSel_mem`, `valE_eval` (now split on overflow,
+with the old proof as `valE_eval_ar`), `wrapPrem_holds`, `postE_eval`; `lake build` clean, no
+`sorry`, `data_sound` still depends only on `propext`, `Classical.choice`, `Quot.sound`. No
+new trusted assumption beyond the specification itself. Producer (`binloops.py`): mirror of
+the effect, post-expressions of a shifted constant, and two changes to its Farkas search: the
+LP fallback now also lists the ranges of the goal's variables as premises, and when the LP's
+multipliers are too small to round, the multipliers are solved exactly (Gaussian elimination
+over the rationals on the premises with nonzero LP multipliers; first with the constant row
+tight, then with the free multipliers at 0); `classify_loops.py` handles the new value kind.
+Tests: `test_binloops.py` 26 pass, with a new loop `SHLLOOP` certified only through the exact
+shift and five mutations that must be (and are) refused: shift amount 2 instead of 1,
+operand 6 instead of 5, overflowing shift by 31, `LSRS` instead of `LSLS`, `LSLS #0` (a move
+of an odd value, which breaks the congruence the certificate uses); two of the AI's first
+expectations were wrong (it expected the `LSLS #0` variant to be accepted; an `ADDS r1, r0, r0`
+variant was dropped because the stored Farkas proofs do not fit its premises); `test_ipet.py`
+17 pass; `test_effect.py` 297,244 executions, 0 differences. Results: a first set of six runs
+lost one loop (`jfdctint` 0x172: HiGHS failed on its linear program once the frame word holding
+`1 << 14` became exact); the producer's second analysis (`lit_any`) was then changed to give
+shifts any value as well, which recovered it, and the six runs were made again. Kernel loops
+certified 131 / 183 / 229 -> 136 / 193 / 246 (none / abi / abi+frame; `fft`, `filterbank`,
+`st`, and `bitcount` with both assumptions; 3 of the 17 gained have no source bound), without
+frame pointers 135 / 188 / 233 -> 140 / 198 / 251; no loop lost, no certified bound higher,
+four `bitcount` bounds lower (2^31 - 2 -> 255), every certificate accepted, no emulated run
+above a bound; functions with a certified cycle bound with both assumptions 117 -> 120 (118 ->
+120 without frame pointers); below the source bound 78 (110 with abi), no source bound 58 (83).
+Remaining failures with both assumptions 92 / 25 / 21 / 12 / 7 (before 98 / 36 / 21 / 12 / 7);
+`classify_loops.py`: 157 loops, group A 62 -> 51, B 26 -> 20.
+Runs took 17 to 103 minutes, three at a time. Paper III (data-run definition, effects
+paragraph, congruence and case-split sentences, abstract, evaluation, Lean size), the cycles
+README, the guide (Parts 5 and 9), `docs/certificate-format.md`, CLAUDE.md updated. This text
+of Paper III is new since the author's statement on the use of AI.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2115,3 +2160,9 @@ is whether each Lean statement says what the paper says, and everything outside 
     base in the list, the literal address `Align(PC, 4) + imm8 * 4`), and decide whether the new
     trusted assumption "the code is not written during a run" holds for your targets (code in
     flash, no self-modifying code, no writes to the literal pool).
+46. **Exact shift (prompt 72).** Read `Val.shl` and the `LSLS` case of `ThumbDataCore.effect`
+    against the ARMv6-M Architecture Reference Manual (A6.7, LSL (immediate): `imm5 = 0` is
+    `MOVS rd, rm`; the result is the low 32 bits of `rm << imm5`), the overflow case split in
+    `wrapPrem` and its proof `wrapPrem_holds`/`valE_eval` in `ThumbData`, and the sentences of
+    Paper III that describe them (definition `def:data-run`, the effects paragraph, the
+    congruence and case-split sentences, the new evaluation figures).

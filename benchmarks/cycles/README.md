@@ -156,9 +156,28 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 131 of 403 | 272 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 183 of 403 | 220 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 229 of 403 | 174 + 116 | all | 117 |
+| no assumption on callees | 136 of 403 | 267 + 116 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 193 of 403 | 210 + 116 | all | 115 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 246 of 403 | 157 + 116 | all | 120 |
+
+Exact shift (2026-11-20): `LSLS rd, rm, #s` is exact in the checker's specification
+(`Val.shl`: `rm·2^s` when it does not overflow, any value when it does, a case split like
+the wrap-around of sums; `s = 0` is `MOVS rd, rm`; flags any) and in the producer's mirror;
+the proof of `ThumbData.data_sound` was extended to the new value kind (no new assumption, no axiom
+beyond Lean's three). The producer also solves Farkas multipliers exactly (Gaussian
+elimination over the rationals on the premises the LP used) when the LP's multipliers are
+too small to round, and adds the ranges of the goal's variables to that LP. Counts 131 /
+183 / 229 → 136 / 193 / 246 (+5 / +10 / +17 in `fft`, `filterbank`, `st`, and `bitcount`
+with both assumptions; 3 of the 17 without a source bound); without frame pointers 135 /
+188 / 233 → 140 / 198 / 251. No loop lost, no certified bound higher (four of `bitcount`
+lower, 2^31 − 2 → 255), every certificate accepted, no emulated run above a bound;
+functions with a certified cycle bound with both assumptions 117 → 120 (`bitcount_init`,
+`bitcount_init3`, `bitcount_init4`; 118 → 120 without frame pointers). A first run lost
+`jfdctint` 0x172 (HiGHS again, a frame word holding `1 << 14`): the second analysis
+(`lit_any`) now also gives shifts any value in the producer's own analysis. Must-reject
+tests (`test_binloops.py`, `EXACT["shl"]`): the shift amount changed, the operand changed,
+an overflowing shift, `LSRS` instead of `LSLS`, and `LSLS #0` (a move) that breaks the
+congruence the certificate uses. The six runs took 17 to 103 minutes each, three at a time.
 
 Exact effects (2026-11-19): `NEGS` (0 − x, flags of that subtraction), `MVNS`
 (2^32 − 1 − x, flags any), the write-back of `STM`/`LDM` (base + 4 per register; `STM`
@@ -204,19 +223,19 @@ bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
 offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences, potentials per instruction, the frame pointer and exact effects): 98 counter tracked but no
-potential (71 of them exit on equality), 36 compared value not tracked, 21 SP offset unknown, 12 flags from an
-unmodelled instruction, 7 mixed (before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
+congruences, potentials per instruction, the frame pointer, exact effects and the exact shift): 92 counter tracked but no
+potential (67 of them exit on equality), 25 compared value not tracked, 21 SP offset unknown, 12 flags from an
+unmodelled instruction, 7 mixed (before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 
-Classification of the 174 kernel loops not certified with `--abi --frame` (2026-11-19, after the exact effects; 188 before,
+Classification of the 157 kernel loops not certified with `--abi --frame` (2026-11-20, after the exact shift; 174 after the exact effects, 188 before,
 `classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
 definitions reaching its operands inside the loop; heuristic, for diagnosis only):
 
 | group | loops | what would be needed |
 |---|---|---|
-| A counter against a constant or a bounded limit | 62 (69 before) | the counter's initial value: from a word of the frame (12), a constant (11: potential not found, cause not analysed), built by `LSL` (10, e.g. `movs r0,#1; lsls r1,r0,#10`), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
-| B counter against a limit without a bound (a parameter) | 26 (27) | bounds in the parameters, or calling contexts, on the binary |
+| A counter against a constant or a bounded limit | 51 (62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame (11), a constant (11; among them loops that count from `mvns r1,#7` up by 4 to zero, an idiom found in 7 kernel loops, in `fft`, `fir2dim` and `bsort`, which needs a disjunctive invariant or relational congruences), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
+| B counter against a limit without a bound (a parameter) | 20 (26, 27) | bounds in the parameters, or calling contexts, on the binary |
 | D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
 | F exit on data loaded from memory | 16 (17) | invariants on memory (string and search loops) |
 | C exit on the flags of a shift | 12 | `x >>= 8` until zero (`bitcount`, `sqrtf`): logarithmic potentials on the code |
@@ -225,8 +244,8 @@ definitions reaching its operands inside the loop; heuristic, for diagnosis only
 | G word of the frame not tracked | 10 | SP offsets where they are unknown |
 | H value through an approximated instruction | 4 (9) | exact effects of `ADCS` (3), `ANDS` (1) |
 
-The producer's own reasons: no potential found for 166 (181 before), a potential whose bound (2^31 or
-2^32) exceeds the source bound for 8 (7 before). An experiment with exact effects, in the producer only
+The producer's own reasons: no potential found for 149 (166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
+2^32) exceeds the source bound for 8 (8, 7). An experiment with exact effects, in the producer only
 (not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
 write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
 from the literal pool (the word of the code), found potentials for 15 more loops (`bitonic`,
@@ -236,17 +255,18 @@ Before the exact effects, runs took 11 to 70 minutes (5 to 32 before the linear 
 
 Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
 separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
-producer analyses (190 in the default build); kernel loops certified 135 / 188 / 233
-(no assumption / `--abi` / `--abi --frame`; 123 / 176 / 216 before the exact effects; default build: 131 / 183 / 229, 175 before the frame pointer; without the
-linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 118 functions with a certified cycle
+producer analyses (190 in the default build); kernel loops certified 140 / 198 / 251
+(no assumption / `--abi` / `--abi --frame`; 135 / 188 / 233 before the exact shift, 123 / 176 / 216 before the exact effects; default build: 136 / 193 / 246, 175 before the frame pointer; without the
+linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 120 functions with a certified cycle
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
 
-No back-edge count of the emulated runs exceeds a certified bound. 74 (101 with `--abi`) of
+No back-edge count of the emulated runs exceeds a certified bound. 78 (110 with `--abi`) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges), none above (the producer keeps the source row then), and 57 (82 with `--abi`)
+edges), none above (the producer keeps the source row then), and 58 (83 with `--abi`)
 certified loops have no source bound at all. The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
-`md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`.
+`md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`, and
+(with both assumptions) `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
 
 Trusted, in addition to the decoder and timing table: the effects of the instructions on
 `r0`-`r7` and the flags, the flags of additions and subtractions and the conditions

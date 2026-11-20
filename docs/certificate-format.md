@@ -343,7 +343,8 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   run (a load from the literal pool, `LDR rt, [pc, #i]`, gives the word of the code at its
   address when both halfwords are in `"code"`, any value otherwise), the trusted rows, and
   the assumption on callees if `"abi"` is true. Exact effects (since 2026-11-19, besides
-  `ADDS`/`SUBS`/`MOVS`/`CMP`/`CMN`/`MOV`/`ADD` of low registers): `NEGS`, `MVNS`, the
+  `ADDS`/`SUBS`/`MOVS`/`CMP`/`CMN`/`MOV`/`ADD` of low registers): `LSLS` by a constant
+  (`rm·2^s` when it does not overflow, any value when `rm·2^s ≥ 2^32`), `NEGS`, `MVNS`, the
   literal load, the write-back of `STM`/`LDM` (base + 4 per register; `STM` keeps its list;
   `LDM` with the base in its list, or an empty list, gives any value).
 - `crosscheck-check --effect FILE` prints, for each case (`a`, registers `r`, flags `f`),

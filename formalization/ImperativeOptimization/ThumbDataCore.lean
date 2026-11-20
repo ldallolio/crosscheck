@@ -16,7 +16,8 @@ the loop rows of `ThumbCore` need not be trusted:
   (`Eff`): a register gets the sum or difference of two operands modulo `2^32`, or any
   value; the flags are kept, become those of an addition or subtraction (`FEff`), or any.
   Modelled exactly: ADDS, SUBS, MOVS (immediate), CMP, CMN and MOV/ADD between low
-  registers; MVNS (`(2^32 − 1) − x`; the flags any) and NEGS (`0 − x`, the flags of the
+  registers; LSLS (immediate; `x · 2^s`, two cases: no overflow, or `x · 2^s ≥ 2^32` and
+  any value; the flags any; with `s = 0` it is MOVS between low registers); MVNS (`(2^32 − 1) − x`; the flags any) and NEGS (`0 − x`, the flags of the
   subtraction); the write-back of STM and LDM (the base advances by four bytes per
   register; STM writes no register of its list; LDM with the base in its list writes the
   base with any value; an empty list, unpredictable in ARMv6-M, writes any value); LDR
@@ -57,10 +58,12 @@ inductive Src where
   | imm (k : Nat)
   deriving DecidableEq, Repr
 
-/-- The value written into a register: a sum or a difference modulo `2^32`, or any value. -/
+/-- The value written into a register: a sum or a difference modulo `2^32`, a shift
+    `a · 2^k` modulo `2^32`, or any value. -/
 inductive Val where
   | add (a b : Src)
   | sub (a b : Src)
+  | shl (a : Src) (k : Nat)
   | any
   deriving DecidableEq, Repr
 
@@ -96,7 +99,11 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
   if top5 = 0b11101 ∨ top5 = 0b11110 ∨ top5 = 0b11111 then
     -- BL (the other 32-bit instructions are `stop`)
     ⟨anyRegs (if abi then [0, 1, 2, 3] else List.range 8), .any⟩
-  -- LSLS, LSRS, ASRS (immediate)
+  -- LSLS (immediate): `rm · 2^s` modulo `2^32`; `s = 0` is MOVS rd, rm
+  else if top5 = 0 then
+    let s := (h >>> 6) % 32
+    ⟨[(rd, if s = 0 then .add (.reg rn) (.imm 0) else .shl (.reg rn) s)], .any⟩
+  -- LSRS, ASRS (immediate)
   else if top5 ≤ 2 then ⟨[(rd, .any)], .any⟩
   -- ADDS/SUBS register or 3-bit immediate
   else if top5 = 3 then
@@ -300,6 +307,7 @@ def srcVal (r : Nat → Nat) : Src → Nat
 def valOf (r : Nat → Nat) : Val → Option Nat
   | .add a b => some ((srcVal r a + srcVal r b) % U)
   | .sub a b => some ((srcVal r a + (U - srcVal r b)) % U)
+  | .shl a k => some ((srcVal r a * 2 ^ k) % U)
   | .any => none
 
 /-! ### Linear constraints
@@ -372,11 +380,13 @@ def srcE : Src → PExp
   | .reg i => pv i
   | .imm k => pconst k
 
-/-- The value of a write as an expression, with `m·2^32` added (the wrap case `m`). -/
+/-- The value of a write as an expression, with `m·2^32` added (the wrap case `m`); for a
+    shift, `a · 2^k` if `m = 0` (no overflow), otherwise the value after (variable `10 + i`). -/
 def valE (v : Val) (m : Int) (i : Nat) : PExp :=
   match v with
   | .add a b => padd (padd (srcE a) (srcE b)) (pconst (m * U))
   | .sub a b => padd (padd (srcE a) (psmul (-1) (srcE b))) (pconst (m * U))
+  | .shl a k => if m = 0 then psmul ((2 ^ k : Nat) : Int) (srcE a) else pv (10 + i)
   | .any => pv (10 + i)
 
 /-- The value of variable `i < 10` after the instruction, in wrap case `m`. -/
@@ -415,12 +425,22 @@ def isOp : Val → Bool
 
 def opOf (e : Eff) : Option (Nat × Val) := e.dst.find? fun p => isOp p.2
 
-/-- `0 ≤ value ≤ 2^32 − 1` in wrap case `m`. -/
+/-- `0 ≤ value ≤ 2^32 − 1` in wrap case `m`; for a shift in a case `m ≠ 0` (overflow),
+    `a · 2^k ≥ 2^32`. -/
 def wrapPrem (e : Eff) (m : Int) : List Lin :=
   match opOf e with
   | some (i, v) =>
-    let x := valE v m i
-    [⟨vsmul (-1) x.sv, [], -x.c⟩, ⟨x.sv, [], x.c - ((U : Int) - 1)⟩]
+    match v with
+    | .shl a k =>
+      if m = 0 then
+        let x := valE v m i
+        [⟨vsmul (-1) x.sv, [], -x.c⟩, ⟨x.sv, [], x.c - ((U : Int) - 1)⟩]
+      else
+        let x := psmul ((2 ^ k : Nat) : Int) (srcE a)
+        [⟨vsmul (-1) x.sv, [], (U : Int) - x.c⟩]
+    | _ =>
+      let x := valE v m i
+      [⟨vsmul (-1) x.sv, [], -x.c⟩, ⟨x.sv, [], x.c - ((U : Int) - 1)⟩]
   | none => []
 
 def mcases (e : Eff) : List Int := if (opOf e).isSome then [0, 1, -1] else [0]
@@ -476,6 +496,7 @@ def srcOk : Src → Bool
 def valOk : Val → Bool
   | .add a b => srcOk a && srcOk b
   | .sub a b => srcOk a && srcOk b
+  | .shl a k => srcOk a && decide (k < 32)
   | .any => true
 
 def wfEff (e : Eff) : Bool :=
