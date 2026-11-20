@@ -56,7 +56,8 @@ rows on pairs of addresses and a certificate: the checker builds the graphs from
 with the verified decoder and runs `Thumb.checkBinary` (theorem `Thumb.binary_sound`: every
 run of the machine code, in the semantics of `Thumb`, on which the rows hold, costs at most
 the bound). Version 2 of the format may add, per function, loop certificates on the
-machine code (`"loops"`, `"kinds"`, `"inv"`, `"proofs"`, and `"abi"` for the program): the
+machine code (`"loops"`, `"kinds"`, `"inv"` with optional further disjuncts `"alt"` and their
+targets `"pick"`, `"proofs"`, and `"abi"` for the program): the
 checker then also runs `Thumb.checkData` (theorem `ThumbData.data_sound`: the rows of the
 certified loops hold on every run of the data semantics, so only the rows left in `"rows"`
 are trusted). The rows of the certified loops are generated here by `Thumb.loopRow`, and
@@ -550,7 +551,20 @@ def parseBFun (f : Json) : Except String
             match ← natList x "a congruence" with
             | [v, e, r] => pure (v, e, r)
             | _ => throw "a congruence must be [variable, exponent, residue]"
-        | .error _ => throw "the congruences of an instruction must be an array")⟩
+        | .error _ => throw "the congruences of an instruction must be an array"),
+     ← optArr f "alt" (fun l => match l.getArr? with
+        | .ok a => a.toList.mapM fun I => match I.getArr? with
+            | .ok b => b.toList.mapM parseDLin
+            | .error _ => throw "a disjunct of an invariant must be an array of constraints"
+        | .error _ => throw "the alternatives of an instruction must be an array"),
+     ← optArr f "pick" (fun l => match l.getArr? with
+        | .ok a => a.toList.mapM fun x => do
+            match ← intList x "a target" with
+            | [j, m, d, s, t] =>
+              if j < 0 ∨ d < 0 ∨ s < 0 ∨ t < 0 then throw "a target must be [j, m, d, s, t], j, d, s, t >= 0"
+              else pure (j.toNat, m, d.toNat, s.toNat, t.toNat)
+            | _ => throw "a target must be [transition, wrap, fact, source disjunct, target disjunct]"
+        | .error _ => throw "the targets of an instruction must be an array")⟩
   pure (nameOf f "name", F, C, D)
 
 def parseBinaryFile (j : Json) :

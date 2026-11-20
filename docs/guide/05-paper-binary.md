@@ -284,11 +284,12 @@ checker's verdict, cover the usual case:
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 136 (131 without the exact shift below, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 115 |
-| `abi` | 193 (183, 173, 167, 105) | 115 |
-| `abi` and `frame` | 246 (229, 215, 175 before the frame-pointer exception, 169, 107) | 120 |
+| no assumption | 136 (the same without the disjunctive invariants below, 131 without the exact shift, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 115 |
+| `abi` | 193 (193, 183, 173, 167, 105) | 115 |
+| `abi` and `frame` | 250 (246, 229, 215, 175 before the frame-pointer exception, 169, 107) | 120 |
 
-None of the 116 loops of the division routines (they shift) is certified. Every certificate
+All 116 loops of the division routines are certified in every configuration (none before the
+disjunctive invariants below). Every certificate
 is accepted, and in the emulated runs no loop exceeds its certified bound. The 8 functions
 gained over the 107 of 5.3 have loops that the source analysis does not bound but the binary
 analysis does (`fac_fac`, the copy and fill loops of `md5` and `pm`); with both assumptions,
@@ -332,10 +333,29 @@ pointers), in `fft`, `st`, `filterbank` and `bitcount`; no loop lost, no bound h
 first run lost one `jfdctint` loop (HiGHS again, on the constant 2^14), so the retry above
 now also treats shifts as unknown.
 
-Of the 157 kernel loops still not certified, 92
-have a tracked counter but no potential (67 of them leave on equality). The
+Disjunctive invariants (2026-11-20). The division routines count down with a signed
+counter, `for (i = 31; i >= 0; i--)`. Clang compiles the test `i >= 0` as "add 1 to i and
+stop if that carries", which happens only when `i` has wrapped around from 0 to 2^32 − 1.
+Between the `subs` and the branch, the counter is either in [0, 30] or exactly 2^32 − 1: two
+separate pieces, and a zone (one convex shape) can only describe their hull, [0, 2^32 − 1],
+which says nothing. The checker now lets an invariant be a list of pieces ("disjuncts"),
+and the certificate says, for each case of each step, which piece the next state lands in;
+the Lean proof follows the run piece by piece. The producer finds the pieces by splitting
+its zone in two at a `subs` or `adds` that might wrap, carrying both halves to the next
+branch and merging them after it, a technique known as trace partitioning (Mauborgne and
+Rival, 2005). One snag: HiGHS declared these linear programs infeasible when they were
+not, because the constants range from 1 to 4 billion in the same row; the producer now
+tries a better-scaled program, and as a last resort guesses the linear part of the
+potential by following the counter through the registers it is copied into (r3, then
+the operand of the flags, then r4) and asks HiGHS only for the constants. Result: all 116
+loops of the division routines are certified (bound 31, the source says 32), and 4 more
+kernel loops; with both assumptions, the loop rows still trusted inside the certified cycle
+bounds drop from 137 to 19.
+
+Of the 153 kernel loops still not certified, 88
+have a tracked counter but no potential (64 of them leave on equality). The
 specification of effects, flags, conditions and stack effects is compared with the
-interpreter on every 16-bit encoding (297 244 executions, no difference); 26 tests check that
+interpreter on every 16-bit encoding (297 244 executions, no difference); 28 tests check that
 altered certificates are refused.
 
 ## 5.7 The rest of Paper III's evaluation
@@ -389,5 +409,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 115–120 functions get a certified cycle
-bound and 136–246 of 403 loops are bounded on the code (251 built without frame pointers) with nothing trusted about them; the
+bound and 136–250 of 403 loops are bounded on the code (252 built without frame pointers), with the 116 loops of the division routines, with nothing trusted about them; the
 rest keep their source bounds as assumptions.

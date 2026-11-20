@@ -17,7 +17,9 @@ whose row then stays trusted). The definitions mirrored from Lean (`effect`,
 `condFacts`, `postE`, the obligations and their order) must stay identical to
 `ThumbDataCore.lean`: the checker recomputes the obligations and compares.
 """
+import itertools
 import math
+import os
 from fractions import Fraction
 
 import m0
@@ -26,6 +28,7 @@ import wcet
 
 
 CONG = True
+DISJ = True          # disjunctive invariants at a possible wrap-around (`window_transfer`)
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
 LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
@@ -49,6 +52,9 @@ H = 1 << 31
 # variables of the certificate: 0-7 registers, 8-9 ghosts, 10-17 written registers, 18-19 fresh
 # ghosts, 20.. the tracked words of the frame, then their fresh values (Lean `nVars`)
 INF = 1 << 62
+# BINLOOPS_CHECK_CLOSE=1: compare every shortcut of the zone closure (incremental closure,
+# images of closed zones, joins) with the full closure, and fail on a difference (tests)
+CHECK_CLOSE = os.environ.get("BINLOOPS_CHECK_CLOSE") == "1"
 ZERO = -1        # the zero node of the difference graphs
 
 
@@ -549,26 +555,84 @@ def row_rhs(entry, lc):
     return lc.bound if entry in lc.body else 0
 
 
-def obligations_of(ctx, a, inv, kinds, loops):
-    """The obligations of the instruction at `a`, grouped by premises:
-    [(premises, [(goal, tag)])], tag = ("inv", successor, index) | ("loop", index)."""
-    i, eff, st = ctx.insn[a], ctx.eff[a], ctx.st[a]
+class Invs(dict):
+    """Invariants {instruction: constraints} (the first disjunct, Lean `invAt`), with
+    `alt` {instruction: [further disjuncts]} and `tags` {instruction: [tag of each
+    disjunct]} (0: no wrap-around at the window's start, 1: wrap-around)."""
+
+    def __init__(self, *args, alt=None, tags=None):
+        super().__init__(*args)
+        self.alt = alt or {}
+        self.tags = tags or {}
+
+    def copy(self):
+        return Invs({a: list(v) for a, v in self.items()},
+                    alt={a: [list(d) for d in v] for a, v in self.alt.items()}, tags=dict(self.tags))
+
+
+def disjuncts(inv, a):
+    """Lean `invsAt`: the invariant at `a`, then its alternatives."""
+    return [inv.get(a, [])] + getattr(inv, "alt", {}).get(a, [])
+
+
+def pick_of(ctx, inv, a, m, si, nxt):
+    """Lean `tgtIdx`: the disjunct of `nxt` that the case lands in (the producer's choice):
+    the same tag as the source disjunct, or, from the start of a window, the tag of the
+    wrap-around case `m`."""
+    tags = getattr(inv, "tags", {})
+    if nxt not in tags:
+        return 0
+    if a in tags:
+        tag = tags[a][si] if si < len(tags[a]) else None
+    elif a in getattr(ctx, "windows", {}):
+        w = wrap_op(ctx.eff[a])
+        wm = 1 if w is not None and w[2] < 0 else -1
+        tag = 0 if m == 0 else (1 if m == wm else None)
+    else:
+        tag = None
+    return tags[nxt].index(tag) if tag in tags[nxt] else 0
+
+
+def obligation_cases(ctx, a, inv, kinds):
+    """The cases of the transitions of `a` in the checker's order (Lean `obsOf`):
+    [(j, successor, m, d, facts, si, source disjunct, target index)]."""
+    i, eff = ctx.insn[a], ctx.eff[a]
     ka = kinds.get(a, "none")
     out = []
-    rng = ranges_n(nvars(len(ctx.slots)))
     for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
         facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
         for m in mcases(eff):
-            for D in facts:
-                prem = D + wrap_prem(eff, m) + inv.get(a, []) + rng
-                sigma = (lambda m: lambda v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v))(m)
-                goals = []
-                if nxt is not None:
-                    goals += [(subst(g, sigma), ("inv", nxt, k)) for k, g in enumerate(inv.get(nxt, []))]
-                goals += [(goal_lin(lc.coef(a, nxt), subst(lc.pot_at(nxt), sigma), lc.pot_at(a)), ("loop", li))
-                          for li, lc in enumerate(loops)]
-                out.append((prem, goals))
+            for d, D in enumerate(facts):
+                for si, I in enumerate(disjuncts(inv, a)):
+                    t = pick_of(ctx, inv, a, m, si, nxt) if nxt is not None else 0
+                    out.append((j, nxt, m, d, D, si, I, t))
     return out
+
+
+def obligations_of(ctx, a, inv, kinds, loops):
+    """The obligations of the instruction at `a`, grouped by premises:
+    [(premises, [(goal, tag)])], tag = ("inv", successor, disjunct, index) | ("loop", index)."""
+    eff, st = ctx.eff[a], ctx.st[a]
+    out = []
+    rng = ranges_n(nvars(len(ctx.slots)))
+    for _j, nxt, m, _d, D, _si, I, t in obligation_cases(ctx, a, inv, kinds):
+        prem = D + wrap_prem(eff, m) + I + rng
+        sigma = (lambda m: lambda v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v))(m)
+        goals = []
+        if nxt is not None:
+            ds = disjuncts(inv, nxt)
+            T = ds[t] if t < len(ds) else ds[0]
+            goals += [(subst(g, sigma), ("inv", nxt, t if t < len(ds) else 0, k)) for k, g in enumerate(T)]
+        goals += [(goal_lin(lc.coef(a, nxt), subst(lc.pot_at(nxt), sigma), lc.pot_at(a)), ("loop", li))
+                  for li, lc in enumerate(loops)]
+        out.append((prem, goals))
+    return out
+
+
+def picks_of(ctx, inv, kinds):
+    """The certificate's `pick` field: per instruction, [j, m, d, s, t] with t != 0."""
+    return [[[j, m, d, si, t] for j, _n, m, d, _D, si, _I, t in obligation_cases(ctx, a, inv, kinds) if t]
+            for a in ctx.nodes]
 
 
 def entails(prem, g, cert):
@@ -606,6 +670,38 @@ def _diff_edge(p):
         if k1 == -1 and k2 == 1:
             return (v1, v2, -c)
     return None
+
+
+def box_contradiction(prem):
+    """Multipliers {index: k} of a contradiction among the premises `e <= 0`: a premise that
+    no point of the box of the one-variable bounds satisfies, plus, for each of its
+    variables, the bound that minimises it (exact, where HiGHS loses the difference of
+    constants near 2^32); {} if none is found."""
+    lo, hi = {}, {}         # variable -> (bound, index of the premise)
+    for idx, p in enumerate(prem):
+        if len(p[0]) != 1:
+            continue
+        (v, k), = p[0].items()
+        if k == 1 and (v not in hi or -p[1] < hi[v][0]):
+            hi[v] = (-p[1], idx)          # x + c <= 0: x <= -c
+        elif k == -1 and (v not in lo or p[1] > lo[v][0]):
+            lo[v] = (p[1], idx)           # -x + c <= 0: x >= c
+    for idx, p in enumerate(prem):
+        if not p[0]:
+            if p[1] > 0:
+                return {idx: 1}
+            continue
+        lam, val = {idx: 1}, p[1]
+        for v, k in p[0].items():
+            b = lo.get(v) if k > 0 else hi.get(v)
+            if b is None:
+                break
+            val += k * b[0]
+            lam[b[1]] = lam.get(b[1], 0) + abs(k)
+        else:
+            if val > 0:
+                return lam
+    return {}
 
 
 class Prover:
@@ -709,6 +805,11 @@ class Prover:
                 cert = self._from_cycle(g, cyc)
                 if cert:
                     return cert
+        box = self._box_contradiction()
+        if box:
+            cert = self._from_cycle(g, box)
+            if cert:
+                return cert
         e = _diff_edge(g)
         if e is not None and e[0] in self.ix and e[1] in self.ix:
             b, a, w = self.ix[e[0]], self.ix[e[1]], e[2]
@@ -719,6 +820,11 @@ class Prover:
                 if entails(self.prem, g, cert):
                     return cert
         return self._lp(g)
+
+    def _box_contradiction(self):
+        if not hasattr(self, "_box"):
+            self._box = box_contradiction(self.prem)
+        return self._box
 
     def _from_cycle(self, g, cyc):
         lam = dict(cyc)
@@ -866,6 +972,37 @@ class Zones:
     def lohi(self, M, v):
         return -M[self.Z][v], M[v][self.Z]
 
+    def add_edge(self, M, a, b, w):
+        """The closure of the closed zone `M` with `x_a - x_b <= w` added, in O(n^2)
+        (incremental closure: a shortest path uses the new edge at most once); None if
+        empty. `M` is changed in place."""
+        if w >= M[a][b]:
+            return M
+        n = self.n
+        if w + M[b][a] < 0:
+            return None
+        col = [M[i][a] for i in range(n)]
+        Mb = M[b][:]
+        for i in range(n):
+            ia = col[i]
+            if ia >= INF:
+                continue
+            base = ia + w
+            Mi = M[i]
+            for j in range(n):
+                bj = Mb[j]
+                if bj < INF and base + bj < Mi[j]:
+                    Mi[j] = base + bj
+        return M
+
+    def checked(self, fast, slow_input):
+        """With CHECK_CLOSE: `fast` must equal the full closure of `slow_input`."""
+        if CHECK_CLOSE:
+            slow = self.close(copy(slow_input)) if slow_input is not None else None
+            if slow != fast:
+                raise AssertionError("zone closure shortcut differs from the full closure")
+        return fast
+
 
 def copy(M):
     return [row[:] for row in M]
@@ -898,8 +1035,10 @@ def widen(old, new, thresholds):
     return out
 
 
-def guard(Zd, M, p):
-    """Adds the constraint `p` (over the ghosts 8, 9) to a closed zone; None if empty."""
+def guard(Zd, M, p, closed=False):
+    """Adds the constraint `p` (over the ghosts 8, 9) to a zone (closed if `closed`):
+    (zone or None if empty, whether it is closed)."""
+    M0 = M
     M = copy(M)
     d, c = p
     Z = Zd.Z
@@ -908,19 +1047,34 @@ def guard(Zd, M, p):
         b, a, w = e
         b = Z if b == ZERO else b
         a = Z if a == ZERO else a
-        M[a][b] = min(M[a][b], w)
+        edges = [(a, b, w)]
     elif set(d) == {8, 9} and d[8] == d[9] and abs(d[8]) == 1:
         l8, h8 = Zd.lohi(M, 8)
         l9, h9 = Zd.lohi(M, 9)
         if d[8] == 1:
-            M[8][Z] = min(M[8][Z], -c - l9)
-            M[9][Z] = min(M[9][Z], -c - l8)
+            edges = [(8, Z, -c - l9), (9, Z, -c - l8)]
         else:
-            M[Z][8] = min(M[Z][8], h9 - c)
-            M[Z][9] = min(M[Z][9], h8 - c)
+            edges = [(Z, 8, h9 - c), (Z, 9, h8 - c)]
     else:
-        return M
-    return Zd.close(M)
+        return M, closed
+    if not closed:
+        for a, b, w in edges:
+            M[a][b] = min(M[a][b], w)
+        return Zd.close(M), True
+    # both weights are computed on the zone before the first edge, as in the full closure
+    for a, b, w in edges:
+        M = Zd.add_edge(M, a, b, w)
+        if M is None:
+            break
+    if M is not None and any(M[x][x] < 0 for x in range(Zd.n)):
+        M = None
+    if CHECK_CLOSE:
+        slow = copy(M0)
+        for a, b, w in edges:
+            slow[a][b] = min(slow[a][b], w)
+        if Zd.close(slow) != M:
+            raise AssertionError("incremental closure differs from the full closure")
+    return M, True
 
 
 def post_exprs(ctx, a, M):
@@ -992,12 +1146,19 @@ def post_exprs(ctx, a, M):
     return out
 
 
-def apply_post(Zd, M, ex):
-    """The zone after the instruction: the image of `M` by the post-expressions."""
+def apply_post(Zd, M, ex, closed=False):
+    """The zone after the instruction: the image of `M` by the post-expressions, closed.
+    If `M` is closed and every expression stays in [0, 2^32) on it, the image of the
+    variables that are not "any" is closed already (a closed zone renamed and shifted),
+    and the closure only adds, for a variable `a` with any value, `a - y <= U - 1 + N[Z][y]`
+    and `y - a <= N[y][Z]` (paths through the zero node); otherwise the full closure."""
     n, Z = Zd.n, Zd.Z
     N = Zd.top()
     ex = dict(ex)
     ex[Z] = ("shift", Z, 0)
+    fast = closed and all(
+        e == "any" or (M[e[1]][Z] + e[2] <= U - 1 and M[Z][e[1]] - e[2] <= 0)
+        for x, e in ((x, ex.get(x, "any")) for x in range(n)) if x != Z)
     for x in range(n):
         ex_x = ex.get(x, "any")
         if ex_x == "any":
@@ -1011,7 +1172,23 @@ def apply_post(Zd, M, ex):
             b = M[wx][wy]
             if b < INF:
                 N[x][y] = min(N[x][y], b + cx - cy)
-    return Zd.close(N)
+    if not fast:
+        return Zd.close(N)
+    anyv = [x for x in range(n) if x != Z and ex.get(x, "any") == "any"]
+    if anyv:
+        NZ = N[Z]
+        colZ = [N[y][Z] for y in range(n)]
+        for a in anyv:
+            Na = N[a]
+            for y in range(n):
+                if y != a:
+                    if NZ[y] < INF and U - 1 + NZ[y] < Na[y]:
+                        Na[y] = U - 1 + NZ[y]
+                    if colZ[y] < INF and colZ[y] < N[y][a]:
+                        N[y][a] = colZ[y]
+    if CHECK_CLOSE and Zd.close(copy(N)) != N:
+        raise AssertionError("image of a closed zone is not closed")
+    return N
 
 
 class Ctx:
@@ -1131,20 +1308,122 @@ def transfer(ctx, kind, a, M):
     Zd = ctx.zones
     i = ctx.insn[a]
     res = []
+    # every stored zone is closed except the first state of the entry (`top`)
+    closed = a != ctx.entry
     for j, (nxt, _w, _cs) in enumerate(ctx.out[a]):
         facts = cond_facts(kind.get(a, "none"), ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
         for D in facts:
-            Mf = M
+            Mf, cl = M, closed
             for p in D:
-                Mf = guard(Zd, Mf, p) if Mf is not None else None
+                if Mf is not None:
+                    Mf, cl = guard(Zd, Mf, p, closed=cl)
             if Mf is None:
                 continue
             ex = post_exprs(ctx, a, Mf)
             if nxt is not None and kind.get(nxt, "none") == "none":
                 ex[8] = ex[9] = "any"
-            post = apply_post(Zd, Mf, ex)
+            post = apply_post(Zd, Mf, ex, closed=cl)
             res.append((j, Mf, ex, post))
     return res
+
+
+# ----------------------------------------------------------------------------------------
+# Disjunctions at a wrap-around (trace partitioning, Mauborgne & Rival 2005, limited to a
+# straight line): an addition or subtraction of a constant that may wrap splits the zone
+# into the case without and the case with wrap-around; the two are carried separately to
+# the next conditional branch and joined after it. The instructions of the window get
+# disjunctive invariants in the certificate (`alt`, targets `pick`), checked by Lean.
+
+def wrap_op(eff):
+    """(register written, source register, signed constant) of `rd = rn ± imm`, else None."""
+    o = op_of(eff)
+    if o is None:
+        return None
+    r, v = o
+    if v == "any" or v[0] not in ("add", "sub") or v[1][0] != "reg" or v[2][0] != "imm":
+        return None
+    return r, v[1][1], v[2][1] if v[0] == "add" else -v[2][1]
+
+
+def windows_of(ctx):
+    """{start: [instructions up to and including the next conditional branch]}: from an
+    instruction `rd = rn ± imm` with one successor, the straight line of instructions with
+    one predecessor each, none a loop header, ending at a conditional branch."""
+    preds = {a: 0 for a in ctx.nodes}
+    for a in ctx.nodes:
+        for n, _w, _c in ctx.out[a]:
+            if n in preds:
+                preds[n] += 1
+    heads = {h for h, _b, _n in ctx.iloops}
+    W = {}
+    for a in ctx.nodes:
+        if (a == ctx.entry or ctx.insn[a].kind == "cond" or len(ctx.out[a]) != 1
+                or wrap_op(ctx.aeff[a]) is None):
+            continue
+        chain, n = [], ctx.out[a][0][0]
+        while n is not None and n in preds and preds[n] == 1 and n not in heads and len(chain) < 6:
+            chain.append(n)
+            if ctx.insn[n].kind == "cond":
+                break
+            if len(ctx.out[n]) != 1:
+                break
+            n = ctx.out[n][0][0]
+        if chain and ctx.insn[chain[-1]].kind == "cond":
+            W[a] = chain
+    inner = {n for ch in W.values() for n in ch}
+    return {a: ch for a, ch in W.items() if a not in inner}
+
+
+def window_transfer(ctx, kind, a, M):
+    """The zones of the window starting at `a` from the closed zone `M`: ({instruction:
+    [(tag, zone)]}, {transition of the branch: joined zone}); tag 0: no wrap-around at
+    `a`, tag 1: wrap-around."""
+    Zd = ctx.zones
+    Z = Zd.Z
+    r, x, k = wrap_op(ctx.aeff[a])
+    chain = ctx.windows[a]
+    parts = []
+    lo_ok = Zd.add_edge(copy(M), Z, x, k)               # x + k >= 0
+    if lo_ok is not None:
+        lo_ok = Zd.add_edge(lo_ok, x, Z, U - 1 - k)     # x + k <= U - 1
+    parts.append((0, lo_ok, k))
+    if k < 0:
+        parts.append((1, Zd.add_edge(copy(M), x, Z, -k - 1), k + U))   # x + k < 0
+    elif k > 0:
+        parts.append((1, Zd.add_edge(copy(M), Z, x, k - U), k - U))    # x + k >= U
+    nxt = ctx.out[a][0][0]
+    cur = []
+    for tag, Mi, shift in parts:
+        if Mi is None:
+            continue
+        ex = post_exprs(ctx, a, Mi)
+        ex[r] = ("shift", x, shift)
+        if kind.get(nxt, "none") == "none":
+            ex[8] = ex[9] = "any"
+        post = apply_post(Zd, Mi, ex, closed=True)
+        if post is not None:
+            cur.append((tag, post))
+    disj, outs = {}, {}
+    for idx, n in enumerate(chain):
+        disj[n] = cur
+        nxt_cur = []
+        for tag, Zn in cur:
+            for j, _Mf, _ex, post in transfer(ctx, kind, n, Zn):
+                if post is None:
+                    continue
+                if idx == len(chain) - 1:
+                    outs[j] = join(outs.get(j), post)
+                else:
+                    nxt_cur.append((tag, post))
+        cur = nxt_cur
+    return disj, outs
+
+
+def hull(parts):
+    out = None
+    for _tag, Zn in parts:
+        out = join(out, Zn)
+    return out
 
 
 def analyse(ctx, kind):
@@ -1153,24 +1432,45 @@ def analyse(ctx, kind):
     state[ctx.entry] = Zd.top()
     heads = {h for h, _b, _n in ctx.iloops}
     order = {a: k for k, a in enumerate(ctx.nodes)}
+    if getattr(ctx, "windows", None) is None:
+        ctx.windows = windows_of(ctx) if DISJ else {}
+    inner = {n for ch in ctx.windows.values() for n in ch}
+    ctx.disj = {}
+
+    def steps(a, M, into):
+        """[(successor transition source, j, post)], the window's zones stored in `into`."""
+        if a in ctx.windows:
+            disj, outs = window_transfer(ctx, kind, a, M)
+            for n, parts in disj.items():
+                ctx.disj[n] = parts
+                into[n] = hull(parts)
+            b = ctx.windows[a][-1]
+            return [(b, j, post) for j, post in outs.items()]
+        return [(a, j, post) for j, _Mf, _ex, post in transfer(ctx, kind, a, M)]
+
     work = [ctx.entry]
     visits = {}
     while work:
         work.sort(key=lambda x: order[x])
         a = work.pop(0)
         M = state[a]
-        if M is None:
+        if M is None or a in inner:
             continue
-        for j, _Mf, _ex, post in transfer(ctx, kind, a, M):
-            n = ctx.out[a][j][0]
+        for src, j, post in steps(a, M, state):
+            n = ctx.out[src][j][0]
             if n is None or post is None:
                 continue
             new = join(state[n], post)
+            widened = False
             if n in heads:
                 visits[n] = visits.get(n, 0) + 1
                 if visits[n] > 2:
                     new = widen(state[n], new, ctx.thresholds)
-            new = Zd.close(new) if new is not None else None
+                    widened = True
+            if new is not None and (widened or n == ctx.entry):
+                new = Zd.close(new)
+            elif new is not None:
+                new = Zd.checked(new, new)   # a join of closed zones is closed
             if not leq(new, state[n]):
                 state[n] = new
                 if n not in work:
@@ -1178,14 +1478,16 @@ def analyse(ctx, kind):
     for _ in range(3):
         new = {a: None for a in ctx.nodes}
         new[ctx.entry] = Zd.top()
+        ctx.disj = {}
         for a in ctx.nodes:
-            if state[a] is None:
+            if state[a] is None or a in inner:
                 continue
-            for j, _Mf, _ex, post in transfer(ctx, kind, a, state[a]):
-                n = ctx.out[a][j][0]
+            for src, j, post in steps(a, state[a], new):
+                n = ctx.out[src][j][0]
                 if n is not None and post is not None:
                     new[n] = join(new[n], post)
-        state = {a: (Zd.close(m) if m is not None else None) for a, m in new.items()}
+        state = {a: (None if m is None else Zd.close(m) if a == ctx.entry else Zd.checked(m, m))
+                 for a, m in new.items()}
     return state
 
 
@@ -1305,7 +1607,93 @@ def synth(ctx, kind, state, h, body, cache):
     return best
 
 
-def synth_lp(ctx, kind, inv, h, body, coarse=False):
+def _cv(v):
+    """Analysis variable -> variable of the certificate."""
+    return v if v < 10 else 20 + (v - 10)
+
+
+def _zone_range(Zd, M, d, c):
+    """[min, max] of `Σ d·x + c` (certificate variables, coefficients ±1, at most two of
+    them, a difference if two) on the zone `M`; None if not of that form."""
+    Z = Zd.Z
+    # only variables of the state before the instruction: r0-r7, ghosts, tracked words
+    if any((10 <= v < 20 or v >= 10 + Z) and k for v, k in d.items()):
+        return None
+    av = {(v if v < 20 else 10 + (v - 20)): k for v, k in d.items() if k}
+    if any(abs(k) != 1 for k in av.values()):
+        return None
+    if not av:
+        return c, c
+    if len(av) == 1:
+        (v, k), = av.items()
+        lo, hi = Zd.lohi(M, v)
+        return (c + lo, c + hi) if k == 1 else (c - hi, c - lo)
+    if len(av) == 2 and sorted(av.values()) == [-1, 1]:
+        x = next(v for v, k in av.items() if k == 1)
+        y = next(v for v, k in av.items() if k == -1)
+        return c - M[y][x], c + M[x][y]
+    return None
+
+
+def _follow(ctx, state, a, v):
+    """A variable `w` whose value after the instruction at `a` is the value of `v` before
+    it plus a constant, in every disjunct of the zone at `a` and every possible wrap-around
+    case (exact, on the checker's post-expressions); `v` itself if possible; None if none."""
+    Zd = ctx.zones
+    eff, st = ctx.eff[a], ctx.st[a]
+    zones = [Zn for _t, Zn in ctx.disj[a]] if a in getattr(ctx, "disj", {}) else [state[a]]
+    cases = []
+    for Za in zones:
+        for m in mcases(eff):
+            prem = wrap_prem(eff, m)
+            if any((r := _zone_range(Zd, Za, p[0], p[1])) is not None and r[0] > 0 for p in prem):
+                continue
+            cases.append((Za, m))
+    nv = 10 + len(ctx.slots)
+    for w in [v] + [u for u in range(nv) if u != v]:
+        diff = None
+        for Za, m in cases:
+            e = post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, _cv(w))
+            d = dict(e[0])
+            d[_cv(v)] = d.get(_cv(v), 0) - 1
+            r = _zone_range(Zd, Za, d, e[1])
+            if r is None or r[0] != r[1] or (diff is not None and r[0] != diff):
+                break
+            diff = r[0]
+        else:
+            if cases:
+                return w
+    return None
+
+
+def transport(ctx, state, h, body, r):
+    """Linear parts {instruction: analysis variable} that follow the variable `r` of the
+    header through the loop's body (`_follow`), or None."""
+    Bs = set(body)
+    lin, order, k = {h: r}, [h], 0
+    while k < len(order):
+        a = order[k]
+        k += 1
+        if state[a] is None:
+            return None
+        w = None
+        for n, _w, _c in ctx.out[a]:
+            if n is None or n not in Bs or n == h:
+                continue
+            if w is None:
+                w = _follow(ctx, state, a, lin[a])
+                if w is None:
+                    return None
+            if n in lin:
+                if lin[n] != w:
+                    return None
+                continue
+            lin[n] = w
+            order.append(n)
+    return lin if len(lin) == len(Bs) else None
+
+
+def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     """A potential per instruction of the loop, each with its own linear part, found by one
     linear program over the checker's own obligations (the potentials and the Farkas
     multipliers are the unknowns: Colon & Sipma 2001, Podelski & Rybalchenko 2004, and
@@ -1340,6 +1728,9 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False):
             var(("p", a, v))
         var(("c", a))
     eq_rows, ub_rows = [], []    # rows: ({column: coefficient}, rhs)
+    # the same constant rows with every constant split as q * 2^31 + r, |r| <= 2^30, and
+    # the two parts required separately (stronger, well scaled: tried when HiGHS fails)
+    split_rows = []
 
     def add_oblig(prem, gd, gc):
         # gd: {program variable: {column: coef}}, gc: ({column: coef}, constant)
@@ -1363,6 +1754,17 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False):
             if p[1]:
                 row[li] = row.get(li, 0) - p[1]
         ub_rows.append((row, -gc[1]))
+        hi_row, lo_row = {}, dict(gc[0])
+        for li, p in zip(lam, ps):
+            q, r = divmod(p[1] + (1 << 30), 1 << 31)
+            r -= 1 << 30
+            if q:
+                hi_row[li] = -q
+            if r:
+                lo_row[li] = lo_row.get(li, 0) - r
+        if hi_row:
+            split_rows.append((hi_row, 0.0))
+        split_rows.append((lo_row, -gc[1]))
 
     for a in ctx.nodes:
         i, eff, st = ctx.insn[a], ctx.aeff[a], ctx.st[a]
@@ -1373,13 +1775,15 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False):
             facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
             for m in mcases(eff):
                 sig = {v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for v in V}
-                ia, wp = inv.get(a, []), wrap_prem(eff, m)
+                ias, wp = disjuncts(inv, a), wrap_prem(eff, m)
                 if coarse:
                     wp = [g for g in wp if g[0] or abs(g[1]) <= BIG]
                     sig = {v: (pv(10 + v) if v < 8 and not e[0] and abs(e[1]) > BIG else e) for v, e in sig.items()}
-                    ia = [g for g in ia if abs(g[1]) <= BIG]
-                for D in facts:
+                    ias = [[g for g in ia if abs(g[1]) <= BIG] for ia in ias]
+                for D, ia in ((D, ia) for D in facts for ia in ias):
                     prem = D + wp + ia + rng
+                    if box_contradiction(prem):
+                        continue        # a case that cannot happen: no constraint
                     gd, gcc, gk = {}, {}, 0
                     if nxt == h:
                         if a in B:
@@ -1423,12 +1827,15 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False):
 
     Aeq, beq = mat(eq_rows)
     Aub, bub = mat(ub_rows)
+    Asp, bsp = mat(split_rows)
     bounds = [(None, None)] * n
     for key, k in col.items():
         if key == "N":
             bounds[k] = (0, None)
         elif key[0] == "p":
-            bounds[k] = (-16, 16)
+            # with `fixed` = (linear parts, sign): those, the constants only are unknowns
+            bounds[k] = (-16, 16) if fixed is None else \
+                ((fixed[1],) * 2 if _cv(fixed[0][key[1]]) == key[2] else (0, 0))
         elif key[0] == "c":
             bounds[k] = (None, None)
         else:
@@ -1436,10 +1843,19 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False):
     cost = np.zeros(n)
     cost[NB] = 1.0
     sols = []
-    for meth in ("highs-ds", "highs-ipm"):     # the constants reach 2^32: either may fail
+    # the constants reach 2^32: either method may fail; HiGHS's presolve, too, declares
+    # feasible programs of this kind infeasible (the interior point without it is tried last)
+    for meth, opts, split in (("highs-ds", {}, False), ("highs-ipm", {}, False),
+                              ("highs-ipm", {"presolve": False}, False),
+                              ("highs-ds", {}, True), ("highs-ipm", {}, True)):
+        if (opts or split) and sols:
+            break
+        if split and not split_rows:
+            continue
+        A, b = (Asp, bsp) if split else (Aub, bub)
         try:
-            res = linprog(cost, A_ub=Aub, b_ub=bub, A_eq=Aeq, b_eq=beq, bounds=bounds, method=meth,
-                          options={"time_limit": LP_SECONDS})
+            res = linprog(cost, A_ub=A, b_ub=b, A_eq=Aeq, b_eq=beq, bounds=bounds, method=meth,
+                          options=dict({"time_limit": LP_SECONDS}, **opts))
         except ValueError:
             continue
         if res.status == 0:
@@ -1519,12 +1935,25 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     any value in the producer's own analysis (the constants of the literal pool can make the linear
     programs fail numerically); the certificate that certifies more loops is kept. The
     checker's obligations use the exact effects in both."""
+    key = None
+    if name.startswith("__aeabi_") and name in an.img.funcs:
+        # the run-time routines are the same code in every binary: an empty result is
+        # reused (keyed by the code, its alignment and the options; addresses relocated)
+        start, size = an.img.funcs[name]
+        key = (bytes(an.img.mem[start:start + size]), start % 4, abi, prefer_source, frame)
+        if key in _RUNTIME_EMPTY:
+            return {}, [], [(None if h is None else h + start, w) for h, w in _RUNTIME_EMPTY[key]]
     res = _certify_loops(an, name, abi, prefer_source, frame, False)
     if res[2] and any(w == "no potential found" for _h, w in res[2]):
         alt = _certify_loops(an, name, abi, prefer_source, frame, True)
         if len(alt[1]) > len(res[1]):
-            return alt
+            res = alt
+    if key is not None and not res[0] and not res[1]:
+        _RUNTIME_EMPTY[key] = [(None if h is None else h - start, w) for h, w in res[2]]
     return res
+
+
+_RUNTIME_EMPTY = {}
 
 
 def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
@@ -1535,20 +1964,24 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
     if not ctx.iloops:
         return {}, [], []
     kind = kinds_of(ctx)
-    state = analyse(ctx, kind)
-    if CONG:
+    if CONG:        # the congruences do not depend on the zones: one analysis, with them
         ctx.cong = congruences(ctx)
-        state = analyse(ctx, kind)
+    state = analyse(ctx, kind)
     cache = {a: (transfer(ctx, kind, a, state[a]) if state[a] is not None else []) for a in ctx.nodes}
 
     def invariants(R):
-        inv = {}
+        inv = Invs()
         for a in ctx.nodes:
             if state[a] is None:
                 inv[a] = [({}, 1)]
                 continue
             keep = set(R) | ({8, 9} if kind.get(a, "none") != "none" else set())
-            inv[a] = zone_constraints(ctx.zones, state[a], keep)
+            parts = ctx.disj.get(a, [])
+            if len(parts) >= 2:
+                zs = [zone_constraints(ctx.zones, Zn, keep) for _tag, Zn in parts]
+                inv[a], inv.alt[a], inv.tags[a] = zs[0], zs[1:], [tag for tag, _Zn in parts]
+            else:
+                inv[a] = zone_constraints(ctx.zones, state[a], keep)
         return inv
 
     loops, info, why = [], [], []
@@ -1559,7 +1992,20 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
         if LP and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
                 full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
-            cands = (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse))
+            def transported(h=h, body=body):
+                # linear parts that follow a bounded variable of the header (`transport`),
+                # the constants from the linear program (HiGHS fails on the full program)
+                Mh = state[h]
+                for r in range(10 + len(ctx.slots)):
+                    if r in (8, 9) or Mh is None or ctx.zones.lohi(Mh, r) == (0, U - 1):
+                        continue
+                    lin = transport(ctx, state, h, body, r)
+                    if lin is not None:
+                        for sgn in (1, -1):
+                            yield from synth_lp(ctx, kind, full, h, body, False, fixed=(lin, sgn))
+            cands = itertools.chain(
+                (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
+                transported())
             for N, pots, D in cands:
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
                     continue
@@ -1594,6 +2040,9 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
         frame=ctx.frame,
         cong=[[[v, e, r] for v, (e, r) in sorted((ctx.cong or {}).get(a, {}).items())] for a in ctx.nodes],
         proofs=proofs)
+    if any(inv.alt.get(a) for a in ctx.nodes):
+        fields["alt"] = [[[js_lin(g) for g in d] for d in inv.alt.get(a, [])] for a in ctx.nodes]
+        fields["pick"] = picks_of(ctx, inv, kind)
     return fields, info, why
 
 
@@ -1609,7 +2058,7 @@ def js_proof(cert):
 def prove_all(ctx, kind, inv, loops):
     """Proves every obligation, dropping what fails; returns (loops, inv, proofs in the
     checker's order, [(index, header)] of the dropped loops)."""
-    inv = {a: list(v) for a, v in inv.items()}
+    inv = inv.copy() if isinstance(inv, Invs) else Invs({a: list(v) for a, v in inv.items()})
     alive = list(range(len(loops)))
     dropped = []
     nv = nvars(len(ctx.slots))
@@ -1624,7 +2073,7 @@ def prove_all(ctx, kind, inv, loops):
         for k, g in enumerate(inv.get(ctx.entry, [])):
             cert = pr.prove(g)
             if cert is None:
-                failed_inv.add((ctx.entry, k))
+                failed_inv.add((ctx.entry, 0, k))
             proofs.append(cert)
         for li, lc in enumerate(cur):
             cert = pr.prove(goal_lin(-row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)))
@@ -1638,14 +2087,17 @@ def prove_all(ctx, kind, inv, loops):
                     cert = pr.prove(g)
                     if cert is None:
                         if tag[0] == "inv":
-                            failed_inv.add((tag[1], tag[2]))
+                            failed_inv.add((tag[1], tag[2], tag[3]))
                         else:
                             failed_loop.add(tag[1])
                     proofs.append(cert)
         if not failed_inv and not failed_loop:
             return cur, inv, [js_proof(c) for c in proofs], dropped
-        for n, k in sorted(failed_inv, reverse=True):
-            del inv[n][k]
+        for n, t, k in sorted(failed_inv, reverse=True):
+            if t == 0:
+                del inv[n][k]
+            else:
+                del inv.alt[n][t - 1][k]
         for li in sorted(failed_loop, reverse=True):
             dropped.append((alive[li], loops[alive[li]].header))
             del alive[li]

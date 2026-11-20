@@ -156,9 +156,65 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 136 of 403 | 267 + 116 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 193 of 403 | 210 + 116 | all | 115 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 246 of 403 | 157 + 116 | all | 120 |
+| no assumption on callees | 136 of 403, and the 116 of the division routines | 267 + 0 (division routines) | all | 115 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 193 of 403, and the 116 | 210 + 0 | all | 115 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 250 of 403, and the 116 | 153 + 0 | all | 120 |
+
+Disjunctive invariants (2026-11-20). The run-time division routines (`runtime.c`, the
+same four in every kernel) count `for (i = 31; i >= 0; i--)`, compiled as `subs r3, r3, #1;
+adds r4, r3, #1; bhs exit`: the exit is taken once `r3` has wrapped around to 2^32 − 1, and
+between the subtraction and the branch `r3 ≤ 30 ∨ r3 = 2^32 − 1`, which no conjunction of
+linear constraints expresses. The checker (`ThumbDataCore`, proof in `ThumbData`, no new
+assumption, no axiom beyond Lean's three) now accepts invariants that are disjunctions:
+per instruction further disjuncts (`alt`) and, for each case of a transition (transition,
+wrap case, fact of the branch, source disjunct), the disjunct of the successor it lands in
+(`pick`; default the first). The producer splits the zone at an addition or subtraction
+of a constant that may wrap around and carries the two cases along the straight line up
+to the next conditional branch (trace partitioning, Mauborgne & Rival, ESOP 2005, merged
+after the branch); the potential then follows the counter through its copies (`r3 + 1`,
+the operand of the flags after the subtraction, `r4 + 1` at the branch). HiGHS failed on
+these linear programs (constants from 1 to 2^32 in one row; it declared feasible programs
+infeasible): the producer now detects contradictions of the one-variable bounds exactly,
+leaves such cases out of the linear program, retries without presolve, then with each
+constant split as `q·2^31 + r` and the two parts required separately, then with linear
+parts fixed to a variable that follows a bounded header variable (`transport`), only the
+constants unknown. Results: the 116 loops of the division routines are certified in all
+six runs (none before; bound 31 back edges, source bound 32), the kernels' counts become
+136 / 193 / 250 (+4 with both assumptions: `fft`, `matrix1`, two loops of `pm_kernel`
+bounded by 2^31 − 2), without frame pointers 140 / 198 / 252; 366 of the 519 loops of the
+binaries with both assumptions. Trusted loop rows in the certified cycle bounds: 159 / 153 /
+137 → 43 / 37 / 19 (134 → 18 without frame pointers); with both assumptions 158 of the 173
+functions with loops have none. No loop lost, no bound higher, every certificate accepted, no
+emulated run above a bound. Must-reject tests (`test_binloops.py`, class `Disjunctions`):
+one more iteration, a step of 2, the opposite exit, `alt` or `pick` removed, a disjunct
+or a target changed. The six runs took 6 to 16 minutes each with `--jobs 4`.
+
+Run time and development cycle (2026-11-20). Profile of a run with both assumptions (103
+minutes before): `pm` alone took 77 minutes (`pm_kernel`: 902 instructions, 31 loops, zones
+of 44 variables); in the slow functions the closure of zones (Floyd-Warshall, pure Python)
+took 46-57 % of the time, HiGHS 20-54 % (badly scaled programs: the dual simplex often
+reports a numerical failure or reaches `LP_SECONDS`), the rest the transfer functions and
+joins. Changes that leave every certificate identical (the producer is untrusted; checked
+with `BINLOOPS_CHECK_CLOSE=1`, which compares each shortcut with the full closure, and by
+comparing the certificate files of whole runs): a join of closed zones is not closed again
+(the pointwise maximum of closed difference-bound matrices is closed: Miné, PADO 2001), a constraint added to a closed zone is closed incrementally in O(n^2), the
+image of a closed zone by the post-expressions is completed only on the variables with any
+value, the analysis before the congruences (whose result was discarded) is gone, and the
+empty results of the run-time division routines (the same code in every kernel) are
+reused. With `--jobs` (kernels in parallel) the run with both assumptions takes 18 minutes
+with 3 processes (103 before), its 29 certificate files identical to those of the previous
+run. Elsewhere: the Lean checker takes 1.1 s at most per certificate (6 s for all), the
+Clang analyser 100 s for the 29 kernels (92 % of it in Z3 implication checks, much of
+that in the construction of a solver per query). Cycle:
+
+1. `python3 -m pytest -q test_binloops.py test_ipet.py test_effect.py` (under a minute);
+2. a subset: `run_cycles.py --certify-loops --abi --frame --jobs 4 --only bitcount --only
+   bitonic --only countnegative --only fft --only st --only isqrt --only matrix1 --only
+   insertsort --only filterbank --only iir --only md5 --only sha ...` (a few minutes), then
+   `compare_runs.py OLD.json NEW.json --check` (fails on a loop lost or a bound higher);
+3. the full run with both assumptions (`--jobs 4`), then `compare_runs.py --check`;
+4. the six runs (default and `.nofp` builds; no assumption, `--abi`, both) only before the
+   figures of the paper and of this file are updated.
 
 Exact shift (2026-11-20): `LSLS rd, rm, #s` is exact in the checker's specification
 (`Val.shl`: `rm·2^s` when it does not overflow, any value when it does, a case split like
@@ -223,28 +279,28 @@ bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
 offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences, potentials per instruction, the frame pointer, exact effects and the exact shift): 92 counter tracked but no
-potential (67 of them exit on equality), 25 compared value not tracked, 21 SP offset unknown, 12 flags from an
-unmodelled instruction, 7 mixed (before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
+congruences, potentials per instruction, the frame pointer, exact effects, the exact shift and disjunctive invariants): 88 counter tracked but no
+potential (64 of them exit on equality), 25 compared value not tracked, 21 SP offset unknown, 12 flags from an
+unmodelled instruction, 7 mixed (before the disjunctive invariants: 92, 25, 21, 12, 7; before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 
-Classification of the 157 kernel loops not certified with `--abi --frame` (2026-11-20, after the exact shift; 174 after the exact effects, 188 before,
+Classification of the 153 kernel loops not certified with `--abi --frame` (2026-11-20, after the disjunctive invariants; 157 after the exact shift, 174 after the exact effects, 188 before,
 `classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
 definitions reaching its operands inside the loop; heuristic, for diagnosis only):
 
 | group | loops | what would be needed |
 |---|---|---|
-| A counter against a constant or a bounded limit | 51 (62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame (11), a constant (11; among them loops that count from `mvns r1,#7` up by 4 to zero, an idiom found in 7 kernel loops, in `fft`, `fir2dim` and `bsort`, which needs a disjunctive invariant or relational congruences), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
-| B counter against a limit without a bound (a parameter) | 20 (26, 27) | bounds in the parameters, or calling contexts, on the binary |
+| A counter against a constant or a bounded limit | 49 (51 before the disjunctive invariants, 62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame (10), a constant (10; among them loops that count from `mvns r1,#7` up by 4 to zero, an idiom found in 7 kernel loops, in `fft`, `fir2dim` and `bsort`: not certified by the producer after the disjunctive invariants either, cause not analysed), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
+| B counter against a limit without a bound (a parameter) | 19 (20, 26, 27) | bounds in the parameters, or calling contexts, on the binary |
 | D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
 | F exit on data loaded from memory | 16 (17) | invariants on memory (string and search loops) |
 | C exit on the flags of a shift | 12 | `x >>= 8` until zero (`bitcount`, `sqrtf`): logarithmic potentials on the code |
 | E counter shifted | 11 | logarithmic potentials (binary search, bit reversal) |
-| I other (two counters, sums of registers) | 11 | |
+| I other (two counters, sums of registers) | 10 (11) | |
 | G word of the frame not tracked | 10 | SP offsets where they are unknown |
 | H value through an approximated instruction | 4 (9) | exact effects of `ADCS` (3), `ANDS` (1) |
 
-The producer's own reasons: no potential found for 149 (166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
+The producer's own reasons: no potential found for 145 (149 before the disjunctive invariants, 166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
 2^32) exceeds the source bound for 8 (8, 7). An experiment with exact effects, in the producer only
 (not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
 write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`

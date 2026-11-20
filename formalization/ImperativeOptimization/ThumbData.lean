@@ -604,7 +604,7 @@ def CongHolds (cs : List Cong) (s : Env) : Prop :=
 def Inv (f : BFun) (L : DFun) (SP0 : Nat) (a : Nat) (σ : MState) (fa fb : Nat) : Prop :=
   wfState σ ∧ wfStack σ ∧ fa < U ∧ fb < U ∧ flagsAt (kindAt f L a) fa fb σ.f ∧
     (∀ d, spAt f L a = some d → σ.sp = aOf (SP0 + d)) ∧
-    holds (invAt f L a) (fun _ => 0) (envOf σ fa fb SP0 L.slots) ∧
+    (∃ I ∈ invsAt f L a, holds I (fun _ => 0) (envOf σ fa fb SP0 L.slots)) ∧
     CongHolds (congAt f L a) (envOf σ fa fb SP0 L.slots)
 
 theorem flags_post (ka kn : FKind) (e : Eff) (h : wfEff e = true) (σ σ' : MState) (hσ : wfState σ)
@@ -710,8 +710,16 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     checkObs (obligations mul abi c f L) L.proofs = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩ := h
   exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
+
+theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
+    (h : checkDFun mul abi c f L = true) :
+    ∀ l ∈ L.alt, ∀ I ∈ l, ∀ g ∈ I, wfLin L.slots.length g = true := by
+  simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
+    Bool.or_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩ := h
+  exact ha
 
 theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (h : checkDFun mul abi c f L = true) :
@@ -938,6 +946,29 @@ theorem invAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin
       simp [hk, hl] at hg
       exact hw l (List.mem_of_getElem? hl) g hg
 
+theorem invsAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.inv, ∀ g ∈ l, wfLin L.slots.length g = true)
+    (hwa : ∀ l ∈ L.alt, ∀ I ∈ l, ∀ g ∈ I, wfLin L.slots.length g = true)
+    (a : Nat) : ∀ I ∈ invsAt f L a, ∀ g ∈ I, wfLin L.slots.length g = true := by
+  intro I hI g hg
+  simp only [invsAt, List.mem_cons] at hI
+  rcases hI with rfl | hI
+  · exact invAt_wf f L hw a g hg
+  · cases hk : find f.nodes a with
+    | none => simp [hk] at hI
+    | some k =>
+      cases hl : L.alt[k]? with
+      | none => simp [hk, hl] at hI
+      | some l =>
+        simp only [hk] at hI
+        simp [hl] at hI
+        exact hwa l (List.mem_of_getElem? hl) I hI g hg
+
+theorem tgtInv_mem (f : BFun) (L : DFun) (n t : Nat) : tgtInv f L n t ∈ invsAt f L n := by
+  unfold tgtInv
+  cases h : (invsAt f L n)[t]? with
+  | none => simp [invsAt]
+  | some J => exact List.mem_of_getElem? h
+
 theorem wfSv_nil (S : Nat) : wfSv S [] = true := by
   simp [wfSv]
 
@@ -983,28 +1014,32 @@ theorem mem_indexed {α : Type} : ∀ (l : List α) (k j : Nat) (x : α), l[j]? 
 
 /-- The goals of a transition: the invariant of the successor, the descent of the potentials. -/
 def tGoals (f : BFun) (L : DFun) (e : Eff) (st : StackE) (frame : Bool) (m : Int) (a : Nat)
-    (next : Option Nat) : List Lin :=
+    (next : Option Nat) (t : Nat) : List Lin :=
   (match next with
-    | some n => (invAt f L n).map fun g => substL g (postS e st frame (spAt f L a) L.slots m)
+    | some n => (tgtInv f L n t).map fun g => substL g (postS e st frame (spAt f L a) L.slots m)
     | none => []) ++
   L.loops.map fun lc => goalLin (coefStep lc a next)
     (substP (potAt lc next) (postS e st frame (spAt f L a) L.slots m)) (potAt lc (some a))
 
 theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) (i : Insn)
     (j : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) (m : Int) (D : List Lin) (g : Lin)
+    (di si : Nat) (I : List Lin)
     (hdec : decode mul c a = some i) (hj : (trans i a)[j]? = some (next, w, calls))
     (hm : m ∈ mcases (effect abi c a))
-    (hD : D ∈ (match i.kind with
+    (hD : (match i.kind with
       | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
-      | _ => [[]]))
-    (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next) :
-    (D ++ wrapPrem (effect abi c a) m ++ invAt f L a ++ rangesN (nVars L.slots.length), g) ∈
+      | _ => [[]])[di]? = some D)
+    (hI : (invsAt f L a)[si]? = some I)
+    (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next (tgtIdx f L a j m di si)) :
+    (D ++ wrapPrem (effect abi c a) m ++ I ++ rangesN (nVars L.slots.length), g) ∈
       obsOf mul abi c f L a := by
   unfold obsOf
   rw [hdec]
   simp only [List.mem_flatMap, List.mem_map]
-  refine ⟨(0 + j, (next, w, calls)), mem_indexed _ 0 j _ hj, m, hm, D, ?_, g, by simpa [tGoals] using hg, rfl⟩
-  simpa using hD
+  refine ⟨(0 + j, (next, w, calls)), mem_indexed _ 0 j _ hj, m, hm, (0 + di, D), ?_,
+    (0 + si, I), mem_indexed _ 0 si _ hI, g, ?_, rfl⟩
+  · exact mem_indexed _ 0 di _ (by simpa using hD)
+  · simpa [tGoals] using hg
 
 /-! ### The stack -/
 
@@ -1183,6 +1218,8 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have := gExp_dvd _ _ hC
     rw [h8, h9]
     simpa [envOf] using this
+  obtain ⟨I, hImem, hI⟩ := hI
+  obtain ⟨si, hsi⟩ := List.mem_iff_getElem?.mp hImem
   obtain ⟨D, hD, hDh⟩ : ∃ D ∈ (match i.kind with
       | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
       | _ => [[]]), holds D (fun _ => 0) env := by
@@ -1194,17 +1231,21 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         (by revert hfl; cases kindAt f L a <;> simp [flagsAt]) (ccOf c a) hcc (j == 0)
         (hcond t hk) _ env h8 h9 _ hgd
     | _ => exact ⟨[], by simp, by simp [holds]⟩
-  have hprem : holds (D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars S)) (fun _ => 0) env := by
+  obtain ⟨di, hdi⟩ := List.mem_iff_getElem?.mp hD
+  have hwalt := checkDFun_alt hc
+  have hprem : holds (D ++ wrapPrem e m ++ I ++ rangesN (nVars S)) (fun _ => 0) env := by
     rw [holds_append, holds_append, holds_append]
     refine ⟨⟨⟨hDh, wrapPrem_holds e σ σ' fa fb SP0 L.slots hσ hwfe _⟩, ?_⟩,
       rangesN_holds σ σ' fa fb SP0 L.slots hσ hwf' hs hws' hfa hfb _⟩
     intro g hg
-    rw [lin_congr S g (invAt_wf f L hwinv a g hg) _ (fun _ => 0) env (envOf σ fa fb SP0 L.slots) hstate]
+    rw [lin_congr S g (invsAt_wf f L hwinv hwalt a I hImem g hg) _ (fun _ => 0) env
+      (envOf σ fa fb SP0 L.slots) hstate]
     exact hI g hg
-  have hgoal : ∀ g ∈ tGoals f L e st L.frame m a next, g.eval (fun _ => 0) env ≤ 0 := by
+  set t := tgtIdx f L a j m di si with ht
+  have hgoal : ∀ g ∈ tGoals f L e st L.frame m a next t, g.eval (fun _ => 0) env ≤ 0 := by
     intro g hg
-    have hmem := obs_mem mul abi c f L a i j next w calls m D g hdec hj hm hD hg
-    have hin : (D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars S), g) ∈
+    have hmem := obs_mem mul abi c f L a i j next w calls m D g di si I hdec hj hm hdi hsi hg
+    have hin : (D ++ wrapPrem e m ++ I ++ rangesN (nVars S), g) ∈
         obligations mul abi c f L := by
       simp only [obligations, List.mem_append]
       right
@@ -1248,11 +1289,12 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
           simp only [aOf, U] at *
           omega
         | any => rw [hsq] at hspk; simp at hspk
-    · intro g hg
+    · refine ⟨tgtInv f L n t, tgtInv_mem f L n t, fun g hg => ?_⟩
       have := hgoal (substL g (postS e st L.frame (spAt f L a) L.slots m)) (by
         simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
       rw [substL_eval] at this
-      rwa [lin_congr S g (invAt_wf f L hwinv n g hg) (fun _ => 0) (fun _ => 0) _ _ (hpost (by simp))] at this
+      rwa [lin_congr S g (invsAt_wf f L hwinv hwalt n _ (tgtInv_mem f L n t) g hg) (fun _ => 0)
+        (fun _ => 0) _ _ (hpost (by simp))] at this
     · intro x hx
       obtain ⟨_, hwc, hcok⟩ := checkDFun_cong hc
       have hwx := congAt_wf f L hwc n x hx
@@ -1389,7 +1431,8 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
       fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
     have hinv : Inv f L x.σ.sp f.entry x.σ 0 0 := by
-      refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_, fun g hg => ?_, ?_⟩
+      refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_,
+        ⟨invAt f L f.entry, by simp [invsAt], fun g hg => ?_⟩, ?_⟩
       · intro d hd
         rcases hspe with hspe | hspe <;> rw [hspe] at hd
         · cases hd
@@ -1605,7 +1648,7 @@ def exProofs : List (Nat × List Nat) :=
     (1, [])]
 
 
-def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, []⟩
+def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], []⟩
 
 def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], []⟩
 
@@ -1619,7 +1662,7 @@ theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] = true := by 
 /-- A bound of 9 iterations is refused. -/
 theorem exData_tight :
     checkData 32 false exCode [{ exFunD0 with rows := [loopRow exFunD0 { exLoop with bound := 9 }] }]
-      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false, []⟩] = false := by decide
+      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], []⟩] = false := by decide
 
 /-- Every run of the data semantics of the example costs at most 68 cycles, with no
     trusted row. -/
@@ -1873,7 +1916,7 @@ def exStepFun : BFun := { exStepFun0 with rows := [loopRow exStepFun0 exStepLoop
 def exStepCert : Cert := ⟨4, [208, 24, 20, 16, 12, 0], [5], 52⟩
 
 def exStepDFun : DFun :=
-  ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong⟩
+  ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong, [], []⟩
 
 theorem exStep_binary : checkBinary 32 exStepCode [exStepFun] [exStepCert] = true := by decide
 
@@ -1888,6 +1931,204 @@ theorem exStep_needs_cong :
 theorem exStep_sound (d : Nat) (tot : Int)
     (h : DRun 32 false exStepCode [exStepFun] [exStepDFun] d 0x100 tot) : tot ≤ 52 :=
   data_sound 32 false exStepCode [exStepFun] [exStepCert] [exStepDFun] exStep_binary exStep_checks
+    d 0x100 0 tot h (by decide)
+
+end
+
+
+open ImperativeOptimization.Checker (Lin) in
+section
+
+/-! ### An example that needs a disjunctive invariant
+
+`movs r3, #9; L: subs r3, r3, #1; adds r2, r3, #1; bcs out; b L; out: bx lr`, the loop
+`for (i = 9; i >= 0; i--)` as Clang compiles it (the run-time division routines count the
+same way from 31): the exit is taken when `r3 + 1` carries, that is once `r3` has wrapped
+around to `2^32 - 1`. Between the subtraction and the branch, `r3 ≤ 8` or `r3 = 2^32 - 1`,
+which no conjunction of linear constraints expresses; the certificate (made by
+`benchmarks/cycles/binloops.py`) gives the two disjuncts (`alt`) and the disjunct each case
+lands in (`pick`). The bound, 63 cycles, has no trusted row. Without the alternatives the
+same certificate is rejected (`exWrap_needs_alt`). -/
+
+def exWrapCode : Code := ⟨0x100, #[0x2309, 0x1E5B, 0x1C5A, 0xD200, 0xE7FB, 0x4770, 0x0, 0x0]⟩
+
+def exWrapKinds : List FKind := [.none, .none, .sub, .add, .add, .add]
+
+def exWrapInv : List (List Lin) :=
+  [[],
+    [⟨[0, 0, 1, -1], [], -4294967286⟩, ⟨[0, 0, 0, 1], [], -9⟩],
+    [⟨[0, 0, 1, -1], [], -4294967287⟩, ⟨[0, 0, 1, 0, 0, 0, 0, 0, -1], [], -4294967286⟩, ⟨[0, 0, 0, 1], [], -8⟩, ⟨[0, 0, 0, 1, 0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -9⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, -1, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩],
+    [⟨[0, 0, 1], [], -9⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0, 0, 1, -1], [], -1⟩, ⟨[0, 0, 1, 0, 0, 0, 0, 0, -1], [], -1⟩, ⟨[0, 0, 0, 1], [], -8⟩, ⟨[0, 0, -1, 1], [], 1⟩, ⟨[0, 0, 0, 1, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -8⟩, ⟨[0, 0, -1, 0, 0, 0, 0, 0, 1], [], 1⟩, ⟨[0, 0, 0, -1, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩],
+    [⟨[0, 0, 1], [], -9⟩, ⟨[0, 0, -1], [], 1⟩, ⟨[0, 0, 1, -1], [], -1⟩, ⟨[0, 0, 1, 0, 0, 0, 0, 0, -1], [], -1⟩, ⟨[0, 0, 0, 1], [], -8⟩, ⟨[0, 0, -1, 1], [], 1⟩, ⟨[0, 0, 0, 1, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -8⟩, ⟨[0, 0, -1, 0, 0, 0, 0, 0, 1], [], 1⟩, ⟨[0, 0, 0, -1, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩],
+    [⟨[0, 0, 0, -1], [], 4294967295⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4294967295⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩]]
+
+def exWrapAlt : List (List (List Lin)) :=
+  [[],
+    [],
+    [[⟨[0, 0, 1], [], -4294967286⟩, ⟨[0, 0, 0, -1], [], 4294967295⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩]],
+    [[⟨[0, 0, 0, -1], [], 4294967295⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4294967295⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩]],
+    [],
+    []]
+
+def exWrapPick : List (List (Nat × Int × Nat × Nat × Nat)) := [[], [(0, 1, 0, 0, 1)], [(0, 0, 0, 1, 1), (0, 1, 0, 1, 1), (0, -1, 0, 1, 1)], [], [], []]
+
+def exWrapCong : List (List (Nat × Nat × Nat)) := [[], [], [(9, 32, 1)], [(9, 32, 1)], [(9, 32, 1)], [(9, 32, 1)]]
+
+def exWrapLoop : LoopCert := ⟨258, [258, 260, 262, 264], 1, 9, [⟨[0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1, -16], 16⟩, ⟨[0, 0, 1, 16, 0, 0, 0, 0, -16, -16], 16⟩, ⟨[0, 0, 16, -16, 0, 0, 0, 0, 1, 16], -31⟩]⟩
+
+def exWrapProofs : List (Nat × List Nat) :=
+  [(1, []),
+    (1, [0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 1, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 429496730]),
+    (1, [0, 429496730]),
+    (1, [2, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, []),
+    (1, [0, 0, 0, 1]),
+    (1, [1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 1, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [2, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1]),
+    (1, [1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1]),
+    (1, [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 2]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 0, 0, 0, 1, 0, 0, 0, 16]),
+    (1, [0, 4294967295, 0, 4294967295, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 4294967295, 0, 4294967295, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 73014444000, 0, 73014444000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 16]),
+    (1, [0, 4294967292, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4294967292, 1]),
+    (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]),
+    (1, [0, 2147483648, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483648]),
+    (1, [0, 2147483648, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483648]),
+    (1, [0, 2147483644, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483644, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 2147483644, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483644, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 38654705648, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38654705648, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 16]),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [0, 18, 0, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 16]),
+    (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 2]),
+    (1, []),
+    (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 2]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [17, 0, 0, 0, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 16]),
+    (1, [1]),
+    (1, [1]),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [33, 0, 0, 0, 0, 0, 0, 0, 33, 0, 0, 33, 0, 0, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16]),
+    (1, [0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 1]),
+    (1, [0, 16, 0, 16, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16]),
+    (1, [0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 17, 32]),
+    (1, [4294967286, 0, 4294967286, 0, 4294967286, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 1, 0, 1, 0, 0, 0, 0, 1]),
+    (1, [4294967294, 0, 4294967294, 0, 4294967294, 0, 0, 0, 0, 0, 1, 1]),
+    (1, [4294967294, 0, 4294967294, 0, 4294967294, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967287, 0, 4294967287, 0, 4294967287, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967296, 0, 4294967296, 0, 4294967296, 0, 0, 0, 0, 1, 0, 0, 1]),
+    (1, [4294967295, 0, 4294967295, 0, 4294967295, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967287, 0, 4294967287, 0, 4294967287, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967296, 0, 4294967296, 0, 4294967296, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967295, 0, 4294967295, 0, 4294967295, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [4294967294, 0, 4294967294, 0, 4294967294, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [274877906833, 0, 274877906833, 0, 274877906833, 0, 0, 0, 0, 0, 15, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 0, 32]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 16, 1, 0, 0, 0, 0, 16]),
+    (1, [])]
+
+def exWrapFun0 : BFun := ⟨256, [256, 258, 260, 262, 264, 266], []⟩
+
+def exWrapFun : BFun := { exWrapFun0 with rows := [loopRow exWrapFun0 exWrapLoop] }
+
+def exWrapDFun : DFun :=
+  ⟨exWrapKinds, exWrapInv, [exWrapLoop], [], exWrapProofs, [some 0, some 0, some 0, some 0, some 0, some 0], [], false, exWrapCong, exWrapAlt, exWrapPick⟩
+
+def exWrapCert : Cert := ⟨1, [63, 8, 7, 6, 5, 3, 0], [6], 63⟩
+
+theorem exWrap_binary : checkBinary 32 exWrapCode [exWrapFun] [exWrapCert] = true := by decide
+
+theorem exWrap_checks : checkData 32 false exWrapCode [exWrapFun] [exWrapDFun] = true := by decide
+
+theorem exWrap_needs_alt :
+    checkData 32 false exWrapCode [exWrapFun] [{ exWrapDFun with alt := [], pick := [] }] = false := by
+  decide
+
+/-- Every run of the data semantics of the example costs at most 63 cycles. -/
+theorem exWrap_sound (d : Nat) (tot : Int)
+    (h : DRun 32 false exWrapCode [exWrapFun] [exWrapDFun] d 0x100 tot) : tot ≤ 63 :=
+  data_sound 32 false exWrapCode [exWrapFun] [exWrapCert] [exWrapDFun] exWrap_binary exWrap_checks
     d 0x100 0 tot h (by decide)
 
 end

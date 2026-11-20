@@ -67,8 +67,13 @@ NEGLOOP = {0x100: [0x210A, 0x4249, 0x4248, 0x3801, 0xD1FD, 0x4770]}
 MVNLOOP = {0x100: [0x210A, 0x43C9, 0x43C8, 0x3801, 0xD1FD, 0x4770]}
 # f at 0x100: movs r0,#5; lsls r1,r0,#1; L: subs r1,#1; bne L; bx lr  (LSLS: r1 = 10)
 SHLLOOP = {0x100: [0x2005, 0x0041, 0x3901, 0xD1FD, 0x4770]}
+# movs r3,#9; L: subs r3,r3,#1; adds r2,r3,#1; bcs out; b L; out: bx lr -- `for (i = 9; i >= 0; i--)`
+# as Clang compiles it in the division routines: the exit tests the carry of r3 + 1, true only
+# once r3 has wrapped to 2^32 - 1 (disjunctive invariant between the subtraction and the branch)
+WRAPLOOP = {0x100: [0x2309, 0x1E5B, 0x1C5A, 0xD200, 0xE7FB, 0x4770]}
 EXACT = {"lit": (LITLOOP, 12, 0x102), "stm": (STMLOOP, 10, 0x102), "keep": (STMKEEP, 12, 0x102),
-         "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106), "shl": (SHLLOOP, 10, 0x104)}
+         "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106), "shl": (SHLLOOP, 10, 0x104),
+         "wrap": (WRAPLOOP, 12, 0x102)}
 
 
 def exact_doc(name):
@@ -356,6 +361,50 @@ class ExactEffects(unittest.TestCase):
             d = copy.deepcopy(docs[name])
             d["code"]["halfwords"][0x100 // 2 + k] = h
             self.assertEqual(check(d)[0], 0 if ok else 1, (name, k, hex(h)))
+
+
+class Disjunctions(unittest.TestCase):
+    """A counter that exits on its wrap-around: the invariant between the subtraction and the
+    branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate
+    lists it (`alt`) with the disjunct each case lands in (`pick`)."""
+
+    def test_producer(self):
+        doc, _, st = exact_doc("wrap")
+        fn = doc["programs"][0]["functions"][0]
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x102, 9)])
+        self.assertTrue(any(fn["alt"]) and any(fn["pick"]))
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = exact_doc("wrap")[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        fn = lambda d: d["programs"][0]["functions"][0]  # noqa: E731
+        # the code: one more iteration, a step of 2 (wraps to 2^32 - 2), the opposite exit
+        for k, h in ((0, 0x230A), (1, 0x1E9B), (3, 0xD300)):
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + k] = h
+            self.assertEqual(check(d)[0], 1, (k, hex(h)))
+        # the certificate: no alternatives, no targets, a disjunct changed, a target changed
+        d = copy.deepcopy(doc)
+        del fn(d)["alt"]
+        self.assertEqual(check(d)[0], 1, "alt removed")
+        d = copy.deepcopy(doc)
+        del fn(d)["pick"]
+        self.assertEqual(check(d)[0], 1, "pick removed")
+        d = copy.deepcopy(doc)
+        changed = 0
+        for disj in (x for alts in fn(d)["alt"] for x in alts):
+            for g in disj:
+                if g["sv"] == [[3, -1]]:        # r3 >= 2^32 - 1 becomes r3 >= 2^32 - 2
+                    g["c"] -= 1
+                    changed += 1
+        self.assertGreater(changed, 0)
+        self.assertEqual(check(d)[0], 1, "disjunct changed")
+        d = copy.deepcopy(doc)
+        k = next(i for i, x in enumerate(fn(d)["pick"]) if x)
+        fn(d)["pick"][k][0][4] = 0
+        self.assertEqual(check(d)[0], 1, "target changed")
 
 
 class Checker(unittest.TestCase):

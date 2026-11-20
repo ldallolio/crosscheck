@@ -554,6 +554,13 @@ structure DFun where
   frame : Bool := false
   /-- Per instruction: congruences `(v, e, r)`, "variable `v` is `r` modulo `2^e`". -/
   cong : List (List (Nat × Nat × Nat)) := []
+  /-- Per instruction: further disjuncts of the invariant (the invariant at `a` is the
+      disjunction of `inv` and of these). -/
+  alt : List (List (List Lin)) := []
+  /-- Per instruction: targets `(j, m, d, s, t)`: the case of transition `j`, wrap-around
+      `m`, branch fact `d` and source disjunct `s` lands in the disjunct `t` of the next
+      instruction's invariant (`0`, the disjunct `inv`, when none is given). -/
+  pick : List (List (Nat × Int × Nat × Nat × Nat)) := []
   deriving Repr
 
 def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
@@ -561,6 +568,19 @@ def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
 
 def invAt (f : BFun) (L : DFun) (a : Nat) : List Lin :=
   ((find f.nodes a).bind fun k => L.inv[k]?).getD []
+
+/-- The disjuncts of the invariant at `a`: `invAt` first, then the alternatives. -/
+def invsAt (f : BFun) (L : DFun) (a : Nat) : List (List Lin) :=
+  invAt f L a :: ((find f.nodes a).bind fun k => L.alt[k]?).getD []
+
+/-- The disjunct of the next instruction's invariant that a case lands in. -/
+def tgtIdx (f : BFun) (L : DFun) (a j : Nat) (m : Int) (d s : Nat) : Nat :=
+  ((((find f.nodes a).bind fun k => L.pick[k]?).getD []).find? fun x =>
+    x.1 == j && x.2.1 == m && x.2.2.1 == d && x.2.2.2.1 == s).elim 0 fun x => x.2.2.2.2
+
+/-- The disjunct `t` of the invariant at `n` (the first one if there is no disjunct `t`). -/
+def tgtInv (f : BFun) (L : DFun) (n t : Nat) : List Lin :=
+  ((invsAt f L n)[t]?).getD (invAt f L n)
 
 /-- The offset of the stack pointer from its value at the entry, at instruction `a`. -/
 def spAt (f : BFun) (L : DFun) (a : Nat) : Option Int :=
@@ -654,11 +674,12 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
       let facts := match i.kind with
         | .cond _ => condFactsM ka (ccOf c a) (p.1 == 0) (gExp (congAt f L a))
         | _ => [[]]
-      (mcases e).flatMap fun m => facts.flatMap fun D =>
-        let prem := D ++ wrapPrem e m ++ invAt f L a ++ rangesN (nVars L.slots.length)
+      (mcases e).flatMap fun m => (indexed 0 facts).flatMap fun q =>
+        (indexed 0 (invsAt f L a)).flatMap fun r =>
+        let prem := q.2 ++ wrapPrem e m ++ r.2 ++ rangesN (nVars L.slots.length)
         let σ := postS e st L.frame (spAt f L a) L.slots m
         let invGoals := match next with
-          | some n => (invAt f L n).map fun g => substL g σ
+          | some n => (tgtInv f L n (tgtIdx f L a p.1 m q.1 r.1)).map fun g => substL g σ
           | none => []
         let loopGoals := L.loops.map fun lc =>
           goalLin (coefStep lc a next) (substP (potAt lc next) σ) (potAt lc (some a))
@@ -811,6 +832,7 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   f.nodes.all (nodeOk mul abi c f L) && kindAt f L f.entry == .none &&
   (spAt f L f.entry == some 0 || spAt f L f.entry == none) && slotsOk L &&
   L.inv.all (·.all (wfLin L.slots.length)) &&
+  L.alt.all (·.all (·.all (wfLin L.slots.length))) &&
   L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
   checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L
 

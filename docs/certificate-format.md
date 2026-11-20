@@ -325,13 +325,23 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   if the ghosts `8` and `9` are congruent modulo `2^e` (largest such `e`, Lean `gExp`),
   the facts `±(x₈ − x₉) + c ≤ 0` of the condition are rounded to `c` a multiple of `2^e`
   (`tightenL`) before they become premises (Paper III, after `lem:cond-facts`).
+- `"alt"` (optional, default none): per instruction (order of `nodes`) a list of further
+  disjuncts of the invariant, each a list of constraints like `"inv"`; the invariant at an
+  instruction is then `inv` **or** one of these (Lean `invsAt`; disjunct `0` is `inv`). The
+  producer gives them between an addition or subtraction that may wrap around and the next
+  conditional branch (the loops of the division routines, `for (i = 31; i >= 0; i--)`).
+- `"pick"` (optional, default none): per instruction a list of `[j, m, d, s, t]`: the case of
+  transition `j`, wrap case `m`, fact `d` of the branch and source disjunct `s` lands in
+  disjunct `t` of the next instruction's invariant (Lean `tgtIdx`, `tgtInv`); cases not
+  listed land in disjunct `0`, as does a `t` without such a disjunct.
 - `"proofs"`: one Farkas certificate `[mu, [[premise index, multiplier], ...]]` per
   obligation, in the order of `Thumb.obligations` (the entry's invariant and the
   potentials at the entry from the ranges alone; then, for every instruction, every
-  transition, every wrap case of a written sum or difference and every disjunct of the
-  facts of a branch, the successor's invariant and the descent `k + Φ(next) − Φ(here) ≤ 0`
-  of every certified loop). The premises are the disjunct, the wrap case, the
-  instruction's invariant and the ranges `[0, 2^32 − 1]` of the `20 + 2S` variables
+  transition, every wrap case of a written sum or difference, every disjunct of the
+  facts of a branch and every disjunct of the instruction's invariant, the target disjunct
+  of the successor's invariant and the descent `k + Φ(next) − Φ(here) ≤ 0` of every
+  certified loop). The premises are the fact of the branch, the wrap case, the disjunct of
+  the instruction's invariant and the ranges `[0, 2^32 − 1]` of the `20 + 2S` variables
   (`10`-`17`: registers written with any value, `18`, `19`: fresh ghosts, then the
   tracked words before and after).
 - Accepted (the second line per function, `ACCEPTED f: loop bounds of the machine code`,

@@ -1872,6 +1872,89 @@ paragraph, congruence and case-split sentences, abstract, evaluation, Lean size)
 README, the guide (Parts 5 and 9), `docs/certificate-format.md`, CLAUDE.md updated. This text
 of Paper III is new since the author's statement on the use of AI.
 
+73. "Go on improving benchmark scores but first make a complete profiling analysis of crosscheck : I am worried about its performances. Also the development cycle seems pretty slow now, maybe you should run a subset of samples  first then run the full suite afterwards. What would you suggest for a scientic relevance and industrial value improvement now ?"
+
+What the AI did for 73 (Claude Opus 5.5, 2026-11-20): a profile of every part, then changes
+to the untrusted producer that leave the certificates identical. Measurements: the Lean
+checker takes at most 1.1 s per certificate (6 s for the 29); the Clang analyser 100 s for the
+29 kernels (callgrind on `md5`: 92 % of the instructions in Z3 implication checks, much of it
+in building and configuring a solver per query; not changed); compilation, emulation and
+cycle bounds about 3 minutes per configuration; the loop certification on the binaries 17 to
+103 minutes per configuration, `pm` alone 77 of the 103 (`pm_kernel`: 902 instructions, 31
+loops, zones of 44 variables; one zone analysis 316 s, 41,376 transfers, 3,019 widenings,
+loop headers visited up to 151 times). In the slow functions (cProfile, then a stack sampler,
+since `perf` is not permitted on this machine), the Floyd-Warshall closure of the zones took
+46-57 %, HiGHS 20-54 % (dual simplex: numerical failures and the 5 s limit; interior point:
+infeasible, sometimes contradicting an optimal dual simplex). Changes (exact, checked with
+`BINLOOPS_CHECK_CLOSE=1` and by comparing certificate files): joins of closed zones are not
+closed again (Mine, PADO 2001: the pointwise maximum of closed difference-bound matrices is
+closed), incremental closure in O(n^2) after adding a constraint, the image of a closed zone
+completed only on its variables with any value, the analysis before the congruences (its
+result was discarded) removed, the empty results of the division routines reused (same
+code in every kernel, keyed by bytes, alignment and options). `run_cycles.py --jobs N`;
+`compare_runs.py OLD NEW --check`. Results: certificates identical old vs new on 7 kernels
+function by function (2.0-2.7x faster), and in whole runs: the run with both assumptions 103
+-> 18 minutes (3 processes), its 29 certificate files byte-identical; four other
+configurations identical (3, 9, 7, 9 minutes with 4 processes); the sixth (no frame pointers,
+both assumptions) ran while the next change (prompt 74) was being written into the
+producer and is not a clean comparison (same 251 loops, 4 files with other invariants).
+Answered the question on the development cycle (tests, a subset of kernels, one full
+configuration, all six only before figures change; written in the cycles README) and gave
+suggestions: bit-width potentials for the division routines, which turned out to be wrong
+(see 74), parametric bounds on the binary, relational congruences, a NumPy or native port of
+the zones, a timing check on hardware, Thumb-2.
+
+74. "Proceed with your plan. Maybe, in the future, rewriting critical parts using a more performant language such as rust or c++ would help ?"
+
+What the AI did for 74 (Claude Opus 5.5, 2026-11-20): answered the question on Rust or C++
+(a native module for the zone operations only, not a rewrite: the producer is untrusted and
+mirrors the Lean specification by hand, which Python keeps easy to compare; HiGHS is already
+C++; the Clang plugin's cost is its use of Z3, not the language). Then the plan of 73, with
+one correction: the division routines are not logarithmic loops but `for (i = 31; i >= 0;
+i--)`, compiled as `subs r3, r3, #1; adds r4, r3, #1; bhs exit`, whose exit is taken once r3
+has wrapped around to 2^32 - 1; a scan found the same exit in all 116 loops of the division
+routines and 2 kernel loops. Between the subtraction and the branch the invariant is
+`r3 <= 30 or r3 = 2^32 - 1`, which the checker's conjunctive invariants cannot express.
+Lean change (checker): `DFun` gains `alt` (further disjuncts per instruction) and `pick`
+(the target disjunct of each case `(transition, wrap case, fact, source disjunct)`, default
+0); `invsAt`, `tgtIdx`, `tgtInv`; `obsOf` iterates over the source disjuncts and proves the
+target disjunct; with `alt` and `pick` empty the obligations are those of before. Proof:
+`Inv` says that some disjunct holds; `checkDFun_alt`, `invsAt_wf`, `tgtInv_mem`; `obs_mem`
+and `step_ok` with the indices of the fact and of the source disjunct; the entry uses the
+first disjunct. `lake build` clean, no `sorry`, `data_sound` depends only on `propext`,
+`Classical.choice`, `Quot.sound`; new example `exWrap_checks`/`exWrap_needs_alt`/
+`exWrap_sound` (the loop `for (i = 9; i >= 0; i--)`, 63 cycles, by `decide`, generated from
+the producer's certificate). `CheckerMain` parses `alt` and `pick`. Producer
+(`binloops.py`): windows from an addition or subtraction of a constant that may wrap to the
+next conditional branch (straight line, one predecessor each, no loop header); the zone
+split into the cases without and with wrap-around, carried separately and joined after the
+branch (trace partitioning with merging, Mauborgne & Rival, ESOP 2005, read); the
+certificate's `alt`/`pick` by tags. The linear programs failed: HiGHS declared feasible
+programs infeasible (shown by fixing a hand-made potential: then solved at once). Added: an
+exact contradiction test (a premise violated on the box of the one-variable bounds) in the
+Farkas search and to leave impossible cases out of the linear program; retries without
+presolve, then with each constant split as q 2^31 + r and the two parts required
+separately; then linear parts fixed to a variable that follows a bounded header variable
+through the body (exact test on the checker's post-expressions in every disjunct and wrap
+case), only the constants unknown. One crash in a full run (an index outside the zone for
+the new values of tracked words) was fixed and the run made again. Tests: `test_binloops.py`
+28 pass, new class `Disjunctions` (one more iteration, a step of 2, the opposite exit, `alt`
+or `pick` removed, a disjunct or a target changed: all refused); `test_ipet.py` 17 pass.
+Results (six runs, `--jobs 4`, 6 to 16 minutes each): the 116 loops of the division
+routines certified in all six (none before; bound 31, source bound 32); kernel loops 136 /
+193 / 246 -> 136 / 193 / 250 (`fft`, `matrix1`, `pm`), without frame pointers 140 / 198 / 251
+-> 140 / 198 / 252; 366 of the 519 loops of the binaries with both assumptions; trusted loop
+rows in the certified cycle bounds 159 / 153 / 137 -> 43 / 37 / 19 (157 / 152 / 134 -> 41 / 36 /
+18 without frame pointers); no loop lost, no bound higher, every certificate accepted, no
+emulated run above a bound; remaining failures 88 / 25 / 21 / 12 / 7. Literature checked
+for the paper: Mauborgne & Rival 2005 and Gange et al. 2015 (TOPLAS; wrapped intervals; it
+names Navas et al. APLAS 2012 as its preliminary version, which could not be downloaded),
+DOIs on Crossref, read passages recorded in `references/README.md`. Paper III (definition
+of loop certificates, proof of the theorem, producer paragraph, abstract, evaluation, table
+`tab:lean3`, Lean size), Paper I (size of the Paper III modules), cycles README, guide (Parts
+5 and 9), `docs/certificate-format.md`, `formalization.yaml`, CLAUDE.md updated. This text of
+Paper III is new since the author's statement on the use of AI.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2166,3 +2249,9 @@ is whether each Lean statement says what the paper says, and everything outside 
     `wrapPrem` and its proof `wrapPrem_holds`/`valE_eval` in `ThumbData`, and the sentences of
     Paper III that describe them (definition `def:data-run`, the effects paragraph, the
     congruence and case-split sentences, the new evaluation figures).
+47. **Disjunctive invariants (prompt 74).** Read the new fields `alt`/`pick` of `DFun`,
+    `invsAt`, `tgtIdx`, `tgtInv` and the changed `obsOf` in `ThumbDataCore`, the changed `Inv`
+    and `step_ok` in `ThumbData`, and the changed `def:loop-certificate` and proof of
+    `thm:machine-loops` in Paper III; confirm the attributions to Mauborgne & Rival (trace
+    partitioning) and Gange et al. (wrapped intervals) and decide whether Navas et al.
+    (APLAS 2012), named by Gange et al. as the preliminary version, should be cited too.

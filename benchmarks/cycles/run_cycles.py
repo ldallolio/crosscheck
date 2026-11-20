@@ -249,6 +249,9 @@ def main():
     ap.add_argument("--tag", default="",
                     help="suffix of the objects (KERNEL.m0TAG.o), so that another build does not replace the default one")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="kernels analysed in parallel (processes; the largest objects first, "
+                         "results printed in the usual order)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
     src = run_tacle.fetch(pathlib.Path(a.cache), run_tacle.REV)
@@ -261,9 +264,17 @@ def main():
     if a.certify:
         pathlib.Path(a.certify).mkdir(parents=True, exist_ok=True)
     rt = runtime_bounds(a.tool, work, a.extra_arg)
-    for k in kernels:
-        r = analyse(k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify, a.checker,
-                    a.certify_loops, a.abi, a.frame, a.cflag, a.tag)
+    args = lambda k: (k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify,  # noqa: E731
+                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag)
+    if a.jobs > 1:
+        import concurrent.futures
+        size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731
+        pool = concurrent.futures.ProcessPoolExecutor(a.jobs)
+        futs = {k.name: pool.submit(analyse, *args(k)) for k in sorted(kernels, key=size, reverse=True)}
+        results = (futs[k.name].result() for k in kernels)
+    else:
+        results = (analyse(*args(k)) for k in kernels)
+    for k, r in zip(kernels, results):
         rows.append(r)
         if "error" in r:
             print(f"{k.name:16s} {r['error']}", file=sys.stderr)
