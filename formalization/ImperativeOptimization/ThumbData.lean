@@ -780,6 +780,36 @@ theorem gExp_dvd (cs : List Cong) (s : Env) (h : CongHolds cs s) :
     rw [this]
     exact dvd_add (dvd_sub a8 a9) ar
 
+theorem gExpS_dvd (cs : List Cong) (s : Env) (h : CongHolds cs s) :
+    ((2 ^ gExpS cs : Nat) : Int) ∣ s 8 + s 9 := by
+  unfold gExpS
+  rcases foldl_max_mem ((List.range 33).filter fun e => decide (e ≤ (congOf cs 8).1 ∧ e ≤ (congOf cs 9).1 ∧
+      (((congOf cs 8).2 : Int) + (congOf cs 9).2) % (2 ^ e : Nat) = 0)) 0 with h0 | hm
+  · simp only at h0 ⊢
+    rw [h0]; simp
+  · simp only at hm ⊢
+    set e := List.foldl max 0 _ with he
+    simp only [List.mem_filter, decide_eq_true_eq] at hm
+    obtain ⟨h8, h9, hr⟩ := hm.2
+    have d8 : ((2 ^ e : Nat) : Int) ∣ ((2 ^ (congOf cs 8).1 : Nat) : Int) :=
+      Int.natCast_dvd_natCast.mpr (Nat.pow_dvd_pow 2 h8)
+    have d9 : ((2 ^ e : Nat) : Int) ∣ ((2 ^ (congOf cs 9).1 : Nat) : Int) :=
+      Int.natCast_dvd_natCast.mpr (Nat.pow_dvd_pow 2 h9)
+    have a8 := dvd_trans d8 (congOf_dvd cs s h 8)
+    have a9 := dvd_trans d9 (congOf_dvd cs s h 9)
+    have ar : ((2 ^ e : Nat) : Int) ∣ ((congOf cs 8).2 : Int) + (congOf cs 9).2 :=
+      Int.dvd_of_emod_eq_zero hr
+    have : s 8 + s 9 = (s 8 - (congOf cs 8).2) + (s 9 - (congOf cs 9).2) + (((congOf cs 8).2 : Int) + (congOf cs 9).2) := by ring
+    rw [this]
+    exact dvd_add (dvd_add a8 a9) ar
+
+theorem sumC_sv (k : Int) (s : Env) : Checker.dot (sumC k 0).sv s = k * (s 8 + s 9) := by
+  have h := sumC_eval k 0 (fun _ => 0) s
+  have hlv : (sumC k 0).lv = [] := rfl
+  have hc : (sumC k 0).c = 0 := rfl
+  simp only [Checker.Lin.eval, hlv, hc, Checker.dot] at h
+  linarith
+
 theorem dle_sv (s : Env) : Checker.dot (dle 0).sv s = s 8 - s 9 := by
   have h := dle_eval 0 (fun _ => 0) s
   have hlv : (dle 0).lv = [] := rfl
@@ -817,15 +847,33 @@ theorem tightenL_holds (e : Nat) (g : Lin) (ρ s : Env)
       exact round_le _ _ _ hM (by simpa using hd.neg_right) h
   · exact h
 
+theorem tightenS_holds (e : Nat) (g : Lin) (ρ s : Env)
+    (hd : ((2 ^ e : Nat) : Int) ∣ s 8 + s 9) (h : g.eval ρ s ≤ 0) : (tightenS e g).eval ρ s ≤ 0 := by
+  unfold tightenS
+  split
+  · rename_i hc
+    obtain ⟨_, hlv, hsv⟩ := hc
+    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pos_pow_of_pos e (by norm_num)
+    simp only [Checker.Lin.eval, Checker.dot, add_zero] at h ⊢
+    rw [hlv] at h
+    simp only [Checker.dot, add_zero] at h
+    rcases hsv with hsv | hsv
+    · rw [hsv, sumC_sv 1 s] at h ⊢
+      exact round_le _ _ _ hM (by simpa using hd) h
+    · rw [hsv, sumC_sv (-1) s] at h ⊢
+      exact round_le _ _ _ hM (by simpa using hd.neg_right) h
+  · exact h
+
 theorem condFactsM_sound (k : FKind) (a b : Nat) (ha : a < U) (hb : b < U) (f : Flags)
     (hf : match k with | .none => True | .add => f = flagsAdd a b | .sub => f = flagsSub a b)
     (cc : Nat) (hcc : cc < 16) (taken : Bool) (h : condHolds cc f = taken) (ρ s : Env)
-    (h8 : s 8 = a) (h9 : s 9 = b) (e : Nat) (hd : ((2 ^ e : Nat) : Int) ∣ s 8 - s 9) :
-    ∃ D ∈ condFactsM k cc taken e, holds D ρ s := by
+    (h8 : s 8 = a) (h9 : s 9 = b) (e : Nat) (hd : ((2 ^ e : Nat) : Int) ∣ s 8 - s 9)
+    (es : Nat) (hds : ((2 ^ es : Nat) : Int) ∣ s 8 + s 9) :
+    ∃ D ∈ condFactsM k cc taken e es, holds D ρ s := by
   obtain ⟨D, hD, hh⟩ := condFacts_sound k a b ha hb f hf cc hcc taken h ρ s h8 h9
-  refine ⟨D.map (tightenL e), List.mem_map.mpr ⟨D, hD, rfl⟩, fun g hg => ?_⟩
+  refine ⟨D.map (fun g => tightenS es (tightenL e g)), List.mem_map.mpr ⟨D, hD, rfl⟩, fun g hg => ?_⟩
   obtain ⟨g0, hg0, rfl⟩ := List.mem_map.mp hg
-  exact tightenL_holds e g0 ρ s hd (hh g0 hg0)
+  exact tightenS_holds es _ ρ s hds (tightenL_holds e g0 ρ s hd (hh g0 hg0))
 
 theorem congSv_sound (cs : List Cong) (s : Env) (hC : CongHolds cs s) (e : Nat) :
     ∀ (l : List Int) (v : Nat) (t : Int) (g : Env), (∀ i, g i = s (v + i)) →
@@ -1027,7 +1075,7 @@ theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : N
     (hdec : decode mul c a = some i) (hj : (trans i a)[j]? = some (next, w, calls))
     (hm : m ∈ mcases (effect abi c a))
     (hD : (match i.kind with
-      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
+      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
       | _ => [[]])[di]? = some D)
     (hI : (invsAt f L a)[si]? = some I)
     (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next (tgtIdx f L a j m di si)) :
@@ -1214,6 +1262,10 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   have h9 : env 9 = fb := by simp [env, envT, envOf]
   have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → env v = envOf σ fa fb SP0 L.slots v :=
     fun v hv => envT_state σ σ' fa fb SP0 L.slots v hv
+  have hgs : ((2 ^ gExpS (congAt f L a) : Nat) : Int) ∣ env 8 + env 9 := by
+    have := gExpS_dvd _ _ hC
+    rw [h8, h9]
+    simpa [envOf] using this
   have hgd : ((2 ^ gExp (congAt f L a) : Nat) : Int) ∣ env 8 - env 9 := by
     have := gExp_dvd _ _ hC
     rw [h8, h9]
@@ -1221,7 +1273,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   obtain ⟨I, hImem, hI⟩ := hI
   obtain ⟨si, hsi⟩ := List.mem_iff_getElem?.mp hImem
   obtain ⟨D, hD, hDh⟩ : ∃ D ∈ (match i.kind with
-      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a))
+      | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
       | _ => [[]]), holds D (fun _ => 0) env := by
     cases hk : i.kind with
     | cond t =>
@@ -1229,7 +1281,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       have hcc : ccOf c a < 16 := Nat.mod_lt _ (by omega)
       exact condFactsM_sound (kindAt f L a) fa fb hfa hfb σ.f
         (by revert hfl; cases kindAt f L a <;> simp [flagsAt]) (ccOf c a) hcc (j == 0)
-        (hcond t hk) _ env h8 h9 _ hgd
+        (hcond t hk) _ env h8 h9 _ hgd _ hgs
     | _ => exact ⟨[], by simp, by simp [holds]⟩
   obtain ⟨di, hdi⟩ := List.mem_iff_getElem?.mp hD
   have hwalt := checkDFun_alt hc
@@ -2129,6 +2181,148 @@ theorem exWrap_needs_alt :
 theorem exWrap_sound (d : Nat) (tot : Int)
     (h : DRun 32 false exWrapCode [exWrapFun] [exWrapDFun] d 0x100 tot) : tot ≤ 63 :=
   data_sound 32 false exWrapCode [exWrapFun] [exWrapCert] [exWrapDFun] exWrap_binary exWrap_checks
+    d 0x100 0 tot h (by decide)
+
+end
+
+
+open ImperativeOptimization.Checker (Lin) in
+section
+
+/-! ### An example that needs the rounding of a sum
+
+`movs r3, #15; mvns r3, r3; L: adds r3, #4; bne L; bx lr`: Clang's count from `2^32 - 16` up
+by 4 to zero (`fft`, `fir2dim`). In the case of the wrap-around, the fact that continues the
+loop is `r3 + 4 ≥ 2^32 + 1` on the flags' operands; with the congruences `r3 ≡ 0` and
+`4 ≡ 0 (mod 4)` it is rounded to `r3 + 4 ≥ 2^32 + 4` (`tightenS`), which the bound
+`r3 ≤ 2^32 - 4` contradicts. The bound, 19 cycles, has no trusted row; without the
+congruences the certificate is rejected (`exZero_needs_cong`). -/
+
+def exZeroCode : Code := ⟨0x100, #[0x230F, 0x43DB, 0x3304, 0xD1FD, 0x4770, 0x0, 0x0]⟩
+
+def exZeroKinds : List FKind := [.none, .none, .none, .add, .add]
+
+def exZeroInv : List (List Lin) :=
+  [[],
+    [⟨[0, 0, 0, 1], [], -15⟩, ⟨[0, 0, 0, -1], [], 15⟩],
+    [⟨[0, 0, 0, 1], [], -4294967292⟩, ⟨[0, 0, 0, -1], [], 4294967280⟩],
+    [⟨[0, 0, 0, -1], [], 4294967284⟩, ⟨[0, 0, 0, 1, 0, 0, 0, 0, -1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4294967291⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4294967280⟩, ⟨[0, 0, 0, -1, 0, 0, 0, 0, 1], [], 4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩],
+    [⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩]]
+
+def exZeroAlt : List (List (List Lin)) :=
+  [[],
+    [],
+    [],
+    [[⟨[0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -4⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩]],
+    []]
+
+def exZeroPick : List (List (Nat × Int × Nat × Nat × Nat)) := [[], [], [(0, -1, 0, 0, 1)], [], []]
+
+def exZeroCong : List (List (Nat × Nat × Nat)) := [[], [(3, 32, 15)], [(3, 2, 0)], [(3, 2, 0), (8, 2, 0), (9, 32, 4)], [(3, 2, 0), (8, 2, 0), (9, 32, 4)]]
+
+def exZeroLoop : LoopCert := ⟨260, [260, 262], 4, 12, [⟨[0, 0, 0, -1], 4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], 4294967292⟩]⟩
+
+def exZeroProofs : List (Nat × List Nat) :=
+  [(1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 268435456]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [2]),
+    (1, []),
+    (1, [0, 0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [536870911, 0, 0, 536870911, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [536870911, 0, 0, 536870911, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, []),
+    (1, [0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 2, 0, 2]),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [1]),
+    (1, []),
+    (1, []),
+    (1, []),
+    (1, [0, 1, 0, 1, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1073741820, 0, 0, 1073741820, 0, 1073741820, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 1073741825, 0, 0, 1073741825, 0, 1073741825, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [858993456, 0, 0, 858993456, 0, 0, 858993456, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [858993460, 0, 0, 858993460, 0, 0, 858993460, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1073741820, 0, 1073741820, 0, 1073741820, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1073741825, 0, 1073741825, 0, 1073741825, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [2, 0, 0, 0, 0, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 4294967295, 0, 0, 4294967295, 0, 0, 4294967295, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 3, 0, 0, 3, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 4294967292, 0, 0, 4294967292, 0, 0, 4294967292, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 4294967291, 0, 0, 4294967291, 0, 0, 4294967291, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 4, 0, 0, 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 3, 0, 0, 3, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 0, 0, 0, 1]),
+    (1, [0, 0, 0, 1]),
+    (1, [])]
+
+def exZeroFun0 : BFun := ⟨256, [256, 258, 260, 262, 264], []⟩
+
+def exZeroFun : BFun := { exZeroFun0 with rows := [loopRow exZeroFun0 exZeroLoop] }
+
+def exZeroDFun : DFun :=
+  ⟨exZeroKinds, exZeroInv, [exZeroLoop], [], exZeroProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exZeroCong, exZeroAlt, exZeroPick⟩
+
+def exZeroCert : Cert := ⟨1, [19, 18, 5, 4, 3, 0], [1], 19⟩
+
+theorem exZero_binary : checkBinary 32 exZeroCode [exZeroFun] [exZeroCert] = true := by decide
+
+theorem exZero_checks : checkData 32 false exZeroCode [exZeroFun] [exZeroDFun] = true := by decide
+
+theorem exZero_needs_cong :
+    checkData 32 false exZeroCode [exZeroFun] [{ exZeroDFun with cong := [] }] = false := by
+  decide
+
+/-- Every run of the data semantics of the example costs at most 19 cycles. -/
+theorem exZero_sound (d : Nat) (tot : Int)
+    (h : DRun 32 false exZeroCode [exZeroFun] [exZeroDFun] d 0x100 tot) : tot ≤ 19 :=
+  data_sound 32 false exZeroCode [exZeroFun] [exZeroCert] [exZeroDFun] exZero_binary exZero_checks
     d 0x100 0 tot h (by decide)
 
 end

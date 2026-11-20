@@ -156,9 +156,34 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 136 of 403, and the 116 of the division routines | 267 + 0 (division routines) | all | 115 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 193 of 403, and the 116 | 210 + 0 | all | 115 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 250 of 403, and the 116 | 153 + 0 | all | 120 |
+| no assumption on callees | 142 of 403, and the 116 of the division routines | 261 + 0 (division routines) | all | 116 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 199 of 403, and the 116 | 204 + 0 | all | 116 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 256 of 403, and the 116 | 147 + 0 | all | 121 |
+
+Wrap to zero (2026-11-20). Clang compiles some loops over arrays with a byte offset counted
+from 2^32 − 16 up by 4 to zero (`adds r3, #4; bne`). In the case of the wrap-around the
+loop continues only if `g1 + 4 ≥ 2^32 + 1`; the checker now rounds facts on sums with the
+congruences too (`gExpS`, `tightenS`: when `g1 + g2 ≡ 0 mod 2^e`; Lean `tightenS_holds`,
+`condFactsM_sound`; example `exZero_sound`, 3 iterations, and `exZero_needs_cong`), which
+gives `g1 + 4 ≥ 2^32 + 4`, contradicted by `g1 ≤ 2^32 − 4`. The producer adds the
+wrap-around values 2^32 − k − 1, 2^32 − k, 2^32 − k + 1 of each addition of k > 0 to its
+widening thresholds, ignores `adds #0` (a move) as a wrap point, derives one-variable bounds
+from premises on sums in its Farkas proofs (virtual premises mapped back to the real
+multipliers), computes the constants of transported potentials by longest paths before the
+linear program (`synth_transport`; HiGHS fails on these constants), and keeps searching
+when a candidate is above the source bound, trying the tightest first. Counts 136 / 193 /
+250 → 142 / 199 / 256 (+6 in every run: `bsort_init` and `main` of `bsort`, bound 99;
+`fft_init` and `main` of `fft`; `fir2dim_pin_down` and `fir2dim_main`, bound 3, no source
+bound); without frame pointers 140 / 198 / 252 → 146 / 204 / 258. 372 of the 519 loops
+with both assumptions (374 without frame pointers); functions with a certified cycle bound
+115 / 115 / 120 → 116 / 116 / 121 (`fir2dim_pin_down`); trusted loop rows 43 / 37 / 19 → 41
+/ 35 / 17 (41 / 36 / 18 → 39 / 34 / 16 without frame pointers); with both assumptions 160 of
+the 174 functions with loops have none. No loop lost, no bound higher, every certificate
+accepted, no emulated run above a bound. One loop of the same form is left (`fir2dim`
+0x242): its start comes from a frame word loaded outside the loop, which is not tracked.
+Must-reject tests (`test_binloops.py`, class `WrapToZero`): a start of 14 instead of 15,
+a step of 3, the congruences removed. The six runs took 7 to 19 minutes each with
+`--jobs 4`, one at a time; the tests now take 29 s (the new test runs the producer).
 
 Disjunctive invariants (2026-11-20). The run-time division routines (`runtime.c`, the
 same four in every kernel) count `for (i = 31; i >= 0; i--)`, compiled as `subs r3, r3, #1;
@@ -279,18 +304,18 @@ bounds became lower (up to 8 %), none higher.
 
 Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
 offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences, potentials per instruction, the frame pointer, exact effects, the exact shift and disjunctive invariants): 88 counter tracked but no
-potential (64 of them exit on equality), 25 compared value not tracked, 21 SP offset unknown, 12 flags from an
-unmodelled instruction, 7 mixed (before the disjunctive invariants: 92, 25, 21, 12, 7; before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
+congruences, potentials per instruction, the frame pointer, exact effects, the exact shift, disjunctive invariants and the rounding of sums): 86 counter tracked but no
+potential (62 of them exit on equality), 21 compared value not tracked, 21 SP offset unknown, 12 flags from an
+unmodelled instruction, 7 mixed (before the rounding of sums: 88, 25, 21, 12, 7; before the disjunctive invariants: 92, 25, 21, 12, 7; before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
 programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
 
-Classification of the 153 kernel loops not certified with `--abi --frame` (2026-11-20, after the disjunctive invariants; 157 after the exact shift, 174 after the exact effects, 188 before,
+Classification of the 147 kernel loops not certified with `--abi --frame` (2026-11-20, after the rounding of sums; 153 after the disjunctive invariants, 157 after the exact shift, 174 after the exact effects, 188 before,
 `classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
 definitions reaching its operands inside the loop; heuristic, for diagnosis only):
 
 | group | loops | what would be needed |
 |---|---|---|
-| A counter against a constant or a bounded limit | 49 (51 before the disjunctive invariants, 62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame (10), a constant (10; among them loops that count from `mvns r1,#7` up by 4 to zero, an idiom found in 7 kernel loops, in `fft`, `fir2dim` and `bsort`: not certified by the producer after the disjunctive invariants either, cause not analysed), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
+| A counter against a constant or a bounded limit | 43 (49 before the rounding of sums, 51 before the disjunctive invariants, 62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame, a constant (the loops that count from `mvns r1,#7` up by 4 to zero, 7 in `fft`, `fir2dim` and `bsort`, are certified since the rounding of sums except `fir2dim` 0x242, whose start is a frame word loaded outside the loop), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
 | B counter against a limit without a bound (a parameter) | 19 (20, 26, 27) | bounds in the parameters, or calling contexts, on the binary |
 | D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
 | F exit on data loaded from memory | 16 (17) | invariants on memory (string and search loops) |
@@ -298,9 +323,9 @@ definitions reaching its operands inside the loop; heuristic, for diagnosis only
 | E counter shifted | 11 | logarithmic potentials (binary search, bit reversal) |
 | I other (two counters, sums of registers) | 10 (11) | |
 | G word of the frame not tracked | 10 | SP offsets where they are unknown |
-| H value through an approximated instruction | 4 (9) | exact effects of `ADCS` (3), `ANDS` (1) |
+| H value through an approximated instruction | 4 (9) | not exact effects: the `ADCS` loops (3, `bsort`) test Clang's `rsbs; adcs` form of `x == 0`, bubble sort's "swapped" flag (termination depends on the data); the uncertified loops with `ANDS` include `x &= x - 1` (`bitcount`: as many iterations as set bits, no linear potential) |
 
-The producer's own reasons: no potential found for 145 (149 before the disjunctive invariants, 166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
+The producer's own reasons: no potential found for 139 (145 before the rounding of sums, 149 before the disjunctive invariants, 166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
 2^32) exceeds the source bound for 8 (8, 7). An experiment with exact effects, in the producer only
 (not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
 write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
@@ -317,10 +342,10 @@ linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 120 functi
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
 
-No back-edge count of the emulated runs exceeds a certified bound. 78 (110 with `--abi`) of
+No back-edge count of the emulated runs exceeds a certified bound. 82 (114 with `--abi`, 151 with both) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges), none above (the producer keeps the source row then), and 58 (83 with `--abi`)
-certified loops have no source bound at all. The functions newly certified include `fac_fac`, `md5_R_RandomInit`,
+edges), none above (the producer keeps the source row then), and 60 (85 with `--abi`, 105 with both)
+certified loops have no source bound at all. The functions newly certified include `fac_fac`, `fir2dim_pin_down`, `md5_R_RandomInit`,
 `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`, and
 (with both assumptions) `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
 

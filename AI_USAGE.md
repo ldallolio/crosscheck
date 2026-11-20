@@ -1955,6 +1955,44 @@ of loop certificates, proof of the theorem, producer paragraph, abstract, evalua
 5 and 9), `docs/certificate-format.md`, `formalization.yaml`, CLAUDE.md updated. This text of
 Paper III is new since the author's statement on the use of AI.
 
+75. "What would you suggest now ?"
+
+What the AI did for 75 (Claude Opus 5.5, 2026-11-20): proposed, in order: the wrap-to-zero
+loops and exact `ADCS`/`ANDS` (11 loops), a rewrite of Paper III's evaluation into tables,
+then logarithmic potentials on the machine code; later options (bounds in the parameters,
+a native zone kernel, hardware validation, Thumb-2); the author's open items 44-47.
+
+76. "Proceed with the order you propose"
+
+What the AI did for 76 (Claude Opus 5.5, 2026-11-20), step 1 of the order proposed (step 2
+below; step 3, logarithmic potentials on the machine code, not started):
+- Wrap to zero: Clang counts some byte offsets from 2^32 - 16 up by 4 to zero (`adds; bne`).
+  The checker now rounds facts on sums with the congruences (`ThumbDataCore.gExpS`,
+  `tightenS`; `condFactsM` applies it after `tightenL`), proved in `ThumbData`
+  (`gExpS_dvd`, `tightenS_holds`, `condFactsM_sound` with the extra divisibility hypothesis);
+  example `exZero_checks`/`exZero_needs_cong`/`exZero_sound` (3 iterations; rejected without
+  the congruences). No new assumption; `lake build` clean. Producer (`binloops.py`, untrusted):
+  mirror `tighten_s`/`g_exp_s`; `adds #0` no longer a wrap point; widening thresholds at the
+  wrap-around values of additions; virtual premises (sum + bound of one term) in the Farkas
+  shortest paths; `synth_transport` (longest-path constants of transported potentials before
+  the LP); candidates sorted by bound and search continued above the source bound.
+  Must-reject tests `WrapToZero` (start 14, step 3, congruences removed). Exact `ADCS`/`ANDS`
+  were examined and not done: the `ADCS` loops of `bsort` stop on a data-dependent flag and the
+  `ANDS` loops include `x &= x - 1` (no linear potential); the prediction made in answer 75 that
+  they would add loops was wrong, recorded in the cycles README.
+- Six runs (default and no-frame-pointer builds, three assumptions): +6 loops in every run
+  (`bsort`, `fft`, `fir2dim`), none lost, no bound higher, no certificate rejected, no emulated
+  run above a bound; kernels 142 / 199 / 256 (146 / 204 / 258), 372 of 519 loops with both
+  assumptions; trusted loop rows 41 / 35 / 17; 121 functions with a certified cycle bound.
+- Step 2: Paper III's evaluation of loop bounds on the code rewritten as three tables (results
+  per assumption, `tab:loops`; counts after each extension in the order made, stated as not
+  an ablation, `tab:steps`; causes of the 147 loops left, `tab:fail`) and a shorter text; the
+  history moved to the cycles README. Producer paragraph extended (thresholds, virtual
+  premises, longest-path constants); abstract figures; Lean size (4,100 lines, 145 theorems)
+  in Papers I and III; guide parts 5 and 9, certificate-format.md, formalization.yaml,
+  CLAUDE.md (596 theorems). This text of Paper III is new since the author's statement on
+  the use of AI.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2255,3 +2293,10 @@ is whether each Lean statement says what the paper says, and everything outside 
     `thm:machine-loops` in Paper III; confirm the attributions to Mauborgne & Rival (trace
     partitioning) and Gange et al. (wrapped intervals) and decide whether Navas et al.
     (APLAS 2012), named by Gange et al. as the preliminary version, should be cited too.
+48. **Rounding of facts on sums (prompt 76).** Read `gExpS`, `tightenS` and the changed
+    `condFactsM` in `ThumbDataCore`, `gExpS_dvd`, `tightenS_holds` and the changed
+    `condFactsM_sound` in `ThumbData`, and the example `exZero_*`; check the sentence on sums
+    in the rounding paragraph of Paper III (Section on loops) against Granger's reduction, and
+    the rewritten evaluation of Paper III (tables `tab:loops`, `tab:steps`, `tab:fail`)
+    against `benchmarks/cycles/README.md` and the runs. The text of Paper III changed since the
+    author's statement on the use of AI.

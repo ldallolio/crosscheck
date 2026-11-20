@@ -619,9 +619,23 @@ def tightenL (e : Nat) (g : Lin) : Lin :=
     ⟨g.sv, [], -(((-g.c) / ((2 ^ e : Nat) : Int)) * ((2 ^ e : Nat) : Int))⟩
   else g
 
-/-- The facts of a condition, rounded with the congruence of the ghost operands. -/
-def condFactsM (k : FKind) (cc : Nat) (taken : Bool) (e : Nat) : List (List Lin) :=
-  (condFacts k cc taken).map (·.map (tightenL e))
+/-- The largest `e ≤ 32` such that the congruences make `g₈ + g₉` a multiple of `2^e`. -/
+def gExpS (cs : List Cong) : Nat :=
+  let x := congOf cs 8
+  let y := congOf cs 9
+  ((List.range 33).filter fun e => decide (e ≤ x.1 ∧ e ≤ y.1 ∧
+    ((x.2 : Int) + y.2) % (2 ^ e : Nat) = 0)).foldl max 0
+
+/-- A sum fact `±(g₈ + g₉) + c ≤ 0` with `c` rounded up to a multiple of `2^e`. -/
+def tightenS (e : Nat) (g : Lin) : Lin :=
+  if 0 < e ∧ g.lv = [] ∧ (g.sv = (sumC 1 0).sv ∨ g.sv = (sumC (-1) 0).sv) then
+    ⟨g.sv, [], -(((-g.c) / ((2 ^ e : Nat) : Int)) * ((2 ^ e : Nat) : Int))⟩
+  else g
+
+/-- The facts of a condition, rounded with the congruences of the ghost operands: the
+    facts on their difference with `e`, those on their sum with `es`. -/
+def condFactsM (k : FKind) (cc : Nat) (taken : Bool) (e es : Nat) : List (List Lin) :=
+  (condFacts k cc taken).map (·.map (fun g => tightenS es (tightenL e g)))
 
 /-- `Σ k_v·x_v` (from variable `v`) modulo `2^e` under `cs`: each term must be determined
     modulo `2^e` (`2^e` divides `k_v·2^{e_v}`); its residue. -/
@@ -672,7 +686,7 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
     (indexed 0 (trans i a)).flatMap fun p =>
       let next := p.2.1
       let facts := match i.kind with
-        | .cond _ => condFactsM ka (ccOf c a) (p.1 == 0) (gExp (congAt f L a))
+        | .cond _ => condFactsM ka (ccOf c a) (p.1 == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
         | _ => [[]]
       (mcases e).flatMap fun m => (indexed 0 facts).flatMap fun q =>
         (indexed 0 (invsAt f L a)).flatMap fun r =>

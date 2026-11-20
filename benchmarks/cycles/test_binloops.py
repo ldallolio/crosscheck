@@ -71,6 +71,10 @@ SHLLOOP = {0x100: [0x2005, 0x0041, 0x3901, 0xD1FD, 0x4770]}
 # as Clang compiles it in the division routines: the exit tests the carry of r3 + 1, true only
 # once r3 has wrapped to 2^32 - 1 (disjunctive invariant between the subtraction and the branch)
 WRAPLOOP = {0x100: [0x2309, 0x1E5B, 0x1C5A, 0xD200, 0xE7FB, 0x4770]}
+# movs r3,#15; mvns r3,r3; L: adds r3,#4; bne L; bx lr -- Clang's count from 2^32 - 16 up by 4 to
+# zero: leaving needs the wrap-around disjunct and the rounding of the sum fact `r3 + 4 != 2^32`
+# with the congruence r3 = 0 (mod 4) (Lean `tightenS`)
+WRAPZERO = {0x100: [0x230F, 0x43DB, 0x3304, 0xD1FD, 0x4770]}
 EXACT = {"lit": (LITLOOP, 12, 0x102), "stm": (STMLOOP, 10, 0x102), "keep": (STMKEEP, 12, 0x102),
          "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106), "shl": (SHLLOOP, 10, 0x104),
          "wrap": (WRAPLOOP, 12, 0x102)}
@@ -405,6 +409,38 @@ class Disjunctions(unittest.TestCase):
         k = next(i for i, x in enumerate(fn(d)["pick"]) if x)
         fn(d)["pick"][k][0][4] = 0
         self.assertEqual(check(d)[0], 1, "target changed")
+
+
+def wrapzero_doc(code=WRAPZERO):
+    an = test_ipet.analysis(code, {"f": (0x100, 10)}, range(0x104, 0x108, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
+
+
+class WrapToZero(unittest.TestCase):
+    """A counter stepped by 4 from 2^32 - 16 that leaves when it wraps around to zero: the
+    case of the wrap-around that continues the loop is excluded by rounding the fact on the
+    sum of the flags' operands with their congruence (`tightenS`)."""
+
+    def test_producer(self):
+        doc, _, st = wrapzero_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x104, 3)])
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = wrapzero_doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        fn = lambda d: d["programs"][0]["functions"][0]  # noqa: E731
+        # from 2^32 - 15 the counter never reaches zero; a step of 3 breaks the congruence
+        for k, h in ((0, 0x230E), (2, 0x3303)):
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + k] = h
+            self.assertEqual(check(d)[0], 1, (k, hex(h)))
+        d = copy.deepcopy(doc)
+        fn(d)["cong"] = [[] for _ in fn(d)["cong"]]
+        self.assertEqual(check(d)[0], 1, "congruences removed")
 
 
 class Checker(unittest.TestCase):

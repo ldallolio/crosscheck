@@ -324,7 +324,10 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   instruction, `0` if none), and `Σ k_v·r_v + c ≡ r (mod 2^e)`. At a conditional branch,
   if the ghosts `8` and `9` are congruent modulo `2^e` (largest such `e`, Lean `gExp`),
   the facts `±(x₈ − x₉) + c ≤ 0` of the condition are rounded to `c` a multiple of `2^e`
-  (`tightenL`) before they become premises (Paper III, after `lem:cond-facts`).
+  (`tightenL`) before they become premises (Paper III, after `lem:cond-facts`). Likewise,
+  if `x₈ + x₉` is a multiple of `2^e` (largest such `e`, at most both exponents, Lean
+  `gExpS`), the facts `±(x₈ + x₉) + c ≤ 0` (those of the flags of an addition) are rounded
+  (`tightenS`).
 - `"alt"` (optional, default none): per instruction (order of `nodes`) a list of further
   disjuncts of the invariant, each a list of constraints like `"inv"`; the invariant at an
   instruction is then `inv` **or** one of these (Lean `invsAt`; disjunct `0` is `inv`). The

@@ -200,16 +200,26 @@ def add_facts(c):
             9: [[sumc(1, -U)]]}.get(c, [[]])
 
 
-def cond_facts(kind, cc, taken, m=1):
-    """The facts of a condition, as a disjunction of conjunctions. With `m` > 1 (a power
-    of two such that the two ghost operands are congruent modulo `m`), the difference facts
-    of a comparison are rounded to multiples of `m` (Granger's congruences)."""
+def cond_facts(kind, cc, taken, m=(1, 1)):
+    """The facts of a condition, as a disjunction of conjunctions (Lean `condFactsM`). With
+    `m = (md, ms)`, powers of two such that the ghost operands are congruent modulo `md` and
+    their sum is a multiple of `ms`, the facts on their difference are rounded to multiples
+    of `md` and those on their sum to multiples of `ms` (Granger's congruences)."""
+    md, ms = m
     c = cc if taken else cc ^ 1
     if kind == "none":
         return [[]]
-    if kind != "sub":
-        return add_facts(c)
-    return [[tighten(f, m) for f in D] for D in sub_facts(c)]
+    facts = add_facts(c) if kind != "sub" else sub_facts(c)
+    return [[tighten_s(tighten(f, md), ms) for f in D] for D in facts]
+
+
+def tighten_s(f, m):
+    """`g8 + g9 + c <= 0` (or `-(g8 + g9) + c <= 0`) when `g8 + g9` is a multiple of `m`:
+    `c` rounded up to a multiple of `m` (Lean `tightenS`)."""
+    d, c = f
+    if m > 1 and d in ({8: 1, 9: 1}, {8: -1, 9: -1}):
+        return (d, -(-c // m) * m)
+    return f
 
 
 def tighten(f, m):
@@ -298,11 +308,19 @@ def congruences(ctx):
     return {a: (c or {}) for a, c in C.items()}
 
 
+def g_exp_s(C):
+    """The largest `e` such that the sum of the ghost operands is a multiple of `2^e`."""
+    e8, r8 = cong_of(C, 8)
+    e9, r9 = cong_of(C, 9)
+    return max([e for e in range(33) if e <= e8 and e <= e9 and (r8 + r9) % (1 << e) == 0], default=0)
+
+
 def cmod(C, a):
-    """`2^e`, `e` the exponent of the ghost operands before `a` (1 when unknown)."""
+    """(`2^e`, `2^es`): `e` the exponent of the difference of the ghost operands before `a`,
+    `es` that of their sum ((1, 1) when unknown)."""
     if C is None:
-        return 1
-    return 1 << g_exp(C.get(a))
+        return 1, 1
+    return 1 << g_exp(C.get(a)), 1 << g_exp_s(C.get(a))
 
 
 def padd(a, b):
@@ -712,6 +730,30 @@ class Prover:
     def __init__(self, prem, nv, goals=()):
         self.prem, self.nv = prem, nv
         nr = len(prem) - 2 * nv
+        # virtual premises: a premise on the sum of two variables (both coefficients 1 or
+        # both -1) with the best bound of one of them gives a bound of the other (exact; the
+        # facts of the flags of an addition are sums); `comp` maps them to real multipliers
+        self.comp = {}
+        ext = list(prem)
+        lo, hi = {}, {}
+        for idx, p in enumerate(prem):
+            if len(p[0]) == 1:
+                (v, k), = p[0].items()
+                if k == 1 and (v not in hi or -p[1] < hi[v][0]):
+                    hi[v] = (-p[1], idx)
+                elif k == -1 and (v not in lo or p[1] > lo[v][0]):
+                    lo[v] = (p[1], idx)
+        for idx, p in enumerate(prem[:nr]):
+            if len(p[0]) != 2 or len(set(p[0].values())) != 1 or abs(next(iter(p[0].values()))) != 1:
+                continue
+            for x, y in (tuple(p[0]), tuple(p[0])[::-1]):
+                ky = p[0][y]
+                b = lo.get(y) if ky == 1 else hi.get(y)
+                if b is None:
+                    continue
+                self.comp[len(ext)] = {idx: 1, b[1]: 1}
+                ext.append(({x: p[0][x]}, p[1] + ky * b[0]))
+        self.ext = ext
         vs = {ZERO}
         for p in prem[:nr]:
             vs |= set(p[0])
@@ -725,7 +767,7 @@ class Prover:
         via = [[None] * n for _ in range(n)]
         for x in range(n):
             dist[x][x] = 0
-        for idx, p in enumerate(prem):
+        for idx, p in enumerate(ext):
             e = _diff_edge(p)
             if e is None or e[0] not in self.ix or e[1] not in self.ix:
                 continue
@@ -828,7 +870,7 @@ class Prover:
 
     def _from_cycle(self, g, cyc):
         lam = dict(cyc)
-        const = sum(n * self.prem[i][1] for i, n in lam.items())
+        const = sum(n * self.ext[i][1] for i, n in lam.items())
         if const <= 0:
             return None
         rest = 0
@@ -837,7 +879,7 @@ class Prover:
             if idx is None:
                 return None
             lam[idx] = lam.get(idx, 0) + abs(k)
-            rest += abs(k) * self.prem[idx][1]
+            rest += abs(k) * self.ext[idx][1]
         need = g[1] - rest
         K = max(1, -(-need // const)) if need > 0 else 1
         for i, n in cyc.items():
@@ -846,8 +888,12 @@ class Prover:
         return cert if entails(self.prem, g, cert) else None
 
     def _dense(self, mu, lam):
-        n = max(lam) + 1 if lam else 0
-        return (mu, [lam.get(i, 0) for i in range(n)])
+        real = {}
+        for i, x in lam.items():
+            for j, y in (self.comp[i].items() if i in self.comp else ((i, 1),)):
+                real[j] = real.get(j, 0) + x * y
+        n = max(real) + 1 if real else 0
+        return (mu, [real.get(i, 0) for i in range(n)])
 
     def _lp(self, g):
         import numpy as np
@@ -1252,6 +1298,12 @@ class Ctx:
                 for x in fl[1:]:
                     if x[0] == "imm":
                         imms |= {x[1], x[1] - 1, x[1] + 1}
+        # the wrap-around boundaries of the additions of a constant (x + k wraps from x = U - k):
+        # loops that leave when such a sum wraps to zero need them for widening
+        for a in self.nodes:
+            w = wrap_op(self.aeff[a])
+            if w is not None and w[2] > 0:
+                imms |= {U - w[2] - 1, U - w[2], U - w[2] + 1}
         thr = {t for t in imms if 0 <= t < U} | {U - 1}
         self.thresholds = sorted(thr | {-t for t in thr})
 
@@ -1340,8 +1392,8 @@ def wrap_op(eff):
     if o is None:
         return None
     r, v = o
-    if v == "any" or v[0] not in ("add", "sub") or v[1][0] != "reg" or v[2][0] != "imm":
-        return None
+    if v == "any" or v[0] not in ("add", "sub") or v[1][0] != "reg" or v[2][0] != "imm" or v[2][1] == 0:
+        return None     # (a move, `rn + 0`, never wraps)
     return r, v[1][1], v[2][1] if v[0] == "add" else -v[2][1]
 
 
@@ -1693,6 +1745,78 @@ def transport(ctx, state, h, body, r):
     return lin if len(lin) == len(Bs) else None
 
 
+def synth_transport(ctx, kind, state, h, body, lin, sgn):
+    """The constants of the potentials `sgn · lin[a] + c_a` by longest paths, as in `synth`,
+    with the transitions of the instructions of a window taken from each of their disjuncts
+    (the hull loses the relation between the counter and its copy): (N, [potentials], D)
+    or None. Used when the linear program fails on the constants (they may be near 2^32)."""
+    Zd = ctx.zones
+    B = set(body)
+    disj = getattr(ctx, "disj", {})
+
+    def sup_diff(Mf, ex, w, v):
+        e = ex.get(w, "any")
+        if e == "any":
+            return INF
+        _, u, c = e
+        b = (Mf[u][v] + c) if sgn == 1 else (Mf[v][u] - c)
+        return INF if b >= INF // 2 else b
+
+    steps = []
+    for a in ctx.nodes:
+        if state[a] is None:
+            continue
+        zones = [Zn for _t, Zn in disj[a]] if a in B and a in disj else [state[a]]
+        for Za in zones:
+            steps += [(a, j, Mf, ex, post) for j, Mf, ex, post in transfer(ctx, kind, a, Za)]
+    best = None
+    for D in (1, 2, 4, 8):
+        cmin = {a: -INF for a in body}
+        edges, entry_terms, ok = [], [], True
+        for a, j, Mf, ex, post in steps:
+            n = ctx.out[a][j][0]
+            if a in B:
+                if n is not None and n in B:
+                    dl = sup_diff(Mf, ex, lin[n], lin[a])
+                    if dl >= INF:
+                        ok = False
+                        break
+                    edges.append((a, n, (D if n == h else 0) + dl))
+                else:
+                    mb = bound_of(Zd, Mf, {lin[a]: -sgn})
+                    if mb >= INF // 2:
+                        ok = False
+                        break
+                    cmin[a] = max(cmin[a], mb)
+            elif n == h and post is not None:
+                mb = bound_of(Zd, post, {lin[h]: sgn})
+                if mb >= INF // 2:
+                    ok = False
+                    break
+                entry_terms.append(mb)
+        if not ok:
+            return None
+        c = dict(cmin)
+        stable = False
+        for _ in range(len(body) + 2):
+            changed = False
+            for a, n, w in edges:
+                if c[n] > -INF and c[n] + w > c[a]:
+                    c[a] = c[n] + w
+                    changed = True
+            if not changed:
+                stable = True
+                break
+        if not stable or any(c[a] <= -INF for a in body):
+            continue
+        if h == ctx.entry:
+            entry_terms.append(bound_of(Zd, Zd.top(), {lin[h]: sgn}))
+        N = max(0, max([c[h] + t for t in entry_terms], default=0))
+        if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
+            best = (N, [padd(({_cv(lin[a]): sgn}, 0), pconst(c[a])) for a in body], D)
+    return best
+
+
 def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     """A potential per instruction of the loop, each with its own linear part, found by one
     linear program over the checker's own obligations (the potentials and the Farkas
@@ -1700,7 +1824,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     per control point as in Alias, Darte, Feautrier & Gonnord 2010). Needed when the counter
     moves between a register and a word of the frame inside the loop. The potentials are rounded to rationals and proved again
     by `prove_all` (whatever this finds is checked). Returns candidates [(N, [potentials], D)]
-    (from coarser to finer roundings), [] if none.
+    (the tightest bound first), [] if none.
 
     `coarse`: constants above `BIG` (addresses and other words from the literal pool) make
     HiGHS fail numerically; in this mode a register given such a constant is treated as
@@ -1872,7 +1996,8 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         N = math.ceil(Fraction(float(x[NB])) * L - Fraction(1, 10 ** 6))
         if (N, pots, L) not in out:
             out.append((N, pots, L))
-    return out
+    # the tightest bound first (a coarse rounding may be proved with a much larger bound)
+    return sorted(out, key=lambda t: Fraction(t[0], t[2]))
 
 
 # ----------------------------------------------------------------------------------------
@@ -2002,6 +2127,10 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
                     lin = transport(ctx, state, h, body, r)
                     if lin is not None:
                         for sgn in (1, -1):
+                            # longest paths first: they also choose the scale D
+                            st_ = synth_transport(ctx, kind, state, h, body, lin, sgn)
+                            if st_ is not None:
+                                yield st_
                             yield from synth_lp(ctx, kind, full, h, body, False, fixed=(lin, sgn))
             cands = itertools.chain(
                 (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
@@ -2011,7 +2140,8 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
                     continue
                 if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots)])[0]:
                     s, eff_n = (N, pots, D), -(-N // D)
-                    break
+                    if Nsrc is None or eff_n <= Nsrc:
+                        break       # else look on for a bound within the source bound
         if s is None:
             why.append((h, "no potential found"))
             continue
