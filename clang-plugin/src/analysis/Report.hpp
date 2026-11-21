@@ -13,6 +13,9 @@ struct LoopReport {
   std::string file;         ///< source file of the loop keyword (as the compiler names it)
   unsigned line = 0;
   unsigned column = 0;
+  /// Last line of the loop statement (its body included; 0 if unknown): binary loops are
+  /// matched with the source loops whose line range holds their code (benchmarks/cycles/wcet.py).
+  unsigned endLine = 0;
   std::uint64_t bound = 0;  ///< maximal number of iterations
   /// True when the bound was derived from a synthesised ranking potential;
   /// false when it comes from a user annotation (an assumption).

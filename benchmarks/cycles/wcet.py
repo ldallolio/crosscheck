@@ -5,10 +5,10 @@
 For each function: the control-flow graph is rebuilt from the code reachable from its
 entry (`m0.decode`); it must be reducible, without indirect jumps. Its natural loops are
 matched with the source loops through the debug line table: a binary loop takes the
-bound of the source loop whose line occurs among its own instructions (those not in a
-nested loop), the lines of the back-edge branches (the loop test or the jump back) being
-tried first, then those of the header; if several match, the largest bound; if none, the function is not
-bounded.
+bound of the innermost source loop whose line range (from the report's `end_line`) holds
+the lines of its own instructions (those not in a nested loop) that lie in some source
+loop; if no source loop holds them all, the largest bound of the source loops whose line
+occurs; if none, the function is not bounded (`Analysis.match`).
 A source loop bound `N` (from CrossCheck: at most `N` executions of the body per entry)
 bounds the traversals of the binary loop's back edges per entry. The bound is the timing
 schema on the binary: a loop costs `N * (longest iteration) + (longest exit path)`, inner
@@ -24,7 +24,32 @@ import subprocess
 
 import m0
 
-LINE = re.compile(r"^; (.*):(\d+)$")
+LINE = re.compile(r"^; (.*):(\d+)(?: \(discriminator \d+\))?$")
+ROW = re.compile(r"^0x([0-9a-f]+)\s+(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s*(.*)$")
+
+
+def zero_ranges(objdump, obj):
+    """The address ranges of the line table's rows with line 0 (code the compiler attributes
+    to no source line), from llvm-dwarfdump next to `objdump`: llvm-objdump --line-numbers
+    does not print these rows, and the previous line would otherwise be carried over to that
+    code (in Clang's matrix1, the set-up of a loop nest got the line of an earlier loop)."""
+    import pathlib
+    import shutil
+    dd = pathlib.Path(objdump).with_name("llvm-dwarfdump")
+    dd = str(dd) if dd.exists() else shutil.which("llvm-dwarfdump")
+    if dd is None:
+        raise RuntimeError("llvm-dwarfdump not found (needed for the rows with line 0)")
+    out = subprocess.run([dd, "--debug-line", obj], capture_output=True, text=True, check=True).stdout
+    ranges, prev = [], None
+    for l in out.splitlines():
+        m = ROW.match(l)
+        if not m:
+            continue
+        a, line, flags = int(m.group(1), 16), int(m.group(2)), m.group(3)
+        if prev is not None and prev[1] == 0 and a > prev[0]:
+            ranges.append((prev[0], a))
+        prev = None if "end_sequence" in flags else (a, line)
+    return ranges
 INSN = re.compile(r"^\s+([0-9a-f]+):\s")
 
 
@@ -34,6 +59,7 @@ def line_table(objdump, obj, src_name, base=0):
     names = [src_name] if isinstance(src_name, str) else list(src_name)
     out = subprocess.run([objdump, "-d", "--line-numbers", "--no-show-raw-insn", obj],
                          capture_output=True, text=True, check=True).stdout
+    zero = zero_ranges(objdump, obj)
     table, cur = {}, None
     for l in out.splitlines():
         m = LINE.match(l)
@@ -43,7 +69,9 @@ def line_table(objdump, obj, src_name, base=0):
             continue
         m = INSN.match(l)
         if m and cur is not None:
-            table[int(m.group(1), 16) - base] = cur
+            a = int(m.group(1), 16)
+            if not any(lo <= a < hi for lo, hi in zero):
+                table[a - base] = cur
     return table
 
 
@@ -52,12 +80,41 @@ class Unbounded(Exception):
 
 
 class Analysis:
-    def __init__(self, img, lines, loop_bounds):
-        """`loop_bounds`: source line -> iteration bound (None: no bound)."""
+    def __init__(self, img, lines, loop_bounds, loop_ends=None):
+        """`loop_bounds`: source line -> iteration bound (None: no bound); `loop_ends`: source
+        line -> last line of that loop (its body included; missing: the loop's own line)."""
         self.img, self.lines, self.loop_bounds = img, lines, loop_bounds
+        self.loop_ends = loop_ends or {}
         self.memo, self.active = {}, set()
         self.loops = {}      # function -> [(header, matched line, bound)]
         self.why = {}
+
+    def _within(self, k, l):
+        """Line `l` lies in the source loop of line `k` (keys: lines, or (file, line) pairs)."""
+        end = self.loop_ends.get(k)
+        if isinstance(k, tuple):
+            return isinstance(l, tuple) and l[0] == k[0] and k[1] <= l[1] <= (end or k[1])
+        return not isinstance(l, tuple) and k <= l <= (end or k)
+
+    def match(self, own):
+        """The source loops a binary loop is matched with, from the lines of its own
+        instructions (those not in a nested binary loop): of the lines that lie in some source
+        loop, the innermost source loop that holds all of them (several if they have the same
+        lines); if none holds them all, every source loop whose own line occurs (the largest
+        bound is then taken). Lines outside every loop (e.g. the function's first line, kept
+        by the compiler for code it moved) are ignored."""
+        if set(self.loop_bounds) == {None}:   # every loop, one bound (binloops.structure)
+            return {None}
+        keys = [k for k in self.loop_bounds if k is not None]
+        inside = {l for l in own if l is not None and any(self._within(k, l) for k in keys)}
+        if not inside:
+            return set()
+        hold = [k for k in keys if all(self._within(k, l) for l in inside)]
+        if not hold:
+            return inside & set(keys)
+        span = lambda k: (self.loop_ends.get(k) or (k[1] if isinstance(k, tuple) else k)) - (k[1] if isinstance(k, tuple) else k)
+        best = min(span(k) for k in hold)
+        return {k for k in hold if span(k) == best}
 
     def function(self, name):
         if name in self.memo:
@@ -201,16 +258,11 @@ class Analysis:
             body = loops[h]
             inner = [g for g in headers if parent.get(g) == h]
             own = body - set().union(*[loops[g] for g in inner]) if inner else body
-            # The loop test is in the header or at the back edges: their lines first, then
-            # all the loop's own instructions.
-            latch_blocks = {u for u, hh in back if hh == h}
-            lines = set()
-            for key in ({self.lines.get(blocks[u][-1].addr) for u in latch_blocks},
-                        {self.lines.get(i.addr) for i in blocks[h]},
-                        {self.lines.get(i.addr) for b in own for i in blocks[b]}):
-                lines = {l for l in key if l in self.loop_bounds}
-                if lines:
-                    break
+            # By the line ranges of the source loops (`match`). Trying the lines of the back
+            # edges and of the header first, as before 2026-11-21, is wrong for rotated loops:
+            # in GCC's fft_bit_reduct the outer loop's header holds the test of the inner
+            # loop (bound 11 instead of 1024).
+            lines = self.match({self.lines.get(i.addr) for b in own for i in blocks[b]})
             cands = [self.loop_bounds[l] for l in lines if l in self.loop_bounds]
             if not cands:
                 raise Unbounded(f"binary loop at {h:#x} matches no source loop (lines {sorted(lines)})")

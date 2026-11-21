@@ -85,7 +85,7 @@ def cause(e):
 
 def analyse(kernel, work, a):
     name = kernel.name
-    run_tacle.run_kernel(a.tool, kernel, work, a.extra_arg)
+    run_tacle.run_kernel(a.tool, kernel, work, [*a.extra_arg, *FLAGS[:4]])   # the binary's data model
     rep = json.loads((work / f"{name}.json").read_text())
     src = work / f"{name}.c"
     bounds = {}
@@ -114,7 +114,8 @@ def analyse(kernel, work, a):
     ffx.unlink(missing_ok=True)   # OTAWA would load it by itself (the binary's name)
     calls, unsupported = otawa_flow.call_graph(a.objdump, str(elf))
     graphs, _ = otawa_flow.graphs(a.image, work, elf.name, funcs, a.timeout)
-    ffx_text, missing = otawa_flow.flow_facts(graphs, lines, bounds)
+    ends = {(src.name, l): e for l, e in run_cycles.loop_ends(rep["functions"]).items()}
+    ffx_text, missing = otawa_flow.flow_facts(graphs, lines, bounds, ends)
     ffx.write_text(ffx_text)
     ffx.chmod(0o644)
     row = dict(kernel=name, functions=len(funcs), flow_facts=ffx_text.count("<loop "), results={})

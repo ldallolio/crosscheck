@@ -577,13 +577,16 @@ class Analyzer {
     return s;
   }
 
-  void locate(LoopReport& lr, SourceLocation loc) {
+  void locate(LoopReport& lr, SourceLocation loc, SourceLocation end) {
     const SourceManager& sm = ctx_.getSourceManager();
     PresumedLoc p = sm.getPresumedLoc(sm.getExpansionLoc(loc));
     if (p.isInvalid()) return;
     lr.file = p.getFilename();
     lr.line = p.getLine();
     lr.column = p.getColumn();
+    PresumedLoc e = sm.getPresumedLoc(sm.getExpansionLoc(end));
+    if (e.isValid() && std::string(e.getFilename()) == lr.file && e.getLine() >= lr.line)
+      lr.endLine = e.getLine();
   }
 
   unsigned lineOf(SourceLocation loc) {
@@ -2073,7 +2076,7 @@ Cost Analyzer::execRangeFor(const CXXForRangeStmt* fs, std::vector<State>& state
 
   if (!fc.speculative) {
     LoopReport lr;
-    locate(lr, fs->getForLoc());
+    locate(lr, fs->getForLoc(), fs->getEndLoc());
     lr.bound = k;
     lr.verified = verified;
     lr.potential = verified ? "array extent" : "";
@@ -2510,7 +2513,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   if (useGrow) logp.reset();
 
   LoopReport lr;
-  locate(lr, loc);
+  locate(lr, loc, loop->getEndLoc());
   std::uint64_t k = 0;
   bool symbolicLoop = false;
   bool useLog = logp && (!rank || logp->iters < rank->bound) && (!user || logp->iters <= *user);

@@ -370,7 +370,8 @@ flowchart LR
   behaviours in C), so a Rust `assert!(n <= 1000)` is a range checked at run time.
   `tests/test_rust.py` compares Rust and the generated C on random inputs.
 - **Cortex-M0 cycles** (`benchmarks/cycles`): compiled at `-O1`, loops of the binary matched
-  to source loops by debug line (back-edge branch first), per-instruction timings from Arm's
+  to source loops by debug line (the innermost source loop whose line range, `line` to
+  `end_line` in the report, holds the loop's lines), per-instruction timings from Arm's
   manual, timing schema on the binary; a self-tested interpreter runs every kernel and
   checks every call and loop against its bound. Integer division comes from `runtime.c`.
 - **Interrupts**: `CROSSCHECK_INTERRUPT(T)` handlers, `interrupt-overhead=N`,

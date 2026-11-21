@@ -136,13 +136,21 @@ limitation, it says so.
 - **"Is your processor model validated?"** Against our own interpreter on every 16-bit
   encoding (decoder, cycles, effects, flags, conditions, stack effects: no difference) and
   against llvm-objdump for decoding; the cycle table against Arm's manual row by row. Not
-  against hardware. A validated ISA model (Fox and Myreen, HOL4) is the standard to aim at.
+  against hardware yet: a harness for an STM32F0 board exists (`benchmarks/hardware/hw.py`:
+  timer around `main`, compared with the emulator and the certified bound) but has not been
+  run on a board. A validated ISA model (Fox and Myreen, HOL4) is the standard to aim at.
 - **"How do you know the code in the certificate is the binary?"** We don't prove it: the
   certificate carries a copy of the code region; a deployment would compare it with the
   flashed image (a hash).
 - **"Your loop bounds come from the source; the compiler may change loops."** For the loops
   certified on the code, no: the bound is proved on the instructions. For the others, the
-  match through debug lines is trusted and checked on emulated runs.
+  match through debug lines is trusted and checked on emulated runs. That check only sees
+  what the runs reach: on GCC's binaries, which inline less (73 calls compared instead of
+  11), it found a wrong data model (64-bit `long` in the source analysis) and a wrong match
+  of a rotated loop, both invisible on Clang's; both fixed.
+- **"Does it work with GCC?"** The plugin reads Clang's AST, so the *source* analysis needs
+  Clang. The *binary* side does not care: GCC's Cortex-M0 binaries are bounded and certified
+  the same way (`run_cycles.py --gcc`; 107 functions bounded, 112 certified).
 - **"Why not CompCert, like Maroneze et al.?"** Their guarantees hold for CompCert's output;
   ours for any compiler's binary, relative to a processor specification. Their analysis is
   verified; our checker is, and the analysis is not.
@@ -155,7 +163,7 @@ limitation, it says so.
   (the calling convention); no other code writes a function's frame (true of C without
   undefined behaviour when the function never takes an address of its frame other than the
   frame pointer r7, used only to load, which the checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
-- **"Why not all loops certified on the code (142–256 of 403 kernel loops, 258 without frame pointers, plus the 116 of the division routines)?"** Counters kept in a
+- **"Why not all loops certified on the code (143–257 of 403 kernel loops, 258 without frame pointers, plus the 116 of the division routines)?"** Counters kept in a
   frame whose address is passed to callees (26 of 265 functions), computed conditions,
   shifts, soft-float comparisons, loops over data in memory, and counters against a parameter
   (`classify_loops.py` groups them). Allowing the
@@ -202,7 +210,8 @@ one `\authortodo` (responsibility, and three attributions).
    constant inner bound, amortisation only for two triangular shapes in certificates.
 5. **Cost is not time.**
 6. **Evaluation size**: small kernels; no industrial code base yet.
-7. **Processor model** (Paper III): ours, compared with our interpreter, not with hardware.
+7. **Processor model** (Paper III): ours, compared with our interpreter, not with hardware
+   (board harness written, not yet run).
 
 ## 10. Phrases
 

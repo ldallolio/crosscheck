@@ -192,3 +192,39 @@ if __name__ == "__main__":
         CHECKER = sys.argv[i + 1]
         del sys.argv[i:i + 2]
     unittest.main()
+
+
+def test_match_by_line_ranges():
+    """Binary loops are matched with source loops by line ranges (wcet.Analysis.match)."""
+    # fft_bit_reduct: outer loop lines 118-137 (bound 1024), inner while 132-135 (bound 11)
+    an = wcet.Analysis(None, {}, {118: 1024, 132: 11}, {118: 137, 132: 135})
+    # GCC's rotated outer loop: its header holds the inner loop's test (line 132)
+    assert an.match({132, 119, 126, 129, 136, 118}) == {118}
+    assert an.match({132, 133, 134}) == {132}
+    # bsort: the outer loop's code carries the line of `if (Sorted) break;` and the
+    # function's first line (outside every loop), never the line of the `for`
+    an = wcet.Analysis(None, {}, {94: 99, 97: 99}, {94: 110, 97: 106})
+    assert an.match({89, 108, None}) == {94}
+    assert an.match({89, None}) == set()            # no line in a loop: no match
+    # without line ranges: the loops whose own line occurs (the rule before end_line)
+    an = wcet.Analysis(None, {}, {118: 1024, 132: 11})
+    assert an.match({118, 132, 119}) == {118, 132}
+    # pairs (file, line), as in crosscheck_link.py
+    an = wcet.Analysis(None, {}, {("a.c", 10): 5, ("b.c", 10): 7}, {("a.c", 10): 20})
+    assert an.match({("a.c", 15)}) == {("a.c", 10)}
+    assert an.match({("b.c", 15)}) == set()
+    # the bound-free analysis of binloops.structure
+    assert wcet.Analysis(None, {}, {None: 0}).match({None}) == {None}
+
+
+def test_loop_ends_shifted():
+    """The run-time support is appended to the kernel: its loops' first and last lines are both
+    shifted (a range [169, 18] would hold no line and leave the division loops unmatched)."""
+    import run_cycles
+    rt = [{"loops": [{"line": 12, "end_line": 18}]}]
+    ends = run_cycles.loop_ends(rt, 157)
+    assert ends == {169: 175}
+    ends = run_cycles.loop_ends([{"loops": [{"line": 5, "end_line": 9}, {"line": 5}]}], ends=ends)
+    assert ends == {169: 175, 5: 9}
+    an = wcet.Analysis(None, {}, {169: 32}, ends)
+    assert an.match({166, 170, 171}) == {169}

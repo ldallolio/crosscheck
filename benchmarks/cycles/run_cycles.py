@@ -46,9 +46,28 @@ def default_tool(name):
 # own check on Arm. Its cycles are still compared.
 EXPECTED_FAILURE = {"fft"}
 
+# the source analysis must use the binary's data model (sizeof(long), pointers: 4 bytes, not
+# the host's 8), or a bound computed from sizeof is not the binary's (sha_byte_reverse: 8
+# instead of 16 iterations; found on 2026-11-20 by the GCC run, a certified bound exceeded)
+SOURCE_TARGET = ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft"]
 FLAGS = ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft", "-O1", "-g",
          "-fno-unroll-loops", "-ffreestanding", "-fno-builtin", "-fno-unwind-tables",
          "-fno-asynchronous-unwind-tables", "-w", "-std=gnu99"]
+# the same build with GCC (`--gcc IMAGE`: arm-none-eabi-gcc in a Docker image, run without
+# network). Switch tables are compiled as branches (GCC's Thumb-1 tables call libgcc helpers,
+# `__gnu_thumb1_case_*`, that rewrite the PC), and loops are not replaced by calls of memset
+# or memcpy (not in the binary)
+GCC_FLAGS = ["-mcpu=cortex-m0", "-mthumb", "-mfloat-abi=soft", "-O1", "-g", "-fno-unroll-loops",
+             "-ffreestanding", "-fno-builtin", "-fno-jump-tables", "-fno-tree-loop-distribute-patterns",
+             "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-w", "-std=gnu99"]
+
+
+def gcc_command(image, dirs):
+    """arm-none-eabi-gcc in `image`, without network, with `dirs` mounted at the same paths."""
+    import os
+    mounts = [x for d in sorted({str(pathlib.Path(d).resolve()) for d in dirs}) for x in ("-v", f"{d}:{d}")]
+    return ["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
+            *mounts, image, "arm-none-eabi-gcc"]
 
 
 def runtime_bounds(tool, work, extra):
@@ -56,16 +75,27 @@ def runtime_bounds(tool, work, extra):
     import subprocess
     report = work / "runtime.json"
     subprocess.run([str(tool), "--all", f"--report={report}", str(HERE / "runtime.c"), "--",
-                    "-x", "c", "-std=gnu99", "-w", *extra], capture_output=True, text=True)
+                    "-x", "c", "-std=gnu99", "-w", *extra, *SOURCE_TARGET], capture_output=True, text=True)
     rep = json.loads(report.read_text())
     return {l["line"]: (l["bound"] if l.get("verified") else None)
             for f in rep["functions"] for l in f["loops"]}
 
 
+def loop_ends(functions, offset=0, ends=None):
+    """source loop (its line, plus `offset`) -> its last line (plus `offset`), from a report's
+    `end_line` (the largest if several loops share a line)."""
+    ends = {} if ends is None else ends
+    for f in functions:
+        for l in f["loops"]:
+            k = l["line"] + offset
+            ends[k] = max(ends.get(k, 0), (l.get("end_line") or l["line"]) + offset)
+    return ends
+
+
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
-            frame=False, cflags=(), tag=""):
+            frame=False, cflags=(), tag="", gcc=None):
     import subprocess
-    r = run_tacle.run_kernel(tool, kernel, work, extra)
+    r = run_tacle.run_kernel(tool, kernel, work, [*extra, *SOURCE_TARGET])
     rep = json.loads((work / f"{kernel.name}.json").read_text())
     # the kernel followed by the run-time support (its lines shifted)
     text = (work / f"{kernel.name}.c").read_text(errors="replace")
@@ -81,13 +111,16 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                 b = max(b, bounds[l["line"]])
             bounds[l["line"]] = b
     obj = work / f"{kernel.name}.m0{tag}.o"
-    p = subprocess.run([str(clang), *FLAGS, *cflags, f"-I{kernel}", "-c", str(work / f"{kernel.name}.m0.c"), "-o", str(obj)],
+    cc = gcc_command(gcc, [work, kernel]) + GCC_FLAGS if gcc else [str(clang), *FLAGS]
+    p = subprocess.run([*cc, *cflags, f"-I{kernel}", "-c", str(work / f"{kernel.name}.m0.c"), "-o", str(obj)],
                        capture_output=True, text=True)
     if p.returncode:
         return dict(kernel=kernel.name, error="compilation failed: " + p.stderr[-300:])
     img = m0.load(str(obj))
     lines = wcet.line_table(str(objdump), str(obj), f"{kernel.name}.m0.c")
-    an = wcet.Analysis(img, lines, bounds)
+    rt_rep = json.loads((work / "runtime.json").read_text())["functions"]
+    ends = loop_ends(rt_rep, offset)
+    an = wcet.Analysis(img, lines, bounds, loop_ends(rep["functions"], ends=ends))
     static = {n: an.function(n) for n in sorted(img.funcs)}
     certified, cert_info = {}, {}
     if certdir:
@@ -248,6 +281,9 @@ def main():
                     help="an extra compiler flag for the Cortex-M0 build (e.g. -fomit-frame-pointer)")
     ap.add_argument("--tag", default="",
                     help="suffix of the objects (KERNEL.m0TAG.o), so that another build does not replace the default one")
+    ap.add_argument("--gcc", metavar="IMAGE",
+                    help="compile with arm-none-eabi-gcc from this Docker image (run without network) "
+                         "instead of Clang; use with --tag, e.g. --tag=.gcc")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="kernels analysed in parallel (processes; the largest objects first, "
@@ -265,7 +301,7 @@ def main():
         pathlib.Path(a.certify).mkdir(parents=True, exist_ok=True)
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     args = lambda k: (k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify,  # noqa: E731
-                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag)
+                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc)
     if a.jobs > 1:
         import concurrent.futures
         size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731

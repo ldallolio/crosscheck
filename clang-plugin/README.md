@@ -85,7 +85,7 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 
 | Option | Meaning |
 |---|---|
-| `report=FILE` | write a JSON report (bounds, loop potentials, assumptions, errors) |
+| `report=FILE` | write a JSON report (bounds, loop potentials, assumptions, errors; each loop's first and last source line, `line` and `end_line`, used to match the binary's loops) |
 | `all` | analyse every function defined in the main file, not only annotated ones |
 | `weight-CLASS=N` | weight of an instruction class (see [Cost model](#cost-model)) |
 | `max-paths=N` | symbolic paths kept through a loop body before joining (default 16) |

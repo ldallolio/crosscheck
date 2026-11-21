@@ -60,6 +60,7 @@ std::string Report::toJson() const {
       const LoopReport& l = f.loops[j];
       out += std::string(j ? ", " : "") + "{\"file\": " + quote(l.file) +
              ", \"line\": " + std::to_string(l.line) + ", \"column\": " + std::to_string(l.column) +
+             ", \"end_line\": " + std::to_string(l.endLine) +
              ", \"bound\": " + std::to_string(l.bound) +
              ", \"verified\": " + (l.verified ? "true" : "false") +
              ", \"in_context\": " + (l.inContext ? std::to_string(*l.inContext) : std::string("null")) +

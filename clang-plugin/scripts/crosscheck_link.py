@@ -24,6 +24,9 @@ Processors (`--processor`):
 - `cortex-m0` (default): ARMv6-M, the timing table and analysis of `benchmarks/cycles/m0.py`
   and `wcet.py` (compile with `--target=thumbv6m-none-eabi -mcpu=cortex-m0 -g`, as
   `run_cycles.py` does); an object file, or an executable whose code is below 0x20000000;
+  the reports must come from an analysis for the binary's target too (the same `--target`
+  and `-mcpu` after `--`): loop bounds that depend on `sizeof(long)` or on the size of
+  pointers differ between a 64-bit host and a 32-bit processor;
 - `stm32f4` (Cortex-M4) and `stm32h7` (Cortex-M7): OTAWA's `stm32` script, run in the
   Docker image `--otawa-image` without network (`benchmarks/cycles/otawa_flow.py`; the
   image is built by the user, see `run_otawa.py`); the binary must be an executable
@@ -78,8 +81,12 @@ def default_objdump():
     return found or str(pathlib.Path.home() / "miniforge3/envs/crosscheck/bin/llvm-objdump")
 
 
+LOOP_ENDS = {}   # (source name, line) -> last line of the loop (`end_line`), for wcet.Analysis
+
+
 def loop_bounds(reports, context):
-    """(source name, line) -> bound of the loop there (None: no bound); the largest if several."""
+    """(source name, line) -> bound of the loop there (None: no bound); the largest if several.
+    Also records the loops' last lines in LOOP_ENDS."""
     out = {}
     for name, report in reports:
         for f in report["functions"]:
@@ -89,6 +96,7 @@ def loop_bounds(reports, context):
                 else:
                     b = lp["bound"] if lp.get("verified") else None
                 key = (name, lp["line"])
+                LOOP_ENDS[key] = max(LOOP_ENDS.get(key, 0), lp.get("end_line") or lp["line"])
                 if key in out:
                     b = None if out[key] is None or b is None else max(out[key], b)
                 out[key] = b
@@ -100,7 +108,7 @@ def m0_bounds(a, names, bounds, roots):
     `--certify` the IPET bounds of ipet.py accepted by the verified checker."""
     img = m0.load(a.binary)
     lines = wcet.line_table(a.objdump, a.binary, names, base=img.base)
-    an = wcet.Analysis(img, lines, bounds)
+    an = wcet.Analysis(img, lines, bounds, LOOP_ENDS)
     res = {}
     if a.certify:
         known = [r for r in roots if r in img.funcs]
@@ -145,7 +153,7 @@ def otawa_bounds(a, names, bounds, roots):
         shutil.copyfile(a.binary, elf)
         calls, unsupported = otawa_flow.call_graph(a.objdump, str(elf))
         funcs, _ = otawa_flow.graphs(a.otawa_image, work, elf.name, roots, a.timeout)
-        ffx_text, missing = otawa_flow.flow_facts(funcs, lines, bounds)
+        ffx_text, missing = otawa_flow.flow_facts(funcs, lines, bounds, LOOP_ENDS)
         ffx = work / "prog.ffx"
         ffx.write_text(ffx_text)
         for f in (elf, ffx):

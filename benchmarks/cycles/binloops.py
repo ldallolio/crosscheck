@@ -32,6 +32,7 @@ DISJ = True          # disjunctive invariants at a possible wrap-around (`window
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
 LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
+HARD_VISITS = 200    # visits of a loop head after which growing bounds are dropped (forget)
 
 
 def structure(an, name):
@@ -1081,6 +1082,26 @@ def widen(old, new, thresholds):
     return out
 
 
+def forget_growing(old, new):
+    """`new` (closed, above `old`) with, for every entry above `old`, the upper bounds of
+    its first variable (row) and the lower bounds of its second (column) dropped: still
+    closed, and each call that changes anything drops a finite entry of `old`, so
+    widening followed by closure, which may creep up forever (a closure tightens the
+    widened entries again), stops."""
+    n = len(new)
+    grow = [(i, j) for i in range(n) for j in range(n) if new[i][j] > old[i][j]]
+    if not grow:
+        return new
+    out = copy(new)
+    for i, j in grow:
+        for k in range(n):
+            if k != i:
+                out[i][k] = INF
+            if k != j:
+                out[k][j] = INF
+    return out
+
+
 def guard(Zd, M, p, closed=False):
     """Adds the constraint `p` (over the ghosts 8, 9) to a zone (closed if `closed`):
     (zone or None if empty, whether it is closed)."""
@@ -1521,6 +1542,8 @@ def analyse(ctx, kind):
                     widened = True
             if new is not None and (widened or n == ctx.entry):
                 new = Zd.close(new)
+                if widened and visits[n] > HARD_VISITS and new is not None and state[n] is not None:
+                    new = forget_growing(state[n], new)
             elif new is not None:
                 new = Zd.checked(new, new)   # a join of closed zones is closed
             if not leq(new, state[n]):

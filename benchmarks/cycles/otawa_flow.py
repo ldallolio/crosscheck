@@ -10,11 +10,12 @@ network, `mkff` lists the loop headers of the code reachable from each root func
 function (the raw graph: in the tuned one, the blocks duplicated for an IT block lose their
 incoming edges in this output; the loop headers are the same addresses).
 A loop's body is the natural loop of its header in that graph (a call's synthetic block is
-replaced by the block that follows the call), and it is matched with the source loops as in
-`wcet.py`: the lines of the back-edge branches first, then those of the header, then those
-of all the loop's own instructions (not in a nested loop); the largest bound if several
-source loops match; no flow fact, hence no WCET for the roots that reach it, if none does
-or if the matched source loop has no bound. A source bound N (body executions per entry)
+replaced by the block that follows the call), and it is matched with the source loops by
+the rule of `wcet.py` (`wcet.Analysis.match`, from the lines of the loop's own instructions,
+not in a nested loop, and the source loops' line ranges `loop_ends`): the innermost source
+loop whose range holds those of its lines that lie in some source loop; the largest bound
+if several source loops match; no flow fact, hence no WCET for the roots that reach it, if
+none does or if the matched source loop has no bound. A source bound N (body executions per entry)
 is written as `maxcount="N+1"` (executions of the header per entry), as in `run_otawa.py`.
 
 Trusted, besides OTAWA itself and its processor model: that the compiler preserves the
@@ -23,6 +24,10 @@ source loops' iteration counts, as for `wcet.py`.
 import pathlib
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import wcet as wcet_py  # noqa: E402  (this module has a function `wcet`)
 
 OTAWA_BIN = "/tmp/otawa-install/bin"
 
@@ -224,9 +229,11 @@ def natural_loops(blocks):
     return loops
 
 
-def flow_facts(funcs, lines, loop_bounds):
-    """(FFX text, {function: reason it has a loop without a flow fact})."""
+def flow_facts(funcs, lines, loop_bounds, loop_ends=None):
+    """(FFX text, {function: reason it has a loop without a flow fact}). `loop_ends`: source
+    loop -> its last line (the plugin's `end_line`), as for `wcet.Analysis`."""
     facts, missing = [], {}
+    matcher = wcet_py.Analysis(None, {}, loop_bounds, loop_ends)
     for fn, (blocks, heads) in sorted(funcs.items()):
         loops = natural_loops(blocks)
         entry = blocks[min(blocks)][0] if blocks else None
@@ -234,25 +241,11 @@ def flow_facts(funcs, lines, loop_bounds):
             if h not in loops:
                 missing[fn] = f"loop at {h:#x}: no back edge found in OTAWA's graph"
                 continue
-            body, latches = loops[h]
+            body, _latches = loops[h]
             inner = [g for g in loops if g != h and loops[g][0] < body]
             own = body - set().union(*[loops[g][0] for g in inner]) if inner else body
-
-            def lines_of(bs, last_only=False):
-                out = set()
-                for b in bs:
-                    first, last, _ = blocks[b]
-                    for a in ([last] if last_only else range(first, last + 1)):
-                        if a in lines:
-                            out.add(lines[a])
-                return {l for l in out if l in loop_bounds}
-
-            hb = next(b for b in body if blocks[b][0] == h)
-            found = set()
-            for key in (lines_of(latches, True), lines_of([hb]), lines_of(own)):
-                if key:
-                    found = key
-                    break
+            own_lines = {lines[a] for b in own for a in range(blocks[b][0], blocks[b][1] + 1) if a in lines}
+            found = matcher.match(own_lines)
             if not found:
                 missing[fn] = f"loop at {h:#x} matches no source loop"
                 continue

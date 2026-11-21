@@ -1993,6 +1993,84 @@ below; step 3, logarithmic potentials on the machine code, not started):
   CLAUDE.md (596 theorems). This text of Paper III is new since the author's statement on
   the use of AI.
 
+77. "This project is a plugin for a compiler so I would like to understand if the final product can be integrated inside a GCC, llvm, clang and work on existing code (libraries) in its current state and, if not, what should be done to get a real industrial value"
+
+What the AI did for 77 (Claude Opus 5.5, 2026-11-20): an answer only, no change. In its
+current state the plugin runs on unmodified C/C++ code compiled by Clang 18 (TACLeBench,
+CMSIS-DSP, `compile_commands.json` projects; flow facts, SARIF, CI diffs, time budgets);
+not in GCC (the analysis reads Clang's AST), other LLVM front ends only through the Rust
+translation, other Clang versions not tested; machine-code certification only for the
+Cortex-M0 and only tried on Clang binaries. Proposed order: validation of the timing table
+on a board, GCC binaries for the Cortex-M0, then packaging and qualification evidence.
+
+78. "Proceed as you say"
+
+What the AI did for 78 (Claude Opus 5.5, 2026-11-20/21):
+- `benchmarks/hardware/` (new): `hw.py` (build: each kernel object linked unchanged with
+  `stm32f0/startup.c`, TIM2 timing of `main`, result on USART2; measure: flash and read the
+  serial port; report: board cycles against the certified bound and the emulator with
+  `MUL_CYCLES = 1`), `Dockerfile` (arm-none-eabi-gcc from Ubuntu's packages), README.
+  Built for the NUCLEO-F091RC (26 of 29 kernels link); **not run on a board**: the register
+  addresses and clock set-up are taken from ST's reference manual RM0091 by the AI and are
+  untried; that the STM32F0 has the single-cycle multiplier is also from the AI's reading of
+  ST's documentation (PM0215) and to be confirmed.
+- `run_cycles.py --gcc IMAGE --tag=.gcc`: the kernels compiled by arm-none-eabi-gcc 13.2.1
+  (Docker, no network, `GCC_FLAGS`). The GCC runs revealed three defects, fixed:
+  (1) the source was analysed with the host's data model (64-bit `long`): a bound of
+  `sha_byte_reverse` below an emulated run (213 vs 367 cycles); now `SOURCE_TARGET`
+  (`--target=thumbv6m-none-eabi`); (2) a GCC-rotated loop of `fft_bit_reduct` matched with
+  its inner loop (bound 11, 1023 iterations observed); (3) the producer did not terminate on
+  GCC's `bitcount` (zone widening then closure kept raising a bound; 7 hours): after
+  `HARD_VISITS` = 200 visits of a head, growing entries are forgotten (`forget_growing`).
+  DWARF line-0 rows and discriminators are now read (`wcet.zero_ranges`, `LINE`).
+
+79. "The task has been running for hours can you check it if it needs more time or if is better to reconsider ?"
+
+What the AI did for 79 (Claude Opus 5.5, 2026-11-21): found the GCC `bitcount` run stuck
+in the producer's fixpoint (defect (3) above) and the GCC runs never started (an option
+split by the shell script); fixed both, then defects (1)-(2) appeared in the runs. A first
+fix of (2), the largest bound among the loop's own lines, made `matrix1` 80 times looser
+and left `bsort` unbounded; two options were offered to the author.
+
+80. "Proceed with the first recommended option : Have the plugin report also give each loop's last source line."
+
+What the AI did for 80 (Claude Opus 5.5, 2026-11-21):
+- Plugin: `LoopReport::endLine`, `"end_line"` in the JSON report (`Report.hpp/.cpp`,
+  `Analyzer.cpp`); ctest 183/183.
+- `wcet.Analysis.match`: a binary loop is matched with the innermost source loop whose
+  line range holds the lines of its own instructions that lie in some source loop; lines
+  outside every loop are ignored; else the largest bound of the loops whose line occurs.
+  Callers: `run_cycles.py`, `run_otawa.py`, `crosscheck_link.py`; `run_stm32.py` analyses the
+  source for its target. Tests `test_match_by_line_ranges`, `test_loop_ends_shifted` (a bug of
+  the first version: the run-time routines' end lines were not shifted, which left the
+  division loops unmatched; found by the full runs, 107 -> 92 bounded functions, fixed).
+- Runs (Clang default and without frame pointer, three assumptions; GCC, three
+  assumptions): no violation, no certificate rejected, no loop lost against the runs
+  before; Clang: 107 functions bounded, `bsort` `main` 369,779 -> 366,147, one more `minver`
+  loop certified (143 / 200 / 257 of 403); GCC: 107 functions bounded, 73 calls and 65 loops
+  compared, 112 certified functions, 74 / 65 / 40 of 215 kernel loops certified.
+- `otawa_flow.flow_facts` uses the same rule (`wcet.Analysis.match`, with the ranges): with
+  its earlier rule and the line-0 fix it had lost `bsort_BubbleSort` (104 of 107 functions in
+  `run_otawa.py --matching otawa`); now 107, the same bounds as `wcet.py`'s matching. Reruns:
+  certified cycle bounds without loop certificates (entry functions 1.06-1.92 times the
+  runs), OTAWA in instructions and cycles (geometric means 2.32 and 2.69), the STM32 models
+  (169 / 163 functions, all 107 of the Cortex-M0 bounded on the Cortex-M4), the
+  classification `tab:fail` (146 loops). Test `test_innermost_line_range`.
+- A loop of `minver` is now certified (0x104): its function has a `while (1)` loop without
+  source bound that the earlier rule matched with a bounded loop (a wrong trusted bound,
+  harmless there: the function calls soft-float code and is never compared with a run).
+- Paper III: the matching sentence, `tab:loops`, `tab:steps`, `tab:fail`, abstract
+  figures, OTAWA and STM32 figures, new paragraph "Another compiler"; cycles README
+  (method, "GCC binaries", OTAWA, STM32), guide parts 5, 6 and 9, plugin README,
+  CLAUDE.md. This text of Paper III is new since the author's statement on the use of AI.
+
+81. "Once done make sure to update the guide too"
+
+What the AI did for 81 (Claude Opus 5.5, 2026-11-21): guide part 5 (matching by line ranges
+with the `fft` example, a note on the GCC binaries, the board harness, figures), part 6
+(matching), part 9 (figures; GCC and the harness in the answers on the processor model and
+on the compiler).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2300,3 +2378,16 @@ is whether each Lean statement says what the paper says, and everything outside 
     the rewritten evaluation of Paper III (tables `tab:loops`, `tab:steps`, `tab:fail`)
     against `benchmarks/cycles/README.md` and the runs. The text of Paper III changed since the
     author's statement on the use of AI.
+49. **Hardware harness and GCC binaries (prompts 78-80).** Check the STM32F0 register
+    addresses and clock set-up of `benchmarks/hardware/stm32f0/startup.c` against RM0091,
+    and the single-cycle multiplier against PM0215, before trusting a measurement; then
+    run `hw.py` on a board. Read the paragraph "Another compiler" of Paper III against
+    `benchmarks/cycles/README.md` ("GCC binaries") and the runs.
+50. **Loop matching and data model (prompt 80).** Read `wcet.Analysis.match` and decide
+    whether the rule (innermost source loop whose line range holds the binary loop's lines)
+    is the one to describe in Paper III; it is trusted, checked only on emulated runs, which
+    reach few out-of-line calls in Clang's binaries. Confirm that the source analysis for
+    `--target=thumbv6m-none-eabi` (`SOURCE_TARGET`) is the right data model for every figure
+    of Papers II and III that comes from a Cortex-M0 binary (Paper II's figures come from the
+    host analysis and are unchanged).
+

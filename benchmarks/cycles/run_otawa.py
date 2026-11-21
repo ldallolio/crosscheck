@@ -92,7 +92,7 @@ def instruction_times(img):
 
 def analyse(kernel, work, a, rt):
     name = kernel.name
-    run_tacle.run_kernel(a.tool, kernel, work, a.extra_arg)
+    run_tacle.run_kernel(a.tool, kernel, work, [*a.extra_arg, *run_cycles.SOURCE_TARGET])
     rep = json.loads((work / f"{name}.json").read_text())
     text = (work / f"{name}.c").read_text(errors="replace")
     if not text.endswith("\n"):
@@ -114,7 +114,8 @@ def analyse(kernel, work, a, rt):
         return dict(kernel=name, status="compilation failed")
     img = m0.load(str(obj))
     lines = wcet.line_table(a.objdump, str(obj), f"{name}.m0.c")
-    an = wcet.Analysis(img, lines, bounds)
+    ends = run_cycles.loop_ends(json.loads((work / "runtime.json").read_text())["functions"], offset)
+    an = wcet.Analysis(img, lines, bounds, run_cycles.loop_ends(rep["functions"], ends=ends))
     schema = {n: an.function(n) for n in sorted(img.funcs)}
     own = sorted(n for n, v in schema.items() if v is not None and not n.startswith("__aeabi"))
     row = dict(kernel=name, functions=len(own), results={})
@@ -147,7 +148,8 @@ def analyse(kernel, work, a, rt):
         lines_e = wcet.line_table(a.objdump, str(elf), [src.name])
         calls, unsupported = otawa_flow.call_graph(a.objdump, str(elf))
         graphs, _ = otawa_flow.graphs(a.image, work, elf.name, own, a.timeout)
-        text, missing = otawa_flow.flow_facts(graphs, lines_e, {(src.name, l): b for l, b in bounds.items()})
+        text, missing = otawa_flow.flow_facts(graphs, lines_e, {(src.name, l): b for l, b in bounds.items()},
+                                              {(src.name, l): e for l, e in an.loop_ends.items()})
         ffx.write_text(text)
         row["flow_facts"] = text.count("<loop ")
         refused = {f: otawa_flow.unsupported_reason(otawa_flow.reachable(calls, f), unsupported, missing, calls)

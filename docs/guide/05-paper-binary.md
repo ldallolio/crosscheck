@@ -43,15 +43,34 @@ counting possible without a micro-architectural model.
 
 `benchmarks/cycles/wcet.py` builds the control-flow graph of each function of the binary,
 finds its **natural loops** (a loop = a header that dominates a back edge's source), and
-matches each binary loop with a source loop through the **debug line table** (the line of
-its back-edge branch, else of its header, else of its instructions). The source loop's bound
+matches each binary loop with a source loop through the **debug line table**. The plugin's
+report gives each source loop its first and last line (`line`, `end_line`), so a source loop
+is a range of lines. Take the lines of the binary loop's own instructions (not those of a
+loop nested inside it), keep those that fall in some source loop's range, and choose the
+innermost source loop whose range holds all of them. Lines outside every loop are dropped:
+compilers often give moved code the function's first line. Example (`fft`, compiled by GCC):
+the outer loop (lines 118-137) is rotated, and its own code carries lines 118, 119, 126, 129,
+136 and also 132, the test of the inner `while` (lines 132-135); only the outer loop's range
+holds all of them, so the outer loop is chosen,
+not the inner one with its bound of 11. If no single range holds them all, the largest bound
+among the loops whose first line occurs is taken. The source loop's bound
 (from the plugin, in context) bounds the binary loop. The timing schema then gives the
 function's cycles.
 
 Results on the 29 TACLeBench kernels: **107 of 267 functions** get a cycle bound, including 6
-`main` functions, at 1.24 to 2.49 times the emulated run; on the 11 calls and 45 loops
+`main` functions, at 1.24 to 2.46 times the emulated run; on the 11 calls and 45 loops
 compared with the emulator, no bound is exceeded. This step trusts the matching (checked on
 the runs) and the cycle table.
+
+**A second compiler** (paragraph "Another compiler" of Paper III). The same kernels compiled
+by GCC (`run_cycles.py --gcc`) also give 107 bounded functions, but GCC inlines less, so the
+runs compare 73 calls instead of 11. That wider check found two errors in what this step
+trusts, invisible on Clang's binaries: the source had been analysed as if `long` had 64 bits
+(the host's data model; the Cortex-M0 has 32), which halved a loop bound of `sha`; and
+the old matching rule ("line of the back-edge branch first") gave a rotated loop of `fft` the
+bound of its inner loop. Both are fixed (the plugin now analyses for the target, and the
+matching uses line ranges, as above). The lesson: a check by execution only covers what the
+runs reach.
 
 ## 5.4 Second step: a certificate for the cycle bound (`sec:graphs`)
 
@@ -137,6 +156,18 @@ decoder — is a walk of the built graph with the same cycles, so the bound hold
 interpreter's decoder on all 2¹⁶ halfwords and against llvm-objdump on the 24 285 instructions
 of the kernels (`test_thumb.py`): no difference. It is not validated on hardware (Fox and
 Myreen's ARM model in HOL4 is, and is the standard to aim at).
+
+**Towards a board** (`benchmarks/hardware/`, not yet run). The cycle table can only be
+confirmed on a real processor. `hw.py build` links each kernel's object file, unchanged,
+with a small start-up file for an STM32F0 board (a Cortex-M0 microcontroller): it starts a
+32-bit timer, calls `main`, stops the timer, and prints the count on the serial line. It
+also records what the emulator predicts for the same object. `hw.py measure` flashes the
+board and reads the counts, and `hw.py report` checks two things: the board never exceeds
+the certified bound (soundness), and the board equals the emulator on kernels without
+library calls (the cycle table). The emulator's prediction uses the single-cycle
+multiplier, which the STM32F0 is believed to have; the bounds use 32 cycles, which is safe
+either way. The register addresses come from ST's reference manual and have not been tried
+on a board yet.
 
 Result: all 107 functions certified; the checker checks 223 functions (with the run-time
 division routines), 8 333 instructions, in 0.15 s. IPET bounds are below the timing schema for
@@ -284,9 +315,9 @@ checker's verdict, cover the usual case:
 
 | Configuration | Kernel loops certified on the code (of 403) | Functions with a certified cycle bound |
 |---|---|---|
-| no assumption | 142 (136 without the wrap-to-zero step below, the same without the disjunctive invariants, 131 without the exact shift, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 116 |
-| `abi` | 199 (193, 193, 183, 173, 167, 105) | 116 |
-| `abi` and `frame` | 256 (250, 246, 229, 215, 175 before the frame-pointer exception, 169, 107) | 121 |
+| no assumption | 143 (142 before the matching by line ranges, 136 without the wrap-to-zero step below, the same without the disjunctive invariants, 131 without the exact shift, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 116 |
+| `abi` | 200 (199, 193, 193, 183, 173, 167, 105) | 116 |
+| `abi` and `frame` | 257 (256, 250, 246, 229, 215, 175 before the frame-pointer exception, 169, 107) | 121 |
 
 All 116 loops of the division routines are certified in every configuration (none before the
 disjunctive invariants below). Every certificate
@@ -365,7 +396,8 @@ the transported potentials, and trying the tightest candidate first. Result: 142
 256 kernel loops (+6 in `bsort`, `fft`, `fir2dim`), 121 functions with a certified cycle
 bound, 17 loop rows still trusted with both assumptions.
 
-Of the 147 kernel loops still not certified, 86
+After the matching by line ranges (section 5.3; one more loop of `minver`: 143 / 200 / 257),
+of the 146 kernel loops still not certified, 86
 have a tracked counter but no potential (62 of them leave on equality). The
 specification of effects, flags, conditions and stack effects is compared with the
 interpreter on every 16-bit encoding (297 244 executions, no difference); 28 tests check that
@@ -379,7 +411,7 @@ altered certificates are refused.
   cycles — never below our timing schema, none below an emulated run. This shows the bounds
   are usable by an industrial-style tool; it is not an independent timing model.
 - **Other processors.** The same flow facts on OTAWA's own graphs of binaries for a
-  Cortex-M4 and an M7 (OTAWA's STM32 models): 168 and 162 functions bounded; not checked
+  Cortex-M4 and an M7 (OTAWA's STM32 models): 169 and 163 functions bounded; not checked
   against executions.
 - **Stack bounds.** The high-water mark of the stack (Paper I, `prop:stack`) on the same
   binaries: 143 of 267 functions; 9 of the 10 `main` bounds equal the observed stack.
@@ -422,5 +454,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 116–121 functions get a certified cycle
-bound and 142–256 of 403 loops are bounded on the code (258 built without frame pointers), with the 116 loops of the division routines, with nothing trusted about them; the
+bound and 143–257 of 403 loops are bounded on the code (258 built without frame pointers), with the 116 loops of the division routines, with nothing trusted about them; the
 rest keep their source bounds as assumptions.

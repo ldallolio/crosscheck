@@ -14,15 +14,30 @@ python3 benchmarks/cycles/run_cycles.py --extra-arg=--gcc-install-dir=/usr/lib/g
 For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.py`):
 
 1. **Source loop bounds**: CrossCheck analyses the kernel (no annotation) and gives each
-   loop a bound in the calling contexts of `main` (else for every call).
+   loop a bound in the calling contexts of `main` (else for every call). The analysis is
+   made for the binary's data model (`SOURCE_TARGET`: `--target=thumbv6m-none-eabi`, 32-bit
+   `long` and pointers); before 2026-11-21 it used the host's (64-bit `long`), and a loop of
+   `sha` over the bytes of a `long` got half its iterations on the binary (a certified
+   bound of 213 cycles for `sha_byte_reverse`, 367 observed in GCC's binary).
 2. **Compilation**: Clang 18, `--target=thumbv6m-none-eabi -mcpu=cortex-m0 -O1 -g
-   -fno-unroll-loops -ffreestanding -fno-builtin`, one object file.
+   -fno-unroll-loops -ffreestanding -fno-builtin`, one object file; or, with `--gcc IMAGE
+   --tag=.gcc`, arm-none-eabi-gcc in a Docker image run without network (`GCC_FLAGS`;
+   image `benchmarks/hardware/Dockerfile`), see "GCC binaries" below.
 3. **Static bound** (`wcet.py`): for each function, the control-flow graph of the code
    reachable from its entry (`m0.decode`, ARMv6-M Thumb); it must be reducible, without
    indirect jumps. Each natural loop is matched with the source loops through the debug
-   line table (the source loop whose line occurs among the loop's own instructions; the
-   largest bound if several do; no bound if none does), and its back edges are bounded by
-   that source bound. The bound is the timing schema on the binary: a loop costs
+   line table (`wcet.Analysis.match`): of the lines of the loop's own instructions (not
+   those of nested loops), those that lie in a source loop's range (its `line` to its
+   `end_line`, from the plugin's report) are kept, and the innermost source loop holding
+   all of them is chosen; lines outside every loop (often the function's first line, which
+   compilers give to moved code) are ignored; if no source loop holds all of them, the
+   largest bound among the source loops whose first line occurs; no bound if none does.
+   Line-0 rows of the DWARF table (which llvm-objdump does not print) end the previous
+   line (`zero_ranges`, with llvm-dwarfdump). The back edges are bounded by that source
+   bound. Earlier rules failed on real code: the largest bound over all own lines made
+   `matrix1` 80-105× loose (stale lines); the line of the back-edge branch matched GCC's
+   rotated outer loop of `fft_bit_reduct` with its inner loop (bound 11, 1023 iterations
+   observed: a violation). The bound is the timing schema on the binary: a loop costs
    `N × (longest iteration) + (longest exit path)`, inner loops first, a call the callee's
    bound, a conditional branch the taken case (3 cycles).
 4. **Check by execution** (`m0.Machine`, an interpreter of the instruction set written for
@@ -65,7 +80,7 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 | Kernel | Bound (cycles) | Observed | Bound / observed |
 |---|---:|---:|---:|
 | binarysearch | 32,686 | 24,241 | 1.35 |
-| bsort | 369,779 | 148,668 | 2.49 |
+| bsort | 366,147 | 148,668 | 2.46 |
 | countnegative | 449,615 | 327,923 | 1.37 |
 | isqrt | 1,005,075 | 689,071 | 1.46 |
 | jfdctint | 75,652 | 60,911 | 1.24 |
@@ -73,7 +88,7 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 
 - **Checks**: 11 calls of bounded functions (the others are inlined at `-O1`) and 45 binary
   loops were compared with the run: **no violation**; over 10 of the calls, bound/observed is
-  between 1.02 and 2.49. The eleventh, a function of `fft` bounded since logarithmic potentials
+  between 1.02 and 2.46 (2.49 for `bsort` before the matching by line ranges of 2026-11-21). The eleventh, a function of `fft` bounded since logarithmic potentials
   (2026-11-15), has a bound 970 times its observed cycles: its three nested loops are
   bounded by the product of their bounds, while at each outer iteration the count of one
   inner loop doubles and that of the other halves. `bsort`'s factor comes from its triangular nested loops, bounded
@@ -85,7 +100,58 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 Matching rule: the first version, which took the largest bound among all lines of a
 loop's instructions, gave `matrix1_main` 100 iterations instead of 10 (an instruction of
 the loop's preheader inherits the line of another loop) and a bound 105 times the observed
-cycles; trying the lines of the back-edge branches first gives 1.31.
+cycles; trying the lines of the back-edge branches first gives 1.31, but fails on GCC's
+rotated loops (see "GCC binaries"); the rule since 2026-11-21 (line ranges, step 3 above)
+also gives 1.31.
+
+## GCC binaries (2026-11-21)
+
+The same kernels compiled by arm-none-eabi-gcc 13.2.1 (Ubuntu's package, Docker image
+`benchmarks/hardware/Dockerfile`, run without network), `GCC_FLAGS`: `-mcpu=cortex-m0
+-mthumb -O1 -g -fno-unroll-loops -ffreestanding -fno-builtin -fno-jump-tables
+-fno-tree-loop-distribute-patterns` (no jump tables, which the decoder refuses; no
+loops replaced by `memset`/`memcpy` calls):
+
+```bash
+python3 benchmarks/cycles/run_cycles.py --gcc armgcc:local --tag=.gcc --check --certify OUT \
+    --checker formalization/.lake/build/bin/crosscheck-check --certify-loops --abi --frame --jobs 4 \
+    --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
+```
+
+| | GCC | Clang |
+|---|---:|---:|
+| functions with a cycle bound (of 267) | 107 (6 `main`) | 107 (6 `main`) |
+| calls compared with emulated runs | 73 | 11 |
+| binary loops compared | 65 | 45 |
+| violations | 0 | 0 |
+| `main`: bound / observed | 1.31-2.51 | 1.24-2.46 |
+| functions with a certified cycle bound (none / `--abi` / both) | 110 / 110 / 112 | 116 / 116 / 121 |
+| `main`: certified / observed (both assumptions) | 1.12-1.90 | 1.00-1.90 |
+| kernel loops certified on the code (none / `--abi` / both) | 40 / 65 / 74 of 215 | 143 / 200 / 257 of 403 |
+| loops of the division routines certified | 29 of 29 | 116 of 116 |
+
+GCC inlines less at `-O1`, so many more calls are compared with the runs (73 instead of 11);
+Clang's binaries have more loops, probably because inlining copies them (not counted). Why fewer of GCC's loops are
+certified was not analysed.
+
+The GCC binaries revealed three defects, all fixed before the figures above:
+
+- **Data model** (a wrong bound): the source was analysed for the host (64-bit `long`), the
+  binary is 32-bit; a loop of `sha_byte_reverse` over the bytes of a `long` got a bound of
+  half its iterations, and GCC's binary, which keeps the function out of line, took 367
+  cycles against a certified bound of 213 (Clang inlines it: no call was compared, its
+  certified bound was 212 instead of 388). `SOURCE_TARGET` now gives the plugin the target.
+- **Loop matching** (a wrong bound): GCC rotates the outer loop of `fft_bit_reduct` so that
+  its back-edge branch carries the line of the inner loop's test, and the rule "line of the
+  back-edge branch first" bounded it by 11 (1,023 iterations observed). Replaced by the
+  matching on line ranges (`end_line` in the plugin's report; step 3 above); line-0 rows and
+  discriminators of the DWARF line table are now read correctly. With it, `bsort`'s `main`
+  (Clang) went from 369,779 to 366,147 cycles and GCC's `fft_bit_reduct` from 9.2e10 to 1.07e9.
+- **Non-termination of the producer**: on GCC's `bitcount` the zone widening, followed by
+  the closure, kept raising one bound (6,072 visits of one loop head in 7 hours). After
+  `HARD_VISITS` (200) visits of a head, the entries still growing are forgotten
+  (`binloops.forget_growing`); the result stays closed and the iteration stops. No Clang
+  loop is lost by this (with a limit of 40, 20 were).
 
 ## Certified cycle bounds (2026-11-17)
 
@@ -115,7 +181,7 @@ certificate (Lean `Thumb.binary_sound`, Paper III `thm:machine-cycles`).
 | Kernel | Schema bound of `main` | Certified bound | Observed | Certified / observed |
 |---|---:|---:|---:|---:|
 | binarysearch | 32,686 | 27,222 | 24,241 | 1.12 |
-| bsort | 369,779 | 288,179 | 148,668 | 1.94 |
+| bsort | 366,147 | 285,349 | 148,668 | 1.92 |
 | countnegative | 449,615 | 374,161 | 327,923 | 1.14 |
 | isqrt | 1,005,075 | 806,676 | 689,071 | 1.17 |
 | jfdctint | 75,652 | 64,760 | 60,911 | 1.06 |
@@ -156,9 +222,9 @@ proved is dropped; a dropped loop keeps its source row, trusted.
 
 | run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
 |---|---|---|---|---|
-| no assumption on callees | 142 of 403, and the 116 of the division routines | 261 + 0 (division routines) | all | 116 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 199 of 403, and the 116 | 204 + 0 | all | 116 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 256 of 403, and the 116 | 147 + 0 | all | 121 |
+| no assumption on callees | 143 of 403, and the 116 of the division routines | 260 + 0 (division routines) | all | 116 (107 before) |
+| `--abi` (callees preserve r4-r7 and SP) | 200 of 403, and the 116 | 203 + 0 | all | 116 |
+| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 257 of 403, and the 116 | 146 + 0 | all | 121 |
 
 Wrap to zero (2026-11-20). Clang compiles some loops over arrays with a byte offset counted
 from 2^32 − 16 up by 4 to zero (`adds r3, #4; bne`). In the case of the wrap-around the
@@ -342,10 +408,15 @@ linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 120 functi
 bound; all certificates accepted, no emulated run above a bound. Before congruences that
 build gave 77 / 109 / 129.
 
-No back-edge count of the emulated runs exceeds a certified bound. 82 (114 with `--abi`, 151 with both) of
+No back-edge count of the emulated runs exceeds a certified bound. 84 (116 with `--abi`, 153 with both; 82, 114, 151 before the matching by line ranges of 2026-11-21) of
 the certified bounds are below the source bound (typically by one: the binary counts back
-edges), none above (the producer keeps the source row then), and 60 (85 with `--abi`, 105 with both)
-certified loops have no source bound at all. The functions newly certified include `fac_fac`, `fir2dim_pin_down`, `md5_R_RandomInit`,
+edges), none above (the producer keeps the source row then), and 59 (84 with `--abi`, 104 with both; 60, 85, 105 before)
+certified loops have no source bound at all. The matching by line ranges added one loop of
+`minver` (0x104, certified bound 2^31 − 2, the inner `for` of line 119): its function has a
+binary loop (0x354, the `while (1)` of line 167) that CrossCheck does not bound and that is
+now matched with it; the rule before, with the line table before the line-0 fix, matched it
+with a bounded source loop (which one was not recorded), a wrong trusted bound, so every loop of the function had a source bound and 0x104 was refused as
+above it. `minver_minver` calls soft-float code and was never compared with a run. The functions newly certified include `fac_fac`, `fir2dim_pin_down`, `md5_R_RandomInit`,
 `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`, and
 (with both assumptions) `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
 
@@ -385,7 +456,7 @@ for OTAWA, so this is not a cycle bound). The program is then run by `m0.py`.
 | ... for which OTAWA computes a bound | 107 (6 entry functions `main`) |
 | flow facts | 199 |
 | calls completed by the runs and compared | 11, **no bound below the executed instructions** |
-| bound / executed, geometric mean (largest) | 2.36 (756: `fft_bit_reduct`, product of nested bounds) |
+| bound / executed, geometric mean (largest) | 2.32 (756: `fft_bit_reduct`, product of nested bounds; 2.36 before the matching by line ranges) |
 | OTAWA's bound at most the timing schema's (same unit) | 52 functions; above for 55 |
 
 **In cycles** (`--timing m0`): `otawa/m0time.cpp`, compiled against OTAWA in the same image
@@ -406,8 +477,8 @@ python3 benchmarks/cycles/run_otawa.py --lld PATH/TO/ld.lld --timing m0 --check 
 |---|---:|
 | functions bounded by OTAWA, in cycles | 107 of 107 |
 | calls compared | 11, **no bound below the executed cycles** |
-| bound / executed, geometric mean (largest) | 2.74 (1,054: `fft_bit_reduct`) |
-| OTAWA's bound / timing schema's | never below; equal for 52, larger for 55 (median 1.005, largest 1.29: `matrix1` `main`) |
+| bound / executed, geometric mean (largest) | 2.69 (1,054: `fft_bit_reduct`; 2.74 before the matching by line ranges) |
+| OTAWA's bound / timing schema's | never below; equal for 52, larger for 55 (median 1.007, largest 1.29: `matrix1` `main`) |
 
 OTAWA's bound is above the schema's where a loop header gets one more execution than the
 body and the schema counts only the exit path for it. **Why label and offset**: the FFX
@@ -421,15 +492,17 @@ binary loops taken from OTAWA's own control-flow graphs and matched by `otawa_fl
 matching used for the processors modelled by OTAWA, below), instead of `wcet.py`'s:
 107 of 107 functions bounded, none refused by the matching, 11 calls compared with **no
 bound below the executed instructions**, the same bounds per function as with `wcet.py`'s
-matching for all 107 (99 flow facts, written for the functions reachable from those given to OTAWA; 199 with `wcet.py`'s matching, 108 of them for the loops of the run-time division functions, written for every kernel).
+matching for all 107 (99 flow facts, written for the functions reachable from those given to OTAWA; 199 with `wcet.py`'s matching, 108 of them for the loops of the run-time division functions, written for every kernel). Since 2026-11-21 `otawa_flow.py` uses the rule of `wcet.py`
+(`Analysis.match`, line ranges); with its earlier rule (back-edge lines first) and the
+line-0 fix of the line table, it lost `bsort_BubbleSort` and its callers (104 of 107).
 
 ## Other processors: OTAWA's STM32 models (2026-11-17)
 
 `otawa_flow.py` gives CrossCheck's source loop bounds to OTAWA on any binary it decodes:
 in a container without network, `mkff` lists the loop headers of the code reachable from
 a function and `dumpcfg --cfg-raw -S` its basic blocks; each natural loop is matched with
-the source loops through the debug lines (back-edge branches first, then the header, then
-the loop's own instructions; the largest bound if several match) and written as a flow
+the source loops through the debug lines by the rule of `wcet.py` (the innermost source
+loop whose line range holds the loop's own lines; the largest bound if several match) and written as a flow
 fact by label and offset (`maxcount` = bound + 1). A call graph read from the disassembly
 refuses, for every function that reaches them, recursion, indirect calls and jumps, jump
 tables (TBB/TBH), branches into another function, calls of undefined symbols (linked to
@@ -452,23 +525,24 @@ python3 benchmarks/cycles/run_stm32.py --extra-arg=--gcc-install-dir=/usr/lib/gc
 | | Cortex-M4 (`stm32f4`) | Cortex-M7 (`stm32h7`) |
 |---|---:|---:|
 | functions (29 kernels) | 267 | 267 |
-| with a WCET from OTAWA | **168** | **162** |
+| with a WCET from OTAWA | **169** | **163** |
 | ... entry functions `main` | 8 | 7 |
-| of the 107 bounded on the Cortex-M0 (above) | 106 | 103 |
+| of the 107 bounded on the Cortex-M0 (above) | 107 | 104 |
 | bounded here and not on the Cortex-M0 | 62 | 59 |
 
-Flow facts: 542. Not bounded (same for both, 99 functions): a reached loop matched with a
-source loop without a bound, 56; a call of an undefined symbol (double-precision floating
-point, `memcpy`...: no run-time library), 22; a loop that matches no source loop, 12;
-recursion, 7; a jump table, 2. On the Cortex-M7, OTAWA gives no result within 300 s for 6
+Flow facts: 542. Not bounded (same for both, 98 functions): a reached loop matched with a
+source loop without a bound, 59; a call of an undefined symbol (double-precision floating
+point, `memcpy`...: no run-time library), 24; a loop that matches no source loop, 7;
+recursion, 6; a jump table, 2 (2026-11-21, with the matching by line ranges and the source
+analysed for the target's data model, `FLAGS[:4]`; before: 168 / 162 bounded, 56, 22, 12, 7, 2). On the Cortex-M7, OTAWA gives no result within 300 s for 6
 more functions (its cache analysis; `basicmath___ieee754_acosf` in three kernels and three
 functions of `jfdctint`). Of the 62 functions bounded only on the Cortex-M4, 57 call a
 single-precision floating-point function of the run-time library on the Cortex-M0 (no code
-there; an FPU instruction on the M4) and 5 call a function without a bound. The one
-function bounded on the Cortex-M0 and not here, `bsort_BubbleSort`, has an outer loop whose
-instructions the debug lines attribute to the function's first line and to the `if (Sorted)
-break;` after the inner loop, never to the loop's own line, so it is matched with no
-source loop (no bound, which is the safe outcome). The run takes 29 minutes, most of it the
+there; an FPU instruction on the M4) and 5 call a function without a bound. Before the
+matching by line ranges, `bsort_BubbleSort` was bounded on the Cortex-M0 and not here: its
+outer loop's instructions carry the function's first line and that of the `if (Sorted)
+break;` after the inner loop, never the loop's own line; the second lies in the loop's
+range and the first, outside every loop, is ignored, so it is now matched. The run takes 29 minutes, most of it the
 Cortex-M7 analysis (at most 300 s per function, `--timeout`).
 
 Bounds of the `main` functions, in cycles:
@@ -476,7 +550,7 @@ Bounds of the `main` functions, in cycles:
 | Kernel | Cortex-M0 (timing schema, above) | Cortex-M4 (OTAWA) | Cortex-M7 (OTAWA) |
 |---|---:|---:|---:|
 | binarysearch | 32,686 | 47,228 | 34,433 |
-| bsort | 369,779 | 8,087,233 | 3,683,167 |
+| bsort | 366,147 | 8,008,798 | 3,647,363 |
 | complex_updates | -- | 72,360 | 15,275 |
 | countnegative | 449,615 | 675,320 | 347,632 |
 | iir | -- | 74,953 | 12,010 |

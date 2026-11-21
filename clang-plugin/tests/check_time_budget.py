@@ -70,7 +70,7 @@ def two_files(tool, clang, inc, extra, linker, d):
     args, objs = [], []
     for s in srcs:
         rep, obj = d / (s.stem + ".json"), d / (s.stem + ".o")
-        subprocess.run([tool, "--all", f"--report={rep}", str(s), "--", "-x", "c", f"-I{inc}", *extra],
+        subprocess.run([tool, "--all", f"--report={rep}", str(s), "--", "-x", "c", f"-I{inc}", *extra, *FLAGS[:3]],
                        capture_output=True, text=True)
         subprocess.run([clang, *FLAGS, f"-I{inc}", "-c", str(s), "-o", str(obj)], check=True)
         args += ["--report", str(rep), "--source", str(s)]
@@ -95,7 +95,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
         rep, obj, out = d / "r.json", d / "t.o", d / "o.json"
-        subprocess.run([tool, "--all", f"--report={rep}", str(src), "--", "-x", "c", f"-I{inc}", *extra],
+        subprocess.run([tool, "--all", f"--report={rep}", str(src), "--", "-x", "c", f"-I{inc}", *extra, *FLAGS[:3]],
                        capture_output=True, text=True)
         subprocess.run([clang, *FLAGS, f"-I{inc}", "-c", str(src), "-o", str(obj)], check=True)
         p = subprocess.run([sys.executable, str(HERE.parent / "scripts" / "crosscheck_link.py"),

@@ -76,7 +76,7 @@ class Loops(unittest.TestCase):
         self.assertEqual(body, {1, 2, 4})
         self.assertEqual(latches, {4})
 
-    def test_flow_fact_from_the_latch_line(self):
+    def test_flow_fact_from_the_loop_lines(self):
         lines = {0x106: ("a.c", 3), 0x10c: ("a.c", 4), 0x116: ("a.c", 3)}
         ffx, missing = o.flow_facts({"f": (self.BLOCKS, {0x106})}, lines, {("a.c", 3): 9})
         self.assertIn('<loop label="f" offset="0x6" maxcount="10"/>', ffx)
@@ -89,6 +89,15 @@ class Loops(unittest.TestCase):
         self.assertIn("without a bound", missing["f"])
         ffx, missing = o.flow_facts({"f": (self.BLOCKS, {0x106})}, {}, {("a.c", 3): 9})
         self.assertIn("matches no source loop", missing["f"])
+
+    def test_innermost_line_range(self):
+        # the loop's code carries the line of an inner source loop (5, lines 5-6) and lines of
+        # the outer one (3, lines 3-8): only the outer range holds them all (wcet.Analysis.match)
+        lines = {0x106: ("a.c", 5), 0x10c: ("a.c", 7), 0x116: ("a.c", 3), 0x100: ("a.c", 1)}
+        bounds, ends = {("a.c", 3): 9, ("a.c", 5): 2}, {("a.c", 3): 8, ("a.c", 5): 6}
+        ffx, missing = o.flow_facts({"f": (self.BLOCKS, {0x106})}, lines, bounds, ends)
+        self.assertIn('maxcount="10"', ffx)
+        self.assertEqual(missing, {})
 
     def test_header_without_back_edge(self):
         _, missing = o.flow_facts({"f": (self.BLOCKS, {0x118})}, {}, {})
