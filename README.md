@@ -3,133 +3,86 @@
 [![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
 [![Clang plugin CI](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml)
 
-**CrossCheck** is a dual-layer semantic framework for formal verification, optimization, and compile-time constraint enforcement for imperative programs. By bridging **intensional execution traces** (operational semantics and cost models) with **extensional state equations** (algebraic valuation models), CrossCheck enables verified static analysis, bounded execution checks, and real-time profile enforcement.
+CrossCheck derives upper bounds on the execution cost of imperative programs (loops, linear
+and branching recursion) from ranking potentials, and lets a small checker, proved sound in
+Lean 4, accept or reject each bound. It consists of:
 
----
+- a **theory** with its **Lean 4 formalization**: execution traces and computation trees
+  ordered by composition, loops and recursion as constrained optimization problems, a cost
+  logic with procedures and assumed contracts, and a checker of cost certificates whose
+  soundness is a Lean theorem (Paper I);
+- a **Clang 18 plugin** (research prototype) that bounds the loops and recursion of C and C++
+  functions without annotations where it can, enforces a real-time profile, and emits the
+  certificates, flow facts for WCET tools and SARIF; evaluated on TACLeBench, TPDB and
+  CMSIS-DSP and compared with other tools (Paper II);
+- **cycle bounds of Cortex-M0 machine code** certified by the same checker, including loop
+  bounds proved on the instructions themselves where a certificate is found (Paper III).
 
-## Architecture Overview
+What is and is not proved, and what is trusted, is stated in each paper and in
+`formalization/formalization.yaml`. The analyser itself is unverified; the cost bounds of
+Papers I and II are in abstract units, not time.
 
-CrossCheck operates across two distinct semantic layers:
+## Papers
 
-1. **Intensional Domain (Operational Traces & Cost Models)**
-   * Extracts program execution paths into formal instruction traces ($\Sigma^*$) and computation trees ($\mathcal{T}_\Sigma$).
-   * Captures fine-grained resource metrics, worst-case execution time (WCET), memory allocations, and recursion profiles.
-   * Formalizes a strict partial order *order-by-composition* ($\sqsubseteq$) over trace monoids and operadic tree algebras.
+| | Source | Content |
+|---|---|---|
+| I | `paper/theory/crosscheck-theory.tex` | theory, cost logic, certificate checker, Lean formalization |
+| II | `paper/tool/crosscheck-tool.tex` | the Clang plugin, certificate generation, evaluation |
+| III | `paper/binary/crosscheck-binary.tex` | certified cycle bounds of machine code, loop bounds included |
 
-2. **Extensional Domain (State Valuation & Algebraic Constraints)**
-   * Maps operational control-flow structures into closed-form systems of state equations.
-   * Leverages an SMT solver (Z3) to prove bounds, state invariants, and termination properties at compile time.
+Build Paper I first (Papers II and III refer to its numbered results), then II, then III;
+`python3 paper/make_arxiv.py theory tool binary` makes self-contained source bundles.
+How AI assistance was used is recorded in [`AI_USAGE.md`](AI_USAGE.md), following the AGMAI
+recommendations on the release of AI-assisted mathematics.
 
----
-
-## Project Structure
+## Repository
 
 ```text
 crosscheck/
-├── paper/                       # Research paper source files (LaTeX)
-│   ├── theory/crosscheck-theory.tex   # Paper I: theory and Lean
-│   ├── tool/crosscheck-tool.tex       # Paper II: the plugin and its evaluation
-│   └── crosscheck.bib
-├── formalization/               # Lean 4 machine-checked proofs
-│   ├── lakefile.lean
-│   ├── lean-toolchain
-│   ├── formalization.yaml       # Paper statement <-> Lean theorem map
-│   ├── ImperativeOptimization.lean
-│   ├── ImperativeOptimization/
-│   │   ├── State.lean           # Pointed state spaces & transitions
-│   │   ├── Trace.lean           # Trace monoid, prefix/subsequence orders, cost, minimal exiting trace
-│   │   ├── Tree.lean            # Computation trees, grafting, tree prefix order, tree powers
-│   │   ├── Dominance.lean       # Asymptotic dominance, tropical branch collapsing
-│   │   ├── FixedPoint.lean      # Trace valuation homomorphism
-│   │   ├── OperationalSemantics.lean # Recurrence systems, minimal iteration
-│   │   ├── WhileLoop.lean       # Big-step loop semantics = trace minimisation
-│   │   ├── Ranking.lean         # Ranking potentials, termination, WCET envelopes
-│   │   ├── Recursion.lean       # Linear & branching recursion = trace/tree minimisation
-│   │   ├── Certificate.lean     # Soundness of the plugin's certificates (ranking, Farkas, loop cost)
-│   │   ├── Arity.lean           # Call trees of arbitrary arity: depth and size-potential bounds
-│   │   ├── Language.lean        # Cost logic for a small language with procedures; soundness
-│   │   ├── CheckerCore.lean     # The certificate checker (no mathlib, compiled into crosscheck-check)
-│   │   ├── Checker.lean         # Its soundness: check_sound, program_sound
-│   │   ├── MiniCCore.lean, MiniC.lean   # Mini-C and validation of certificates against the source
-│   │   ├── ResponseCore.lean, Interrupts.lean, ForkJoin.lean   # Response times, greedy scheduling
-│   │   ├── Stack.lean           # Stack depth as a high-water mark
-│   │   └── Examples.lean        # Machine-checked proofs of paper examples
-│   ├── CheckerMain.lean         # The checker program (reads certificate files)
-│   └── test/                    # Certificate files, mutation test, interpreter of certificates
-├── AI_USAGE.md                  # Record of AI assistance (AGMAI guidelines)
-├── clang-plugin/                # Clang plugin: real-time profile + cost bounds (see its README)
-│   ├── CMakeLists.txt
-│   ├── include/crosscheck/attributes.hpp   # source annotations
-│   ├── src/core/                # affine expressions, Z3 back-end (Farkas), certificates
-│   ├── src/analysis/            # AST walker: profile, cost, symbolic state, certificates, mini-C export
-│   ├── src/plugin/, src/tool/   # compiler plugin and standalone driver
-│   ├── scripts/                 # cost diff for CI, whole-project driver, ACSL export
-│   └── tests/                   # GoogleTest / CTest suite, random-program test
-├── frontends/rust/              # Rust front-end on rustc's MIR (translated to C)
-├── benchmarks/                  # Annotated real-time example programs
-│   ├── tacle/                   # TACLeBench: loop bounds vs. flow facts, observed counts, other tools
-│   ├── tpdb/                    # TPDB complexity programs: comparison with KoAT2 and CoFloCo
-│   ├── cmsis/                   # CMSIS-DSP: coverage of an embedded library
-│   └── cycles/                  # Cortex-M0: cycle and stack bounds checked against emulated runs
-├── docs/
-│   ├── guide/                   # Companion guide: concepts, papers, plugin, Lean, bibliography, Q&A
-│   ├── certificate-format.md, contracts.md, implementation-plan.md, proposals.md
-│   └── qualification/           # Requirements of the checker with their evidence (skeleton)
-├── references/                  # What was read of each cited paper (no PDFs in the repository)
-└── README.md
+├── paper/                 # Papers I-III (LaTeX), shared bibliography, make_arxiv.py
+├── formalization/         # Lean 4 + mathlib: 30 modules, no sorry, Lean's three standard axioms only
+│   ├── ImperativeOptimization/   # traces, trees, loops, recursion, cost logic, checker,
+│   │                             # mini-C validation, concurrency, stack, Cortex-M0 (Thumb*)
+│   ├── CheckerMain.lean   # the checker program crosscheck-check
+│   └── formalization.yaml # paper statement <-> Lean theorem map
+├── clang-plugin/          # the Clang plugin and standalone tool (see its README)
+├── frontends/rust/        # Rust front-end on rustc's MIR (translated to C)
+├── benchmarks/            # example programs; tacle/, tpdb/, cmsis/ (Paper II);
+│                          # cycles/ and hardware/ (Paper III)
+├── docs/                  # guide, certificate format, contracts, plans, qualification skeleton
+├── references/            # what was read of each cited paper (no PDFs in the repository)
+└── AI_USAGE.md
+```
 
-````
+## Building
 
------
+Lean 4 (toolchain `leanprover/lean4:v4.16.0`, mathlib `v4.16.0`):
 
-## Prerequisites
-
-### 1\. Formal Proofs (Lean 4)
-
-  * **Lean 4 Toolchain Manager (`elan`)**: Install via `curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh`
-  * **Build Tool (`lake`)**: Bundled with Lean 4.
-
-### 2\. Compiler & Verification Engine (C++)
-
-  * **LLVM / Clang**: Version 18+ development libraries.
-  * **Build System**: CMake 3.22+, Ninja.
-  * **SMT Solver**: Z3 C++ API bindings.
-  * **C++ Standard**: C++20 compatible toolchain.
-
------
-
-## Quick Start
-
-### Building the Lean 4 Formalization
-
-``` bash
+```bash
 cd formalization
 lake exe cache get
 lake build
-
+lake build crosscheck-check
 ```
 
-### Building the Clang Plugin & Test Suite
+Clang plugin (LLVM/Clang 18 development libraries, Z3, CMake, Ninja, GoogleTest, C++20):
 
-``` bash
+```bash
 cd clang-plugin
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
 ctest --test-dir build --output-on-failure
-
 ```
 
 See [`clang-plugin/README.md`](clang-plugin/README.md) for dependencies (including a
 conda-based setup), options, the cost model and the limitations.
 
------
+## Example
 
-## Usage Example
+The plugin rejects the build if a function violates the real-time profile or its cost
+bound exceeds its budget:
 
-Annotate real-time functions; the plugin rejects the build if the real-time profile is
-violated or the worst-case cost bound exceeds the deadline:
-
-``` cpp
+```cpp
 #include <crosscheck/attributes.hpp>
 
 CROSSCHECK_DEADLINE(500)   // budget in abstract cost units
@@ -138,24 +91,18 @@ int sum(const int* a, CROSSCHECK_RANGE(0, 64) int n) {
     for (int i = 0; i < n; ++i) s += a[i];   // bound 64 derived from the range
     return s;
 }
-
 ```
 
-``` console
+```console
 $ clang++ -std=c++20 -fplugin=clang-plugin/build/libCrossCheckPlugin.so -Iclang-plugin/include -c sum.cpp
 sum.cpp:4:5: remark: crosscheck: 'sum': worst-case cost bound 453 units (deadline 500), under 1 assumption(s)
-
 ```
 
 Worked examples (FIR filter, PID controller, CAN decoder, UART interrupt handler, CRC,
 stepper ramp, recursive divide-and-conquer) are in [`benchmarks/`](benchmarks/README.md).
 
------
+## Status and license
 
-## Development Status & License
-
-  * **Current Status**: Active research. The Lean formalization is machine-checked; the Clang plugin is a research prototype (cost bounds are abstract operation counts, not timing guarantees).
-  * **License**: Open-source release planned upon completion of compiler tooling.
-
-<!-- end list -->
-
+Research work. The Lean formalization is machine-checked; the Clang plugin, the
+certificate generators and the binary analyses are research prototypes. Released under the
+MIT license (`LICENSE`). To cite, see [`CITATION.cff`](CITATION.cff).

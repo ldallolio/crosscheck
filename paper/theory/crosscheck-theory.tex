@@ -1245,7 +1245,7 @@ and the value synthesized at the root is $v_{\varepsilon} = 4$. The function $V_
 \section{Mechanization in Lean 4}
 \label{sec:mechanization}
 
-The development accompanying this paper consists of about 10{,}300 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 451 theorems; the modules of the third paper \cite{crosscheckBinary} (about 4{,}100 lines, 145 theorems) are in the same repository. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
+The development accompanying this paper consists of about 10{,}400 lines of Lean~4 \cite{demoura2021lean4} over mathlib \cite{mathlib2020}, with 460 theorems; the modules of the third paper \cite{crosscheckBinary} (about 4{,}100 lines, 145 theorems) are in the same repository. It contains no \lean{sorry} and declares no axioms; the Lean command \lean{\#print axioms} reports, for every theorem cited here, at most the three standard axioms of Lean's logic (\lean{propext}, \lean{Quot.\allowbreak sound}, \lean{Classical.\allowbreak choice}). Table~\ref{tab:lean} lists the correspondence between the statements of the paper and the Lean theorems.
 
 \begin{table}[p]
 \centering
@@ -1263,15 +1263,31 @@ Thm.~\ref{thm:minimal-trace} & \lean{exists\_\allowbreak minimal\_\allowbreak it
 Prop.~\ref{prop:worst-case-step} & \lean{runTrace\_\allowbreak cost\_\allowbreak le}, \lean{runTrace\_\allowbreak wcost\_\allowbreak le} & \lean{WhileLoop} \\
 Prop.~\ref{prop:nested-cost} & \lean{nested\_\allowbreak trace\_\allowbreak cost}, \lean{sequential\_\allowbreak loops\_\allowbreak cost/\allowbreak prefix} & \lean{Trace} \\
 Prop.~\ref{prop:tropical-dominance}, \ref{prop:tropical-collapse} & \lean{condTrace\_\allowbreak cost\_\allowbreak le}, \lean{branch\_\allowbreak supremum\_\allowbreak bound} & \lean{Dominance} \\
+Def.~\ref{def:subadditive-norm}, Props.~\ref{prop:worst-case-step}, \ref{prop:tropical-dominance}, \ref{prop:tropical-collapse}, Thm.~\ref{thm:lyapunov-bound}, for every subadditive norm & \lean{CostNorm}, \lean{CostNorm.\allowbreak runTrace\_\allowbreak le}, \lean{CostNorm.\allowbreak condTrace\_\allowbreak le}, \lean{CostNorm.\allowbreak blocks\_\allowbreak le}, \lean{CostNorm.\allowbreak wcet\_\allowbreak bound} & \lean{Norms} \\
+Prop.~\ref{prop:poset-properties}, Thm.~\ref{thm:minimal-trace}, Prop.~\ref{prop:min_x} ($\epsilon$, well-foundedness, least trace) & \lean{order\_\allowbreak nil}, \lean{order\_\allowbreak wf}, \lean{minimal\_\allowbreak iteration\_\allowbreak least}, \lean{runTrace\_\allowbreak prefix} & \lean{Norms} \\
 Thm.~\ref{thm:extensional-equivalence} & \lean{while\_\allowbreak trace\_\allowbreak semantics} & \lean{WhileLoop} \\
 Prop.~\ref{prop:min_x} & \lean{whileBigStep\_\allowbreak iff\_\allowbreak minimalExit}, \lean{MinimalExit.\allowbreak unique} & \lean{WhileLoop} \\
-Prop.~\ref{prop:tree-order-properties} & \lean{treePrefix\_\allowbreak refl/\allowbreak trans/\allowbreak antisymm}, \lean{treePrefix\_\allowbreak size\_\allowbreak le}, \lean{treePrefix\_\allowbreak graft}, \lean{treePrefix\_\allowbreak fullTree}, \lean{size\_\allowbreak le\_\allowbreak of\_\allowbreak depth\_\allowbreak le} & \lean{Tree} \\
+Prop.~\ref{prop:tree-order-properties} & \lean{treePrefix\_\allowbreak refl/\allowbreak trans/\allowbreak antisymm}, \lean{treePrefix\_\allowbreak size\_\allowbreak le}, \lean{treePrefix\_\allowbreak depth\_\allowbreak le}, \lean{treePrefix\_\allowbreak graft}, \lean{treePrefix\_\allowbreak fullTree}, \lean{size\_\allowbreak le\_\allowbreak of\_\allowbreak depth\_\allowbreak le} & \lean{Tree} \\
 Prop.~\ref{prop:tree-power-complexity} & \lean{treePow\_\allowbreak leafCount}, \lean{treePow\_\allowbreak size}, \lean{treePow\_\allowbreak cherry}, \lean{treePow\_\allowbreak chain}, \lean{graft\_\allowbreak size}, \lean{graft\_\allowbreak assoc} & \lean{Tree} \\
 Prop.~\ref{prop:linrec} & \lean{framedBigStep\_\allowbreak iff}, \lean{linRec\_\allowbreak iff}, \lean{linear\_\allowbreak recursion\_\allowbreak cost} & \lean{Recursion} \\
-Prop.~\ref{prop:tree-optimization} & \lean{exec\_\allowbreak least}, \lean{exec\_\allowbreak unique}, \lean{treeBigStep\_\allowbreak iff} & \lean{Recursion} \\
+Prop.~\ref{prop:tree-optimization} & \lean{exec\_\allowbreak least}, \lean{exec\_\allowbreak unique}, \lean{exec\_\allowbreak size\_\allowbreak min}, \lean{treeBigStep\_\allowbreak iff} & \lean{Recursion} \\
 Thm.~\ref{thm:lyapunov-bound} & \lean{ranking\_\allowbreak bound}, \lean{ranking\_\allowbreak terminates}, \lean{wcet\_\allowbreak bound} & \lean{Ranking} \\
 Prop.~\ref{prop:tree-envelope} & \lean{exec\_\allowbreak depth\_\allowbreak le}, \lean{exec\_\allowbreak size\_\allowbreak le} & \lean{Recursion} \\
 Thm.~\ref{thm:lyapunov-bound} (relational) & \lean{ranking\_\allowbreak bound\_\allowbreak floor}, \lean{ranking\_\allowbreak bound\_\allowbreak of\_\allowbreak le}, \lean{partial\_\allowbreak ranking\_\allowbreak floor} & \lean{Certificate} \\
+\bottomrule
+\end{tabular}
+\caption{Correspondence between the paper and the Lean~4 development (continued below).}
+\label{tab:lean}
+\end{table}
+
+\begin{table}[p]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.205\textwidth}>{\raggedright\arraybackslash}p{0.61\textwidth}>{\raggedright\arraybackslash}p{0.15\textwidth}@{}}
+\toprule
+Paper statement & Lean theorem(s) & Module \\
+\midrule
 Def.~\ref{def:valid-triple}, \ref{def:derivable-triple} & \lean{Cmd}, \lean{Exec}, \lean{Pre}, \lean{Valid}, \lean{Specs}, \lean{Derivable} & \lean{Language} \\
 Thm.~\ref{thm:cost-logic-soundness} & \lean{soundness}, \lean{valid\_\allowbreak seq}, \lean{valid\_\allowbreak ite}, \lean{valid\_\allowbreak while}, \lean{valid\_\allowbreak call}, \lean{valid\_\allowbreak conseq}, \lean{derivable\_\allowbreak cost\_\allowbreak le}; examples \lean{countLoop\_\allowbreak cost}, \lean{down\_\allowbreak cost} (recursion) & \lean{Language} \\
 Def.~\ref{def:certificate} & \lean{ACmd}, \lean{Lin}, \lean{PExp}, \lean{check}, \lean{entails1} & \lean{Checker} \\
@@ -1291,8 +1307,8 @@ Prop.~\ref{prop:size-potential} & \lean{callTree\_\allowbreak size\_\allowbreak 
 Section~\ref{sec:examples} & \lean{parametric\_\allowbreak loop\_\allowbreak minimal}, \lean{parametric\_\allowbreak loop\_\allowbreak ranking}, \lean{infinite\_\allowbreak loop\_\allowbreak diverges}, \lean{linear\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak envelope} & \lean{Examples} \\
 \bottomrule
 \end{tabular}
-\caption{Correspondence between the paper and the Lean~4 development.}
-\label{tab:lean}
+\addtocounter{table}{-1}
+\caption{Correspondence between the paper and the Lean~4 development (continued).}
 \end{table}
 
 \paragraph{Artifact.}
@@ -1344,7 +1360,7 @@ Future work on the theory includes lexicographic potentials as rules of the cost
 
 \section*{Statement on the Use of AI}
 
-Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language}, \lean{Checker}, \lean{MiniC}, \lean{MiniCJump}, \lean{Interrupts}, \lean{ForkJoin}, and \lean{Stack} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, the validation of Section~\ref{subsec:validation}, the results of Sections~\ref{subsec:concurrency} and~\ref{subsec:stack}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. The assistant also compared the sentences that cite a paper with the copies of the cited works that it could obtain; which passages it read, and which works it could not obtain, is recorded in \lean{references/README.md}. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. An initial draft of the paper was hand-written, including a java program for the mechanical generation and solving of the minimization problem from source code; I have read the text and take full responsibility for the content.
+Following the recommendations on the responsible release of AI-generated mathematics \cite{agmai2026responsible}, we document how AI was used in this work. The framework, the examples and the original manuscript are due to the author. In November 2026 an AI coding assistant (Anthropic's Claude, models Opus~5.5 and Fable~5.2, and Haiku~5.5 inside the component that reads web pages, used through the Claude Code tool) was asked to review the manuscript critically and to improve the paper, the bibliography and the Lean development. In that process the assistant restructured and rewrote substantial parts of the text, corrected several statements, compiled the related-work bibliography, and wrote the Lean modules \lean{WhileLoop}, \lean{Ranking}, \lean{Recursion}, \lean{Certificate}, \lean{Arity}, \lean{Language}, \lean{Checker}, \lean{MiniC}, \lean{MiniCJump}, \lean{Interrupts}, \lean{ForkJoin}, and \lean{Stack} (with the cost logic of Section~\ref{subsec:cost-logic}, the certificates and checker of Section~\ref{subsec:checker}, the validation of Section~\ref{subsec:validation}, the results of Sections~\ref{subsec:concurrency} and~\ref{subsec:stack}, Proposition~\ref{prop:lex-log}, and their statements and proofs in the text) together with extensions of the other modules. The assistant also proposed the simplifications and the bibliography changes of the present version, which the author approved, and wrote the Clang plugin and the evaluation of the companion paper \cite{crosscheckTool}; the prompts and a summary of the changes are recorded in the file \lean{AI\_USAGE.md} of the repository. The assistant also compared the sentences that cite a paper with the copies of the cited works that it could obtain; which passages it read, and which works it could not obtain, is recorded in \lean{references/README.md}. Every Lean proof is checked by the Lean kernel; the statements that are not mechanized are listed in Section~\ref{sec:mechanization}. An initial draft of the paper was hand-written, including a java program for the mechanical generation and solving of the minimization problem from source code; I have read the text and take full responsibility for the content.
 
 \section*{Acknowledgements}
 

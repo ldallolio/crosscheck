@@ -40,7 +40,7 @@ reading (`AI_USAGE.md`, section 3).
 | `blazy2013formal` | downloaded | HAL (Inria) | Abstract and the passages on contributions and architecture read (2026-11-16). Confirms: loop bound estimation verified in Coq, integrated into CompCert; the analyses operate on CompCert's RTL intermediate language (program slicing, value analysis, bound calculation). |
 | `brockschmidt2016analyzing` | downloaded | open access (Semantic Scholar) | Abstract read. Alternating runtime and size bounds for integer programs; tool KoAT. |
 | `carbonneaux2015compositional` | read 2026-11-16 (not kept) | Yale FLINT group (authors' copy) | Abstract, the start of the introduction and the passages on Clight and Coq read. Potential method of amortized analysis for C programs (tool C4B), rules for a subset of Clight (CompCert's first intermediate language), proof certificates from the derivation rules, soundness proved in Coq with respect to a cost semantics. Confirms 'certified resource bounds for C programs' and 'potential-based amortized analysis'. |
-| `clangeffects` | book or web page |  |  |
+| `clangeffects` | book or web page | https://clang.llvm.org/docs/FunctionEffectAnalysis.html (in-progress docs, read 2026-11-21) | Read (2026-11-21): functions declared `nonblocking`/`nonallocating` may not call functions that are not declared or inferable with the same attribute ("the worst is assumed" otherwise), diagnosed by `-Wfunction-effects`; supports the two citing sentences of Paper II. The page names no Clang version: "Recent versions" in the paper is not pinned to a release. |
 | `colon2001synthesis` | downloaded | open access (Semantic Scholar) | Abstract and Sections 1 to 3 read (2026-11-18): linear ranking functions synthesized from the linear inequalities of the program, by polyhedral cones and the theorem of the alternative (a form of Farkas' lemma). Cited in Paper III with `alias2010multi`. |
 | `cormen2009introduction` | book or web page |  |  |
 | `cousot1977abstract` | no open-access copy found |  |  |
@@ -63,7 +63,7 @@ reading (`AI_USAGE.md`, section 3).
 | `heckmann2013ait` | downloaded (2026-11-14) | AbsInt web site | Section 4 read (user annotations): `loop "R" + n loops [begin\|end] max j;` (n-th loop of routine R, counted from 1, in the executable), source annotations `/* ai: loop here max j; */`. Undated; PDF metadata 2013. Used for the AIS exporter. |
 | `hoffmann2012multivariate` | read 2026-11-16 (not kept) | author's copy (Yale) | Abstract and introduction read: the type system relies on the potential method of amortized analysis (after Hofmann and Jost, Tarjan). Supports both citations (amortized analysis; potential method). |
 | `hoffmann2022two` | downloaded | open access (Semantic Scholar) | Abstract read. Survey of automatic amortized resource analysis. |
-| `infercost` | book or web page |  |  |
+| `infercost` | book or web page | https://fbinfer.com/docs/checker-cost (docs version 1.3.0, read 2026-11-21) | Read (2026-11-21), Limitations: "We do not handle recursion."; also that it estimates "an upper bound on the worst-case execution cost". Supports Paper II's sentence that its results are not upper bounds in every case because it does not handle recursion. |
 | `kahn1987natural` | no open-access copy found |  |  |
 | `kincaid2019closed` | no open-access copy found |  |  |
 | `lattner2004llvm` | downloaded | LLVM project page | Skimmed. Describes the LLVM framework; it does not describe ScalarEvolution, which the paper uses as a tool and cites LLVM for. |

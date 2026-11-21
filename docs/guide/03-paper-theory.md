@@ -423,7 +423,7 @@ flowchart TD
 
 ## 3.10 Mechanisation and its limits (`sec:mechanization`, `sec:limitations`)
 
-The development for Paper I: about 10 300 lines of Lean 4 over mathlib, 451 theorems, no
+The development for Paper I: about 10 400 lines of Lean 4 over mathlib, 460 theorems, no
 `sorry`, only Lean's three standard axioms. Table `tab:lean` maps every statement to its
 Lean theorems; `formalization/formalization.yaml` is the same table in machine-readable
 form.

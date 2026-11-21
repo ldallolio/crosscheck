@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software or its formalization, please cite it as below."
+title: "CrossCheck: certified cost bounds of imperative programs and of Cortex-M0 machine code"
+type: software
+authors:
+  - family-names: "Dall'Olio"
+    given-names: "Luca"
+license: MIT
+repository-code: "https://github.com/ldallolio/crosscheck"
+keywords:
+  - worst-case execution time
+  - cost analysis
+  - ranking functions
+  - certified checker
+  - Lean 4
+  - Clang
+abstract: >-
+  A theory of cost bounds of imperative programs as constrained optimization, a cost logic
+  and a checker of cost certificates proved sound in Lean 4, a Clang plugin that produces
+  such certificates for C and C++ functions, and certified cycle bounds of Cortex-M0
+  machine code. The version, release date and archive identifier are added when a
+  revision is archived.

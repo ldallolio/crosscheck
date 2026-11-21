@@ -232,7 +232,11 @@ copy in the work directory only:
 All 480 certificates of the run are accepted by the checker (475 of the 476 bounded
 functions; DEBIE's `InitData_RAM` is bounded but its certificate generator does not show
 the decrease of a potential), and **309 are validated against their source** (189 before
-static locals were exported, see below). The five ROSACE threads share most of their
+static locals were exported, see below). **One not validated** (found 2026-11-21):
+`Switch_SU_State`, where the generator tracks `SU_setting->SU_number` (a field read
+through a pointer) as a variable and assigns it to `self_test_SU_number`, while the
+exporter writes that read as an unknown value; the checker refuses the match, as it should
+(the bound, 25, is accepted and does not depend on the value). The five ROSACE threads share most of their
 functions (the filters, the control laws and the single-precision `libm`), so the
 functions are counted five times.
 

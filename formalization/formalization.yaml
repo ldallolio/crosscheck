@@ -23,7 +23,7 @@ statements:
     lean: [wcost_append, wcost_iter, wcost_one]
   - paper_labels: [prop:poset-properties]
     module: ImperativeOptimization.Trace
-    lean: [order_refl, order_trans, order_antisymm, order_cost_le]
+    lean: [order_refl, order_trans, order_antisymm, order_cost_le, cost_additive, cost_iter]
   - paper_labels: [prop:n-monotony]
     module: ImperativeOptimization.Trace
     lean: [iter_monotone_iff]
@@ -36,6 +36,9 @@ statements:
   - paper_labels: [prop:nested-cost]
     module: ImperativeOptimization.Trace
     lean: [nested_trace_cost, sequential_loops_cost, sequential_loops_prefix]
+  - paper_labels: [def:subadditive-norm, prop:poset-properties, thm:minimal-trace, prop:worst-case-step, prop:tropical-dominance, prop:tropical-collapse, prop:min_x, thm:lyapunov-bound]
+    module: ImperativeOptimization.Norms
+    lean: [CostNorm, costNorm, wcostNorm, CostNorm.flatten_le, CostNorm.runTrace_le, CostNorm.condTrace_le, CostNorm.blocks_le, CostNorm.wcet_bound, order_nil, order_wf, minimal_iteration_least, runTrace_prefix]
   - paper_labels: [prop:tropical-dominance, prop:tropical-collapse]
     module: ImperativeOptimization.Dominance
     lean: [condTrace_cost_le, branch_supremum_bound]
@@ -47,7 +50,7 @@ statements:
     lean: [whileBigStep_iff_minimalExit, MinimalExit.unique]
   - paper_labels: [prop:tree-order-properties]
     module: ImperativeOptimization.Tree
-    lean: [treePrefix_refl, treePrefix_trans, treePrefix_antisymm, treePrefix_size_le, treePrefix_graft, treePrefix_fullTree, size_le_of_depth_le]
+    lean: [treePrefix_refl, treePrefix_trans, treePrefix_antisymm, treePrefix_size_le, treePrefix_graft, treePrefix_fullTree, size_le_of_depth_le, treePrefix_depth_le]
   - paper_labels: [prop:tree-power-complexity]
     module: ImperativeOptimization.Tree
     lean: [treePow_leafCount, treePow_size, treePow_cherry, treePow_chain, graft_size, graft_assoc]
@@ -56,7 +59,7 @@ statements:
     lean: [framedBigStep_iff, linRec_iff, linear_recursion_cost]
   - paper_labels: [prop:tree-optimization]
     module: ImperativeOptimization.Recursion
-    lean: [exec_least, exec_unique, treeBigStep_iff]
+    lean: [exec_least, exec_unique, treeBigStep_iff, exec_size_min]
   - paper_labels: [thm:lyapunov-bound]
     module: ImperativeOptimization.Ranking
     lean: [ranking_bound, ranking_terminates, wcet_bound]

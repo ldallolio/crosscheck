@@ -34,7 +34,7 @@ headers need), every function (`--all`), in two modes:
 | Mode | Functions bounded | Loops with a derived bound |
 |---|---:|---:|
 | as is | 161 | 363 |
-| with input ranges and context | **616** (78%) | 1044 |
+| with input ranges and context | **616** (78%) | 1069 (2026-11-21, every file analysed; 1044 when one or two files exceeded the time limit) |
 | *before this step (2026-11-14), with ranges on parameters only* | *357* | *758* |
 
 What the step changed, by the blockers measured on the first run:
@@ -60,7 +60,8 @@ Remaining, with ranges and context (functions not bounded, by error):
   with ranges: 631 files, 785 functions and 1234 loops were analysed in that mode. The run
   of 2026-11-16 (after the repeated search for potentials, on a shared machine) gave the
   same figures, 616 functions and 1044 loops, with a second file over the time limit
-  (`arm_rfft_fast_f32.c`, not bounded before either);
+  (`arm_rfft_fast_f32.c`, not bounded before either). The run of 2026-11-21 analysed every
+  file within the limit: 616 functions and 1069 loops with ranges, 161 and 363 as is;
 - **calls into other groups (162)**: callees in another group, not included in the
   context (e.g. a transform calling a support function);
 - **contract arguments without an upper bound (13)**: `memset`/`memcpy` lengths computed

@@ -7,6 +7,7 @@ import ImperativeOptimization.State
 import ImperativeOptimization.Trace
 import ImperativeOptimization.Tree
 import ImperativeOptimization.Dominance
+import ImperativeOptimization.Norms
 import ImperativeOptimization.WhileLoop
 import ImperativeOptimization.Ranking
 import ImperativeOptimization.Recursion

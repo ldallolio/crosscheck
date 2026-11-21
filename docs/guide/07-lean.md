@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 29 modules, about 13,300 lines, 561 theorems (Paper I: about 10,300 lines and 451 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 3,000 lines and 110 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 30 modules, about 14,500 lines, 605 theorems (Paper I: about 10,400 lines and 460 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 4,100 lines and 145 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -123,6 +123,7 @@ flowchart LR
 | `Trace` | 303 | traces, `traceIter`, `cost`, `wcost`, prefix order `⊑`, `exists_minimal_iteration`, nested loops |
 | `Tree` | 315 | `BTree`, `graft`, `TreePrefix` (the paper's tree order), `fullTree`, `treePow_*` |
 | `Dominance` | 93 | branch rule `condTrace_cost_le`, `branch_supremum_bound` (also the unused `≼_O`) |
+| `Norms` | 157 | the trace-level bounds for *every* subadditive cost norm, not only the instruction count: `CostNorm` (with `costNorm`, `wcostNorm` as instances), `runTrace_le`, `condTrace_le`, `blocks_le` (k conditional blocks), `wcet_bound`; the prefix order's least element and well-foundedness (`order_nil`, `order_wf`), the least exiting trace (`minimal_iteration_least`, `runTrace_prefix`) |
 | `FixedPoint` | 75 | `evalTrace`, homomorphism `evalTrace_concat`, `evalTrace_iter` |
 | `OperationalSemantics` | 56 | `MinimalIter`, `LoopConstraint`, `LinearRecurrence` |
 | `WhileLoop` | 252 | `WhileBigStep`, `whileBigStep_iff_minimalExit`, `while_trace_semantics`, `runTrace_cost_le` |

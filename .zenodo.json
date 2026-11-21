@@ -1,0 +1,8 @@
+{
+  "title": "CrossCheck: certified cost bounds of imperative programs and of Cortex-M0 machine code",
+  "upload_type": "software",
+  "creators": [{"name": "Dall'Olio, Luca"}],
+  "license": "MIT",
+  "keywords": ["worst-case execution time", "cost analysis", "ranking functions", "certified checker", "Lean 4", "Clang"],
+  "description": "Lean 4 formalization (theory, cost logic, verified certificate checker, Cortex-M0 machine code), the Clang plugin that produces cost certificates, and the benchmark scripts of the CrossCheck papers I-III. See AI_USAGE.md for the record of AI assistance."
+}

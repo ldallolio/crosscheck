@@ -15,7 +15,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 ## Repository state (what actually exists)
 | Path | Status |
 |---|---|
-| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 29 modules, 596 theorems. |
+| `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 30 modules, 605 theorems. |
 | `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 41 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 23 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
 | `paper/binary/crosscheck-binary.tex` | **Paper III**: the work on binaries (14 pages): cycle certificates of graphs and of Cortex-M0 machine code (`def:cycle-certificate`, `prop:cycles`, `def:machine-run`, `thm:machine-cycles`, moved from Paper I on 2026-11-18), loop bounds certified on the machine code (`def:data-run`, `def:loop-certificate`, `lem:cond-facts`, `thm:machine-loops`), and the evaluation on the Cortex-M0 binaries (cycles, certificates, loops on the code, OTAWA, other processors, stack, time budgets; moved from Paper II). Table `tab:lean3` = its part of `formalization.yaml` (`paper:` field). Refers to Papers I and II through `xr` (`I-`, `II-`): **build Papers I and II first**. |
@@ -44,6 +44,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `docs/qualification/` | Qualification-kit skeleton of the checker: `requirements.yaml` (TOR-1..9 with evidence: Lean theorems, tests, CI steps), `check_traceability.py`, `run_tests.sh` (exit statuses, integers beyond 64 bits). Not reviewed by a certification specialist; claims no compliance. Update the YAML when a Lean theorem it names is renamed. |
 | `clang-plugin/tests/fuzz_bounds.py`, `formalization/test/mutate_certificates.py` | Soundness tests: random loop programs run against their bounds, exported annotations and mini-C export; mutated certificates run by an independent interpreter (`cert_interp.py`). Both in ctest and CI. A defect they find gets a regression test in `analyzer_test.cpp` or `tests/c/minic.c`. |
 | `clang-plugin/scripts/` | `crosscheck_link.py` (time budgets `CROSSCHECK_DEADLINE_CYCLES/_US` checked after compilation on the binary, object or linked executable of several translation units (`--report`/`--source` pairs), from the reports' loop bounds: Cortex-M0 with `benchmarks/cycles/m0.py`/`wcet.py`, or `--processor stm32f4/stm32h7` with OTAWA (`otawa_flow.py`, Docker image without network); exit 1 if exceeded; `--certify`: Cortex-M0 IPET bounds accepted by the verified checker; ctest `time_budgets_after_compilation`), `cost_diff.py` (CI cost diff), `crosscheck_project.py` (whole `compile_commands.json`: `project.json`, `index.html`), `acsl_export.py` (ACSL `requires` / `loop invariant` / `loop variant` from reports; not run through Frama-C here). |
+| `docs/release-checklist.md` | What is done and what only the author can do before the arXiv upload of Papers I and II (repository private, `main` behind, archive, arXiv, reading); reproduction of Paper II's figures (2026-11-21). Keep it current. `paper/make_arxiv.py`: self-contained source bundles (`.bbl`, cross-paper `\ref{I-...}` resolved to numbers), each compiled alone; output in `paper/arxiv/` (gitignored). `CITATION.cff`, `.zenodo.json`: archive metadata. |
 | `docs/certificate-format.md` | The certificate format (= Lean `ACmd`, `FunCert`; version 2 = program certificates) and how the plugin produces certificates. |
 | `docs/contracts.md` | Library contracts (`contracts=FILE`): trusted costs linear in the arguments; assumed contracts in certificates. |
 
@@ -89,7 +90,7 @@ Import graph: `State`, `Trace`, `Tree` import mathlib only; `Dominance`, `FixedP
 `Ranking` → `WhileLoop`; `Recursion` → `OperationalSemantics`; `Certificate` → `WhileLoop`; `Arity` and `Language` import mathlib only; `Checker` → `Language`;
 `CheckerCore` (no mathlib) is imported by `Checker`, `MiniCCore` (no mathlib) and `CheckerMain`; `MiniC` → `Checker`, `MiniCCore`; `MiniCJumpCore` (no mathlib) → `MiniCCore`; `MiniCJump` → `MiniC`, `MiniCJumpCore`;
 `ResponseCore` (no mathlib) → `Interrupts`, `CheckerMain`; `ForkJoin` and `Stack` import mathlib only; `CyclesCore` (no mathlib) → `Cycles`, `ThumbCore`, `CheckerMain`; `ThumbCore` (no mathlib) → `Thumb`, `ThumbDataCore`, `CheckerMain`; `Thumb` → `Cycles`, `ThumbCore`; `ThumbDataCore` (no mathlib; also `CheckerCore`) → `ThumbData`, `CheckerMain`; `ThumbData` → `Thumb`, `ThumbDataCore`, `Checker`;
-`Examples` → `Ranking`, `Recursion`.
+`Norms` → `Dominance`, `Ranking`; `Examples` → `Ranking`, `Recursion`.
 `ImperativeOptimization.lean` is the root that imports all modules — add new modules there.
 Every file starts with the MIT copyright header; keep it on new files.
 
@@ -98,6 +99,7 @@ Every file starts with the MIT copyright header; keep it on new files.
 | `State` | `PointedState S := Option S` (`none` = ⊥), `PartialTransition`, `extendToPointed`, `stateComp` |
 | `Trace` | `Trace := List Instr`; `traceIter` (notation `t ^[n]`); `cost := length`; weighted `wcost`; `⊑` (prefix) refl/trans/antisymm, `order_cost_le`; `iter_monotone`, `iter_monotone_iff`; `exists_minimal_iteration`; `nestedTrace` + cost lemmas; `⊑_sub` (`List.Sublist`), `iter_subseq_nested`, `inner_subseq_nested` |
 | `Tree` | `BTree` (binary), `size`, `leafCount`, `depth`, `graft` (`⊗`), `graft_size`, `graft_leafCount`, `graft_assoc`; `⊑_graft` (`GraftOrder`, uniform grafting); `⊑_tree` (`TreePrefix`, per-leaf substitution — **this is the paper's tree order**) refl/trans/antisymm(Unit), `treePrefix_size_le`, `treePrefix_fullTree`, `size_le_of_depth_le`; `fullTree`; `treePow` (`treePow b 0 = leaf`), `treePow_leafCount`, `treePow_size`, `treePow_cherry`, `treePow_chain` |
+| `Norms` | Subadditive cost norms `CostNorm` (instances `costNorm`, `wcostNorm`): `flatten_le`, `runTrace_le`, `condTrace_le`, `blocks_le` (k blocks), `wcet_bound`; prefix order `order_nil`, `order_wf`; `minimal_iteration_least`, `runTrace_prefix` (the trace-layer statements of Paper I for every norm) |
 | `Dominance` | `≼_O` refl/trans; `branch_supremum_bound`; `add_dominated_by_max`, `max_dominated_by_add`; `condTrace`, `condTrace_cost_le` |
 | `FixedPoint` | `evalTrace`, `evalTrace_concat`, `evalTrace_iter` (`⟦t^n⟧ = ⟦t⟧^n`) |
 | `OperationalSemantics` | `MinimalIter` (+ `.unique`), `LoopConstraint`/`solveLoop`/`isLoopSolution`, `LinearRecurrence`/`solveLinearRecurrence` |

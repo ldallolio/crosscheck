@@ -13,7 +13,7 @@ or the Lean code, and it must be complete before any arXiv submission.
 | Item | Value |
 |---|---|
 | Tool | Claude Code (Anthropic) |
-| Models | Claude Opus 5.5 (`claude-opus-5-5`), then Claude Fable 5.2 (`claude-fable-5-2`) |
+| Models | Claude Opus 5.5 (`claude-opus-5-5`), then Claude Fable 5.2 (`claude-fable-5-2`); Claude Haiku 5.5 (`claude-haiku-5-5`) inside the subagent that reads web pages (27 responses over all sessions, found in the transcripts on 2026-11-21) |
 | Wall-clock time | not recorded — **author to fill in** |
 | Estimated compute cost | not recorded — **author to fill in** |
 
@@ -2071,6 +2071,42 @@ with the `fft` example, a note on the GCC binaries, the board harness, figures),
 (matching), part 9 (figures; GCC and the harness in the answers on the processor model and
 on the compiler).
 
+82. "Would it be a good idea to upload paper I and II on arxiv as they are now ?"
+
+What the AI did for 82 (Claude Opus 5.5, 2026-11-21): an answer, no change: not yet; the
+papers build and have no `\authortodo`, but item 2.A of section 2 was still open, the
+code was not archived (and `main` was behind the working branch), time and cost were
+blank; it listed what it could do itself.
+
+83. "I am pretty busy rereading the guide and papers right now, could you work on all the open points yourself ? I think that many, if not all, can be done by you without my intervention"
+
+What the AI did for 83 (Claude Opus 5.5, 2026-11-21); summary in `docs/release-checklist.md`:
+- Statement fidelity (item 1 of section 3, as a pre-check, not in place of the author):
+  each Paper I statement of `formalization.yaml` read next to its Lean statement. Gaps
+  closed by a new module `Norms` (157 lines, 9 theorems, no new axiom): `CostNorm`
+  (subadditive cost norms; instruction count and weighted cost as instances) with
+  `flatten_le`, `runTrace_le`, `condTrace_le`, `blocks_le` (k sequential conditional
+  blocks), `wcet_bound`; `order_nil`, `order_wf`, `minimal_iteration_least`,
+  `runTrace_prefix`. Table 1 (now on two pages, same number), `formalization.yaml`,
+  Lean size in Paper I (10,400 lines, 460 theorems), CLAUDE.md and the guide updated.
+- Reproduction of Paper II's figures on this machine (section E of the checklist).
+- Bibliography: the 69 entries cited by Papers I and II checked against Crossref and
+  DataCite (no data error); `clangeffects` and `infercost` read (`references/README.md`).
+- Wording scan of Papers I and II (no marketing words found).
+- AI statements of the three papers: Haiku 5.5 added (found in the transcripts, inside the
+  subagent that reads web pages). Time and tokens measured from the transcripts (section 2).
+- `paper/make_arxiv.py`: self-contained arXiv bundles (`.bbl`, cross-paper references
+  resolved to numbers), each compiled alone without warnings, text identical to the
+  normal builds. `CITATION.cff`, `.zenodo.json`, top-level `README.md` rewritten.
+- Found and fixed: the two certificate-checking steps of `plugin_build.yml` piped the
+  checker into `tee`, losing its exit status, so a rejected certificate would not have failed
+  CI (now tested on the output; checked locally with a mutated certificate); DEBIE's
+  `Switch_SU_State` exported and not validated, which Paper II did not say (now stated);
+  CMSIS-DSP gives 1,069 loops with ranges when no file times out (Paper II said 1,044).
+- Not done, the author's: making the repository public (it is private), merging into
+  `main` and tagging, archiving (Zenodo or Software Heritage), the arXiv account and
+  upload, the cost, and the reading of section 3.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2088,8 +2124,8 @@ here as the release standard.
 | 2.A | Author understands every argument, has verified correctness personally, takes full responsibility | **OPEN — only the author can do this.** See checklist in §3. |
 | 1(a) | Literature searched; ideas cited to the papers that introduced them | Done by the AI from memory (Related Work, Positioning). **Author must check every reference and the novelty claims.** |
 | 1(b) | Traditional paper style: introduction, precise statements and proofs | Done. |
-| 2 | Deposit in a scholarly repository with persistent identifier and version history | **OPEN.** arXiv for the paper. The Lean code is on GitHub only: tag the submitted revision and archive it (e.g. Zenodo or Software Heritage), then cite the identifier in the paper. |
-| 3 | Publish model name, prompts, summarised reasoning, time, cost | Model, prompts, summary: this file. **Time and cost: open.** |
+| 2 | Deposit in a scholarly repository with persistent identifier and version history | **OPEN.** arXiv for the paper. The Lean code is on GitHub only, in a **private** repository (2026-11-21), and `main` is behind the working branch: make it public, merge, tag the submitted revision and archive it (Zenodo, which reads `.zenodo.json`, or Software Heritage), then cite the identifier in Paper I (paragraph "Artifact") and `CITATION.cff`. Prepared by the AI: `CITATION.cff`, `.zenodo.json`, arXiv bundles (`paper/make_arxiv.py`). |
+| 3 | Publish model name, prompts, summarised reasoning, time, cost | Model, prompts, summary: this file. Measured by the AI on 2026-11-21 from the local Claude Code transcripts of this project (11 files: the main session and its subagents), 2026-11-11 to 2026-11-21: about 76 hours of active session time (gaps above 30 minutes not counted); 5,117 model responses (`claude-opus-5-5` 4,273, `claude-fable-5-2` 801, `claude-haiku-5-5` 27, the last inside the web-page reader); 5.8 million output tokens, 20.4 million tokens written to and 1,790 million read from the prompt cache. Work done in other tools (e.g. claude.ai chats) is not in these transcripts. **Cost: author to fill in** (from the account's billing), and to confirm the time. |
 | 4 | Formalize as far as possible; state formalization status clearly; machine-readable link between paper and formal artifact; copyright headers; challenge file | Formalized with status stated in the paper (Section "Mechanization in Lean 4", incl. what is *not* formalized; the C++ plugin is explicitly outside the formalization). Copyright headers added. `formalization/formalization.yaml` links paper labels to Lean names, but its schema is project-defined and **not validated** against a community spec. **No challenge file for `comparator` yet.** |
 | 5 | Document exactly how AI came to be used on this problem | This file, and the "Statement on the Use of AI" in the paper (contains an explicit author-to-confirm marker that must be resolved). |
 
@@ -2099,7 +2135,8 @@ Machine-checked statements are safe as *Lean statements*; what needs human judge
 is whether each Lean statement says what the paper says, and everything outside Lean.
 
 1. **Statement fidelity.** For each row of Table 1 in the paper, read the Lean
-   statement and confirm it matches the paper's statement (hypotheses included).
+   statement and confirm it matches the paper's statement (hypotheses included). A pre-check by the AI (2026-11-21) found
+   gaps, closed by the module `Norms` (see prompt 83); sample its comparison.
 2. **Non-mechanized mathematics** (proved on paper only):
    - general branching factor `b > 2` in the tree-order propositions and the closed form
      `I·(L^d − 1)/(L − 1) + L^d`;
@@ -2116,7 +2153,9 @@ is whether each Lean statement says what the paper says, and everything outside 
 5. **Claims about tooling.** The paper says a prototype generates the example systems
    and that the Clang front-end is under development; confirm both are accurate.
 6. **Title.** Changed to "Dual-Layer Semantics of Imperative Programs and WCET
-   Verification via Constrained Optimization"; confirm the wording.
+   Verification via Constrained Optimization"; confirm the wording. (Out of date, 2026-11-21: the title is now "CrossCheck I: Cost Bounds of
+   Imperative Programs as Constrained Optimization, with a Sound Cost Logic and a Verified
+   Certificate Checker"; confirm that one.)
 7. **New references.** Read each paper added on 2026-11-12 and confirm that the sentence
    citing it describes it correctly (the AI verified bibliographic data only).
 8. **Prototype section and Table 2.** Re-run `ctest` and the tool on `benchmarks/`,
