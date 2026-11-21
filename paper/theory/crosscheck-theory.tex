@@ -1307,14 +1307,14 @@ Prop.~\ref{prop:size-potential} & \lean{callTree\_\allowbreak size\_\allowbreak 
 Section~\ref{sec:examples} & \lean{parametric\_\allowbreak loop\_\allowbreak minimal}, \lean{parametric\_\allowbreak loop\_\allowbreak ranking}, \lean{infinite\_\allowbreak loop\_\allowbreak diverges}, \lean{linear\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak bigstep}, \lean{binary\_\allowbreak recursion\_\allowbreak envelope} & \lean{Examples} \\
 \bottomrule
 \end{tabular}
-\addtocounter{table}{-1}
+\addtocounter{table}{-1}\renewcommand{\theHtable}{\arabic{table}.cont}% second part: its own hyperref anchor
 \caption{Correspondence between the paper and the Lean~4 development (continued).}
 \end{table}
 
 \paragraph{Artifact.}
-The Lean sources are available at
+The Lean sources are in the directory \lean{formalization} of release v1.0 of the repository
 \begin{center}\url{https://github.com/ldallolio/crosscheck}\end{center}
-(directory \lean{formalization}); they build with \lean{lake build} against Lean \lean{v4.16.0} and the matching mathlib release. The file \lean{formalization/formalization.yaml} gives a machine-readable version of Table~\ref{tab:lean}.
+archived at Zenodo, \href{https://doi.org/10.5281/zenodo.24425070}{doi:10.5281/zenodo.24425070}, and at Software Heritage, \href{https://archive.softwareheritage.org/swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f}{\nolinkurl{swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f}}; they build with \lean{lake build} against Lean \lean{v4.16.0} and the matching mathlib release. The file \lean{formalization/formalization.yaml} gives a machine-readable version of Table~\ref{tab:lean}.
 
 \paragraph{Modelling choices.}
 Traces are lists of instructions; the pointed domain $S_\bot$ is \lean{Option S}; partial transitions are functions into \lean{Option S}. The big-step semantics of loops, linear recursion and branching recursion are inductive predicates (\lean{WhileBigStep}, \lean{FramedBigStep}, \lean{TreeBigStep}). Ranking potentials are integer-valued, and the bound $\bar{N}$ is the natural number \lean{rankBound}.

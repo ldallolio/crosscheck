@@ -23,15 +23,15 @@ here says that the author has verified anything.
 
 ## B. Decisions and actions that only the author can take
 
-1. **The GitHub repository is private.** Paper I gives `https://github.com/ldallolio/crosscheck`
-   as the artifact; readers cannot open it. Make it public (or archive it publicly, item 3)
-   before the upload.
-2. **Tag the released revision** of `main` (merged and pushed on 2026-11-21; CI green), for
-   example `v1.0-arxiv`. Your commits carry your personal email address, which becomes
-   public with the repository (GitHub's noreply address is an option for future commits).
-3. **Archive with a persistent identifier** (AGMAI item 2): Zenodo (GitHub integration,
-   which reads `.zenodo.json`, on the tag) or Software Heritage (save the public URL). Then
-   put the DOI or SWHID into Paper I's paragraph "Artifact" and into `CITATION.cff`.
+1. ~~Make the repository public~~: done by the author (2026-11-21).
+2. ~~Tag the released revision~~: tag `v1.0` on `c518c1a` (2026-11-21). The commits carry
+   the author's personal email address, now public (GitHub's noreply address is an option
+   for future commits).
+3. ~~Archive with a persistent identifier~~: Zenodo, release v1.0 `doi:10.5281/zenodo.24425070`, all versions
+   `doi:10.5281/zenodo.24425069`; Software Heritage `swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`. In Paper I's paragraph "Artifact", in a section
+   "Artifact" of Papers II and III, in `CITATION.cff` and in `README.md` (2026-11-21). These
+   changes come after the tag: the archived revision does not hold its own identifiers, and
+   the papers point to it.
 4. **arXiv account and endorsement**: a first submission in a category (cs.LO or cs.PL)
    may need an endorser. Upload `paper/arxiv/theory.tar.gz` first, then put its arXiv
    identifier into the `crosscheckTheory` entry of `paper/crosscheck.bib`, rebuild, rerun

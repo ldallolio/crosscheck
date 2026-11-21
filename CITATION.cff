@@ -6,6 +6,19 @@ authors:
   - family-names: "Dall'Olio"
     given-names: "Luca"
 license: MIT
+version: "1.0"
+date-released: "2026-11-21"
+doi: "10.5281/zenodo.24425069"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24425069"
+    description: "All versions (concept DOI)"
+  - type: doi
+    value: "10.5281/zenodo.24425070"
+    description: "Release v1.0"
+  - type: swh
+    value: "swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f"
+    description: "Release v1.0 at Software Heritage"
 repository-code: "https://github.com/ldallolio/crosscheck"
 keywords:
   - worst-case execution time
@@ -18,5 +31,4 @@ abstract: >-
   A theory of cost bounds of imperative programs as constrained optimization, a cost logic
   and a checker of cost certificates proved sound in Lean 4, a Clang plugin that produces
   such certificates for C and C++ functions, and certified cycle bounds of Cortex-M0
-  machine code. The version, release date and archive identifier are added when a
-  revision is archived.
+  machine code.

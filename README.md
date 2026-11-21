@@ -2,6 +2,7 @@
 
 [![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
 [![Clang plugin CI](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml)
+[![DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069)
 
 CrossCheck derives upper bounds on the execution cost of imperative programs (loops, linear
 and branching recursion) from ranking potentials, and lets a small checker, proved sound in
@@ -105,4 +106,6 @@ stepper ramp, recursive divide-and-conquer) are in [`benchmarks/`](benchmarks/RE
 
 Research work. The Lean formalization is machine-checked; the Clang plugin, the
 certificate generators and the binary analyses are research prototypes. Released under the
-MIT license (`LICENSE`). To cite, see [`CITATION.cff`](CITATION.cff).
+MIT license (`LICENSE`). Release v1.0 is archived at Zenodo
+([doi:10.5281/zenodo.24425070](https://doi.org/10.5281/zenodo.24425070); all versions: [doi:10.5281/zenodo.24425069](https://doi.org/10.5281/zenodo.24425069)) and at
+Software Heritage (`swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`). To cite, see [`CITATION.cff`](CITATION.cff).

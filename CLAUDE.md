@@ -281,9 +281,9 @@ tool (including you) touches mathematical content:
 Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
 
 ## Current focus
-1. **Release** (Papers I and II on arXiv, code public): `docs/release-checklist.md` lists what
-   is done and what only the author can do (repository public, tag, archive with a DOI,
-   arXiv upload, the reading of `AI_USAGE.md` section 3). `main` is the released branch.
+1. **Release** (Papers I and II on arXiv): code public, tag `v1.0`, archived (Zenodo
+   `doi:10.5281/zenodo.24425070`, concept `doi:10.5281/zenodo.24425069`; Software Heritage); `docs/release-checklist.md` lists what
+   only the author can still do (arXiv upload, the reading of `AI_USAGE.md` section 3). `main` is the released branch.
 2. Paper III: draft; its evaluation follows `benchmarks/cycles/README.md`.
 3. The order of the work done so far is in `docs/proposals.md` and
    `docs/implementation-plan.md` (historical, not maintained) and in `AI_USAGE.md`.

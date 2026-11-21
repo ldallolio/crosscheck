@@ -2169,6 +2169,27 @@ to an image and checked for overflow. The budget was first 400 µs, which the ex
 (the time-budget step certifies without the loop certificates): set to 500 µs, the failing
 case is stated on the slide.
 
+90. "Push this into main too"
+
+What the AI did for 90 (Claude Opus 5.5, 2026-11-21): fast-forwarded `main` to the slides
+commit and pushed it; the CI runs passed.
+
+91. "I have tagged the release, please give me instructions about the DOI and arXiv"
+
+What the AI did for 91 (Claude Opus 5.5, 2026-11-21): instructions only (Zenodo's GitHub
+integration archives a published GitHub release of a public repository; version and concept
+DOIs; Software Heritage; arXiv endorsement, categories, upload order of Papers I and II).
+
+92. "Here is the DOI : 10.5281/zenodo.24425070 markdown : [![DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069) This is the only DOI I found on zenodo. The SWHID swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f;origin=https://github.com/ldallolio/crosscheck;visit=swh:1:snp:84c735986d2163ea55f8ab246c5b7a18cc5ccc5a and permalink : https://archive.softwareheritage.org/swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f;origin=https://github.com/ldallolio/crosscheck;visit=swh:1:snp:84c735986d2163ea55f8ab246c5b7a18cc5ccc5a"
+
+What the AI did for 92 (Claude Opus 5.5, 2026-11-21): read both records from Zenodo's public
+API: `10.5281/zenodo.24425070` is the version DOI of v1.0 and `10.5281/zenodo.24425069` (the badge's) the concept DOI; the SWHID's
+release object is the tag `v1.0`. Paper I's paragraph "Artifact" and a new section
+"Artifact" in Papers II and III give the repository, the version DOI and the SWHID;
+`CITATION.cff` (version, date, both DOIs, SWHID), README badge and citation line, release
+checklist. Fixed a hyperref warning (duplicate anchor of the two parts of Table 1). Papers
+rebuilt without warnings (42, 23, 20 pages), arXiv bundles regenerated.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2190,7 +2211,7 @@ here as the release standard.
 | 2.A | Author understands every argument, has verified correctness personally, takes full responsibility | **OPEN — only the author can do this.** See checklist in §3. |
 | 1(a) | Literature searched; ideas cited to the papers that introduced them | Done by the AI from memory (Related Work, Positioning). **Author must check every reference and the novelty claims.** |
 | 1(b) | Traditional paper style: introduction, precise statements and proofs | Done. |
-| 2 | Deposit in a scholarly repository with persistent identifier and version history | **OPEN.** arXiv for the paper. The Lean code is on GitHub only, in a **private** repository (2026-11-21), and `main` is behind the working branch: make it public, merge, tag the submitted revision and archive it (Zenodo, which reads `.zenodo.json`, or Software Heritage), then cite the identifier in Paper I (paragraph "Artifact") and `CITATION.cff`. Prepared by the AI: `CITATION.cff`, `.zenodo.json`, arXiv bundles (`paper/make_arxiv.py`). |
+| 2 | Deposit in a scholarly repository with persistent identifier and version history | Code: **done** by the author on 2026-11-21: repository public, tag `v1.0`, archived at Zenodo (`doi:10.5281/zenodo.24425070`, all versions `doi:10.5281/zenodo.24425069`) and Software Heritage (`swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`); cited in the three papers, `CITATION.cff` and `README.md`. Papers: **OPEN**, arXiv upload by the author. |
 | 3 | Publish model name, prompts, summarised reasoning, time, cost | Model, prompts, summary: this file. Measured by the AI on 2026-11-21 from the local Claude Code transcripts of this project (11 files: the main session and its subagents), 2026-11-11 to 2026-11-21: about 76 hours of active session time (gaps above 30 minutes not counted); 5,117 model responses (`claude-opus-5-5` 4,273, `claude-fable-5-2` 801, `claude-haiku-5-5` 27, the last inside the web-page reader); 5.8 million output tokens, 20.4 million tokens written to and 1,790 million read from the prompt cache. Work done in other tools (e.g. claude.ai chats) is not in these transcripts. **Cost: author to fill in** (from the account's billing), and to confirm the time. |
 | 4 | Formalize as far as possible; state formalization status clearly; machine-readable link between paper and formal artifact; copyright headers; challenge file | Formalized with status stated in the paper (Section "Mechanization in Lean 4", incl. what is *not* formalized; the C++ plugin is explicitly outside the formalization). Copyright headers added. `formalization/formalization.yaml` links paper labels to Lean names, but its schema is project-defined and **not validated** against a community spec. **No challenge file for `comparator` yet.** |
 | 5 | Document exactly how AI came to be used on this problem | This file, and the "Statement on the Use of AI" in the paper (contains an explicit author-to-confirm marker that must be resolved). |
