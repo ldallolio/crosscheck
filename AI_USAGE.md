@@ -2107,10 +2107,33 @@ What the AI did for 83 (Claude Opus 5.5, 2026-11-21); summary in `docs/release-c
   `main` and tagging, archiving (Zenodo or Software Heritage), the arXiv account and
   upload, the cost, and the reading of section 3.
 
+84. "I put the original OOP java version in a "old" directory, please read it and tell me if we should commit or not"
+
+What the AI did for 84 (Claude Opus 5.5, 2026-11-21): read the 143 files (the module Revenge
+of METACad, 2008-2017): authorship (only the author), no license, no third-party source or
+personal data; compared its tests with the examples of Paper I (infinite loop and linear
+recursion among them; no test of the parametric loop, disabled, nor of the binary
+recursion). Recommended committing it, with a README, without the IDE files, under MIT,
+and rewording Paper I's sentence on the prototype.
+
+85. "I agree with all these points, I confirm I am the only author. This code is ten years old, you can still find it online : https://sourceforge.net/p/metacad/code/291/tree/revenge/"
+
+What the AI did for 85 (Claude Opus 5.5, 2026-11-21): checked that the SourceForge tree
+(revision 291, July 2017) holds `revenge/`; moved the code to `history/revenge/` (Eclipse
+files and METACad's parent POM removed), wrote its README (provenance, method, relation to
+Paper I's examples, status), and reworded Paper I's sentence in Section "Examples": "The
+method is that of an earlier prototype implementation ... whose tests include the infinite
+loop and the linear recursion below" (before: "The systems are those produced by a
+prototype implementation").
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
 2026-11-11 (the pre-existing manuscript, Lean files and `CLAUDE.md`).
+
+The Java prototype that preceded CrossCheck (module Revenge of METACad, 2008-2017,
+<https://sourceforge.net/p/metacad/code/291/tree/revenge/>) is in `history/revenge/`; the
+author confirmed on 2026-11-21 being its only author. It predates any AI assistance.
 
 ## 2. Compliance audit against the AGMAI recommendations
 

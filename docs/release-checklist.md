@@ -55,9 +55,9 @@ Paper III only.
    classical ideas as new. `references/README.md` says, per entry, what the AI read; 18 of
    the 69 cited works have no reading note (books, classical papers such as Floyd 1967,
    Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only.
-3. **Statements only you can confirm** (items 3, 5): Paper I, Section "Examples", says that
-   the equation systems "are those produced by a prototype implementation" (your Java
-   program); confirm, or change the sentence. Items 6 (old title) and 17 (an `\authortodo`
+3. **Statements only you can confirm** (items 3, 5): the sentence of Paper I, Section
+   "Examples", on the prototype was reworded on 2026-11-21 to what `history/revenge/` shows
+   (its tests include the infinite loop and the linear recursion); confirm the wording. Items 6 (old title) and 17 (an `\authortodo`
    that no longer exists) are out of date.
 4. **Fairness of the comparisons** (items 11-15): default options of KoAT2, CoFloCo, Infer;
    the oRange build and the `filterbank` counterexample; the TPDB bounded-mode harness.

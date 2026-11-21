@@ -1081,7 +1081,7 @@ For a program without recursion the least $B$ of the first statement is computed
 \section{Examples}
 \label{sec:examples}
 
-The following examples are simple enough for the equation systems to be solved in closed form, so that the results can be checked by hand. The systems are those produced by a prototype implementation of the rules of Section~\ref{sec:application}, which analyzes the source code without executing it; minor simplifications have been applied for readability. Solving each system is equivalent to executing the code, and each solution has additionally been verified in Lean~4 against the big-step semantics (Section~\ref{sec:mechanization}).
+The following examples are simple enough for the equation systems to be solved in closed form, so that the results can be checked by hand. The method is that of an earlier prototype implementation of the rules of Section~\ref{sec:application} (2008--2017, directory \lean{history/revenge} of the repository), which analyzes the source code without executing it and whose tests include the infinite loop and the linear recursion below; the systems are given with minor simplifications for readability. Solving each system is equivalent to executing the code, and each solution has additionally been verified in Lean~4 against the big-step semantics (Section~\ref{sec:mechanization}).
 
 \subsection{Parametric while loop}
 
