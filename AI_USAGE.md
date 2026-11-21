@@ -2151,6 +2151,24 @@ What the AI did for 86-88 (Claude Opus 5.5, 2026-11-21):
   to a final section (a stale TPDB classification corrected); local build leftovers
   deleted. Not done: the commit email (the author's choice).
 
+89. "I would like to add a short presentation (if not already present, I do not remember) using sli.dev tools to convert markdow into slides about this project, showing a real case workflow with examples of artifacts : initial code, untrusted facts, certificate, lean demonstration, assembly verifications and so on, identifying the compiler and linker parts, time and complexity assertions (these are just hints, you are free to integrate or change anything). Maybe even a bit of theory similar to the initial part in the guide but for slides. Include also benchmarks and tool comparisons"
+
+What the AI did for 89 (Claude Opus 5.5, 2026-11-21): no presentation existed. `docs/slides/`:
+a Slidev deck of 22 slides (Slidev 53.1.0 pinned), and a running example `demo/fir.c` (an
+8-tap FIR filter, a parameter range, a 500 µs budget) whose artifacts are all produced by
+`demo/run_demo.py` and quoted in the slides: the plugin's remarks and report (untrusted),
+the source certificate with a bound symbolic in the parameter, accepted and validated by
+the checker, the Lean statements (`check_sound`, `binary_sound`), the Cortex-M0
+disassembly, the matching of loops by line ranges, the cycle certificate, a loop bound
+proved on the instructions (`dot`: potential (28 − r2)/4, 7 back edges) and one left
+trusted (`fir_peak`, bounded by its parameter), an emulated run (20,806 cycles ≤ 21,177),
+the time budget after linking (491 µs ≤ 500 µs; 400 µs fails), a tampered certificate
+rejected, and the time of each step. Theory slides adapted from guide part 1; benchmark and
+tool-comparison slides with the figures reproduced on 2026-11-21. Every slide was rendered
+to an image and checked for overflow. The budget was first 400 µs, which the example misses
+(the time-budget step certifies without the loop certificates): set to 500 µs, the failing
+case is stated on the slide.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

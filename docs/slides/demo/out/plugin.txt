@@ -1,0 +1,9 @@
+OK   dot: 85 units
+OK   fir_peak: 5269 units
+warning: argument unused during compilation: '--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13' [-Wunused-command-line-argument]
+docs/slides/demo/fir.c:12:31: remark: crosscheck: 'dot': worst-case cost bound 85 units
+   12 | __attribute__((noinline)) int dot(int start) {
+      |                               ^
+docs/slides/demo/fir.c:20:5: remark: crosscheck: 'fir_peak': worst-case cost bound 5269 units (time budget 500 us, checked after linking), under 1 assumption(s)
+   20 | int fir_peak(CROSSCHECK_RANGE(1, 56) int n) {
+      |     ^

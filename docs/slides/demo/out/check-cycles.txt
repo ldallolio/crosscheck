@@ -1,0 +1,4 @@
+ACCEPTED dot: at most 356 cycles (16 instructions, 17 edges, 1 rows)
+ACCEPTED dot: loop bounds of the machine code, 1 rows certified, 0 trusted (110 obligations, 0 words of the frame tracked, 27 congruences)
+ACCEPTED fir_peak: at most 21177 cycles (23 instructions, 26 edges, 1 rows)
+PROGRAM  program: ACCEPTED (cycle bounds of the machine code; MULS 32 cycles; 1 loop rows certified on the machine code, 1 trusted; callees assumed to preserve r4-r7 and SP; the decoder, the timing table and the effects of the instructions are trusted)

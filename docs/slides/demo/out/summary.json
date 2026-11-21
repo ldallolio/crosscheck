@@ -1,0 +1,45 @@
+{
+ "schema": {
+  "dot": 400,
+  "fir_peak": 23913
+ },
+ "certified": {
+  "dot": 356,
+  "fir_peak": 21177
+ },
+ "observed_fir_peak_n56": 20806,
+ "observed_dot": 356,
+ "loops": {
+  "dot": {
+   "certified": [
+    [
+     16,
+     7,
+     8
+    ]
+   ],
+   "other": []
+  },
+  "fir_peak": {
+   "certified": [],
+   "other": [
+    [
+     68,
+     "certified bound 2147483646 above the source bound 56"
+    ]
+   ]
+  }
+ },
+ "why": {},
+ "times": {
+  "plugin": 0.543,
+  "check source certificate": 0.058,
+  "compile": 0.045,
+  "disassemble": 0.016,
+  "binary analysis and cycle certificate (untrusted producer)": 0.862,
+  "check cycle certificate": 0.058,
+  "emulated runs": 0.011,
+  "time budget": 0.775,
+  "check tampered certificate": 0.053
+ }
+}

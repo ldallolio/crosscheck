@@ -1,0 +1,5 @@
+ACCEPTED dot: bound 85
+VALIDATED dot: the certificate's program is the lowering of its source
+ACCEPTED fir_peak: bound 5 + 94*max(0,γ0)
+VALIDATED fir_peak: the certificate's program is the lowering of its source
+PROGRAM  docs/slides/demo/fir.c: ACCEPTED

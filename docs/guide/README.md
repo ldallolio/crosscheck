@@ -98,3 +98,6 @@ node build-pdf.mjs                      # e-reader page; --format=a4 for printin
 The guide quotes Lean names, plugin classes and paper labels. When one of them is renamed
 or removed, update the guide in the same change (the same rule as for the papers' tables
 and `formalization/formalization.yaml`).
+
+A short presentation of the project, with one example followed through the whole pipeline
+and its real artifacts, is in [`../slides`](../slides/README.md) (Slidev).

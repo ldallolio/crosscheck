@@ -1,0 +1,47 @@
+{
+  "functions": [
+    {
+      "name": "dot",
+      "symbol": "dot",
+      "file": "docs/slides/demo/fir.c",
+      "line": 12,
+      "ok": true,
+      "wcet": 85,
+      "contexts": 1,
+      "wcet_in_context": 85,
+      "deadline": null,
+      "loops": [{"file": "docs/slides/demo/fir.c", "line": 14, "column": 3, "end_line": 15, "bound": 8, "verified": true, "in_context": 8, "potential": "-k + 8", "invariants": ["-k <= 0"], "variant": "-k + 8"}],
+      "requires": [],
+      "recursion": null,
+      "certificate": "emitted",
+      "certificate_bound": 85,
+      "certificate_summary": "85",
+      "solver_work": 19,
+      "search_budget_exhausted": false,
+      "assumptions": [],
+      "errors": []
+    },
+    {
+      "name": "fir_peak",
+      "symbol": "fir_peak",
+      "file": "docs/slides/demo/fir.c",
+      "line": 20,
+      "ok": true,
+      "wcet": 5269,
+      "contexts": 1,
+      "wcet_in_context": 5269,
+      "deadline": null,
+      "loops": [{"file": "docs/slides/demo/fir.c", "line": 22, "column": 3, "end_line": 25, "bound": 56, "verified": true, "in_context": 56, "potential": "n - i", "invariants": ["-i <= 0"], "variant": "n - i"}],
+      "requires": ["-n + 1 <= 0", "n - 56 <= 0"],
+      "recursion": null,
+      "certificate": "emitted",
+      "certificate_bound": 5269,
+      "certificate_summary": "5 + 94*max(0,n)",
+      "deadline_us": 500,
+      "solver_work": 234,
+      "search_budget_exhausted": false,
+      "assumptions": ["preconditions of 'fir_peak' hold at its external call sites"],
+      "errors": []
+    }
+  ]
+}
