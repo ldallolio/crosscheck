@@ -1,3 +1,5 @@
+/* Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+   Released under the MIT license as described in the file LICENSE. */
 /* Functions exercising the instruction classes of the Cortex-M0, for test_m0.py. */
 int t_asr(int a, int b) { return a >> (b & 31); }
 unsigned t_lsr(unsigned a, unsigned b) { return a >> (b & 31); }

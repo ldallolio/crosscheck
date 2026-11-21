@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Option symbolic is not set by the certificate test, so these functions have ranges; they
 // document the shapes whose bounds are certified in the parameters (see the unit tests
 // Symbolic.* for the mode without ranges). Checked by certificates_accepted_by_lean_checker.

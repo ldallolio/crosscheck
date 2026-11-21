@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Small real-time kernels in Rust for the Rust front-end (frontends/rust).
 // Functions named `rejected_*` must receive no bound; every other one should be bounded.
 // `assert!` states the input ranges: it is checked at run time, so nothing is trusted.

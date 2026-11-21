@@ -209,7 +209,7 @@ class Gen:
             T = "I" if signed else "U"
             args = ", ".join(f"({T})a{i}" for i in range(len(ranges)))
             main.append("  {")
-            main.append(f"    long best[8] = {{0}}; long over = 0, cut = 0, runs = 0;")
+            main.append("    long best[8] = {0}; long over = 0, cut = 0, runs = 0;")
             if total <= 4000:
                 for i, (lo, hi) in enumerate(ranges):
                     main.append(f"    for (long a{i} = {lo}; a{i} <= {hi}; ++a{i})")

@@ -158,7 +158,7 @@ def main():
                 reasons[why.split(" ")[0] + " " + " ".join(why.split(" ")[1:3])] += 1
                 body = next(b for hh, b, _ in ctx.iloops if hh == h); Bs = set(body)
                 exits = [a for a in body if any(n is None or n not in Bs for n, _, _ in ctx.out[a])]
-                descs = []; best = None
+                descs = []
                 for a in exits:
                     if ctx.insn[a].kind != "cond": descs.append("exit-not-branch"); continue
                     b = a

@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Emits the certificates of the example programs and runs the verified Lean
 # checker on them. Usage: check_certificates.sh TOOL CHECKER DIRS INCLUDE [clang flags...]
 # (DIRS: directories of .cpp files, separated by ':').

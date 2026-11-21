@@ -828,7 +828,9 @@ TEST(Unsound, LogNeedsAPositivePotential) {
       while (n != 0) { n = n / 2; k++; }
       return k;
     })");
-  if (fn(r, "f").bounded) EXPECT_GE(fn(r, "f").loops[0].bound, 10u);
+  if (fn(r, "f").bounded) {
+    EXPECT_GE(fn(r, "f").loops[0].bound, 10u);
+  }
 }
 
 // The certificate of a halving loop: a whileLog node, and the facts of `n >>= 1` stated

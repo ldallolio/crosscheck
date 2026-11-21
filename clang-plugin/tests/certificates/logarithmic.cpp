@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Logarithmic loops: certificates with a whileLog node (Lean logloop_sound), checked by
 // the Lean checker in the ctest certificates_accepted_by_lean_checker.
 #include <crosscheck/attributes.hpp>

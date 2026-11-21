@@ -18,6 +18,7 @@ here says that the author has verified anything.
 | Time and compute | Measured from the local transcripts and recorded in `AI_USAGE.md` §2 (about 76 hours of active session time, 5.8 million output tokens); cost left to the author |
 | arXiv bundles | `python3 paper/make_arxiv.py theory tool binary`: each paper with its `.bbl`, references to the other papers' results replaced by their numbers (no `xr`, no `.aux` of another paper), compiled alone three times without warnings; the text of each bundle's PDF is identical to the normal build. Files in `paper/arxiv/` (gitignored) |
 | Defects found and fixed | (1) CI: the two certificate-checking steps of `plugin_build.yml` piped the checker into `tee`, which hides its exit status (no `pipefail`): a rejected certificate would not have failed CI. They now test the checker's output (tested locally with a mutated certificate). (2) DEBIE's `Switch_SU_State` is exported and not validated (the generator tracks a field read through a pointer, the exporter writes an unknown value); the checker is right to refuse it; Paper II and `benchmarks/tacle/README.md` now say so (they gave the 309 validated without it). |
+| Clean-up (prompts 86-88) | `main` = the working branch, CI green on GitHub (first run since 2026-11-12); copyright headers everywhere; no lint finding, no compiler warning; READMEs give current figures, history in a final section; planning documents marked historical |
 | Repository metadata | `CITATION.cff`, `.zenodo.json`, `README.md` rewritten (the old one claimed "operadic tree algebras", removed from the papers, and that the open-source release was "planned" although the code is MIT-licensed) |
 
 ## B. Decisions and actions that only the author can take
@@ -25,9 +26,9 @@ here says that the author has verified anything.
 1. **The GitHub repository is private.** Paper I gives `https://github.com/ldallolio/crosscheck`
    as the artifact; readers cannot open it. Make it public (or archive it publicly, item 3)
    before the upload.
-2. **`main` is at the first plugin version.** Everything is on `evaluation-and-contexts`.
-   Merge it into `main` (or make it the default branch) and tag the released revision, for
-   example `v1.0-arxiv`. The AI can prepare the merge and the tag; pushing them is your call.
+2. **Tag the released revision** of `main` (merged and pushed on 2026-11-21; CI green), for
+   example `v1.0-arxiv`. Your commits carry your personal email address, which becomes
+   public with the repository (GitHub's noreply address is an option for future commits).
 3. **Archive with a persistent identifier** (AGMAI item 2): Zenodo (GitHub integration,
    which reads `.zenodo.json`, on the tag) or Software Heritage (save the public URL). Then
    put the DOI or SWHID into Paper I's paragraph "Artifact" and into `CITATION.cff`.

@@ -2126,6 +2126,31 @@ method is that of an earlier prototype implementation ... whose tests include th
 loop and the linear recursion below" (before: "The systems are those produced by a
 prototype implementation").
 
+86. "Now I would like you to check this whole project once again : we are almost ready to publish the article on arxiv and open the code, I would like to clean up so that this project is spotless. What would you suggest ?"
+
+87. "I think that you should merge with main and push it"
+
+88. "Treat all your suggestions autonomously"
+
+What the AI did for 86-88 (Claude Opus 5.5, 2026-11-21):
+- Audit: git history (no binaries, no blob above 500 KB, one author, no vendored benchmark),
+  personal data (no home paths outside CLAUDE.md, no email address in tracked files; the
+  commits carry the author's address), links and paths in the documentation (none broken),
+  Lean (0 warnings), Python (ruff: 10 findings), C++ (`-Wall -Wextra`: 6 warnings), CI (no
+  run since 2026-11-12: both workflows trigger on `main` only).
+- 87: `main` fast-forwarded to `evaluation-and-contexts` and pushed; both CI workflows ran
+  on GitHub for the first time on this work and passed (Lean; plugin build, tests and
+  certificate check).
+- 88: copyright headers on 16 files; the lint findings and C++ warnings fixed (no change
+  of behaviour: ctest 183/183, cycles tests, Rust test, `classify_loops.py`); `.vscode/`
+  removed; `paper/.gitignore` reduced to the outputs of the papers; the plugin workflow
+  also triggered by every `*Core.lean` module of the checker and by `frontends/`;
+  `docs/proposals.md` and `docs/implementation-plan.md` marked historical (not moved:
+  this file cites them); CLAUDE.md (no home path, page counts, current focus); the cycles,
+  TACLeBench and TPDB READMEs rewritten to their current figures with the history moved
+  to a final section (a stale TPDB classification corrected); local build leftovers
+  deleted. Not done: the commit email (the author's choice).
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before

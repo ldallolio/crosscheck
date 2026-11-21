@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Runs inside a container built from oRange's sources (see README.md, "oRange").
 # Reads on stdin a tar holding the kernel directory <k>/ and the concatenated <k>.c;
 # prints oRange's flow-fact XML for the whole program (entry point main).

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Triangular loop nests: an inner loop whose entry bound is the potential of the
 // enclosing loop (`j` from `i` to `n`) makes the enclosing body cost `a + c * gamma_j`,
 // and the enclosing loop is certified with the amortised bound (Lean `triOk`,

@@ -19,7 +19,7 @@ python3 benchmarks/tacle/run_tacle.py --markdown=out.md --latex=out.tex --json=o
 #   --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
 ```
 
-The whole run takes about four minutes (two and a half before the search for a potential was repeated with more candidate invariants, 2026-11-16). The same script runs in CI
+The whole run takes about four minutes. The same script runs in CI
 (`.github/workflows/plugin_build.yml`), which uploads the JSON as a build artifact.
 
 ## Results (2026-11-15, with calling contexts, globals, fields, tables, C tests)
@@ -82,26 +82,23 @@ the certificate fragment (see `docs/certificate-format.md`), and with
 `--checker=formalization/.lake/build/bin/crosscheck-check` it runs the verified Lean
 checker on them and fails if one is rejected.
 
-On 2026-11-14, after early exits, `switch`, `&&` tests and unsigned variables were added
-to the generator: **156 of the 158 bounded functions** get a certificate, **all accepted
-by the checker** (before: 142; 158 of 160 with logarithmic potentials on 2026-11-15, then 158 of 162 with growing logarithmic loops and exact unsigned division: `fft_bit_reduct` and `fft_main` are bounded but not certified, the generator's invariant does not show their logarithmic potential positive; `fft_main` brings the bounded entry functions to 11; since the retry with more candidate invariants of 2026-11-16, 161 of 165: the loop of `binarysearch` is bounded, linearly (29, flow fact 4), and `binarysearch_main` is the twelfth bounded entry function). The entry functions `<kernel>_main` of 9 kernels are
-certified. 141 certified bounds equal the plugin's bound; 12 are smaller (9:
-`__kernel_cosf` and its callers, in four kernels: the forward assertions show that an
-expensive branch cannot follow an earlier test; 3 in `bsort`: the iteration that leaves
-by `break` is counted without the increment and without the plugin's extra body); 3 are
-larger (`ludcmp_main` and `main` of ludcmp: the entry bound of a loop is rounded up;
-`pm_init_data`: a `?:` calls `pm_floor` in one arm and `pm_ceil` in the other, and the
-certificate inlines both). Not certified: an assignment inside an expression
-(`bitcount_bit_shifter`) and a loop whose potential has no upper bound in the
-certificate's entry assertion (`ludcmp_test`). The script prints the reason for each
-function that is not certified.
+**161 of the 165 bounded functions** get a certificate, **all accepted by the checker**
+(2026-11-21), including the entry functions `<kernel>_main` of 11 kernels. 146 certified
+bounds equal the plugin's bound and 14 are lower: forward assertions show that an expensive
+branch cannot follow an earlier test (`__kernel_cosf` and its callers, in four kernels),
+the iteration that leaves `bsort`'s loop by `break` is counted without the increment, and
+the triangular nests of `ludcmp_main` are amortised (Paper I `prop:amortised-loop`: 3,474
+instead of 4,907, and `main` 4,643 instead of 6,076); 1 is larger (earlier runs found
+loop entry bounds rounded up and both arms of a `?:` inlined as causes). Not certified: `fft_bit_reduct` and
+`fft_main` (bounded, but the generator's invariant does not show their logarithmic
+potential positive), an assignment inside an expression (`bitcount_bit_shifter`) and a loop
+whose potential has no upper bound in the certificate's entry assertion (`ludcmp_test`).
+The script prints the reason for each function that is not certified. 120 calls are checked
+against the callee's own certificate (a summary) instead of being inlined; no kernel
+function has a summary that depends on its parameters, since the kernels' loops have
+constant bounds. The analyser's own bounds (the tables) do not amortise.
 
-Since program certificates (2026-11-14) the figures are unchanged (156 of 158, 141 equal,
-12 lower, all accepted); 120 calls are now checked against the callee's own certificate
-(a summary) instead of being inlined. No kernel function has a summary that depends on its
-parameters: the kernels' loops have constant bounds.
-
-## Validation against the source (2026-11-15)
+## Validation against the source
 
 With `--minic` as well, every certified function is also exported as mini-C (option
 `--opt=minic`, `clang-plugin/src/analysis/MiniC.cpp`) and the checker validates the
@@ -113,20 +110,10 @@ python3 benchmarks/tacle/run_tacle.py --extra-arg=--gcc-install-dir=/usr/lib/gcc
     --certificates=DIR --checker=formalization/.lake/build/bin/crosscheck-check --minic
 ```
 
-Certified bounds (2026-11-16): 146 of the 161 are the analyser's bound, 14 are lower
-(infeasible paths, and since the amortised loop rule, Paper I `prop:amortised-loop`, the
-triangular nests of `ludcmp_main`: 4,907 before, 3,674 with the first form of the rule,
-3,474 since inner loops from `0` to the outer counter are amortised too (node `whileUp`,
-two of its three nests), and through it `main`: 6,076, then 4,843, now 4,643). The
-analyser's own bounds (the tables) do not change: it does not amortise. The run takes
-156 s (143 s before `whileUp`: bodies that contain a loop are lowered once more); 2026-11-17,
-with the solver cache, the budget and quadratic bounds: 2 min 19 s (`ludcmp_test`, whose
-nest is now tried as a product, takes 40 s of it).
+The run with certificates and validation takes about two and a half minutes.
 
-Kernels (2026-11-16, 161 of 165 certified, all accepted): **152 certificates
-validated** (93 before mini-C had quotients, remainders, shifts, masks, unsigned stores and
-calls; 147 before jumps were proved in Lean and tracked globals exported; jumps,
-`switch` and `do` are now exported as they are and eliminated by the checker, `MiniC.elim`);
+Kernels (161 certified): **152 certificates validated** (jumps, `switch` and `do` are
+exported as they are and eliminated by the checker, `MiniC.elim`);
 146 are validated together with every function they call; 37 contain loops (61 of the
 83 loops of the certified programs), 8 are entry functions `<kernel>_main`
 (`binarysearch`, `bsort`, `complex_updates`, `countnegative`, `iir`, `jfdctint`,
@@ -135,29 +122,23 @@ calls; 147 before jumps were proved in Lean and tracked globals exported; jumps,
 entry in the certificate file (6), calls in tests (2). **One not validated**:
 `isqrt_main`, whose second call `isqrt_usqrt(isqrt_l, ...)` has an argument (a global)
 without a bound, so the generator inlined the callee while the source has a call (the
-checker refuses it, as it should; before, the exporter refused the function for its
-global loop counter).
+checker refuses it, as it should).
 
 Sequential and application programs (`--category sequential --category app`): tables
 unchanged (231 of 263 certified, all accepted; 207 certified bounds equal to the
 analyser's, 14 lower, among them `susan_median`, a sort of 8 values in a triangular nest,
-1,047 → 648 with the amortised loop rule, validated against its source); **194 validated, none failing** (2026-11-17; 193 before static locals were exported;
-178 before tracked globals were exported, 170 before early exits and `switch`, 113 before
-mini-C had division, unsigned stores and calls), including `adpcm_dec_main`,
+1,047 → 648 with the amortised loop rule, validated against its source); **194 validated, none failing**
+(last measured 2026-11-17), including `adpcm_dec_main`,
 `adpcm_enc_main`, `petrinet_main` and `powerwindow_controlexclusion_main`; 188 with all
 their callees. Refused (37): divisions or shifts outside the modelled forms (12), calls of
 functions without an entry in the certificate file (12), variables of narrow types (9),
-calls in tests (3), a table read (1). Five certified bounds are 1 to 3 units lower than
-before (`g723_enc_pack_output` 22 → 19, four `powerwindow` functions): the initialisers
-of their static locals are no longer charged at every call.
-One function (`gsm_enc_Weighting_filter`) was first exported and not validated: the
-constant expression `8192 >> 1` was exported as a quotient where the generator folds it;
-the exporter now folds constants first (and refuses that function for another statement).
-Unchanged by the node `whileUp` (2026-11-16: same counts and bounds, no `j < i` nest with constant bounds); the run took 88 min, and 23 min on 2026-11-17 with the solver cache and the search budget (`cjpeg_transupp` 376 s, `epic` 329 s, `h264_dec` 69 s; budget exhausted in 4 functions: `mpeg2_dpframe_estimate`, `cjpeg_transupp_do_transverse`, `epic_build_pyr`, `h264_dec_decode_one_macroblock`; the loop table is the same as without the budget). The slowest program, `cjpeg_transupp`, needed 2,833 s (2,299 s before `whileUp`, which lowers bodies that contain a loop once more) on a shared machine (614 s on
-2026-11-15, before the repeated search for potentials): set `CROSSCHECK_TACLE_TIMEOUT` above
-the default 1,800 s when the machine is loaded.
+calls in tests (3), a table read (1). The run takes 23 to 32 minutes (2026-11-17 and
+2026-11-21) with the solver cache and the search budget, which is exhausted in 4 functions
+(`mpeg2_dpframe_estimate`, `cjpeg_transupp_do_transverse`, `epic_build_pyr`,
+`h264_dec_decode_one_macroblock`; the loop table is the same as without the budget). Set
+`CROSSCHECK_TACLE_TIMEOUT` above the default 1,800 s on a loaded machine.
 
-## Sequential and application programs (2026-11-15)
+## Sequential and application programs
 
 ```bash
 python3 benchmarks/tacle/run_tacle.py --category sequential --category app \
@@ -172,9 +153,6 @@ concatenation), without annotations, 572 loops with a flow fact:
 |---|---|---|---|---|---|---|
 | for every call | 275 | 258 | 8 | 9 | 287 | 10 |
 | in context | 330 | 304 | 16 | 10 | | |
-
-(2026-11-14, before globals, fields, tables and C integer tests: 263 / 252 / 7 / 4 for
-every call, 317 / 297 / 15 / 5 in context.)
 
 - **Below the flow fact (10 in context), none a counter-example.** Besides the five
   below, a loop of `lift` (`for (lift_level = 1; lift_level < 14; ++lift_level)`, 13
@@ -231,8 +209,7 @@ copy in the work directory only:
 
 All 480 certificates of the run are accepted by the checker (475 of the 476 bounded
 functions; DEBIE's `InitData_RAM` is bounded but its certificate generator does not show
-the decrease of a potential), and **309 are validated against their source** (189 before
-static locals were exported, see below). **One not validated** (found 2026-11-21):
+the decrease of a potential), and **309 are validated against their source**. **One not validated**:
 `Switch_SU_State`, where the generator tracks `SU_setting->SU_number` (a field read
 through a pointer) as a variable and assigns it to `self_test_SU_number`, while the
 exporter writes that read as an unknown value; the checker refuses the match, as it should
@@ -478,4 +455,29 @@ python3 benchmarks/tacle/run_annotated.py --clang=$E/clang --opt=$E/opt \
 | not bounded: recursion | `bitcount`, `bitonic`, `fac`, `quicksort`, `recursion` |
 | not bounded: loops without a flow fact | `lms` (2 loops) |
 | annotated values below an observed count | 2: `md5` line 562 (256 < 257), `quicksort` line 745 (169 < 170), the `while (1)` flow facts above |
+
+## History
+
+- 2026-11-21: re-run of every figure above; DEBIE's `Switch_SU_State` found exported and
+  not validated (it was not reported before).
+- 2026-11-17: solver cache and search budget (the larger programs 88 → 23 minutes;
+  `cjpeg_transupp` 2,833 s → 376 s); quadratic bounds in certificates; static locals
+  exported (validated: kernels unchanged, larger programs 193 → 194, DEBIE/ROSACE 189 →
+  309); the initialisers of static locals no longer charged at every call (5 certified
+  bounds 1 to 3 units lower, e.g. `g723_enc_pack_output` 22 → 19).
+- 2026-11-16: repeated search for a potential with more candidate invariants (kernels:
+  161 of 165 certified instead of 158 of 162, `binarysearch` bounded, the twelfth bounded
+  entry function; run time 2.5 → 4 minutes); amortised nests `j < i` (node `whileUp`:
+  `ludcmp_main` 3,674 → 3,474); jumps proved in Lean and tracked globals exported
+  (kernels validated 147 → 152; larger programs 170 → 178 → 193); the exporter folds
+  constants first (`gsm_enc_Weighting_filter`, `8192 >> 1`).
+- 2026-11-15: logarithmic potentials and growing logarithmic loops, exact unsigned
+  division (certified 158 of 160, then 158 of 162; `fft_main` the eleventh bounded entry
+  function); validation against mini-C (kernels 93 validated, larger programs 113);
+  amortised loop rule (`ludcmp_main` 4,907 → 3,674, `susan_median` 1,047 → 648).
+- 2026-11-14: early exits, `switch`, `&&` tests and unsigned variables in certificates
+  (142 → 156 of 158 certified); program certificates (calls checked against summaries);
+  globals, fields, tables and C integer tests in the analyser (larger programs: 263 / 252 /
+  7 / 4 → 275 / 258 / 8 / 9 for every call, 317 / 297 / 15 / 5 → 330 / 304 / 16 / 10 in
+  context).
 

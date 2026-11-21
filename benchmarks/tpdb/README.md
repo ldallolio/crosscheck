@@ -146,8 +146,7 @@ In the second mode (inputs in [-K, K]), **159 of the 215 bounded entry functions
 certified, all accepted by the checker** (2026-11-17): 97 with a *summary* affine in their
 parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 62 with a
 constant bound, 56 not certified. For 74 of the 97, KoAT2 also reports a linear bound.
-(2026-11-16: 114 summaries, 45 constant, 48 none, of 207; 156, 42 and 51 before `do` loops
-were certified.) Since the amortised loop rules (prompts 47 and 48), 17 functions get a
+Since the amortised loop rules, 17 functions get a
 constant amortised bound instead of a summary: the generator compares its candidates at
 the largest admissible inputs, where the amortised bound is about half the summary
 (`jama_ex2`: 2,009,003 against `7003 + 4000*max(0,n)` = 4,007,003 at `n = 1000`), but
@@ -188,14 +187,14 @@ after a loop stay unknown.
   with no annotation and no assumption on ranges (signed overflow is assumed absent, as
   everywhere). All 147 programs are also bounded by KoAT2 or CoFloCo; on the 133 with a
   bound in the parameters KoAT2 answers `O(n)` for 96, `O(n^2)` for 34 and `O(1)` for 3
-  (there our bound is looser than necessary). Before quadratic terms (2026-11-16): 103
-  (89 + 14), and KoAT2 `O(n)` for 86 of the 89; (101 = 87 + 14 before `do` loops were
-  certified.)
+  (there our bound is looser than necessary). Before quadratic terms were added to the
+  checker (2026-11-17) the count was 103.
 - Before the two changes that followed the first run of this mode the count was 59 (45 +
   14): logical variables for `-x` and `x - y` (a loop `while (a < 30)` costs
   `max(0, -a)`), and nondeterministic inputs as parameters.
-- No certificate, of the 135 of the run before `do` loops were certified (139 on 2026-11-17, after the analyser changes above): a product of two symbolic quantities, as in nested loops
-  both bounded by parameters (47: certified bounds are affine); a potential with no
-  bound of that form on entry (36); a loop test with a call or an assignment (28); the
-  generator's invariants too weak (16); `do` loops and labels (6); other (2).
-- KoAT2 or CoFloCo bound 305 programs: 158 of them have no certificate here (202 before quadratic terms).
+- 95 programs have a potential for every loop but no certificate (2026-11-21). Their causes
+  were last classified before quadratic terms, on 139 programs: a product of two symbolic
+  quantities (47, since partly covered by the quadratic terms), a potential with no bound
+  of the required form on entry (36), a loop test with a call or an assignment (28), the
+  generator's invariants too weak (16), `do` loops and labels (6), other (2).
+- KoAT2 or CoFloCo bound 305 programs: 158 of them have no certificate here.

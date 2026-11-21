@@ -2520,7 +2520,9 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   if (useGrow) {
     k = growp->iters;
     lr.verified = true;
-    LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    LoopPotential lp;
+    lp.slots = slots;
+    lp.rank = rank ? *rank : RankingResult{};
     lp.invs = invForms;
     lp.logBase = growp->base;
     lp.logSlot = growp->slot;
@@ -2530,7 +2532,9 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   } else if (useLog) {
     k = logp->iters;
     lr.verified = true;
-    LoopPotential lp{slots, rank ? *rank : RankingResult{}};
+    LoopPotential lp;
+    lp.slots = slots;
+    lp.rank = rank ? *rank : RankingResult{};
     lp.invs = invForms;
     lp.logBase = logp->base;
     lp.logSlot = logp->slot;
@@ -2540,7 +2544,9 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     k = rank->bound;
     lr.verified = true;
     if (!fc.speculative) {
-      LoopPotential lp{slots, *rank};
+      LoopPotential lp;
+      lp.slots = slots;
+      lp.rank = *rank;
       lp.invs = invForms;
       fc.potentials[loop] = std::move(lp);
     }
@@ -2551,7 +2557,9 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
     // generator derives a bound in the parameters from the potential, for the checker.
     symbolicLoop = true;
     if (!fc.speculative) {
-      LoopPotential lp{slots, *symRank};
+      LoopPotential lp;
+      lp.slots = slots;
+      lp.rank = *symRank;
       lp.invs = invForms;
       fc.potentials[loop] = std::move(lp);
       fc.symbolicLoops = true;

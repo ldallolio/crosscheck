@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Products of parameters (option `symbolic`, no input ranges): a nest whose entry bounds
 // are both parameters has a certified bound quadratic in them (Lean `loopBoundOk`, third
 // form: `(w + Wb) * max(0, K) + w`), and a call instantiates the callee's quadratic terms

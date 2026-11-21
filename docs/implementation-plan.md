@@ -1,5 +1,10 @@
 # Implementation plan: from the theory to the tools
 
+> **Historical document.** Planning notes written during the development (November 2026),
+> kept because `AI_USAGE.md` and the benchmark READMEs refer to their step numbers. They
+> are not maintained: for what exists and what is proved, see the papers, `README.md` and
+> `formalization/formalization.yaml`.
+
 This file is the hand-off from the theory phase (paper + Lean, November 2026) to the
 implementation phase. It says what is proved, what the implementation must produce to
 connect to it, and in which order. Read `CLAUDE.md` first: its soundness rules and AGMAI

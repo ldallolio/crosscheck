@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Runs inside the CoFloCo Docker image (afloresmontoya/cofloco). Reads on stdin a tar of
 # llvm2kittel integer programs <function>.koat (from its_in_container.sh); converts each
 # with CoFloCo's own front-end (interfaces/C2ces: koat2cfg.pl, then cfg2ces.pl, default

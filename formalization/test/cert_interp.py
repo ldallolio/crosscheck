@@ -17,7 +17,6 @@ postcondition are read.
 An assumed contract (a function without a body) costs its bound and gives its `mods`
 arbitrary values that satisfy its postcondition.
 """
-import random
 import sys
 import time
 

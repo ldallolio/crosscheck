@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Requirement-based tests of crosscheck-check that are not already a CI step:
 # exit statuses (TOR-6) and large integers (TOR-7). Usage: run_tests.sh CHECKER
 set -u

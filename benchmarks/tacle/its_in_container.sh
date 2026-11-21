@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Runs inside the KoAT2 Docker image (koat2:latest, release v2.1.0), like
 # koat_in_container.sh, with the same llvm2kittel options: reads one preprocessed C file
 # on stdin and writes on stdout a tar of the integer programs <function>.koat that

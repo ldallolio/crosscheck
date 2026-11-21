@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 """Mini-C validation: check_minic.py TOOL CHECKER FILE.c INCLUDE [clang flags...]
 
 Runs the tool with certificates and mini-C sources on FILE.c, then the Lean checker.

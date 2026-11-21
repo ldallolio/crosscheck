@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // A control step preempted by two interrupt handlers: the report gives its response time
 // under their interference, and the certificate file a response-time claim that the
 // checker verifies from the certified bounds (Lean Interrupts.rtaHolds_sound).

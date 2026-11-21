@@ -3,12 +3,14 @@ name: Clang plugin CI
 on:
   push:
     branches: [ main, master ]
-    paths: [ 'clang-plugin/**', 'benchmarks/**', 'formalization/CheckerMain.lean',
-             'formalization/ImperativeOptimization/CheckerCore.lean', '.github/workflows/plugin_build.yml' ]
+    # the checker program is CheckerMain.lean with every *Core module (no mathlib)
+    paths: [ 'clang-plugin/**', 'benchmarks/**', 'frontends/**', 'formalization/CheckerMain.lean',
+             'formalization/ImperativeOptimization/*Core.lean', '.github/workflows/plugin_build.yml' ]
   pull_request:
     branches: [ main, master ]
-    paths: [ 'clang-plugin/**', 'benchmarks/**', 'formalization/CheckerMain.lean',
-             'formalization/ImperativeOptimization/CheckerCore.lean', '.github/workflows/plugin_build.yml' ]
+    # the checker program is CheckerMain.lean with every *Core module (no mathlib)
+    paths: [ 'clang-plugin/**', 'benchmarks/**', 'frontends/**', 'formalization/CheckerMain.lean',
+             'formalization/ImperativeOptimization/*Core.lean', '.github/workflows/plugin_build.yml' ]
   workflow_dispatch:
 
 jobs:

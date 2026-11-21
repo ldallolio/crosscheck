@@ -95,7 +95,7 @@ def loop_ends(functions, offset=0, ends=None):
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
             frame=False, cflags=(), tag="", gcc=None):
     import subprocess
-    r = run_tacle.run_kernel(tool, kernel, work, [*extra, *SOURCE_TARGET])
+    run_tacle.run_kernel(tool, kernel, work, [*extra, *SOURCE_TARGET])
     rep = json.loads((work / f"{kernel.name}.json").read_text())
     # the kernel followed by the run-time support (its lines shifted)
     text = (work / f"{kernel.name}.c").read_text(errors="replace")

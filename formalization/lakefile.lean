@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+Released under the MIT license as described in the file LICENSE.
+-/
 import Lake
 open Lake DSL
 

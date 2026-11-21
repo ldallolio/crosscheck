@@ -1,5 +1,10 @@
 # Proposals: scientific contribution, industrial value, legacy code
 
+> **Historical document.** Planning notes written during the development (November 2026),
+> kept because `AI_USAGE.md` and the benchmark READMEs refer to their step numbers. They
+> are not maintained: for what exists and what is proved, see the papers, `README.md` and
+> `formalization/formalization.yaml`.
+
 Written on 2026-11-14, after the evaluation (Paper II) and the first certificate results.
 Each item says what it is, the evidence that it matters (from our own measurements where
 possible), and whether it needs new theory and Lean work (**T**) or only engineering under

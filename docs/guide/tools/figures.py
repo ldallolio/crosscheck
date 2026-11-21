@@ -6,7 +6,6 @@ package: plain SVG text).
 
     python3 docs/guide/tools/figures.py
 """
-import math
 import pathlib
 
 OUT = pathlib.Path(__file__).resolve().parent.parent / "img"

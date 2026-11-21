@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+# Released under the MIT license as described in the file LICENSE.
 # Runs inside the KoAT2 Docker image (koat2:latest, release v2.1.0); see koat2.py.
 # Reads one preprocessed C file on stdin; prints "function<TAB>first line of KoAT2's answer" for
 # every function defined in it. Callees are inlined (llvm2kittel -eager-inline), so

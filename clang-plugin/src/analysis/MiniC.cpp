@@ -677,7 +677,7 @@ class Exporter {
     return effectOf(e, x, f, w);
   }
 
-  std::string effectOf(const Expr* e, const Expr* x, const Effects& f, std::uint64_t w) {
+  std::string effectOf(const Expr* /*e*/, const Expr* x, const Effects& f, std::uint64_t w) {
     if (!f.writes) return cost(w);  // stores to memory or untracked variables only
     if (const auto* b = dyn_cast<BinaryOperator>(x); b && b->isAssignmentOp()) {
       std::optional<std::size_t> t = targetOf(b->getLHS());

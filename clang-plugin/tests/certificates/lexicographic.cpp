@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
+// Released under the MIT license as described in the file LICENSE.
 // Lexicographic arguments with a bounded inner counter: the combined potential
 // V1 (K2 + 1) + V2 is affine, so the certificates use the ordinary while node; the
 // invariants bounding the inner counter come from the analysis as candidates and are

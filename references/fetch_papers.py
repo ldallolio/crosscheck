@@ -10,7 +10,7 @@ was found. Nothing but the DOI is sent to these services.
 
 Usage:  python3 references/fetch_papers.py [--only KEY ...]
 """
-import argparse, json, pathlib, re, sys, time, urllib.parse, urllib.request
+import argparse, json, pathlib, re, time, urllib.parse, urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 BIB = HERE.parent / "paper" / "crosscheck.bib"
@@ -34,8 +34,7 @@ def get(url, binary=False, tries=3):
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
                 data = r.read()
                 return data if binary else json.loads(data)
-        except Exception as e:  # noqa: BLE001
-            err = e
+        except Exception:  # noqa: BLE001
             time.sleep(3 * (i + 1))
     return None
 

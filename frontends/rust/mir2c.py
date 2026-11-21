@@ -62,7 +62,6 @@ BB = re.compile(r"^\s*(bb\d+)(?: \(cleanup\))?: \{$")
 
 def parse(text):
     fns, cur, bb, stmts = [], None, None, []
-    depth = 0
     for raw in text.splitlines():
         line = raw.rstrip()
         if cur is None:

@@ -16,16 +16,16 @@ Single author: Luca Dall'Olio. MIT licensed.
 | Path | Status |
 |---|---|
 | `formalization/` | Lean 4 + mathlib. **Builds clean (0 errors, 0 warnings), no `sorry`/`axiom`/`admit`.** 30 modules, 605 theorems. |
-| `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 41 pages). No measurements. |
+| `paper/theory/crosscheck-theory.tex` | **Paper I**: theory and Lean (framework, envelopes, cost logic, certificate checker, examples, mechanization; 42 pages). No measurements. |
 | `paper/tool/crosscheck-tool.tex` | **Paper II**: the Clang plugin, certificate generation and the evaluation (TACLeBench, observed counts, five tools, related tools, TPDB; 23 pages). Refers to Paper I's numbered results through `xr` (`\externaldocument[I-]{../theory/crosscheck-theory}`): **build Paper I first**. |
-| `paper/binary/crosscheck-binary.tex` | **Paper III**: the work on binaries (14 pages): cycle certificates of graphs and of Cortex-M0 machine code (`def:cycle-certificate`, `prop:cycles`, `def:machine-run`, `thm:machine-cycles`, moved from Paper I on 2026-11-18), loop bounds certified on the machine code (`def:data-run`, `def:loop-certificate`, `lem:cond-facts`, `thm:machine-loops`), and the evaluation on the Cortex-M0 binaries (cycles, certificates, loops on the code, OTAWA, other processors, stack, time budgets; moved from Paper II). Table `tab:lean3` = its part of `formalization.yaml` (`paper:` field). Refers to Papers I and II through `xr` (`I-`, `II-`): **build Papers I and II first**. |
+| `paper/binary/crosscheck-binary.tex` | **Paper III**: the work on binaries (20 pages): cycle certificates of graphs and of Cortex-M0 machine code (`def:cycle-certificate`, `prop:cycles`, `def:machine-run`, `thm:machine-cycles`, moved from Paper I on 2026-11-18), loop bounds certified on the machine code (`def:data-run`, `def:loop-certificate`, `lem:cond-facts`, `thm:machine-loops`), and the evaluation on the Cortex-M0 binaries (cycles, certificates, loops on the code, OTAWA, other processors, stack, time budgets; moved from Paper II). Table `tab:lean3` = its part of `formalization.yaml` (`paper:` field). Refers to Papers I and II through `xr` (`I-`, `II-`): **build Papers I and II first**. |
 | `paper/crosscheck.bib` | Shared bibliography (both papers use `\bibliography{../crosscheck}`; each lists only what it cites: theory-side related work in Paper I's `sec:related`, tool-side related work in Paper II's `sec:related`). Target venue: **arXiv**; both papers compile with no warnings. The combined single paper was split on 2026-11-14 (it is in git history). |
 | `clang-plugin/` | Clang 18 plugin + standalone tool (C++20, Z3). Research prototype; 183 CTest tests pass (with `-DCROSSCHECK_CHECKER=…`). Emits cost certificates (`--opt=certificates=FILE`; with `minic`, also each function as mini-C, validated by the checker against the certificate), flow facts for WCET tools (`flowfacts=FILE`: FFX, AIS, AIS2) and SARIF (`sarif=FILE`); `scripts/cost_diff.py` for CI; `benchmarks/bounds-baseline.json` must equal `tab:plugin`. See `clang-plugin/README.md`. |
 | `benchmarks/` | 10 annotated real-time example programs (7 accepted, 3 that must be rejected), with `README.md`. |
 | `benchmarks/tacle/` | `run_tacle.py`: fetches TACLeBench (pinned rev `4e4fbf7`) into `.cache/` (gitignored, never vendored), runs the tool unannotated on the 29 kernels (and with `--category sequential/app/parallel` on the larger programs; `parallel`: ROSACE and DEBIE with source fixes in the work copy, `parallel_units`), compares loop bounds with the `loopbound` pragmas. Results in its `README.md` and paper Table `tab:tacle`. `compare_tools.py` + `llvm_scev.py` + `measure_loops.py`: comparison with LLVM ScalarEvolution (run live), with loop counts observed by running the instrumented kernels (live; `--check` fails if a CrossCheck bound is below one, used in CI), KoAT2, CoFloCo (on the same llvm2kittel programs), Infer and oRange (answers stored in `results/`, produced in network-less containers; `koat_in_container.sh`, `its_in_container.sh`, `cofloco_in_container.sh`, `orange_in_container.sh`). Paper Table `tab:tools`. `classify_unbounded.py` classifies the loops without a bound by the analyser's stated cause (the counts are quoted in Paper II and the README); `test_measure_loops.py` tests the loop instrumentation on known counts (CI). `run_annotated.py`: the run with minimal annotations (trusted `CROSSCHECK_LOOP_BOUND` from the flow facts on the loops that keep `main` unbounded, checked against observed counts). |
 | `benchmarks/tpdb/` | `run_tpdb.py`: fetches TPDB `Complexity_C_Integer` (pinned rev `bf19a3c`, 553 programs) into `.cache/`, runs CrossCheck as is and with input ranges added by a script (`harness()`), compares with KoAT2/CoFloCo answers stored in `results/` (`tools_in_containers.sh`). Paper paragraph "Complexity benchmarks" in `subsec:tacle`. |
 | `benchmarks/cmsis/` | `run_cmsis.py`: fetches CMSIS-DSP (Arm, Apache-2.0) and CMSIS 6 Core at pinned revisions into `.cache/` (gitignored), analyses every source file for a Cortex-M4 target (freestanding stubs generated), as is and with input ranges + group context + illustrative `memset`/`memcpy` contracts; classifies blockers. Results in its `README.md` and Paper II paragraph "An embedded library". |
-| `benchmarks/cycles/run_otawa.py` | The same binaries given to OTAWA (not in the repository: the author's Docker image `otawa:dev`, run without network; linker `--lld`, e.g. `rust-lld`): CrossCheck's bounds as FFX flow facts on the binary loop headers (label + offset, `maxcount` = bound + 1), IPET bound for the 107 bounded functions, in instructions or, with `--timing m0`, in Cortex-M0 cycles (`otawa/m0time.cpp`, compiled against OTAWA in the image: block times from the timing table of `m0.py`), compared with emulated runs. Paper II paragraph "A WCET analyzer on the same binaries". |
+| `benchmarks/cycles/run_otawa.py` | The same binaries given to OTAWA (not in the repository: the author's Docker image `otawa:dev`, run without network; linker `--lld`, e.g. `rust-lld`): CrossCheck's bounds as FFX flow facts on the binary loop headers (label + offset, `maxcount` = bound + 1), IPET bound for the 107 bounded functions, in instructions or, with `--timing m0`, in Cortex-M0 cycles (`otawa/m0time.cpp`, compiled against OTAWA in the image: block times from the timing table of `m0.py`), compared with emulated runs. Paper III paragraph "A WCET analyzer on the same binaries". |
 | `benchmarks/cycles/otawa_flow.py`, `run_stm32.py` | Source loop bounds as OTAWA flow facts on any binary OTAWA decodes: loops of OTAWA's own graphs (`mkff`, `dumpcfg --cfg-raw -S`) matched with source loops by debug lines; call graph from the disassembly refusing recursion, indirect calls/jumps, jump tables, branches into other functions, calls of undefined symbols (`test_otawa_flow.py`, CI). Used by `crosscheck_link.py --processor stm32f4/stm32h7` (OTAWA's `stm32` script, Cortex-M4/M7) and `run_otawa.py --matching otawa` (that matching checked against Cortex-M0 runs). `run_stm32.py`: TACLeBench kernels compiled for a Cortex-M4 and bounded by OTAWA's STM32 models (not checked against executions). |
 | `benchmarks/cycles/ipet.py` | Certified cycle bounds of the same Cortex-M0 binaries, on the machine code: the certificate holds the code, each function's instruction addresses, loop rows on address pairs, IPET dual (multipliers from scipy's HiGHS, untrusted; integer potentials by longest paths); `crosscheck-check` decodes the code and builds the graphs itself (format `crosscheck-binary-cycles`, Lean `Thumb.binary_sound`, Paper I `thm:machine-cycles`; the graph format `crosscheck-cycles`, `Cycles.program_sound`, remains for graphs from other producers). `test_thumb.py`: Lean decoder vs `m0.py` on every encoding and vs llvm-objdump on the kernels (CI). `run_cycles.py --certify DIR --checker …`, `crosscheck_link.py --certify`; `test_ipet.py` (must-reject mutations; CI, cycle certificates checked in the Lean job). Trusted: the Lean decoder/timing table (`Thumb.decode`), that the code is the binary's, the rows. |
 | `benchmarks/cycles/binloops.py` | Loop bounds certified on the same Cortex-M0 machine code (`ipet.certify(loops=True)`, `run_cycles.py --certify-loops [--abi]`; format version 2): mirror of `ThumbDataCore` (`effect`, `condFacts`, `postE`, obligation order: keep identical), congruences modulo powers of two (Granger) on the checker's post-expressions, zone analysis for invariants (branch facts rounded by the congruences; the zone split at an addition or subtraction that may wrap around and joined after the next branch, `window_transfer`: disjunctive invariants), potentials ±r or ±(r−q) with scale, else potentials per instruction from one linear program over the obligations (`synth_lp`, HiGHS limited to `LP_SECONDS`; retried without presolve, with split constants, and with linear parts that follow a header variable, `transport`, whose constants come first from longest paths, `synth_transport`; widening thresholds at the wrap-around values of additions), Farkas proofs (shortest paths, negative cycles, contradictions of the one-variable bounds, LP, then exact rational elimination on the premises the LP used, for multipliers too small to round); drops what it cannot prove (the loop's row stays trusted); zone widening that keeps creeping is stopped after `HARD_VISITS` visits of a head by forgetting the growing entries (`forget_growing`); its own analysis ignores literal-pool constants above `BIG` and retries a function with literal loads as any value when a loop is left uncertified (HiGHS fails numerically on these constants). `test_binloops.py` (must-reject mutations), `compare_runs.py OLD NEW --check` (lost loops or higher bounds between runs), `run_cycles.py --jobs N`, `test_effect.py` (Lean effects/flags/conditions vs `m0.py`, every encoding; CI). Untrusted. `classify_loops.py RUN.json`: groups the uncertified loops by what drives their exits (heuristic diagnosis; table in the cycles README). |
@@ -51,7 +51,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 
 Toolchain on this machine: `lake`, `lean`, `pdflatex`, `latexmk`, system `g++` 13. Clang 18, Z3,
 CMake, Ninja and GoogleTest live in the conda env `crosscheck`
-(`/home/ldallolio/miniforge3/envs/crosscheck`); there is no system clang/cmake/z3.
+(`~/miniforge3/envs/crosscheck` on the author's machine); there is no system clang/cmake/z3.
 **Do not compile with that env's own GCC** (`x86_64-conda-linux-gnu-g++`): its binaries need a
 newer CPU than this machine has ("CPU ISA level is lower than required"), and Clang 18 cannot
 parse its libstdc++ headers. Use the system `g++` and point Clang at the system libstdc++.
@@ -70,7 +70,7 @@ lake build crosscheck-check   # the certificate checker program (CheckerMain.lea
 # or: pdflatex crosscheck && bibtex crosscheck && pdflatex crosscheck && pdflatex crosscheck
 
 # Clang plugin (from clang-plugin/), on this machine:
-E=/home/ldallolio/miniforge3/envs/crosscheck
+E=$HOME/miniforge3/envs/crosscheck
 $E/bin/cmake -S . -B build -G Ninja -DCMAKE_MAKE_PROGRAM=$E/bin/ninja -DCMAKE_PREFIX_PATH=$E \
   -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
   -DCMAKE_EXE_LINKER_FLAGS="-L$E/lib -Wl,-rpath,$E/lib" \
@@ -280,33 +280,12 @@ tool (including you) touches mathematical content:
 Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
 
 ## Current focus
-1. Pre-submission: resolve every open item of `AI_USAGE.md` (author verification, references,
-   archived artifact, remaining `\authortodo`).
-2. Plugin evaluation: TACLeBench kernels and sequential/app categories done (unannotated),
-   and a run with minimal annotations on the kernels (done: observed loop counts, LLVM ScalarEvolution,
-   KoAT2, CoFloCo, Infer, oRange, TPDB C complexity programs).
-3. Roadmap agreed with the author (aims: industrial value and scientific result). The theory
-   phase is done (Nov 2026): cost logic with procedures, recursion and assumed contracts
-   (`Language`), verified certificate checker (`Checker`), lexicographic and logarithmic
-   potentials (`Certificate`). **The implementation phase follows
-   `docs/implementation-plan.md`**: checker executable, certificate emission by the plugin,
-   checker extensions, symbolic bounds, library contracts, industrial C coverage, flow-fact
-   export, Rust front-end. The paper is split (theory + Lean; tool + evaluation). The order
-   of the next steps is `docs/proposals.md` §5; steps 1-5 were done first (Nov 2026: early exits,
-   switch, unsigned; flow-fact export and SARIF; symbolic summaries, calls and contracts;
-   legacy C idioms measured on CMSIS-DSP; validation of certificates against a mini-C
-   export, call-free functions only). Steps 6 to 8 are done too (interrupts and fork-join,
-   Cortex-M0 cycles, Rust; logarithmic potentials `whileLog`; growing ones `whileGrow` and
-   exact unsigned division). Step 9 too (lexicographic arguments as affine potentials, by a retry
-   with more candidate invariants). Next: `docs/proposals.md` section 6.4, steps 10 to 18.
-   Plugin precision done so far (Nov 2026): calling contexts as argument intervals
-   (`prop:context-bound`), facts kept across `break` exits, interval joins. Split of what
-   remains, agreed with the author — **with theory and Lean** (new certificates): symbolic
-   bounds in the parameters used as function summaries (**done in certificates**, Nov 2026:
-   `SB`, `call`, `program_sound`; the analyser itself still needs numeric ranges, so
-   unannotated code with symbolic-only bounds is not yet covered); lexicographic, multi-phase and
-   max-of-affine potentials; logarithmic potentials; amortised recursion cost. **Engineering
-   under existing certificates** (must-reject tests, assumptions listed): global variables;
-   exact evaluation of constant float loops; pointer/iterator counters; relations between
-   arguments in contexts.
-4. Optional Lean extensions: tree order for arbitrary arity; termination for relational updates.
+1. **Release** (Papers I and II on arXiv, code public): `docs/release-checklist.md` lists what
+   is done and what only the author can do (repository public, tag, archive with a DOI,
+   arXiv upload, the reading of `AI_USAGE.md` section 3). `main` is the released branch.
+2. Paper III: draft; its evaluation follows `benchmarks/cycles/README.md`.
+3. The order of the work done so far is in `docs/proposals.md` and
+   `docs/implementation-plan.md` (historical, not maintained) and in `AI_USAGE.md`.
+4. Open directions: logarithmic potentials and bounds in the parameters on machine code
+   (Paper III), the board measurement (`benchmarks/hardware`), and in Lean the tree order
+   for arbitrary arity and termination for relational updates.

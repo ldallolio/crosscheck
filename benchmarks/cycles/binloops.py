@@ -22,7 +22,6 @@ import math
 import os
 from fractions import Fraction
 
-import m0
 import ipet
 import wcet
 
@@ -1586,7 +1585,6 @@ def bound_of(Zd, M, phi):
 
 def delta_phi(Zd, phi, ex, Mf):
     """Upper bound of φ(after) − φ(before) on the zone `Mf` before the instruction."""
-    Z = Zd.Z
     total = 0
     for v, k in phi.items():
         e = ex.get(v, "any")

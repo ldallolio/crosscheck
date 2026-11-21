@@ -3,7 +3,7 @@
 `run_cycles.py` turns CrossCheck's source loop bounds into **cycle bounds of compiled
 code** for a processor whose instruction timings do not depend on the execution history:
 the Arm Cortex-M0 (in order, no cache, no branch prediction), with zero-wait-state
-memory. It is step S5 of `docs/proposals.md`.
+memory.
 
 ```bash
 python3 benchmarks/cycles/run_cycles.py --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13 \
@@ -16,9 +16,7 @@ For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.
 1. **Source loop bounds**: CrossCheck analyses the kernel (no annotation) and gives each
    loop a bound in the calling contexts of `main` (else for every call). The analysis is
    made for the binary's data model (`SOURCE_TARGET`: `--target=thumbv6m-none-eabi`, 32-bit
-   `long` and pointers); before 2026-11-21 it used the host's (64-bit `long`), and a loop of
-   `sha` over the bytes of a `long` got half its iterations on the binary (a certified
-   bound of 213 cycles for `sha_byte_reverse`, 367 observed in GCC's binary).
+   `long` and pointers).
 2. **Compilation**: Clang 18, `--target=thumbv6m-none-eabi -mcpu=cortex-m0 -O1 -g
    -fno-unroll-loops -ffreestanding -fno-builtin`, one object file; or, with `--gcc IMAGE
    --tag=.gcc`, arm-none-eabi-gcc in a Docker image run without network (`GCC_FLAGS`;
@@ -34,10 +32,7 @@ For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.
    largest bound among the source loops whose first line occurs; no bound if none does.
    Line-0 rows of the DWARF table (which llvm-objdump does not print) end the previous
    line (`zero_ranges`, with llvm-dwarfdump). The back edges are bounded by that source
-   bound. Earlier rules failed on real code: the largest bound over all own lines made
-   `matrix1` 80-105× loose (stale lines); the line of the back-edge branch matched GCC's
-   rotated outer loop of `fft_bit_reduct` with its inner loop (bound 11, 1023 iterations
-   observed: a violation). The bound is the timing schema on the binary: a loop costs
+   bound (see History for the rules tried before). The bound is the timing schema on the binary: a loop costs
    `N × (longest iteration) + (longest exit path)`, inner loops first, a call the callee's
    bound, a conditional branch the taken case (3 cycles).
 4. **Check by execution** (`m0.Machine`, an interpreter of the instruction set written for
@@ -68,7 +63,7 @@ analysis and the loop matching, not the table.
 so that its loop is bounded by CrossCheck and its cycles are counted; floating point
 (software on the M0) has no code here and blocks the functions that use it.
 
-## Results (2026-11-16)
+## Results (2026-11-21)
 
 29 kernels compiled; 28 return 0 when run (`fft` returns 1: it converts negative floats to
 `unsigned long`, undefined behaviour in C, which Arm's conversion saturates and x86's wraps;
@@ -88,8 +83,7 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 
 - **Checks**: 11 calls of bounded functions (the others are inlined at `-O1`) and 45 binary
   loops were compared with the run: **no violation**; over 10 of the calls, bound/observed is
-  between 1.02 and 2.46 (2.49 for `bsort` before the matching by line ranges of 2026-11-21). The eleventh, a function of `fft` bounded since logarithmic potentials
-  (2026-11-15), has a bound 970 times its observed cycles: its three nested loops are
+  between 1.02 and 2.46. The eleventh, a function of `fft`, has a bound 970 times its observed cycles: its three nested loops are
   bounded by the product of their bounds, while at each outer iteration the count of one
   inner loop doubles and that of the other halves. `bsort`'s factor comes from its triangular nested loops, bounded
   as a rectangle (no amortisation).
@@ -97,14 +91,7 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
   numeric kernels), source loops without a bound (data-dependent: `insertsort`,
   `binarysearch`, `quicksort`), and their callers.
 
-Matching rule: the first version, which took the largest bound among all lines of a
-loop's instructions, gave `matrix1_main` 100 iterations instead of 10 (an instruction of
-the loop's preheader inherits the line of another loop) and a bound 105 times the observed
-cycles; trying the lines of the back-edge branches first gives 1.31, but fails on GCC's
-rotated loops (see "GCC binaries"); the rule since 2026-11-21 (line ranges, step 3 above)
-also gives 1.31.
-
-## GCC binaries (2026-11-21)
+## GCC binaries
 
 The same kernels compiled by arm-none-eabi-gcc 13.2.1 (Ubuntu's package, Docker image
 `benchmarks/hardware/Dockerfile`, run without network), `GCC_FLAGS`: `-mcpu=cortex-m0
@@ -153,7 +140,7 @@ The GCC binaries revealed three defects, all fixed before the figures above:
   (`binloops.forget_growing`); the result stays closed and the iteration stops. No Clang
   loop is lost by this (with a limit of 40, 20 were).
 
-## Certified cycle bounds (2026-11-17)
+## Certified cycle bounds
 
 `run_cycles.py --certify DIR --checker formalization/.lake/build/bin/crosscheck-check`
 also gives every function an IPET bound with a certificate on its **machine code**
@@ -202,223 +189,98 @@ size, target): no difference. Tests: `test_ipet.py` (machine code whose worst ca
 known; certificates altered in each part, including the code, must be rejected), in CI,
 where the certificates of all kernels are checked by the Lean checker job.
 
-## Loop bounds certified on the machine code (2026-11-18)
+## Loop bounds certified on the machine code
 
-`run_cycles.py --certify DIR --checker ... --certify-loops [--abi]`: the loop bounds are
-also certified on the machine code where `binloops.py` finds a certificate (format
-version 2, `docs/certificate-format.md`; Lean `ThumbData.data_sound`, Paper III
-`thm:machine-loops`). Per instruction, the kind of operation that set the flags and an
-invariant on `r0`-`r7` and the two operands of that operation (a zone analysis of
-differences of registers, widening at loop headers, descending iterations) and congruences
-modulo powers of two (Granger), with which the facts of a branch are rounded (a counter
-stepped by 4 that leaves its loop at 80 gets `≤ 76`; checked by `congOk`, Lean
-`congPE_sound`, `condFactsM_sound`); per loop, a
-potential `±r_i` or `±(r_i − r_j)` plus per-instruction constants, scale 1, 2, 4 or 8, or,
-when none is found, a potential with its own linear part at each instruction from one
-linear program over the checker's obligations (`synth_lp`: Colón–Sipma, Alias et al.;
-HiGHS, at most 5 s per program, rounded and proved again exactly); Farkas multipliers from
-shortest paths, negative cycles or a linear program. What cannot be
-proved is dropped; a dropped loop keeps its source row, trusted.
+`run_cycles.py --certify DIR --checker ... --certify-loops [--abi] [--frame]`: the loop
+bounds are also certified on the machine code where `binloops.py` finds a certificate
+(format version 2, `docs/certificate-format.md`; Lean `ThumbData.data_sound`, Paper III
+`thm:machine-loops`). What cannot be proved is dropped; a dropped loop keeps its source
+row, trusted.
 
-| run | loops certified (kernels' own code) | not certified | accepted | functions with a certified cycle bound |
-|---|---|---|---|---|
-| no assumption on callees | 143 of 403, and the 116 of the division routines | 260 + 0 (division routines) | all | 116 (107 before) |
-| `--abi` (callees preserve r4-r7 and SP) | 200 of 403, and the 116 | 203 + 0 | all | 116 |
-| `--abi --frame` (frames written only through SP, or through the frame pointer by loads only) | 257 of 403, and the 116 | 146 + 0 | all | 121 |
+**What a certificate holds.** Per instruction, the kind of operation that set the flags and
+an invariant on `r0`-`r7` and the two operands of that operation, possibly a disjunction
+(`alt` disjuncts and, per case of a transition, the disjunct it lands in, `pick`), and
+congruences modulo powers of two (Granger), with which the facts of a branch are rounded:
+a counter stepped by 4 that leaves its loop at 80 gets `≤ 76` (`congOk`, Lean
+`congPE_sound`, `condFactsM_sound`), and facts on sums too (`gExpS`, `tightenS`, Lean
+`tightenS_holds`: a byte offset counted from 2^32 − 16 up by 4 to zero). Per loop, a
+potential that decreases on its back edges, with Farkas multipliers for every obligation.
+The specification (`ThumbDataCore.effect`) is exact for sums and differences modulo 2^32
+with the flags of AddWithCarry, `LSLS` by a constant, `NEGS`, `MVNS`, `STM`/`LDM`
+write-back and literal-pool loads (assuming the code is not written during a run); other
+instructions give any value. Two optional assumptions: `--abi` (callees preserve r4-r7 and
+SP) and `--frame` (a function that takes no address of its frame other than the frame
+pointer `ADD r7, SP, #i`, then read only as a load base, has its frame written only through
+SP; checked where it may be stated by `frameUseOk`).
 
-Wrap to zero (2026-11-20). Clang compiles some loops over arrays with a byte offset counted
-from 2^32 − 16 up by 4 to zero (`adds r3, #4; bne`). In the case of the wrap-around the
-loop continues only if `g1 + 4 ≥ 2^32 + 1`; the checker now rounds facts on sums with the
-congruences too (`gExpS`, `tightenS`: when `g1 + g2 ≡ 0 mod 2^e`; Lean `tightenS_holds`,
-`condFactsM_sound`; example `exZero_sound`, 3 iterations, and `exZero_needs_cong`), which
-gives `g1 + 4 ≥ 2^32 + 4`, contradicted by `g1 ≤ 2^32 − 4`. The producer adds the
-wrap-around values 2^32 − k − 1, 2^32 − k, 2^32 − k + 1 of each addition of k > 0 to its
-widening thresholds, ignores `adds #0` (a move) as a wrap point, derives one-variable bounds
-from premises on sums in its Farkas proofs (virtual premises mapped back to the real
-multipliers), computes the constants of transported potentials by longest paths before the
-linear program (`synth_transport`; HiGHS fails on these constants), and keeps searching
-when a candidate is above the source bound, trying the tightest first. Counts 136 / 193 /
-250 → 142 / 199 / 256 (+6 in every run: `bsort_init` and `main` of `bsort`, bound 99;
-`fft_init` and `main` of `fft`; `fir2dim_pin_down` and `fir2dim_main`, bound 3, no source
-bound); without frame pointers 140 / 198 / 252 → 146 / 204 / 258. 372 of the 519 loops
-with both assumptions (374 without frame pointers); functions with a certified cycle bound
-115 / 115 / 120 → 116 / 116 / 121 (`fir2dim_pin_down`); trusted loop rows 43 / 37 / 19 → 41
-/ 35 / 17 (41 / 36 / 18 → 39 / 34 / 16 without frame pointers); with both assumptions 160 of
-the 174 functions with loops have none. No loop lost, no bound higher, every certificate
-accepted, no emulated run above a bound. One loop of the same form is left (`fir2dim`
-0x242): its start comes from a frame word loaded outside the loop, which is not tracked.
-Must-reject tests (`test_binloops.py`, class `WrapToZero`): a start of 14 instead of 15,
-a step of 3, the congruences removed. The six runs took 7 to 19 minutes each with
-`--jobs 4`, one at a time; the tests now take 29 s (the new test runs the producer).
+**How the producer finds them** (untrusted; the checker decides): a zone analysis of
+differences of registers and tracked words of the frame (SP offsets per instruction),
+widening at loop heads with thresholds at the wrap-around values of additions, descending
+iterations, the zone split at an addition or subtraction that may wrap around and joined
+after the next branch (trace partitioning, Mauborgne & Rival, ESOP 2005); potentials
+`±r_i` or `±(r_i − r_j)` plus per-instruction constants with scale 1, 2, 4 or 8, else a
+potential per instruction from one linear program over the obligations (`synth_lp`:
+Colón–Sipma, Alias et al.; HiGHS, at most `LP_SECONDS` per program; retried without
+presolve, with split constants, and with linear parts that follow a header variable,
+`transport`, whose constants come first from longest paths); Farkas multipliers from
+shortest paths, negative cycles, contradictions of one-variable bounds, the LP, or exact
+rational elimination on the premises the LP used. Its own analysis ignores literal-pool
+constants above `BIG` = 2^20 and, when a loop is left without a potential, analyses the
+function again with literal loads and shifts as any value (`lit_any`): HiGHS fails
+numerically on such constants. After `HARD_VISITS` visits of a loop head the zone entries
+that still grow are forgotten, so that the analysis terminates.
 
-Disjunctive invariants (2026-11-20). The run-time division routines (`runtime.c`, the
-same four in every kernel) count `for (i = 31; i >= 0; i--)`, compiled as `subs r3, r3, #1;
-adds r4, r3, #1; bhs exit`: the exit is taken once `r3` has wrapped around to 2^32 − 1, and
-between the subtraction and the branch `r3 ≤ 30 ∨ r3 = 2^32 − 1`, which no conjunction of
-linear constraints expresses. The checker (`ThumbDataCore`, proof in `ThumbData`, no new
-assumption, no axiom beyond Lean's three) now accepts invariants that are disjunctions:
-per instruction further disjuncts (`alt`) and, for each case of a transition (transition,
-wrap case, fact of the branch, source disjunct), the disjunct of the successor it lands in
-(`pick`; default the first). The producer splits the zone at an addition or subtraction
-of a constant that may wrap around and carries the two cases along the straight line up
-to the next conditional branch (trace partitioning, Mauborgne & Rival, ESOP 2005, merged
-after the branch); the potential then follows the counter through its copies (`r3 + 1`,
-the operand of the flags after the subtraction, `r4 + 1` at the branch). HiGHS failed on
-these linear programs (constants from 1 to 2^32 in one row; it declared feasible programs
-infeasible): the producer now detects contradictions of the one-variable bounds exactly,
-leaves such cases out of the linear program, retries without presolve, then with each
-constant split as `q·2^31 + r` and the two parts required separately, then with linear
-parts fixed to a variable that follows a bounded header variable (`transport`), only the
-constants unknown. Results: the 116 loops of the division routines are certified in all
-six runs (none before; bound 31 back edges, source bound 32), the kernels' counts become
-136 / 193 / 250 (+4 with both assumptions: `fft`, `matrix1`, two loops of `pm_kernel`
-bounded by 2^31 − 2), without frame pointers 140 / 198 / 252; 366 of the 519 loops of the
-binaries with both assumptions. Trusted loop rows in the certified cycle bounds: 159 / 153 /
-137 → 43 / 37 / 19 (134 → 18 without frame pointers); with both assumptions 158 of the 173
-functions with loops have none. No loop lost, no bound higher, every certificate accepted, no
-emulated run above a bound. Must-reject tests (`test_binloops.py`, class `Disjunctions`):
-one more iteration, a step of 2, the opposite exit, `alt` or `pick` removed, a disjunct
-or a target changed. The six runs took 6 to 16 minutes each with `--jobs 4`.
+### Results (2026-11-21)
 
-Run time and development cycle (2026-11-20). Profile of a run with both assumptions (103
-minutes before): `pm` alone took 77 minutes (`pm_kernel`: 902 instructions, 31 loops, zones
-of 44 variables); in the slow functions the closure of zones (Floyd-Warshall, pure Python)
-took 46-57 % of the time, HiGHS 20-54 % (badly scaled programs: the dual simplex often
-reports a numerical failure or reaches `LP_SECONDS`), the rest the transfer functions and
-joins. Changes that leave every certificate identical (the producer is untrusted; checked
-with `BINLOOPS_CHECK_CLOSE=1`, which compares each shortcut with the full closure, and by
-comparing the certificate files of whole runs): a join of closed zones is not closed again
-(the pointwise maximum of closed difference-bound matrices is closed: Miné, PADO 2001), a constraint added to a closed zone is closed incrementally in O(n^2), the
-image of a closed zone by the post-expressions is completed only on the variables with any
-value, the analysis before the congruences (whose result was discarded) is gone, and the
-empty results of the run-time division routines (the same code in every kernel) are
-reused. With `--jobs` (kernels in parallel) the run with both assumptions takes 18 minutes
-with 3 processes (103 before), its 29 certificate files identical to those of the previous
-run. Elsewhere: the Lean checker takes 1.1 s at most per certificate (6 s for all), the
-Clang analyser 100 s for the 29 kernels (92 % of it in Z3 implication checks, much of
-that in the construction of a solver per query). Cycle:
+| | no assumption | `--abi` | `--abi --frame` |
+|---|---:|---:|---:|
+| kernel loops certified (of 403) | 143 | 200 | 257 |
+| ... built with `-fomit-frame-pointer` | 146 | 204 | 258 |
+| ... certified bound below the source bound | 84 | 116 | 153 |
+| ... no source bound | 59 | 84 | 104 |
+| loops of the division routines certified (of 116) | 116 | 116 | 116 |
+| functions with a certified cycle bound | 116 | 116 | 121 |
+| loop rows still trusted in these bounds | 41 | 35 | 17 |
+| ... built with `-fomit-frame-pointer` | 39 | 34 | 16 |
+| run time with `--jobs 4` | 5 min | 8 min | 16 min |
 
-1. `python3 -m pytest -q test_binloops.py test_ipet.py test_effect.py` (under a minute);
-2. a subset: `run_cycles.py --certify-loops --abi --frame --jobs 4 --only bitcount --only
-   bitonic --only countnegative --only fft --only st --only isqrt --only matrix1 --only
-   insertsort --only filterbank --only iir --only md5 --only sha ...` (a few minutes), then
-   `compare_runs.py OLD.json NEW.json --check` (fails on a loop lost or a bound higher);
-3. the full run with both assumptions (`--jobs 4`), then `compare_runs.py --check`;
-4. the six runs (default and `.nofp` builds; no assumption, `--abi`, both) only before the
-   figures of the paper and of this file are updated.
+Every certificate is accepted, and no back-edge count of the emulated runs exceeds a
+certified bound. With both assumptions 373 of the 519 loops of the binaries are certified,
+and 160 of the 174 functions with loops have no trusted row left. A certified bound is
+never above the source bound (the producer keeps the source row then); those below it are
+often below by one, since the binary counts back edges. `--frame` is refused in 26 of the
+265 functions the producer analyses (25 without frame pointers): those that put another
+address of their frame in a register, mostly to pass a local array to a callee. Functions
+certified that the source bounds alone do not bound: `fac_fac`, `fir2dim_pin_down`,
+`md5_R_RandomInit`, `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`,
+`sha_fread`, and with both assumptions `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
 
-Exact shift (2026-11-20): `LSLS rd, rm, #s` is exact in the checker's specification
-(`Val.shl`: `rm·2^s` when it does not overflow, any value when it does, a case split like
-the wrap-around of sums; `s = 0` is `MOVS rd, rm`; flags any) and in the producer's mirror;
-the proof of `ThumbData.data_sound` was extended to the new value kind (no new assumption, no axiom
-beyond Lean's three). The producer also solves Farkas multipliers exactly (Gaussian
-elimination over the rationals on the premises the LP used) when the LP's multipliers are
-too small to round, and adds the ranges of the goal's variables to that LP. Counts 131 /
-183 / 229 → 136 / 193 / 246 (+5 / +10 / +17 in `fft`, `filterbank`, `st`, and `bitcount`
-with both assumptions; 3 of the 17 without a source bound); without frame pointers 135 /
-188 / 233 → 140 / 198 / 251. No loop lost, no certified bound higher (four of `bitcount`
-lower, 2^31 − 2 → 255), every certificate accepted, no emulated run above a bound;
-functions with a certified cycle bound with both assumptions 117 → 120 (`bitcount_init`,
-`bitcount_init3`, `bitcount_init4`; 118 → 120 without frame pointers). A first run lost
-`jfdctint` 0x172 (HiGHS again, a frame word holding `1 << 14`): the second analysis
-(`lit_any`) now also gives shifts any value in the producer's own analysis. Must-reject
-tests (`test_binloops.py`, `EXACT["shl"]`): the shift amount changed, the operand changed,
-an overflowing shift, `LSRS` instead of `LSLS`, and `LSLS #0` (a move) that breaks the
-congruence the certificate uses. The six runs took 17 to 103 minutes each, three at a time.
+### The loops left (with both assumptions)
 
-Exact effects (2026-11-19): `NEGS` (0 − x, flags of that subtraction), `MVNS`
-(2^32 − 1 − x, flags any), the write-back of `STM`/`LDM` (base + 4 per register; `STM`
-writes no register of its list; `LDM` gives any value to its list, base included if listed)
-and the literal load `LDR rt, [pc, #i]` (the word of the certificate's code at that address;
-assumes the code is not written during a run) are now exact in the checker's specification
-(`ThumbDataCore.effect`; `data_sound` unchanged) and in the producer's mirror. Counts 121 /
-173 / 215 → 131 / 183 / 229 (+10 / +10 / +14 in `bitonic`, `fft`, `fir2dim`, `quicksort`,
-and `matrix1` with both assumptions; 6 of the 14 without a source bound); without frame
-pointers 123 / 176 / 216 → 135 / 188 / 233 (also `isqrt`, `ludcmp`, `minver`). No loop
-lost, no certified bound changed, every certificate accepted, no emulated run above a bound.
-The literal constants (addresses near 2^32) made HiGHS fail numerically (status 4) on three
-loops certified before (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e, the losses of
-the earlier experiment): the producer's own analysis now ignores constants above `BIG` =
-2^20 in its zones, tries coarse linear programs (large constants as variables) after the
-exact ones, and, when a loop of a function stays without a potential, analyses the function
-again with literal loads as any value (`lit_any`), keeping the result with more loops.
-Must-reject tests `ExactEffects` (`test_binloops.py`): a literal word changed (two ways), a
-literal outside the code, an `STM` replaced by an `LDM` that loads the counter or the base,
-an operand of `NEGS` or `MVNS` changed (and an `LDM` that does not load the base, accepted). The four runs took 32 to 156 minutes each, two at a time.
+By the first obstacle the producer meets (146 loops, all in the kernels' own code): 86 have
+a counter that the invariants track but no potential among the candidates (62 of them exit
+on equality), 21 compare a value that is not tracked, 20 are in code where the SP offset is
+unknown, 12 test flags set by an instruction whose effect is not modelled, 7 several of
+these. The producer's own reasons: no potential found for 141, a potential whose bound
+(2^31 − 2 or 2^32 − 2) exceeds the source bound for 5.
 
-Frame pointer (2026-11-19): `--frame` is no longer refused because of the prologue
-`add r7, sp, #i` alone; the checker (`frameUseOk`) then requires that no instruction may
-read r7 except as the base address of a load or a `PUSH` at the entry (`regsRead`,
-over-approximated by encoding). The assumption itself (`StackOk`) and the proof are
-unchanged: the check only restricts where it may be stated. With both assumptions, 175 → 215 (before the exact effects)
-loops (12 kernels: `minver` 10 → 22, `countnegative` 6 → 12, `pm` 29 → 34, ...), none lost,
-no bound higher; `--frame` is refused in 26 of the 265 functions the producer analyses
-(190 before), those that put another address of their frame in a register. The build
-without frame pointers is unchanged (216). The run with both assumptions takes 58 minutes
-(32 before; `pm` 48).
-
-Potentials per instruction by linear programming (2026-11-18) raised these counts from 116,
-167 and 169 (loops of `countnegative` and `isqrt`); no loop lost, no bound higher. A first
-run without a time limit on HiGHS hung on a linear program of `jfdctint` (constants up to
-2^32): hence `LP_SECONDS`.
-
-Congruences (2026-11-18) raised these counts from 73, 105 and 107: most loops left
-uncertified exited on equality (`bne`), which zones alone cannot bound when the counter
-steps by more than 1. The same day, `ipet.py` stopped rounding the LP's multipliers up
-when exact fractions give a smaller bound (rows of scale above 1): 10 certified cycle
-bounds became lower (up to 8 %), none higher.
-
-Stack slots (2026-11-18): the words of the frame accessed through SP are tracked (SP
-offsets per instruction, `slots`); without them the counts were 72 and 94. Remaining failures with `--abi --frame` (kernels' own loops, with
-congruences, potentials per instruction, the frame pointer, exact effects, the exact shift, disjunctive invariants and the rounding of sums): 86 counter tracked but no
-potential (62 of them exit on equality), 21 compared value not tracked, 21 SP offset unknown, 12 flags from an
-unmodelled instruction, 7 mixed (before the rounding of sums: 88, 25, 21, 12, 7; before the disjunctive invariants: 92, 25, 21, 12, 7; before the exact shift: 98, 36, 21, 12, 7; before exact effects: 106, 42, 21, 12, 7; before congruences: 210, 42, 24, 12, 8; before the linear
-programs: 151, 42, 21, 12, 8; before the frame pointer: 145, 42, 21, 12, 8).
-
-Classification of the 147 kernel loops not certified with `--abi --frame` (2026-11-20, after the rounding of sums; 153 after the disjunctive invariants, 157 after the exact shift, 174 after the exact effects, 188 before,
-`classify_loops.py RUN.json`: for each exit, the instruction that set its flags and the
-definitions reaching its operands inside the loop; heuristic, for diagnosis only):
+`classify_loops.py RUN.json` groups them by what drives their exits (for each exit, the
+instruction that set its flags and the definitions reaching its operands inside the loop;
+heuristic, for diagnosis only):
 
 | group | loops | what would be needed |
-|---|---|---|
-| A counter against a constant or a bounded limit | 43 (49 before the rounding of sums, 51 before the disjunctive invariants, 62 before the exact shift, 69 before the exact effects) | the counter's initial value: from a word of the frame, a constant (the loops that count from `mvns r1,#7` up by 4 to zero, 7 in `fft`, `fir2dim` and `bsort`, are certified since the rounding of sums except `fir2dim` 0x242, whose start is a frame word loaded outside the loop), by `LSR` of an argument (9), from an argument (8), by `AND` (3), ... |
-| B counter against a limit without a bound (a parameter) | 19 (20, 26, 27) | bounds in the parameters, or calling contexts, on the binary |
+|---|---:|---|
+| A counter against a constant or a bounded limit | 40 | the counter's initial value: from a word of the frame (9), by `LSR` of an argument (9), from an argument (6), a constant (4), ...; `fir2dim` 0x242 starts from a frame word loaded outside the loop |
+| B counter against a limit without a bound (a parameter) | 21 | bounds in the parameters, or calling contexts, on the binary |
 | D exit on a value returned by a call | 22 | mostly soft-float comparisons (`for (i = 0.0f; i < 10; i += 0.1f)` in `cosf`) |
-| F exit on data loaded from memory | 16 (17) | invariants on memory (string and search loops) |
+| F exit on data loaded from memory | 16 | invariants on memory (string and search loops) |
 | C exit on the flags of a shift | 12 | `x >>= 8` until zero (`bitcount`, `sqrtf`): logarithmic potentials on the code |
 | E counter shifted | 11 | logarithmic potentials (binary search, bit reversal) |
-| I other (two counters, sums of registers) | 10 (11) | |
+| I other (two counters, sums of registers) | 10 | |
 | G word of the frame not tracked | 10 | SP offsets where they are unknown |
-| H value through an approximated instruction | 4 (9) | not exact effects: the `ADCS` loops (3, `bsort`) test Clang's `rsbs; adcs` form of `x == 0`, bubble sort's "swapped" flag (termination depends on the data); the uncertified loops with `ANDS` include `x &= x - 1` (`bitcount`: as many iterations as set bits, no linear potential) |
+| H value through an approximated instruction | 4 | the `ADCS` loops (3, `bsort`) test Clang's `rsbs; adcs` form of `x == 0`, bubble sort's "swapped" flag (termination depends on the data); `x &= x - 1` in `bitcount` (as many iterations as set bits, no linear potential) |
 
-The producer's own reasons: no potential found for 139 (145 before the rounding of sums, 149 before the disjunctive invariants, 166 before the exact shift, 181 before the exact effects), a potential whose bound (2^31 or
-2^32) exceeds the source bound for 8 (8, 7). An experiment with exact effects, in the producer only
-(not in the checker; since made exact in both, see "Exact effects" above), for `STM`/`LDM` (base advanced by 4 per register; STM does not
-write its list), `MVN` (2^32 − 1 − x), `NEGS` (0 − x, flags of the subtraction) and `LDR`
-from the literal pool (the word of the code), found potentials for 15 more loops (`bitonic`,
-`fft`, `fir2dim`, `matrix1`, `quicksort`, `minver`; whether each is below its source bound was
-not checked) and lost 3 (`fir2dim` 0x188, `jfdctint` 0x172, `lms_init` 0x9e; analysed since: HiGHS).
-Before the exact effects, runs took 11 to 70 minutes (5 to 32 before the linear programs; `pm` alone up to 55).
-
-Without frame pointers (`run_cycles.py --cflag=-fomit-frame-pointer --tag=.nofp`, a
-separate build of the same kernels): `--frame` refused in 25 of the 265 functions the
-producer analyses (190 in the default build); kernel loops certified 140 / 198 / 251
-(no assumption / `--abi` / `--abi --frame`; 135 / 188 / 233 before the exact shift, 123 / 176 / 216 before the exact effects; default build: 136 / 193 / 246, 175 before the frame pointer; without the
-linear programs 120 / 173 / 202, which add 14 loops in nine kernels), 120 functions with a certified cycle
-bound; all certificates accepted, no emulated run above a bound. Before congruences that
-build gave 77 / 109 / 129.
-
-No back-edge count of the emulated runs exceeds a certified bound. 84 (116 with `--abi`, 153 with both; 82, 114, 151 before the matching by line ranges of 2026-11-21) of
-the certified bounds are below the source bound (typically by one: the binary counts back
-edges), none above (the producer keeps the source row then), and 59 (84 with `--abi`, 104 with both; 60, 85, 105 before)
-certified loops have no source bound at all. The matching by line ranges added one loop of
-`minver` (0x104, certified bound 2^31 − 2, the inner `for` of line 119): its function has a
-binary loop (0x354, the `while (1)` of line 167) that CrossCheck does not bound and that is
-now matched with it; the rule before, with the line table before the line-0 fix, matched it
-with a bounded source loop (which one was not recorded), a wrong trusted bound, so every loop of the function had a source bound and 0x104 was refused as
-above it. `minver_minver` calls soft-float code and was never compared with a run. The functions newly certified include `fac_fac`, `fir2dim_pin_down`, `md5_R_RandomInit`,
-`md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`, `sha_fread`, and
-(with both assumptions) `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
+### Tests and development cycle
 
 Trusted, in addition to the decoder and timing table: the effects of the instructions on
 `r0`-`r7` and the flags, the flags of additions and subtractions and the conditions
@@ -426,9 +288,22 @@ Trusted, in addition to the decoder and timing table: the effects of the instruc
 with `m0.py` on every 16-bit encoding in three random states, with and without the
 assumption on callees: 297,244 executions, no difference. `test_binloops.py` (CI):
 certificates altered in their bounds, scales, potentials, invariants, kinds, multipliers,
-assumption on callees, or code must be rejected.
+tracked words, SP offsets, congruences, assumptions or code must be rejected, and so must
+certificates of small loops whose instruction is changed (classes `ExactEffects`, `EXACT`,
+`Disjunctions`, `WrapToZero`).
 
-## OTAWA on the same binaries (2026-11-16)
+1. `python3 -m pytest -q test_binloops.py test_ipet.py test_effect.py` (under a minute);
+2. a subset: `run_cycles.py --certify-loops --abi --frame --jobs 4 --only bitcount --only
+   bitonic --only countnegative --only fft --only st --only isqrt --only matrix1 ...` (a few
+   minutes), then `compare_runs.py OLD.json NEW.json --check` (fails on a loop lost or a
+   bound higher);
+3. the full run with both assumptions (`--jobs 4`), then `compare_runs.py --check`;
+4. the six runs (default and `.nofp` builds; no assumption, `--abi`, both) only before the
+   figures of the papers and of this file are updated.
+
+`BINLOOPS_CHECK_CLOSE=1` compares each incremental closure of a zone with the full one.
+
+## OTAWA on the same binaries
 
 `run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)
 (Ballabriga, Cassé, Rochange, Sainrat, SEUS 2010; version 2.3.0 here), which is not part
@@ -456,7 +331,7 @@ for OTAWA, so this is not a cycle bound). The program is then run by `m0.py`.
 | ... for which OTAWA computes a bound | 107 (6 entry functions `main`) |
 | flow facts | 199 |
 | calls completed by the runs and compared | 11, **no bound below the executed instructions** |
-| bound / executed, geometric mean (largest) | 2.32 (756: `fft_bit_reduct`, product of nested bounds; 2.36 before the matching by line ranges) |
+| bound / executed, geometric mean (largest) | 2.32 (756: `fft_bit_reduct`, product of nested bounds) |
 | OTAWA's bound at most the timing schema's (same unit) | 52 functions; above for 55 |
 
 **In cycles** (`--timing m0`): `otawa/m0time.cpp`, compiled against OTAWA in the same image
@@ -477,7 +352,7 @@ python3 benchmarks/cycles/run_otawa.py --lld PATH/TO/ld.lld --timing m0 --check 
 |---|---:|
 | functions bounded by OTAWA, in cycles | 107 of 107 |
 | calls compared | 11, **no bound below the executed cycles** |
-| bound / executed, geometric mean (largest) | 2.69 (1,054: `fft_bit_reduct`; 2.74 before the matching by line ranges) |
+| bound / executed, geometric mean (largest) | 2.69 (1,054: `fft_bit_reduct`) |
 | OTAWA's bound / timing schema's | never below; equal for 52, larger for 55 (median 1.007, largest 1.29: `matrix1` `main`) |
 
 OTAWA's bound is above the schema's where a loop header gets one more execution than the
@@ -487,16 +362,14 @@ binaries OTAWA could not place such facts (inlined callees, rotated loops: "no l
 the loop at ..."), so the matching of binary loops to source loops is done by `wcet.py`,
 as for the cycle bounds. That matching is checked on runs, not proved.
 
-**The loops of OTAWA's graphs** (`--matching otawa`, 2026-11-17): the same run with the
+**The loops of OTAWA's graphs** (`--matching otawa`): the same run with the
 binary loops taken from OTAWA's own control-flow graphs and matched by `otawa_flow.py` (the
 matching used for the processors modelled by OTAWA, below), instead of `wcet.py`'s:
 107 of 107 functions bounded, none refused by the matching, 11 calls compared with **no
 bound below the executed instructions**, the same bounds per function as with `wcet.py`'s
-matching for all 107 (99 flow facts, written for the functions reachable from those given to OTAWA; 199 with `wcet.py`'s matching, 108 of them for the loops of the run-time division functions, written for every kernel). Since 2026-11-21 `otawa_flow.py` uses the rule of `wcet.py`
-(`Analysis.match`, line ranges); with its earlier rule (back-edge lines first) and the
-line-0 fix of the line table, it lost `bsort_BubbleSort` and its callers (104 of 107).
+matching for all 107 (99 flow facts, written for the functions reachable from those given to OTAWA; 199 with `wcet.py`'s matching, 108 of them for the loops of the run-time division functions, written for every kernel).
 
-## Other processors: OTAWA's STM32 models (2026-11-17)
+## Other processors: OTAWA's STM32 models
 
 `otawa_flow.py` gives CrossCheck's source loop bounds to OTAWA on any binary it decodes:
 in a container without network, `mkff` lists the loop headers of the code reachable from
@@ -533,16 +406,11 @@ python3 benchmarks/cycles/run_stm32.py --extra-arg=--gcc-install-dir=/usr/lib/gc
 Flow facts: 542. Not bounded (same for both, 98 functions): a reached loop matched with a
 source loop without a bound, 59; a call of an undefined symbol (double-precision floating
 point, `memcpy`...: no run-time library), 24; a loop that matches no source loop, 7;
-recursion, 6; a jump table, 2 (2026-11-21, with the matching by line ranges and the source
-analysed for the target's data model, `FLAGS[:4]`; before: 168 / 162 bounded, 56, 22, 12, 7, 2). On the Cortex-M7, OTAWA gives no result within 300 s for 6
+recursion, 6; a jump table, 2. On the Cortex-M7, OTAWA gives no result within 300 s for 6
 more functions (its cache analysis; `basicmath___ieee754_acosf` in three kernels and three
 functions of `jfdctint`). Of the 62 functions bounded only on the Cortex-M4, 57 call a
 single-precision floating-point function of the run-time library on the Cortex-M0 (no code
-there; an FPU instruction on the M4) and 5 call a function without a bound. Before the
-matching by line ranges, `bsort_BubbleSort` was bounded on the Cortex-M0 and not here: its
-outer loop's instructions carry the function's first line and that of the `if (Sorted)
-break;` after the inner loop, never the loop's own line; the second lies in the loop's
-range and the first, outside every loop, is ignored, so it is now matched. The run takes 29 minutes, most of it the
+there; an FPU instruction on the M4) and 5 call a function without a bound. The run takes 29 minutes, most of it the
 Cortex-M7 analysis (at most 300 s per function, `--timeout`).
 
 Bounds of the `main` functions, in cycles:
@@ -574,7 +442,7 @@ another instruction set (Thumb-2, with hardware division and single-precision fl
 point) from the same source bounds, with the matching that is checked on the Cortex-M0
 above.
 
-## Stack bounds (2026-11-16)
+## Stack bounds
 
 `stack.py` bounds the stack of every function of the same binaries: the largest depth of
 the stack pointer below its value at entry, callees included. The depth is computed on the
@@ -619,3 +487,69 @@ What the bound covers: the stack of the program's own code. Not counted: excepti
 (8 words per interrupt taken on this processor), and anything a real run-time library
 would add. The decoder and the control-flow graph are those of the cycle analysis, and
 the check is against the same interpreter: it tests the path analysis, not the decoder.
+
+## History
+
+The changes that moved the figures above, newest first (each run: no loop lost, no
+certified bound higher, every certificate accepted, no emulated run above a bound, unless
+said otherwise).
+
+- **2026-11-21, GCC binaries, line ranges, target data model.** The GCC runs revealed three
+  defects ("GCC binaries" above). The source had been analysed with the host's 64-bit
+  `long`: `sha_byte_reverse` had a certified bound of 213 cycles, 367 observed in GCC's
+  binary. Loop matching rules tried before line ranges: the largest bound among all lines of
+  a loop's instructions made `matrix1_main` 100 iterations instead of 10 (a preheader
+  instruction inherited another loop's line; bound 105 times the observed cycles, 80 with a
+  first fix); the lines of the back-edge branches first gave 1.31 but matched GCC's rotated
+  outer loop of `fft_bit_reduct` with its inner loop (bound 11, 1,023 iterations observed).
+  With line ranges and the line-0 fix: `bsort` `main` 369,779 → 366,147 cycles (ratio
+  2.49 → 2.46), one more loop of `minver` certified (0x104: its function's `while (1)`
+  loop, line 167, which CrossCheck does not bound, had been matched with a bounded source
+  loop, a wrong trusted bound; the function calls soft-float code and is never run), counts
+  142 / 199 / 256 → 143 / 200 / 257; OTAWA geometric means 2.36 → 2.32 and 2.74 → 2.69;
+  `otawa_flow.py` switched to the same rule (with its old rule and the line-0 fix it lost
+  `bsort_BubbleSort`, 104 of 107 functions); STM32 models 168 / 162 → 169 / 163 bounded
+  functions. `HARD_VISITS` added: on GCC's `bitcount` the widening and closure kept raising
+  one bound (6,072 visits of a head in 7 hours); a limit of 40 lost 20 Clang loops, 200
+  none.
+- **2026-11-20, rounding of sums (wrap to zero).** Clang counts some byte offsets from
+  2^32 − 16 up by 4 to zero (`adds r3, #4; bne`); the checker rounds facts on sums with the
+  congruences (`exZero_sound`, `exZero_needs_cong`); the producer gained wrap-around
+  thresholds, virtual premises in its Farkas proofs and longest-path constants for
+  transported potentials (`synth_transport`). 136 / 193 / 250 → 142 / 199 / 256 (+6:
+  `bsort`, `fft`, `fir2dim`); without frame pointers 140 / 198 / 252 → 146 / 204 / 258;
+  trusted rows 43 / 37 / 19 → 41 / 35 / 17. Exact `ADCS`/`ANDS` were examined and not done.
+- **2026-11-20, disjunctive invariants.** The division routines count
+  `for (i = 31; i >= 0; i--)` as `subs; adds; bhs`, exiting when the counter wraps to
+  2^32 − 1: between subtraction and branch `r3 ≤ 30 ∨ r3 = 2^32 − 1`. Checker: `alt`/`pick`
+  (no new assumption). Producer: zone split at a possible wrap-around; HiGHS failed on
+  these programs, hence the exact detection of contradictions and the retries (no presolve,
+  split constants, `transport`). The 116 loops of the division routines certified (none
+  before); kernels 136 / 193 / 246 → 136 / 193 / 250; trusted rows 159 / 153 / 137 → 43 /
+  37 / 19.
+- **2026-11-20, run time.** `pm` alone took 77 minutes (zones of 44 variables). The join of
+  closed zones is no longer closed again (Miné, PADO 2001), constraints are closed
+  incrementally, images are completed only on unknown variables, unused analyses removed,
+  results of the division routines reused, kernels in parallel (`--jobs`): the run with
+  both assumptions 103 → 18 minutes, certificates identical.
+- **2026-11-20, exact shift.** `LSLS rd, rm, #s` exact (`Val.shl`); exact Farkas
+  multipliers by Gaussian elimination when the LP's are too small to round. 131 / 183 / 229
+  → 136 / 193 / 246; four bounds of `bitcount` 2^31 − 2 → 255; `jfdctint` 0x172 first lost
+  (HiGHS), recovered by `lit_any` also for shifts.
+- **2026-11-19, exact effects.** `NEGS`, `MVNS`, `STM`/`LDM` write-back, literal loads.
+  121 / 173 / 215 → 131 / 183 / 229. The literal constants made HiGHS fail on three loops
+  certified before, hence `BIG` and `lit_any`.
+- **2026-11-19, frame pointer.** `--frame` no longer refused for the prologue
+  `add r7, sp, #i` alone (`frameUseOk`, `regsRead`): with both assumptions 175 → 215;
+  refusals 190 → 26.
+- **2026-11-18, potentials per instruction (linear programs).** 116 / 167 / 169 → 121 / 173
+  / 175 (`countnegative`, `isqrt`); `LP_SECONDS` after a run hung on `jfdctint`.
+- **2026-11-18, congruences.** 73 / 105 / 107 → 116 / 167 / 169: most uncertified loops
+  exited on equality with a counter stepped by more than 1. `ipet.py` stopped rounding the
+  multipliers up when exact fractions give a smaller bound: 10 cycle bounds lower (up to 8 %).
+- **2026-11-18, words of the frame.** Tracking SP-relative words raised 72 / 94 to the
+  first counts above.
+- **2026-11-17, certified cycle bounds** (IPET certificates on the machine code); the OTAWA
+  runs and the STM32 models.
+- **2026-11-16, first results** of the timing schema, OTAWA and the stack bounds.
+
