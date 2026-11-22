@@ -607,7 +607,14 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
     if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) then
       -- the decision of the verified `checkData` (theorem `ThumbData.data_sound`)
       let okD := ImperativeOptimization.Thumb.checkData mul abi code fs Ls
-      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {if abi then "callees assumed to preserve r4-r7 and SP" else "no assumption on callees"}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
+      -- with `abi`: the calling convention, checked on the code of every function
+      -- (`convAll`, theorem `ThumbConv.data_sound_conv`), else assumed
+      let conv := abi && ImperativeOptimization.Thumb.convAll mul code fs Ls
+      let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D).map (·.1)
+      let callees := if !abi then "no assumption on callees"
+        else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
+        else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
       if !(okP && okD) then status := 1
     else
       IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"

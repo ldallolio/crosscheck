@@ -33,6 +33,10 @@ CHECKER = os.environ.get("CROSSCHECK_CHECKER",
 # f at 0x100: movs r4,#0; bl g; adds r4,#1; cmp r4,#10; blt 0x102; bx lr   g at 0x120: bx lr
 # (the counter lives in r4 across the call: certified only if callees preserve r4)
 CALLLOOP = {0x100: [0x2400, 0xF000, 0xF80D, 0x3401, 0x2C0A, 0xDBFA, 0x4770], 0x120: [0x4770]}
+# the same function saving r4 as the calling convention requires: push {r4,lr}; movs r4,#0;
+# L: bl g; adds r4,#1; cmp r4,#10; blt L; pop {r4,pc}   g at 0x120: bx lr
+# (the checker establishes the convention on the code of both functions, Lean `ThumbConv`)
+SAVELOOP = {0x100: [0xB510, 0x2400, 0xF000, 0xF80C, 0x3401, 0x2C0A, 0xDBFA, 0xBD10], 0x120: [0x4770]}
 # f at 0x100: sub sp,#8; movs r0,#0; str r0,[sp,#4]; L: ldr r0,[sp,#4]; cmp r0,#10; bge out;
 # adds r0,#1; str r0,[sp,#4]; b L; out: add sp,#8; bx lr   (the counter lives in a stack slot)
 STACKLOOP = {0x100: [0xB082, 0x2000, 0x9001, 0x9801, 0x280A, 0xDA02, 0x3001, 0x9001, 0xE7F9, 0xB002, 0x4770]}
@@ -154,6 +158,24 @@ class Producer(unittest.TestCase):
         self.assertEqual(st["f"]["certified"], [])
         _, b, st = callloop_doc(abi=True)
         self.assertEqual([x[0] for x in st["f"]["certified"]], [0x102])
+
+    def test_convention_checked(self):
+        # with the assumption on callees, the checker establishes the calling convention on
+        # the code (Lean `convAll`, `data_sound_conv`) or reports it as assumed
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        an = test_ipet.analysis(SAVELOOP, {"f": (0x100, 16), "g": (0x120, 2)}, range(0x104, 0x10E, 2), 10)
+        st = {}
+        doc, _, _ = ipet.certify(an, ["f"], mul=32, loops=True, abi=True, stats=st)
+        self.assertEqual([x[0] for x in st["f"]["certified"]], [0x104])
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("checked on the code of every function", out)
+        # f writes r4 without saving it: accepted, with the convention assumed and f named
+        doc, _, _ = callloop_doc(abi=True)
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("not established on the code of 1 function(s): f", out)
 
 
 def step_doc(code=STEPLOOP):

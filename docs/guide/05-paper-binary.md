@@ -280,6 +280,29 @@ checker's verdict, cover the usual case:
   never takes an address of its frame**, so the checker refuses `frame` for a function that
   writes an SP-derived address into a register (`add rd, sp, #i`, `mov rd, sp`).
 
+**`abi`, checked instead of assumed** (Paper III `thm:machine-conv`, Lean `ThumbConv`).
+Whether a callee preserves `r4`–`r7` and `sp` is a property of its code, which the checker
+has. Compilers follow one pattern, which the checker now verifies on every function
+(`convOk`):
+
+```text
+push {r4, r5, lr}      @ entry: save the registers of r4-r7 that the function writes
+...                    @ writes r4, r5 freely; never r6, r7; stores through SP stay below the saved words
+pop  {r4, r5, pc}      @ every return: the same list, with SP back where the push left it
+```
+
+Restoring works only if nothing overwrites the saved words between the `push` and the `pop`.
+No analysis of the function's own instructions can show that for stores through pointers, so
+it becomes the one hypothesis left: **no stack smashing** (the words where a function saves
+registers are written by no store through a pointer and no callee). Memory-safe code
+satisfies it, whatever its callees were compiled with. The proof (`drunL_drun`) is an
+induction on the depth of calls in a *linked* semantics where a callee's run starts in the
+caller's state and the caller resumes with the callee's final `r0`–`r7` and `sp`: callees
+of smaller depth restore `r4`–`r7` and `sp`, so every call is a step with `abi`, and the
+existing proof of the loop bounds applies unchanged. The checker reports `abi` as checked
+when every function keeps the convention, and otherwise names the functions that do not
+(typically one whose SP is set from a register, so that its offsets are unknown).
+
 ### How the producer finds the certificate
 
 `benchmarks/cycles/binloops.py`, untrusted:

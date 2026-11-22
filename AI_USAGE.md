@@ -2411,6 +2411,52 @@ signal). README: DOI badges and links for Papers I and II; `CITATION.cff`: the t
 under `references`; `.zenodo.json`: the papers as related works (`isSupplementTo`) for the
 next code release.
 
+131. "Now start working again on the third paper. Remember that crosscheck aims to become an industrial grade tool in the future."
+
+[Answer to the AI's question on the direction of Paper III: "Check the conventions (Recommended)"]
+
+132. "While you improve the third paper, I would like you to select a couple of authors among the cited ones so that I can ask them for the arxiv endorsement"
+
+What the AI did for 131-132 (Claude Opus 5.5, 2026-11-22): proposed four directions for
+Paper III (the author chose to check the calling convention instead of assuming it). A
+prototype showed that 374 of 381 analysable functions of the kernels follow the
+push/pop pattern. New Lean module `ThumbConv` (about 860 lines) and the executable check
+`convOk`/`convAll` in `ThumbDataCore`: a linked data semantics (`DRunL`: a callee runs from
+its caller's state, the caller resumes with its registers and SP; `PushPopOk`: exact
+PUSH/POP; hypothesis `SaveSafe`: no stack smashing), `conv_step`, `conv_ret`, `conv_chain`,
+`drunL_drun` (a linked run is a run of `ThumbData`'s semantics with `abi`, and callees
+restore r4-r7 and SP; by induction on the depth of calls, the existing proofs unchanged),
+`data_sound_conv`; examples (a linked run of 68 cycles, an accepted save/restore, two
+refused functions). `lake build`: 0 errors, 0 warnings; standard axioms only. The checker
+program reports the convention as checked or names the functions where it is not
+established; the producer now gives SP offsets for every function (two missing return paths
+were found by the new test and by the run: 9 kernels failed the check before the second
+fix). Result: the convention is established on the code in all 29 kernels, with `--abi` and
+with `--abi --frame`; loop counts unchanged (143 / 200 / 257 kernel loops, 116 division
+loops, no certificate rejected). Paper III: subsection "The calling convention, checked"
+(`def:linked-run`, `def:convention`, `thm:machine-conv` with its proof), abstract,
+contributions, `tab:loops`, conclusions, mechanization (`tab:lean3`, about 5,000 lines and
+193 theorems), the not-mechanized list; Paper I's count of the third paper's modules;
+`formalization.yaml`, CLAUDE.md, README, cycles README, guide parts 5 and 7, slides; test
+`Producer.test_convention_checked`. For 132: candidate endorsers chosen among the cited
+authors, with their recent arXiv postings in cs.LO/cs.PL checked through the arXiv API
+(names only sent).
+
+133. "did you check if those authors can endorse in arxiv, do they appear in the lists for CS ?"
+134. "Please write a short mail for Florian Frohn (object and content)"
+135. [The arXiv endorsement request message, pasted.]
+136. [A list of Florian Frohn's publications from another source, in Italian, pasted.]
+137. "should I attach the papers ?"
+138. "commit and push to main"
+
+What the AI did for 133-138 (Claude Opus 5.5, 2026-11-22): explained that arXiv publishes
+no list of endorsers and that its per-paper endorser page needs a login (a request without
+one returned 401); listed recent arXiv papers of the candidates as pages to check. Drafted
+an endorsement request (not part of the repository). Checked two arXiv identifiers of the
+pasted list on the arXiv API: one is by Frohn and Giesl, the other (KoAT, 2606.28542) is by
+Lommen, Meyer and Giesl, not by Frohn as the list said, so the draft does not attribute
+KoAT to him. Advised links rather than attachments. No change to the papers or the code.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

@@ -2088,14 +2088,15 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         start, size = an.img.funcs[name]
         key = (bytes(an.img.mem[start:start + size]), start % 4, abi, prefer_source, frame)
         if key in _RUNTIME_EMPTY:
-            return {}, [], [(None if h is None else h + start, w) for h, w in _RUNTIME_EMPTY[key]]
+            fields, why = _RUNTIME_EMPTY[key]
+            return dict(fields), [], [(None if h is None else h + start, w) for h, w in why]
     res = _certify_loops(an, name, abi, prefer_source, frame, False)
     if res[2] and any(w == "no potential found" for _h, w in res[2]):
         alt = _certify_loops(an, name, abi, prefer_source, frame, True)
         if len(alt[1]) > len(res[1]):
             res = alt
-    if key is not None and not res[0] and not res[1]:
-        _RUNTIME_EMPTY[key] = [(None if h is None else h - start, w) for h, w in res[2]]
+    if key is not None and set(res[0]) <= {"sp"} and not res[1]:
+        _RUNTIME_EMPTY[key] = (res[0], [(None if h is None else h - start, w) for h, w in res[2]])
     return res
 
 
@@ -2107,8 +2108,11 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
         ctx = Ctx(an, name, abi, frame, lit_any)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return {}, [], [(None, str(e))]
+    # the offsets of SP are given for every function, with loops or not: the checker uses them
+    # to establish the calling convention on the code (Lean `convOk`)
+    sp_only = {"sp": [ctx.sp.get(a) for a in ctx.nodes]}
     if not ctx.iloops:
-        return {}, [], []
+        return sp_only, [], []
     kind = kinds_of(ctx)
     if CONG:        # the congruences do not depend on the zones: one analysis, with them
         ctx.cong = congruences(ctx)
@@ -2173,14 +2177,14 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
         loops.append(Loop(h, body, D, N, pots))
         info.append((h, eff_n, Nsrc))
     if not loops:
-        return {}, [], why
+        return sp_only, [], why
     inv = full if full is not None else invariants(relevant(ctx, loops))
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:
         why.append((h, "an obligation of its potential could not be proved"))
     info = [x for x in info if any(lc.header == x[0] for lc in loops)]
     if not loops:
-        return {}, [], why
+        return sp_only, [], why
     fields = dict(
         kinds=[kind.get(a, "none") for a in ctx.nodes],
         inv=[[js_lin(g) for g in inv.get(a, [])] for a in ctx.nodes],

@@ -857,4 +857,62 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
 def checkData (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
   fs.length == Ls.length && (fs.zip Ls).all fun p => checkDFun mul abi c p.1 p.2
 
+/-! ### The calling convention, checked on the code (`ThumbConv`)
+
+Instead of assuming that callees preserve `r4`-`r7` and SP, the checker can verify it on
+each function of the certificate: the function saves at its entry, with one `PUSH`, the
+registers of `r4`-`r7` that it writes (and `lr`), writes no other register of `r4`-`r7`,
+restores them at every return with a `POP` of the same list (and `pc`) at the offset of SP
+where they were saved (or returns with `BX LR` when it saved nothing and SP is back at its
+entry value), and stores through SP, or pushes, only below the saved words. `ThumbConv`
+proves that every function so checked returns with `r4`-`r7` and SP as it found them,
+assuming only that the saved words are written by no other instruction (no stack smashing). -/
+
+/-- `PUSH` at `h`. -/
+def isPushH (h : Nat) : Bool := h >>> 9 == 0b1011010
+
+/-- The register list (bits of `r0`-`r7`) pushed at the entry, whether `lr` is pushed, and
+    the number of words pushed. -/
+def saveList (c : Code) (e : Nat) : Nat := match c.get e with
+  | some h => if isPushH h then h % 256 else 0
+  | none => 0
+def saveLr (c : Code) (e : Nat) : Bool := match c.get e with
+  | some h => isPushH h && (h >>> 8) % 2 == 1
+  | none => false
+def saveN (c : Code) (e : Nat) : Nat := match c.get e with
+  | some h => if isPushH h then popcount8 h + (h >>> 8) % 2 else 0
+  | none => 0
+
+/-- The conditions at one instruction of `f` (see above). -/
+def convNode (mul : Nat) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
+  let n : Int := (saveN c f.entry : Int)
+  let P := saveList c f.entry
+  match decode mul c a, c.get a with
+  | some i, some h =>
+    (trans i a).all (fun t => t.1 != some f.entry) &&
+    (if i.kind == .ret then
+      (h >>> 9 == 0b1011110 && (h >>> 8) % 2 == 1 && h % 256 == P && saveLr c f.entry &&
+        spAt f L a == some (-(4 * n))) ||
+      (h >>> 8 == 0b01000111 && n == 0 && spAt f L a == some 0)
+    else
+      (a == f.entry && isPushH h) ||
+      ((effect true c a).dst.all (fun p => p.1 < 4 || 8 ≤ p.1 || (P >>> p.1) % 2 == 1) &&
+        (match (stackEffect true c a).mem with
+         | .storeSP imm _ => match spAt f L a with
+           | some d => decide (d + imm < -(4 * n))
+           | none => false
+         | .push _ => isPushH h && match spAt f L a with
+           | some d => decide (d ≤ -(4 * n))
+           | none => false
+         | _ => true)))
+  | _, _ => false
+
+/-- The calling convention of one function. -/
+def convOk (mul : Nat) (c : Code) (f : BFun) (L : DFun) : Bool :=
+  spAt f L f.entry == some 0 && f.nodes.all (convNode mul c f L)
+
+/-- The calling convention of every function of the certificate. -/
+def convAll (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
+  fs.length == Ls.length && (fs.zip Ls).all fun p => convOk mul c p.1 p.2
+
 end ImperativeOptimization.Thumb

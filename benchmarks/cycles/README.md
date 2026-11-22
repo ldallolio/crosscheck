@@ -197,6 +197,20 @@ bounds are also certified on the machine code where `binloops.py` finds a certif
 `thm:machine-loops`). What cannot be proved is dropped; a dropped loop keeps its source
 row, trusted.
 
+**The calling convention, checked (2026-11-22).** With `--abi`, the checker no longer takes
+the callees' preservation of `r4`-`r7` and SP on trust: it verifies on the code of every
+function that the registers of `r4`-`r7` it writes are pushed at its entry and popped by
+every return at the right SP offset, and that its stores through SP stay below them (Lean
+`ThumbConv`, `convOk`, `data_sound_conv`; Paper III `thm:machine-conv`). What remains is
+the hypothesis that no store through a pointer and no callee overwrites the saved words (no
+stack smashing). The checker prints `callees' preservation of r4-r7 and SP checked on the
+code of every function`, or names the functions where the convention is not established.
+On the 29 kernels it is established everywhere, with `--abi` and with `--abi --frame`; the
+loop counts are those of the tables below. The producer gives the SP offsets of every
+function, which the check needs (before, the functions without certified loops had none,
+and the check failed in 9 kernels). Test: `test_binloops.py`
+`Producer.test_convention_checked`.
+
 **What a certificate holds.** Per instruction, the kind of operation that set the flags and
 an invariant on `r0`-`r7` and the two operands of that operation, possibly a disjunction
 (`alt` disjuncts and, per case of a transition, the disjunct it lands in, `pick`), and

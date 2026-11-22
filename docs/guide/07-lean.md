@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 32 modules, about 15,000 lines, 644 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 4,100 lines and 145 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 33 modules, about 16,000 lines, 692 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the seven `Cycles*`/`Thumb*` modules, about 5,000 lines and 193 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -114,6 +114,7 @@ flowchart LR
   Thumb --> ThumbData
   ThumbDataCore --> ThumbData
   ThumbDataCore --> CheckerMain
+  ThumbData --> ThumbConv
   Arity --> Branching
   Language --> Divergence
 ```
@@ -151,6 +152,7 @@ flowchart LR
 | `Thumb` | 310 | `Step`, `MRun` (PC-level semantics), `chain_walk`, `translate` (machine runs are graph runs), **`binary_sound`**; examples `exBinary_checks`, `exBinary_tight`, `exBinary_run` |
 | `ThumbDataCore` | 630 | no mathlib: `effect` and `stackEffect` (what each instruction does to `r0`-`r7`, the flags, SP and memory: the trusted specification), `Flags`, `flagsAdd`, `flagsSub`, `condHolds`; `condFacts` (conditions as linear facts on two ghost operands); certificates `DFun` (kinds, invariants, loops, SP offsets, tracked frame words, `frame`), `LoopCert`, `postS`, `obligations`, `loopRow`, **`checkData`**; used by the checker program (version 2, `--effect`) |
 | `ThumbData` | 1,520 | data runs `EffOk`, `StackOk`, `DOk`, `DChain`, `DRun`; `condFacts_sound` (the flag lemmas `sub_z`, `sub_c`, `sub_nv`, `add_z`, `add_c`), `postE_eval`, `postS_eval` (address arithmetic modulo 2³² by `omega`), **`step_ok`**, **`chain_ok`** (invariants and telescoping potentials), `chain_rows`, `drun_mrun`, **`data_sound`**; examples `exData_checks`, `exData_tight`, `exData_sound`; a concrete simulator (`effOkB_sound`, `chainB_sound`, `dOkB_sound`) and `exData_run`, a data run of exactly 68 cycles, so the hypotheses are satisfiable and the bound attained (Paper III `thm:machine-loops`) |
+| `ThumbConv` | 860 | the calling convention checked instead of assumed: linked runs `DRunL` (a callee runs from the caller's state; exact `PUSH`/`POP`; hypothesis `SaveSafe`, no stack smashing), the check `convOk` (in `ThumbDataCore`), **`drunL_drun`**, **`data_sound_conv`**; examples `exConv_run`, `exClobber_refused` |
 | `Examples` | 270 | the paper's four examples |
 
 ## 6. Three proofs worth reading
