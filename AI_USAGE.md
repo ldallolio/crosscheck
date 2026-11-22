@@ -2324,6 +2324,17 @@ regenerated.
 
 What the AI did for 112 (Claude Opus 5.5, 2026-11-22): committed the work of 110-111 and pushed it to `main`.
 
+113. "I do not understand why I do not see the affiliation nor the email in the pdf paper"
+
+What the AI did for 113 (Claude Opus 5.5, 2026-11-22): `amsart` prints `\address` and
+`\email` at the end of the paper, after the references; replaced them in the three papers by a
+`\thanks` footnote on the first page, as the author had first asked. Papers rebuilt without
+warnings, bundles regenerated.
+
+114. "commit and push to main"
+
+What the AI did for 114 (Claude Opus 5.5, 2026-11-22): committed the work of 113 and pushed it to `main`.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
