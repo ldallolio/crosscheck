@@ -25,11 +25,12 @@ limitation, it says so.
   recursion) with a proved link to big-step semantics (`while_trace_semantics`,
   `treeBigStep_iff`).
 - **"What about divergence?"** In Paper I's cost logic, triples bound every *prefix*
-  (`Pre`), so a derivable bound with positive test weights excludes divergence. The
+  (`Pre`), so a derivable bound with positive loop-test and call weights excludes
+  divergence (`prop:no-divergence`, Lean `derivable_no_div`, divergence defined coinductively). The
   minimisation view sees divergence as infeasibility (`infinite_loop_diverges`).
 - **"Is the tree order known?"** Yes: Courcelle's order on trees (1983, Section 2.4), on
-  finite trees, with the leaf in the role of the undefined tree Ω; binary in Lean, any arity
-  on paper. On traces, ⊑ is the ordinary prefix order. Paper I says it *uses* them.
+  finite trees, with the leaf in the role of the undefined tree Ω; in Lean for binary trees
+  (`Tree`) and for any fixed branching factor (`Branching`). On traces, ⊑ is the ordinary prefix order. Paper I says it *uses* them.
 - **"Expressiveness?"** Structured control flow over scalar state; no heap, no aliasing, no
   concurrency in the theory. The plugin adds calls (contexts; inlining for certificates)
   and rejects the rest.

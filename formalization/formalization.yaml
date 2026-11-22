@@ -54,6 +54,10 @@ statements:
   - paper_labels: [prop:tree-power-complexity]
     module: ImperativeOptimization.Tree
     lean: [treePow_leafCount, treePow_size, treePow_cherry, treePow_chain, graft_size, graft_assoc]
+  - paper_labels: [def:tree-algebra, def:tree-order, def:tree-exponentiation, prop:tree-order-properties, prop:tree-power-complexity, prop:tree-optimization]
+    note: "every branching factor b (the rows above: binary trees)"
+    module: ImperativeOptimization.Branching
+    lean: [KTree, KTree.Le, KTree.le_refl, KTree.le_trans, KTree.le_antisymm, KTree.leaf_le, KTree.size_mono, KTree.depth_mono, KTree.le_graft, KTree.graft_leaves, KTree.graft_size, KTree.size_full, KTree.le_full, KTree.size_le_of_depth, KTree.size_le_closed, KTree.pow_leaves, KTree.pow_size_succ, KTree.pow_size_closed, KTree.pow_size_rat, KTree.pow_step, KTree.pow_chain, KRecurrence.exec_feasible, KRecurrence.exec_least, KRecurrence.exec_unique, KRecurrence.exec_size_min, KRecurrence.exec_depth_min, KRecurrence.bigStep_iff, tern_exec, tern_cost]
   - paper_labels: [prop:linrec]
     module: ImperativeOptimization.Recursion
     lean: [framedBigStep_iff, linRec_iff, linear_recursion_cost]
@@ -77,6 +81,9 @@ statements:
   - paper_labels: [thm:cost-logic-soundness]
     module: ImperativeOptimization.Language
     lean: [soundness, valid_skip, valid_atom, valid_unreachable, valid_seq, valid_ite, valid_while, valid_call, valid_conseq, while_exec_bound, while_pre_bound, derivable_cost_le, countLoop_derivable, countLoop_cost, down_derivable, down_cost]
+  - paper_labels: [prop:no-divergence]
+    module: ImperativeOptimization.Divergence
+    lean: [DivStep, Div, Div.unfold, PosWeights, div_prefixes_unbounded, valid_no_div, derivable_no_div, spin_div, spin_prefixes, spin_no_bound]
   - paper_labels: [def:certificate]
     note: "linear certificates and the executable checker"
     module: ImperativeOptimization.Checker
@@ -152,11 +159,11 @@ statements:
     module: ImperativeOptimization.Examples
     lean: [parametric_loop_minimal, parametric_loop_ranking, infinite_loop_diverges, linear_recursion_bigstep, binary_recursion_bigstep, binary_recursion_envelope]
 not_formalized:
-  - labels: [prop:tree-order-properties, prop:tree-power-complexity, prop:tree-optimization]
-    reason: "formalized for binary trees (b = 2) only; general arity b is proved on paper (the counting bounds are formalized for arbitrary arity, see prop:size-potential)"
-  - labels: [thm:lyapunov-bound]
-    reason: "termination is formalized for total deterministic updates; for relations only the bound on run length is formalized"
   - labels: [sec:application]
-    reason: "equation-generating rules are described, not formalized; completeness of Farkas' Lemma is cited"
+    reason: "the equation-generating rules describe a method of translation, not a statement; completeness of Farkas' Lemma is cited"
+  - labels: [subsec:cost-logic]
+    reason: "the remarks on weights and architectures and on parallel composition are not formalized"
+  - labels: [subsec:concurrency]
+    reason: "one unit of cost = one time slot is a property of the target; the busy-period extension of thm:response-time and greedy scheduling of task graphs with dependencies are discussed with references, not stated"
   - labels: [paper-II]
     reason: "the Clang plugin of Paper II (C++), its translation to certificates (or, for validated certificates, to mini-C) and the SMT solver are not verified"

@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 30 modules, about 14,500 lines, 605 theorems (Paper I: about 10,400 lines and 460 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 4,100 lines and 145 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 32 modules, about 15,000 lines, 644 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the six `Cycles*`/`Thumb*` modules, about 4,100 lines and 145 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -114,7 +114,8 @@ flowchart LR
   Thumb --> ThumbData
   ThumbDataCore --> ThumbData
   ThumbDataCore --> CheckerMain
-  Arity
+  Arity --> Branching
+  Language --> Divergence
 ```
 
 | Module | Lines | Key content |
@@ -131,7 +132,9 @@ flowchart LR
 | `Recursion` | 236 | linear recursion (`framedBigStep_iff`), trees (`exec_least`, `treeBigStep_iff`, `exec_size_le`) |
 | `Certificate` | 280 | relational rational potentials `ranking_bound_floor`; invariants/contexts `ranking_bound_of_context`, `call_bound_of_context`; `farkas_sound`; `while_cost_bound`; `lex_potential`, `lex_ranking_bound`, `log_ranking_bound` |
 | `Arity` | 230 | trees of any arity, `callTree_size_le_geom`, `callTree_size_le_potential` |
+| `Branching` | 380 | trees with a fixed branching factor `b` (`KTree b`): the paper's tree order, grafting, powers, full trees and the execution tree of a `b`-ary recursion (`KRecurrence.exec_least`, `bigStep_iff`) |
 | `Language` | 757 | `Cmd`, `Exec`, `Pre`, `Valid`, `Derivable` (9 rules), **`soundness`**, `ValidSym`, `validSym_call`; **`valid_whileSum`** (amortised loop rule: body cost a function of the potential, Paper I `prop:amortised-loop`(1)), **`valid_whileMono`** (part (2): a monotone bound of the potential itself, for costs that grow as the potential falls); examples `countLoop_cost`, `down_cost` |
+| `Divergence` | 170 | infinite executions (`Div`, a greatest fixed point: Lean 4 has no coinductive types) and **`div_prefixes_unbounded`**: with positive loop-test and call weights, an infinite execution has prefixes of every cost, so a valid bound excludes it (`derivable_no_div`) |
 | `CheckerCore` | 487 | the checker's definitions, no mathlib: `Lin`, `PExp`, `entails1`, symbolic bounds `SB` (with quadratic terms `q`, `qsub`, `SB.mul`, `SB.qcomb`), `ACmd` (with `whileAnd`, `whileLog`, `whileGrow`, `whileUp`, `call`), `ilog` (structural, so `decide` evaluates it), `FunCert`, **`check`**, **`checkProgram`** |
 | `Checker` | 2,386 | **`check_sound`** (triple and frame, given `FunSpec` of the callees), `loop_sound`, `triloop_sound` (amortised form `triOk`: body bound `a + c·γⱼ`, closed form `triBound2`; example `triCert_checks`, `triCert_69_rejected`, `triCert_cost`), `SB.qcomb_ge`, `SB.eval_mul`, `dotQ_crossQ` (quadratic bounds; example `prodCert_checks`, `prodCert_5_rejected`, `prodCert_cost`), `uploop_sound` (node `whileUp`: `γⱼ = k − pot` in the body, closed form `upSum_closed`/`upBound2`; example `upCert_checks`, `upCert_53_rejected`, `upCert_cost`), `logloop_sound`, `growloop_sound` (logarithmic loops via the same loop rule), `ilog_eq`, `loopBoundOk_sound`, **`program_sound`** (induction over the functions; contracts as hypotheses), `certified_cost_le`; examples by `decide`: `countCert_checks`, `countSym_checks` (bound `1 + 2·max(0,n)`), `exProgram_checks` and `exMain_cost` (a call), `exProgram_17_rejected` |
 | `MiniCCore` | 279 | mini-C, no mathlib: `MExp`, `MCond`, `MStmt` (incl. `divStore`, `assignU`, `call`, each lowered to existing checker programs: `divFacts`, `divOf`, `storeArg`); **`lower`** (its meaning, as a program of the checker); normal form `nf` (annotations, `weaken`/`dead`, `skip` and nesting of sequences removed); **`validate`** |

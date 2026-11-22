@@ -438,7 +438,7 @@ zoom: 0.72
 
 # The Lean formalization
 
-- 30 modules, about 14,500 lines, **605 theorems**, no `sorry`, only Lean's three standard axioms
+- 32 modules, about 15,000 lines, **644 theorems**, no `sorry`, only Lean's three standard axioms
 - The checker program `crosscheck-check` is compiled from the same Lean definitions (no mathlib)
 - `formalization.yaml`: every paper statement ↔ its Lean theorems
 

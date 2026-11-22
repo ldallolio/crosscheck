@@ -14,6 +14,8 @@ import ImperativeOptimization.Recursion
 import ImperativeOptimization.Certificate
 import ImperativeOptimization.Arity
 import ImperativeOptimization.Language
+import ImperativeOptimization.Branching
+import ImperativeOptimization.Divergence
 import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.Checker
 import ImperativeOptimization.MiniCCore
@@ -65,6 +67,10 @@ in `Dominance`.
 - `Certificate`: Soundness of the certificates used by the Clang plugin: relational ranking
   bound with field-valued potentials, Farkas certificates, loop cost formula.
 - `Arity`: Call trees of arbitrary arity; depth envelope and size potentials.
+- `Branching`: Computation trees of any fixed branching factor `b`: the tree order, grafting,
+  tree powers and the execution tree of a `b`-ary recursion as the least feasible tree.
+- `Divergence`: Infinite executions of the small language (coinductive); a valid cost bound
+  excludes them when loop tests and calls have positive weights.
 - `Language`: A small imperative language with a cost semantics (terminating executions and
   execution prefixes), a cost logic (`Derivable`) and its soundness; symbolic bounds and
   the call rule for function summaries.

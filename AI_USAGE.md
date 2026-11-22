@@ -2250,6 +2250,34 @@ work for the amortised rule and the logic, reading status of the bibliography, a
 loop acceleration and closed forms); the slides needed no change (no novelty claim; the
 trace order is called the prefix order there). Committed and pushed to `main`.
 
+104. "I am perplex about the A part on missing lean proofs, do you have any opinion about this ?"
+
+105. "Yes, please do so"
+
+What the AI did for 104-105 (Claude Opus 5.5, 2026-11-22): sorted Paper I's list of
+non-mechanized points into modelling hypotheses, cited classical results and the author's
+own mathematics, and proposed to close the last group. Then: new Lean module `Branching`
+(trees with `b` children, `KTree b`: the tree order, grafting, full trees, powers with the
+closed form, in natural numbers and over the rationals, and the execution tree of a `b`-ary
+recursion as the least feasible tree, with big-step agreement; example: a ternary
+recursion); new module `Divergence` (infinite executions as the greatest fixed point of the
+coinductive big-step rules; with positive loop-test and call weights an infinite execution
+has prefixes of every cost, so a valid or derivable bound excludes it; example `while true
+skip`). Paper I: the remark became `prop:no-divergence` with its proof; the paragraph on
+parallel composition became a remark marked as not formalized; the scope list no longer
+lists the tree statements, the Lyapunov theorem (stated as Lean states it) or the
+interrupt theorem (stated, as in Lean, for schedules without pending activations; the
+busy-period extension is only discussed); the equation-generating rules described as a
+method. Table 1 (two rows), `formalization.yaml`, the module counts (32 modules, 644
+theorems; Paper I about 11,000 lines and 499 theorems), CLAUDE.md, README, guide parts 3,
+7 and 9, slides updated. `lake build`: 0 errors, 0 warnings; `#print axioms` of the new
+theorems: at most `propext`, `Classical.choice`, `Quot.sound`. The three papers build
+without warnings (Paper I: 43 pages).
+
+106. "Yes commit and push"
+
+What the AI did for 106 (Claude Opus 5.5, 2026-11-22): committed the work of 104-105 and pushed it to `main`.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
@@ -2285,8 +2313,9 @@ is whether each Lean statement says what the paper says, and everything outside 
    statement and confirm it matches the paper's statement (hypotheses included). A pre-check by the AI (2026-11-21) found
    gaps, closed by the module `Norms` (see prompt 83); sample its comparison.
 2. **Non-mechanized mathematics** (proved on paper only):
-   - general branching factor `b > 2` in the tree-order propositions and the closed form
-     `I·(L^d − 1)/(L − 1) + L^d`;
+   - (mechanized on 2026-11-22, module `Branching`: the tree-order propositions and the
+     closed form `I·(L^d − 1)/(L − 1) + L^d` for every branching factor; module
+     `Divergence`: `prop:no-divergence`, formerly an unproved remark);
    - the remark on the fixed-point reading (`t^ω` as least fixed point);
    - the Farkas / linear-template paragraph: completeness over ℚ, and the complexity
      statement attributed to Ben-Amram & Genaim;

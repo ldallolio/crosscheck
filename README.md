@@ -41,7 +41,7 @@ recommendations on the release of AI-assisted mathematics.
 ```text
 crosscheck/
 ├── paper/                 # Papers I-III (LaTeX), shared bibliography, make_arxiv.py
-├── formalization/         # Lean 4 + mathlib: 30 modules, no sorry, Lean's three standard axioms only
+├── formalization/         # Lean 4 + mathlib: 32 modules, no sorry, Lean's three standard axioms only
 │   ├── ImperativeOptimization/   # traces, trees, loops, recursion, cost logic, checker,
 │   │                             # mini-C validation, concurrency, stack, Cortex-M0 (Thumb*)
 │   ├── CheckerMain.lean   # the checker program crosscheck-check

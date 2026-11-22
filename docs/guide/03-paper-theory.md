@@ -435,14 +435,16 @@ form.
 
 **Not mechanised** (the paper lists them; say them aloud if asked):
 
-- the tree *order* for more than two children (the counting bounds are general);
-- termination (not just bounds) for relational, nondeterministic updates;
-- the equation-generation rules; the completeness of Farkas' Lemma;
+- the equation-generation rules (a method, not a theorem); the completeness of Farkas' Lemma;
 - lexicographic potentials with a symbolic inner bound (with a constant one they are
   affine and covered);
 - recursion in the checker (calls only to earlier functions);
 - the C/C++ front end and the plugin itself (C++), Z3;
-- the busy-period argument for interrupts; parallel composition in the logic.
+- the busy-period argument for interrupts (the theorem is stated without it, as in Lean);
+  parallel composition in the logic (a labelled remark).
+
+Mechanized on 2026-11-22: the tree statements for every branching factor (`Branching`), and
+the absence of infinite executions under a valid bound (`prop:no-divergence`, `Divergence`).
 
 **Limitations** (the paper's `sec:limitations`): cost is not time; affine and logarithmic
 potentials only; amortisation only for two triangular shapes; structured control flow over

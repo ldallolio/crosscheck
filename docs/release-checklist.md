@@ -46,8 +46,11 @@ here says that the author has verified anything.
 Ordered by weight. The numbers are those of `AI_USAGE.md` §3; items 26, 40-50 concern
 Paper III only.
 
-1. **Proofs not in Lean** (item 2): the tree statements for `b > 2`, the Farkas/template
-   paragraph, the decidability remark; and the proofs written by the AI in the text of
+1. **Proofs not in Lean** (item 2): the Farkas/template paragraph, the decidability
+   remark, the fixed-point remark (since 2026-11-22 the tree statements for every
+   branching factor and the absence of infinite executions are in Lean, and the scope list
+   of Paper I holds only modelling hypotheses, cited classical results and two remarks
+   marked as not formalized); and the proofs written by the AI in the text of
    Paper I (cost logic, checker, mini-C validation, amortised loops: items 17, 19, 21, 23,
    24, 28, 29, 31, 35, 36, 37, 39). The Lean theorems are machine-checked; what needs you
    is that each Lean statement says what the paper says (the AI's comparison is in
