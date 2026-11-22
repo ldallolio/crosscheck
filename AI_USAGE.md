@@ -2356,6 +2356,34 @@ records are published. Papers rebuilt without warnings, bundles regenerated.
 
 What the AI did for 118 (Claude Opus 5.5, 2026-11-22): committed the work of 115-117 and pushed it to `main`.
 
+119. "what should I write in Zenodo in the description field, the abstract text ?"
+
+120. "Tell me about other fields : License, Copyright, Keywords, other things I should be careful of to be able to submit to arxiv or conferences or reviews later ?"
+
+121. "I published the first paper : https://zenodo.org/records/24444576"
+
+122. "I would like to leave the Acknowledgements only for the first paper, since we only talked theory"
+
+What the AI did for 119-122 (Claude Opus 5.5, 2026-11-22): advice on the Zenodo fields and on
+later submissions; checked the published record of Paper I (DOI resolves, the file is
+identical to the PDF built from `main`, MD5 936587e5..., metadata listed to the author).
+Removed the acknowledgements from Paper II and the empty heading from Paper III; Paper I
+unchanged (its PDF stays identical to the published file). Papers II and III rebuilt
+without warnings, their bundles regenerated.
+
+123. "Add my ORCID to CITATION.cff and .zenodo.json and to the papers for a later version. I updated the Zenodo record for the first paper"
+
+What the AI did for 123 (Claude Opus 5.5, 2026-11-22): ORCID 0009-0006-8839-5909 added to
+`CITATION.cff`, `.zenodo.json` and the first-page footnote of the three papers (Paper I's
+published v1 file is unchanged; the source now differs from it by this footnote). Checked
+the updated Zenodo record of Paper I: title in title case, the relation "References" to
+Paper II, the links in the description, the file unchanged. Papers rebuilt without
+warnings, bundles regenerated.
+
+124. "commit and push to main"
+
+What the AI did for 124 (Claude Opus 5.5, 2026-11-22): committed the work of 119-123 and pushed it to `main`.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

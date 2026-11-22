@@ -6,6 +6,7 @@ authors:
   - family-names: "Dall'Olio"
     given-names: "Luca"
     affiliation: "Alter Ego Engineering"
+    orcid: "https://orcid.org/0009-0006-8839-5909"
 license: MIT
 version: "1.0"
 date-released: "2026-11-21"
