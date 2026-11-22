@@ -452,7 +452,7 @@ zoom: 0.72
 | cycle bounds of machine code; loop bounds on the code | `Thumb.binary_sound`, `ThumbData.data_sound` |
 
 **Not** mechanized: the C++ analyser, the translation from C, the processor specification's
-faithfulness to the hardware (a board harness exists, not yet run).
+faithfulness to the hardware (a board harness exists; it has not been run).
 
 ---
 

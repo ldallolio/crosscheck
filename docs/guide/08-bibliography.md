@@ -6,9 +6,7 @@ closed forms, amortisation, mechanised cost) is discussed in Paper I's `sec:rela
 related work (bound analysers, WCET flow analysis, verified and certified bounds, Clang's
 function effects) in Paper II's `sec:related`. On 2026-11-13/14 the bibliographic data of
 every entry were checked against Crossref, DataCite or Open Library (one error fixed). The
-column **Read** is taken from `references/README.md` (2026-11-22), which is the authoritative
-record of what was read, which sections, and from which copy; open it before quoting a
-detail.
+column **Read** says how far the assistant read each work (2026-11-22).
 Summaries are short on purpose; read the originals before quoting a detail.
 
 ```mermaid

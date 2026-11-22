@@ -377,7 +377,7 @@ flowchart LR
 - **Interrupts**: `CROSSCHECK_INTERRUPT(T)` handlers, `interrupt-overhead=N`,
   `response_time` in the report, claims in the certificate file.
 
-Tools added on 2026-11-16 (`docs/proposals.md` section 6):
+Tools added on 2026-11-16:
 
 | Tool | File | Purpose |
 |---|---|---|

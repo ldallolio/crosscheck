@@ -7,7 +7,7 @@ emulator. `hw.py` checks it against a processor: each kernel object `KERNEL.m0TA
 whose bounds were computed, is linked unchanged with `stm32f0/startup.c`, flashed on an
 STM32F0 board, and its `main` is timed with the 32-bit timer TIM2 at the core clock.
 
-**Status: not yet run on a board.** The build has been run (2026-11-20, Clang objects, F091RC:
+**Status: not run on a board.** The build has been run (2026-11-20, Clang objects, F091RC:
 26 of the 29 kernels link, the emulator's predictions are recorded; 12 of them call no library
 code and can be compared exactly, 5 of these with a certified bound for `main`: `binarysearch`,
 `bsort`, `countnegative`, `jfdctint`, `matrix1`; `isqrt` has a certified bound too, but calls
@@ -19,7 +19,7 @@ kernels).
 ## What is needed
 
 - a board with an STM32F0 (a Cortex-M0 core; with the single-cycle multiplier, as far as we
-  know: to be confirmed in ST's PM0215, and by the measurement itself, since `build` records
+  know: not checked in ST's PM0215; the measurement would decide it, since `build` records
   the emulator's counts with both multipliers, `emulated` and `emulated_mul32`): NUCLEO-F091RC
   (256 KB flash, 32 KB RAM: every kernel that fits, see below) or NUCLEO-F072RB (16 KB RAM);
 - `st-flash` (stlink tools) or OpenOCD, and the ST-Link's virtual serial port (`/dev/ttyACM0`);

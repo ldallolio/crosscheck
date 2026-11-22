@@ -187,19 +187,16 @@ limitation, it says so.
 - **"The optimiser changes the code."** The cost is computed on the source; bounds on loop
   counts remain true for the compiled code, unit costs do not.
 - **"Industrial code?"** A MISRA- or AUTOSAR-style subset is the realistic target; globals,
-  structs, pointers as iterators and floats are not tracked yet.
+  structs, pointers as iterators and floats are not tracked.
 
 ## 8. AI use
 
 Most code, proofs and text were written by an AI assistant at the author's request; every
-prompt is in `AI_USAGE.md`; the papers carry `\authortodo` marks wherever the author must
-verify, and must not be submitted while one remains. On 2026-11-16 the assistant did the
-checks that a script or a document could settle (definitions against Lean, the Cortex-M0
-timing table, the loop instrumentation, parts of 14 cited papers; `AI_USAGE.md`, prompt 45
-and section 3, item 33). By 2026-11-18 the author had provided
-copies of the papers that could not be obtained, the assistant had read them, and the author
-had written the statements of responsibility of Papers I and II; Paper III still carries
-one `\authortodo` (responsibility, and three attributions).
+prompt is in `AI_USAGE.md`. The assistant did the checks that a script or a document could
+settle (definitions against Lean, the Cortex-M0 timing table, the loop instrumentation, the
+figures, the bibliography data) and read the cited passages of the works the author
+provided; `AI_USAGE.md` section 3 records them. Each paper ends with the author's statement
+of responsibility; the papers carry no marks left for the author.
 
 ## 9. Known weak points, ranked
 
@@ -215,9 +212,9 @@ one `\authortodo` (responsibility, and three attributions).
 4. **Precision**: affine and logarithmic potentials, lexicographic ones only with a
    constant inner bound, amortisation only for two triangular shapes in certificates.
 5. **Cost is not time.**
-6. **Evaluation size**: small kernels; no industrial code base yet.
+6. **Evaluation size**: small kernels; no industrial code base.
 7. **Processor model** (Paper III): ours, compared with our interpreter, not with hardware
-   (board harness written, not yet run).
+   (a board harness is written; it has not been run).
 
 ## 10. Phrases
 

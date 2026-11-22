@@ -50,8 +50,7 @@ crosscheck/
 ├── frontends/rust/        # Rust front-end on rustc's MIR (translated to C)
 ├── benchmarks/            # example programs; tacle/, tpdb/, cmsis/ (Paper II);
 │                          # cycles/ and hardware/ (Paper III)
-├── docs/                  # guide, certificate format, contracts, plans, qualification skeleton
-├── references/            # what was read of each cited paper (no PDFs in the repository)
+├── docs/                  # guide, slides, certificate format, contracts, release record, qualification skeleton
 └── AI_USAGE.md
 ```
 

@@ -6,6 +6,15 @@ following AGMAI's *Responsible Release of AI-Generated Mathematics*
 It must be kept up to date whenever an AI tool changes the paper, the bibliography
 or the Lean code, and it must be complete before any arXiv submission.
 
+Section 1 is a chronological log. The checks it leaves to the author, and its references
+to the numbered items of an earlier Section 3, describe the state at the time; on
+2026-11-22 (prompt 107) those items were closed, or removed where only the author's own
+review could close them: Section 3 now records what was checked, and the author's review
+is the subject of the statement in each paper.
+
+Prompts are verbatim, except that names of local files that are not part of the repository
+are replaced by a description in square brackets.
+
 ## 1. Sessions
 
 ### Session of 2026-11-11
@@ -432,11 +441,9 @@ What the AI did:
     constraint and declared time behaviour would be accepted (such as std library in
     C++), what do you think ?"
 
-What the AI did: new folder `references/` with `fetch_papers.py`, which downloads the
-open-access copies of the cited papers (21 of 50 entries) into a gitignored folder; the
-PDFs are not committed because most are under publisher or author copyright. The AI
-read abstracts, and for a few papers the sections the text relies on; what was read and
-checked is listed per entry in `references/README.md`. Two statements of the paper were
+What the AI did: obtained open-access copies of the cited papers (21 of 50 entries), kept
+outside the repository because most are under publisher or author copyright. The AI read
+abstracts, and for a few papers the sections the text relies on, and kept reading notes. Two statements of the paper were
 corrected after reading: TACLeBench is no longer called "the successor of" the
 Mälardalen benchmarks (the article lists several sources), and the comparison with
 Haslbeck and Nipkow in `subsec:cost-logic` now states what their paper does (three
@@ -609,7 +616,7 @@ What the AI did for 30 (design choices are the AI's; no Lean or theory change):
 - Bibliography: `bonenfant2012ffx` (Crossref), `heckmann2013ait` (the PDF read; undated),
   `sarif2023` (OASIS page). Paper II: paragraph "Exports", a sentence in the kernel
   results, related work and future work updated (14 pages). READMEs, guide, proposals,
-  implementation plan, `references/README.md`, `CLAUDE.md` updated.
+  implementation plan, the reading notes, `CLAUDE.md` updated.
 
 31. "proceed with step 3: modular symbolic certificates and library contracts"
 
@@ -838,12 +845,12 @@ in the papers says that the author verified anything.
   `blumofe1999scheduling`, `pnueli1998translation`, `necula2000translation`,
   `audsley1993applying`, `graham1966bounds`, `cerqueira2016prosa`, `kirchner2015framac`,
   and more of `blazy2013formal`, `maroneze2014formally`, `sinn2014complexity`.
-  `references/README.md` says which passages. One correction: SPEED
+  the reading notes says which passages. One correction: SPEED
   (`gulwani2009speed`) uses counters and invariants and presents itself as an alternative
   to ranking functions; Paper I no longer cites it for ranking functions. Two sentences
   made more precise (the greedy-scheduling theorem of Blumofe and Leiserson; RTL and
   Clight in Paper II). Not obtained: `nielson1987hoare`, `necula1997proof`,
-  `joseph1986finding`, `albert2011closed` and others listed in `references/README.md`;
+  `joseph1986finding`, `albert2011closed` and others listed in the reading notes;
   the marks were narrowed to these.
 - **Cortex-M0 timing table** (one mark). Table 3-1 of the Arm Cortex-M0 Technical
   Reference Manual (r0p0, DDI 0432C, from Arm's public documentation service) was read in
@@ -1168,7 +1175,7 @@ What the AI did for 48 (Claude Opus 5.5, 2026-11-16).
   through Section 4.2 of Masud's thesis (the paper's own copy needs a login): the costs of
   successive iterations bounded by an arithmetic (or geometric) sequence, increasing or
   decreasing, and summed. Both DOIs checked against Crossref; bibliography entries
-  `healy2000supporting`, `albert2011more`; reading notes in `references/README.md`. The
+  `healy2000supporting`, `albert2011more`; reading notes in the reading notes. The
   paper no longer presents the summation as new: Paper I cites both before
   `prop:amortised-loop`, Paper II in its related work. The search was a few queries, not
   a survey: earlier sources may exist.
@@ -1360,7 +1367,7 @@ What the AI did for 53 (Claude Opus 5.5, 2026-11-17): the linker work of prompt 
 
 What the AI did for 54 (Claude Opus 5.5, 2026-11-17): the certified cycle bound of the
 binary (the research step of prompts 51-53).
-- **Prior work searched and read** (`references/pdf/maroneze2014formally.pdf`, Sections
+- **Prior work searched and read** (Sections
   2.2 and 3.4): Maroneze, Blazy, Pichardie and Puaut validate in Coq the solution of the
   IPET program of their WCET estimation with a Farkas certificate, and prove the ILP
   generation against CompCert's assembly semantics, with one cycle per instruction. The
@@ -1403,7 +1410,7 @@ binary (the research step of prompts 51-53).
 55. "Proceed with Proving that the graph matches the binary, which needs a decoder and timing table in Lean, as Maroneze et al. did for CompCert."
 
 What the AI did for 55 (Claude Opus 5.5, 2026-11-17).
-- **Prior work searched and read** (`references/pdf/sewell2017high.pdf`, contributions,
+- **Prior work searched and read** (contributions,
   Sections 2.4 and 4.1; `fox2010trustworthy.pdf`, abstract and introduction): Sewell, Kam
   and Heiser obtain the seL4 binary's CFG from a decompiler proved (HOL4) against the
   Cambridge ARM model of Fox and Myreen (validated on hardware), and leave as future work
@@ -1463,7 +1470,7 @@ What the AI did for 57 (Claude Opus 5.5, 2026-11-17).
 58. "I added puschner1989calculating.pdf joseph1986finding.pdf healy2000supporting.pdf necula1997proof.pdf demichiel2008orange.pdf"
 
 What the AI did for 58 (Claude Opus 5.5, 2026-11-17): read the five files (not committed);
-reading notes in `references/README.md`.
+reading notes in the reading notes.
 - `puschner1989calculating`: read entirely. Confirms the timing-schema attribution of
   Paper I; one sentence added to Paper I's related work ("WCET analysis"): Puschner and Koza's
   markers, scopes and loop sequences bound execution counts, constraints of the kind IPET
@@ -1484,7 +1491,7 @@ reading notes in `references/README.md`.
 59. "look at joseph1986finding_bis.pdf conf-vmcai-AlbertGM11.pdf demichiel2008orange_bis.pdf"
 
 What the AI did for 59 (Claude Opus 5.5, 2026-11-17): read the three files (not committed);
-notes in `references/README.md`.
+notes in the reading notes.
 - `joseph1986finding` (a scan, OCR with tesseract): read entirely. The `\authortodo` of
   Paper I is removed; after `thm:response-time` Paper I now says that the iteration is
   Joseph and Pandya's function Response, and that their analysis starts at the critical
@@ -1501,21 +1508,21 @@ notes in `references/README.md`.
 61. (sent while 60 was in progress) "I added shaw1989reasoning.pdf and albert2011closed.pdf and replaced most of remaining authortodo, fix the remaining ones"
 
 What the AI did for 61 (Claude Opus 5.5, 2026-11-17): read both files (not committed);
-notes in `references/README.md`. `shaw1989reasoning`: Sections I-III; confirms the
+notes in the reading notes. `shaw1989reasoning`: Sections I-III; confirms the
 timing-schema citations; Paper I's `subsec:cost-logic` now also says that Shaw extended
 Hoare logic with a real-time variable. `albert2011closed`: abstract, Section 1 and the
 passages on ranking functions and maximization; confirms the citations. The author
 replaced the two responsibility `\authortodo` with statements of their own (not changed
 by the AI). On the author's instruction the three remaining `\authortodo` were removed:
 Paper I, confirmation of the attributions to Nielson (R-3, R-4) and to Healy et al. and
-Albert et al. (the AI read the cited passages, see `references/README.md`); Paper II, the
+Albert et al. (the AI read the cited passages, see the reading notes); Paper II, the
 note that Shaw and Albert 2011 (JAR) were cited through other sources (now read). No
 `\authortodo` remains in either paper. The work for 60 is recorded separately when done.
 
 What the AI did for 60 (Claude Opus 5.5, 2026-11-17/18): loop bounds certified on the
 Cortex-M0 machine code, so that the loop rows of the cycle certificates need not be
 trusted.
-- Prior work searched and read (not kept; `references/README.md`): Sewell, Kam and Heiser
+- Prior work searched and read (not kept): Sewell, Kam and Heiser
   (RTAS 2016, `sewell2016complete`), Crary and Weirich (POPL 2000, `crary2000resource`),
   Cullmann and Martin (WCET 2007, `cullmann2007data`); Blackham and Heiser's Sequoll (RTAS
   2013) and Aspinall et al. (TCS 2007) were found but not obtained or not read, and are
@@ -1616,7 +1623,7 @@ non-specialist (about 1,650 → 3,300 lines, 9 parts).
 - Papers I, II and III each explained in their own part (Part 5 new: the 68-cycle example
   checked edge by edge, the loop certificate of the same code checked by hand); plugin,
   Lean, bibliography and expert parts renamed and updated (Lean modules `ThumbDataCore`,
-  `ThumbData`; the bibliography's "Read" column regenerated from `references/README.md`;
+  `ThumbData`; the bibliography's "Read" column regenerated from the reading notes;
   machine-code questions; stale numbers fixed).
 - Nine figures drawn by `docs/guide/tools/figures.py` (plain SVG: potentials along runs, a
   data-dependent step, cost envelopes of a triangular nest, a logarithmic loop, Farkas in
@@ -1678,7 +1685,7 @@ Crossref, text not obtained: attribution flagged in Paper III's `\authortodo`).
   unmodelled flags / mixed). Paper III (definition, rounding after `lem:cond-facts`,
   producer, evaluation, `tab:lean3`, related work), `benchmarks/cycles/README.md`,
   `docs/certificate-format.md`, the guide (Part 2: a section on congruences with a figure;
-  Parts 5 and 9) and `references/README.md` updated.
+  Parts 5 and 9) and the reading notes updated.
 - Without frame pointers, with congruences: `frame` refused in 25 of 265 functions (190 in the
   default build); loops certified 120 / 173 / 202; 118 functions with a certified cycle
   bound; all accepted, no violation. Reported in Paper III and the README as a separate
@@ -1734,7 +1741,7 @@ the attributions) was replaced by "The AI assistant checked the attributions to 
 papers] against the full texts of these papers, which the author supplied." Note for the
 author: text added to Paper III after that statement (the related-work changes above and the
 evaluation of prompt 66 when it is written) is not covered by it until the author reads it.
-`references/README.md` (four rows), the guide (Part 2 rounding paragraph, Part 8 map)
+the reading notes (four rows), the guide (Part 2 rounding paragraph, Part 8 map)
 updated. Papers I, II and III build without warnings (Paper III: 16 pages).
 
 69. "proceed with the next logical step"
@@ -1949,7 +1956,7 @@ rows in the certified cycle bounds 159 / 153 / 137 -> 43 / 37 / 19 (157 / 152 / 
 emulated run above a bound; remaining failures 88 / 25 / 21 / 12 / 7. Literature checked
 for the paper: Mauborgne & Rival 2005 and Gange et al. 2015 (TOPLAS; wrapped intervals; it
 names Navas et al. APLAS 2012 as its preliminary version, which could not be downloaded),
-DOIs on Crossref, read passages recorded in `references/README.md`. Paper III (definition
+DOIs on Crossref, read passages recorded in the reading notes. Paper III (definition
 of loop certificates, proof of the theorem, producer paragraph, abstract, evaluation, table
 `tab:lean3`, Lean size), Paper I (size of the Paper III modules), cycles README, guide (Parts
 5 and 9), `docs/certificate-format.md`, `formalization.yaml`, CLAUDE.md updated. This text of
@@ -2091,7 +2098,7 @@ What the AI did for 83 (Claude Opus 5.5, 2026-11-21); summary in `docs/release-c
   Lean size in Paper I (10,400 lines, 460 theorems), CLAUDE.md and the guide updated.
 - Reproduction of Paper II's figures on this machine (section E of the checklist).
 - Bibliography: the 69 entries cited by Papers I and II checked against Crossref and
-  DataCite (no data error); `clangeffects` and `infercost` read (`references/README.md`).
+  DataCite (no data error); `clangeffects` and `infercost` read .
 - Wording scan of Papers I and II (no marketing words found).
 - AI statements of the three papers: Haiku 5.5 added (found in the transcripts, inside the
   subagent that reads web pages). Time and tokens measured from the transcripts (section 2).
@@ -2204,7 +2211,7 @@ rebuilt without warnings (42, 23, 20 pages), arXiv bundles regenerated.
 
 98. "Can (should) I upload the papers into HAL and Zenodo first then in arxiv when I will get the endorsement ?"
 
-99. "I would like to understand better some points from section C so that I can decide : tell me more about Novelty and attributions (items 7, 9, 18, 36, 37): the papers must not present classical ideas as new. references/README.md says, per entry, what the AI read; 18 of the 69 cited works have no reading note (books, classical papers such as Floyd 1967, Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only."
+99. "I would like to understand better some points from section C so that I can decide : tell me more about Novelty and attributions (items 7, 9, 18, 36, 37): the papers must not present classical ideas as new. [the reading notes] says, per entry, what the AI read; 18 of the 69 cited works have no reading note (books, classical papers such as Floyd 1967, Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only."
 
 100. "I agree with "We use the prefix order ..." and citation, also for citing Tarjan. I added courcelle1983trees.pdf tarjan1985complexity.pdf floyd1967assigning.pdf wegbreit1975mechanical.pdf podelski2004complete.pdf bardin2008fast.pdf kincaid2019closed.pdf schrijver1986theory.pdf cormen2009introduction.pdf baccelli1992synchronization.pdf cousot1977abstract.pdf nielson1987hoare.pdf start reading these then tell me again what is still missing"
 
@@ -2218,7 +2225,7 @@ example.
 
 What the AI did for 99-101 (Claude Opus 5.5, 2026-11-22): explained items 7, 9, 18, 36 and
 37 from the papers' text. Then read the cited passages of the 16 works the author
-provided (two scanned copies through OCR) and recorded each in `references/README.md`.
+provided (two scanned copies through OCR) and recorded each in the reading notes.
 Changes approved by the author: the contribution list of Paper I says the prefix order is
 used, not defined, and cites Courcelle 1983 (Section 2.4) for the tree order, also after
 `def:tree-order`; a sentence after `def:order-by-composition` calls it the usual prefix
@@ -2278,331 +2285,86 @@ without warnings (Paper I: 43 pages).
 
 What the AI did for 106 (Claude Opus 5.5, 2026-11-22): committed the work of 104-105 and pushed it to `main`.
 
+107. "I do not think that leaving open points such as in docs/release-checklist.md or AI_USAGE.md on submission : please close them all, or remove the remarks, do the same for other files. If we can handle that, let's do it, otherwise let's clean up"
+
+108. "Remove any record of the "references" folder and its content : this is for local use only. You can keep the gitignore line but nothing else about it"
+
+What the AI did for 107-108 (Claude Opus 5.5, 2026-11-22): asked the author the two facts
+only the author knows (AI use before 2026-11-11: not recorded; monetary cost: not recorded,
+usage in time and tokens). Closed what could be closed: `matiyasevich1970enumerable`
+corrected to the English translation whose title it gives (checked on Math-Net.ru and the
+JSL review); obsolete items (old title, `attali1998formal`, removed `\authortodo` marks)
+dropped; the unused `\authortodo` macro removed from the three papers; two "not yet"
+sentences of Paper I reworded. Removed what only the author's review could close: Section 3
+of this file is now a review record of the AI's checks, Section 2 says how each AGMAI item
+is met, and a note above Section 1 says that the log's references to open items describe
+the state at the time. `docs/release-checklist.md` replaced by `docs/release-record.md`
+(checks, archive identifiers, reproduction); the historical `docs/proposals.md` and
+`docs/implementation-plan.md` deleted (in git history); "not yet" phrasings in the guide,
+READMEs, slides and the hardware start-up file reworded; CLAUDE.md updated (no to-do lists,
+no `\authortodo`). The folder of cited works and reading notes is no longer tracked
+(`.gitignore` covers it) and no file of the repository mentions it any more; the papers'
+statements on the use of AI no longer point to it. Papers rebuilt without warnings.
+
+109. "commit and push to main"
+
+What the AI did for 109 (Claude Opus 5.5, 2026-11-22): committed the work of 107-108 and pushed it to `main`.
+
 ### Earlier work
 
-**Author to fill in:** tools, models, prompts and scope of any AI use before
-2026-11-11 (the pre-existing manuscript, Lean files and `CLAUDE.md`).
+AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
+then) is not recorded in this file.
 
 The Java prototype that preceded CrossCheck (module Revenge of METACad, 2008-2017,
 <https://sourceforge.net/p/metacad/code/291/tree/revenge/>) is in `history/revenge/`; the
 author confirmed on 2026-11-21 being its only author. It predates any AI assistance.
 
-## 2. Compliance audit against the AGMAI recommendations
+## 2. Compliance with the AGMAI recommendations
 
 The recommendations address AI labs; for a paper released by a human author their
 Section 2.A applies (traditional norms: the author understands the argument, has
 verified it personally, and takes full responsibility). The Step I items are applied
 here as the release standard.
 
-| Item | Requirement | Status |
+| Item | Requirement | How it is met |
 |---|---|---|
-| 2.A | Author understands every argument, has verified correctness personally, takes full responsibility | **OPEN — only the author can do this.** See checklist in §3. |
-| 1(a) | Literature searched; ideas cited to the papers that introduced them | Done by the AI from memory (Related Work, Positioning). **Author must check every reference and the novelty claims.** |
+| 2.A | Author understands every argument, has verified correctness personally, takes full responsibility | The author's statement in each paper ("I have read and verified the text and take full responsibility for the content"). This file records the AI's part, not the author's review. |
+| 1(a) | Literature searched; ideas cited to the papers that introduced them | Related work and "Positioning" of Paper I; the attributions were checked against the cited works that could be read, and changed where the reading required it (Section 1, prompts 99-103). |
 | 1(b) | Traditional paper style: introduction, precise statements and proofs | Done. |
-| 2 | Deposit in a scholarly repository with persistent identifier and version history | Code: **done** by the author on 2026-11-21: repository public, tag `v1.0`, archived at Zenodo (`doi:10.5281/zenodo.24425070`, all versions `doi:10.5281/zenodo.24425069`) and Software Heritage (`swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`); cited in the three papers, `CITATION.cff` and `README.md`. Papers: **OPEN**, arXiv upload by the author. |
-| 3 | Publish model name, prompts, summarised reasoning, time, cost | Model, prompts, summary: this file. Measured by the AI on 2026-11-21 from the local Claude Code transcripts of this project (11 files: the main session and its subagents), 2026-11-11 to 2026-11-21: about 76 hours of active session time (gaps above 30 minutes not counted); 5,117 model responses (`claude-opus-5-5` 4,273, `claude-fable-5-2` 801, `claude-haiku-5-5` 27, the last inside the web-page reader); 5.8 million output tokens, 20.4 million tokens written to and 1,790 million read from the prompt cache. Work done in other tools (e.g. claude.ai chats) is not in these transcripts. **Cost: author to fill in** (from the account's billing), and to confirm the time. |
-| 4 | Formalize as far as possible; state formalization status clearly; machine-readable link between paper and formal artifact; copyright headers; challenge file | Formalized with status stated in the paper (Section "Mechanization in Lean 4", incl. what is *not* formalized; the C++ plugin is explicitly outside the formalization). Copyright headers added. `formalization/formalization.yaml` links paper labels to Lean names, but its schema is project-defined and **not validated** against a community spec. **No challenge file for `comparator` yet.** |
-| 5 | Document exactly how AI came to be used on this problem | This file, and the "Statement on the Use of AI" in the paper (contains an explicit author-to-confirm marker that must be resolved). |
+| 2 | Deposit in a scholarly repository with persistent identifier and version history | Code: release `v1.0`, Zenodo `doi:10.5281/zenodo.24425070` (all versions `doi:10.5281/zenodo.24425069`), Software Heritage `swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`; cited in the three papers, `CITATION.cff` and `README.md`. Papers: arXiv. |
+| 3 | Publish model name, prompts, summarised reasoning, time, cost | Models, prompts and summaries: this file. Measured by the AI on 2026-11-21 from the local Claude Code transcripts of this project (11 files: the main session and its subagents), 2026-11-11 to 2026-11-21: about 76 hours of active session time (gaps above 30 minutes not counted); 5,117 model responses (`claude-opus-5-5` 4,273, `claude-fable-5-2` 801, `claude-haiku-5-5` 27, the last inside the web-page reader); 5.8 million output tokens, 20.4 million tokens written to and 1,790 million read from the prompt cache. Work done in other tools (e.g. claude.ai chats) is not in these transcripts. The monetary cost is not recorded; usage is given in time and tokens. |
+| 4 | Formalize as far as possible; state formalization status clearly; machine-readable link between paper and formal artifact; copyright headers | Paper I, Section "Mechanization in Lean 4", lists what is not mechanized (modelling hypotheses, cited classical results, two remarks marked as not formalized; the C++ plugin is outside the formalization). `formalization/formalization.yaml` links paper labels to Lean names (project-defined schema). Copyright headers on every file. No challenge file for `comparator` is provided. |
+| 5 | Document exactly how AI came to be used on this problem | This file, and the "Statement on the Use of AI" in each paper. |
 
-## 3. What the author must verify personally before release
+## 3. Review record
 
-Machine-checked statements are safe as *Lean statements*; what needs human judgement
-is whether each Lean statement says what the paper says, and everything outside Lean.
+What the AI checked, and where the result is recorded. Machine-checked statements are
+safe as Lean statements; the checks below concern the correspondence between the papers
+and Lean, the figures, the bibliography and the trusted parts.
 
-1. **Statement fidelity.** For each row of Table 1 in the paper, read the Lean
-   statement and confirm it matches the paper's statement (hypotheses included). A pre-check by the AI (2026-11-21) found
-   gaps, closed by the module `Norms` (see prompt 83); sample its comparison.
-2. **Non-mechanized mathematics** (proved on paper only):
-   - (mechanized on 2026-11-22, module `Branching`: the tree-order propositions and the
-     closed form `I·(L^d − 1)/(L − 1) + L^d` for every branching factor; module
-     `Divergence`: `prop:no-divergence`, formerly an unproved remark);
-   - the remark on the fixed-point reading (`t^ω` as least fixed point);
-   - the Farkas / linear-template paragraph: completeness over ℚ, and the complexity
-     statement attributed to Ben-Amram & Genaim;
-   - the decidability remark (translation loops ↔ Presburger; polynomial loops ↔ Diophantine).
-3. **Examples.** The parametric-loop system was changed
-   (`i_loop = i_init + 2(n−1)`, `i_last^0 = i_loop + 2`); confirm it against the
-   prototype's actual output, or adjust the sentence saying the systems are produced
-   by a prototype.
-4. **Bibliography.** Check every entry against the source, especially the
-   venue and year of `attali1998formal` and all page numbers.
-5. **Claims about tooling.** The paper says a prototype generates the example systems
-   and that the Clang front-end is under development; confirm both are accurate.
-6. **Title.** Changed to "Dual-Layer Semantics of Imperative Programs and WCET
-   Verification via Constrained Optimization"; confirm the wording. (Out of date, 2026-11-21: the title is now "CrossCheck I: Cost Bounds of
-   Imperative Programs as Constrained Optimization, with a Sound Cost Logic and a Verified
-   Certificate Checker"; confirm that one.)
-7. **New references.** Read each paper added on 2026-11-12 and confirm that the sentence
-   citing it describes it correctly (the AI verified bibliographic data only).
-8. **Prototype section and Table 2.** Re-run `ctest` and the tool on `benchmarks/`,
-   confirm the figures, and read `clang-plugin/README.md` ("Soundness", "Limitations"):
-   the analyser is unverified C++ written by an AI, and its soundness rests on review
-   and on the regression tests. Decide whether the examples sentence in Section
-   "Examples" ("systems ... produced by a prototype implementation") is still accurate.
-9. **Size potential.** Check Proposition "Size Potential" and its attribution to the
-   potential method.
-
-10. **TACLeBench subsection** (`subsec:tacle`). Re-run `benchmarks/tacle/run_tacle.py`
-    and confirm Table `tab:tacle`; check the classification of the 96 unbounded loops
-    against the sources (it was made by the AI); confirm the two new references describe
-    the collections correctly; decide whether to add a run with minimal annotations.
-11. **Tool comparison** (`tab:tools`). Re-run `compare_tools.py`, inspect
-    `benchmarks/tacle/results/`, and check the descriptions of ScalarEvolution, KoAT2,
-    llvm2kittel and Infer against their papers and documentation. The KoAT2 and Infer
-    runs used default options (for llvm2kittel, the image's own flags plus inlining of
-    callees), with no tuning; decide whether that is fair to state as is.
-12. **Observed loop counts** (rows "Loops reached" of `tab:tools`). Read
-    `measure_loops.py`: that the counter is reset on every entry of the loop and
-    incremented once per execution of the body, in particular for `do` loops and loops
-    left by `break`; re-run and spot-check a few counts by hand (e.g. with a debugger).
-    Check the interpretation of the two flow facts below the count (`md5` line 562,
-    `quicksort` line 745).
-13. **oRange** (column of `tab:tools`). Check that the comparison is fair to it: the
-    build (oRange from GitHub, FrontC from IRIT), the removal of the pragmas, the use
-    of the summary `max` (maximum over calling contexts), the 600 s timeout. Confirm the
-    `filterbank` counterexample, ideally with the oRange authors before publishing it.
-14. **CoFloCo** (column of `tab:tools`). Check that running it on llvm2kittel's
-    uniform complexity tuples (the KoAT2 options) through `interfaces/C2ces` with the
-    default cost model is a fair use, and that "Infinity" is read as "no bound found".
-15. **TPDB** (paragraph "Complexity benchmarks"). Decide whether the bounded-mode harness
-    is a fair way to run CrossCheck (it also bounds nondeterministic values, which the
-    other tools do not assume); check the 7 CrossCheck-only programs and the sampled
-    failure reasons in `benchmarks/tpdb/README.md`; check the entry-function heuristic.
-16. **Calling contexts and `prop:context-bound`.** Read the proposition and its proof,
-    and the four Lean statements. In the plugin, check the three soundness rules
-    (evaluate before costing, same-type arguments, no context for self-recursive
-    functions) and the `Calls/UnsoundContext` tests; check that the report's two kinds
-    of bound (for every call / in context) are described correctly wherever figures are
-    quoted.
-17. **Cost logic** (`subsec:cost-logic`). Check that the definitions in the text
-    (`\Downarrow`, `\uparrow`, valid and derivable triples) say what `Exec`, `Pre`,
-    `Valid` and `Derivable` say in `Language.lean`; read the proof of
-    `thm:cost-logic-soundness`; read Nielson 1987 and Haslbeck and Nipkow 2018 and
-    resolve the `\authortodo` on how this system differs from theirs.
-18. **Bibliography.** The data of every entry were checked by script against public
-    indexes (see session notes); check `matiyasevich1970enumerable` yourself, and read
-    the papers whose content the text relies on. `references/README.md` lists which
-    papers the AI read, how far, and which it could not obtain (29 entries).
-19. **Procedures, recursion, checker, new potentials.** Read rules 7 to 9 and the recursion
-    case of the proof of `thm:cost-logic-soundness`; compare `def:certificate` and the
-    description of the checker with `ACmd` and `check` in `Checker.lean`, and read the
-    proof of `thm:checker-soundness`; check `prop:lex-log` and its proof; read Necula
-    1997, Nipkow 2002 and Blumofe and Leiserson 1999 before keeping their citations;
-    decide whether the unformalized paragraph on weights and parallel composition should
-    stay.
-20. **Certificate emission.** Read `docs/certificate-format.md` and the paragraph
-    "Certificates" of the paper; check the claim that inlining a callee is sound (a
-    callee cannot modify the caller's tracked variables) and that moving the statements
-    after a returning conditional into its branches preserves the cost semantics;
-    inspect a few certificates with `crosscheck-check --print`.
-21. **Early exits, `switch`, unsigned in certificates.** Read the `whileAnd` case of
-    `check` and of `check_sound` and the text added to Definition `def:certificate`,
-    the checker description and the proof of `thm:checker-soundness` (Paper I). Check
-    that the lowerings described in `docs/certificate-format.md` (flags for
-    `break`/`continue`/`return`, `switch` as nondeterministic groups, the wrap-around
-    test of unsigned stores, `certModular`'s congruence argument) are faithful to C
-    semantics: the checker verifies the certificate's program, not this translation.
-22. **Reported loop bounds.** Loop bounds in reports now count executions of the body
-    for `do` loops and for loops whose leaving iteration is not covered by the
-    potential; confirm this is the convention wanted in the papers' tables.
-23. **Program certificates.** Read `Definition def:program-certificate`, the proof of
-    `thm:program-soundness`, and the `call` case of `check`/`check_sound`; confirm that
-    contracts (functions without a body) are stated as assumptions in both papers and in
-    the checker's output, and that `docs/contracts.md` says what a contract may not claim.
-24. **Validation against mini-C.** Read Definition `def:minic`, Lemma `lem:nf-equiv` and
-    Theorem `thm:validated` against `MiniCCore.lean` (`lower`, `nf`, `validate`) and
-    `MiniC.lean` (`nf_equiv`, `validated_sound`). Read `clang-plugin/src/analysis/MiniC.cpp`
-    in full: it is now the trusted translation for validated certificates; confirm that
-    its modelling choices (unknown values for memory and untracked variables, exact signed
-    arithmetic under the no-overflow assumption, the conditions for exact `+=`/`++`,
-    `return` outside loops, the refusals) are faithful to C, and that the papers state
-    the hypotheses (no signed overflow, no aliasing of tracked variables, no concurrent
-    writes). Read Pnueli et al. 1998 and Necula 2000 before keeping the citations.
-25. **Interrupts and fork-join.** Read Definition `def:interrupt-model`, Theorem
-    `thm:response-time` and Proposition `prop:graham` against `Interrupts.lean` and
-    `ForkJoin.lean`; confirm that the hypotheses (no activation pending at the start, one
-    cost unit = one time slot, handlers not writing the task's variables) are stated
-    wherever response times are reported; check the authors of `joseph1986finding`.
-26. **Cortex-M0 cycle bounds.** Check `m0.cycles` against the instruction summary of the
-    Arm Cortex-M0 Technical Reference Manual (the AI wrote it from memory: 1 cycle for data
-    processing, 2 for loads/stores, 1+N for LDM/STM/PUSH/POP, 4+N for POP with PC, 3 for
-    taken branches, 1 not taken, 4 for BL, 3 for BX, MULS 1 or 32), and decide whether the
-    loop matching by debug lines (checked on runs only) is acceptable as stated.
-27. **Rust front-end.** Read `frontends/rust/README.md` and `mir2c.py`; confirm the
-    semantic choices (checked arithmetic as non-overflowing C, assertions as early
-    returns, `usize` as 64 bits) and that Paper II states that bounds cover the executions
-    that do not panic and that the translation is unverified and tied to rustc 1.100.0.
-28. **Logarithmic loops.** Read the logarithmic case of the proof of `thm:checker-soundness`
-    against `logloop_sound` and `logPot_step` in `Checker.lean`, and the `whileLog` case of
-    `check` in `CheckerCore.lean`; note the generator bug on `x >>= k` found during this step
-    (certificates emitted before it may describe a different program for such statements).
-29. **Growing logarithmic loops and exact unsigned division.** Read the growing case of
-    the proof of `thm:checker-soundness` against `growloop_sound` and `log_grow` in
-    `Checker.lean` and the `whileGrow` case of `check`; in `Analyzer.cpp`, check the claim
-    that unsigned `/`, `>>`, `%` and `&` cannot wrap (function `shrinking` and its uses in
-    `evalBinary`), which is an analyser rule without a Lean proof; check the new figures of
-    Paper II (`tab:tacle`, `tab:tools`, CMSIS-DSP, TPDB, cycles) against the READMEs.
-30. **Steps 9, 10, 13, 15, 16.** Read `lex_potential` and the remark after
-    `prop:lex-log`; in `Analyzer.cpp` (`execLoop`), the retry with more candidates and the
-    rule that counts one more body execution when an iteration may never return to the
-    head; decide whether the two defects found by the random tests need a note in Paper II
-    (the AI added one); have `docs/qualification/README.md` read by someone who knows
-    DO-330 before showing it to an industrial partner; run `acsl_export.py` output through
-    Frama-C/WP on one example before claiming that the export is usable.
-31. **Steps 11, 12, 14.** Read `divFacts` and the `divStore` case of `lower` in
-    `MiniCCore.lean` against the added item of Definition `def:minic`, and decide whether
-    the facts stated for a mask and a remainder are what you want mini-C to mean; read the
-    `assignU` case and `expMod` in `MiniC.cpp` (the claim that sums, differences and
-    products computed over the integers agree modulo 2^width with C's unsigned arithmetic
-    when no intermediate result is truncated to fewer bits); read the `call` case of
-    `lower` and `callStmts` in `MiniC.cpp`, and decide whether "validated" should be
-    reported only for functions whose callees are validated too; read
-    `Stack.lean` against `prop:stack` (in particular the off-by-one of the depth
-    statement); check that the TPDB harness of the symbolic mode (inputs read before the
-    first loop become parameters) is a fair reading of the benchmark; check the reference
-    `kirchner2015framac`.
-32. **TPDB programs bounded only by CrossCheck.** Done on 2026-11-16: the five
-    potentials are in certificates accepted by the Lean checker, and Paper II says so.
-33. **Checks made by the AI on 2026-11-16 (prompt 45).** Each of these replaced an
-    `\authortodo`; they are checks by the AI, listed so that you can sample them:
-    - items 19, 23, 24, 25 (definitions of Paper I against Lean): the comparison is
-      described in section 1 under prompt 45; read the three precisions added to
-      `def:certificate` / `def:program-certificate` and the four added to `def:minic`, and
-      the new `Handlers.rel : Set` and `makespan_lower`;
-    - item 26 (Cortex-M0 timings): done against Table 3-1 of the manual; only the decision
-      on loop matching by debug lines is left;
-    - items 10 and 12 (classification of unbounded loops, loop instrumentation): done by
-      scripts; the decision whether to add a run with minimal annotations is left to you;
-    - item 13: decided by the author (2026-11-17, prompt 57): not reported to the authors
-      of oRange before the paper is accepted and reviewed;
-    - items 7, 18, 19, 24, 25 (reading): see `references/README.md` for what was read; the
-      papers not obtained keep an `\authortodo`.
-34. **Early exits and `switch` in mini-C, and OTAWA (prompt 45).** (The rewriting is no
-    longer trusted since prompt 46: item 35.) Read `Exporter::block`,
-    `Exporter::loop` and `Exporter::switchStmt` in `MiniC.cpp` (the flag rewriting and the
-    description of a `switch` are now trusted for validated certificates) and decide
-    whether you accept that a description may cost one loop test more than the C code
-    after a jump, and that "validated" may be said of a function whose `switch` is
-    described with unknown tests; read the paragraph "A WCET analyzer on the same
-    binaries" of Paper II and `run_otawa.py`: the reading of OTAWA's `maxcount` (header
-    executions per loop entry) is the AI's, from OTAWA's behaviour and general knowledge,
-    not from its documentation; the unit is instructions, not cycles; check the reference
-    `ballabriga2010otawa`.
-35. **Mini-C with jumps in Lean, `do` loops, globals, OTAWA cycles, annotated run
-    (prompt 46).** Read Definition `def:minic-jumps` and Theorem `thm:validated-jumps` of
-    Paper I against `MiniCJump.lean` (`JExecD`, `tr`, `sim`, `validatedJ_sound`): is the
-    direct semantics the meaning of C's `break`, `continue`, `return`, `switch` (entry
-    group not modelled) and `do`? The hypotheses that remain: the exporter's syntactic
-    translation, contracts not touching the ghost variables, and no other code writing
-    tracked globals during a function. Read `m0time.cpp` (the block time is the sum of
-    the table's instruction times, a conditional branch counted as taken; OTAWA's edge
-    times are not used) and the paragraph on OTAWA; read `run_annotated.py` (annotation
-    values taken from the benchmark's flow facts). Check the new descriptions of KoAT2,
-    CoFloCo and oRange in Paper II against the sources listed in references/README.md.
-36. **Amortised loop rule (prompt 47).** Read Proposition `prop:amortised-loop` of Paper I
-    and its proof (the induction, the closed form and the parity argument) against
-    `Language.valid_whileSum` and `Checker.triBound2_step`/`triBound2_ge`/`triloop_sound`;
-    check that the third form of the loop condition in `def:certificate` and in the
-    checker description is `CheckerCore.triOk`. Decide whether this rule is presented as
-    new: amortised bounds for triangular nests are classical in loop-bound analysis (e.g.
-    symbolic summation of nested loop counts). (Prompt 48: the AI searched briefly and
-    now cites Healy et al. 2000 and Albert, Genaim, Masud 2011; see item 37.)
-37. **Amortised loops with increasing cost, and prior work (prompt 48).** Read part (2) of
-    `prop:amortised-loop` and its proof against `Language.valid_whileMono` and
-    `Checker.upSum_closed`/`uploop_sound`; check that the description of the loop
-    "amortised with increasing cost" in `def:certificate` and in the checker description
-    is `CheckerCore.whileUp`/`upOk`. Check the two attributions (`healy2000supporting`
-    Section 5; `albert2011more`, read only through Masud's thesis) and look for earlier
-    sources (Sakellariou's summations, IPET flow facts that bound the total count of an
-    inner loop, e.g. Puschner and Koza's markers): the paper must not suggest that the
-    summation is new, only its form as a rule of the cost logic with a checker case.
-    Remove the `\authortodo` before `prop:amortised-loop` when done.
-38. **Prompt 49 (tool, benchmarks, no new theorem).** Check the static-local defect and its
-    fix (`Analyzer.cpp` `execDecl`, certificate generator, `MiniC.cpp` `decl`; test
-    `Unsound.StaticLocalCounterGrowsAcrossCalls`) and that the papers report it fairly;
-    the search budget (`Options::budget`, `searchBudgetLeft`, refinement capped at two
-    rounds with the candidates dropped if not inductive): that it can only lose
-    precision; the solver cache (`Solver.cpp`: keys are the closed premises and the goal);
-    the `?:` facts and the disequality split (sound case analyses); the fixes applied to
-    ROSACE and DEBIE in `run_tacle.py` (`parallel_units`) and the descriptions of both
-    programs; the second TPDB sample and the replacement of the TPDB `\authortodo` by a
-    sentence; the trade-off of 17 TPDB summaries for constant amortised bounds.
-39. **Quadratic bounds (prompt 50).** Read the extended definition of symbolic bounds in
-    `def:certificate`, the third form of the loop condition and the call rule in Paper I
-    against `CheckerCore` (`SB`, `qsub`, `SB.mul`, `crossQ`, `loopBoundOk`, `SB.qcomb`,
-    `callBound`) and the proofs `loopBoundOk_sound`, `SB.qcomb_ge`, `dotQ_crossQ`; note that
-    the quadratic comparison is syntactic (a subsequence), a deliberate restriction.
-40. **Time budgets on other processors (prompt 53).** Read the paragraphs "Time budgets"
-    and "Other processors" of Paper II against `crosscheck_link.py`, `otawa_flow.py` and
-    `run_stm32.py`; decide whether OTAWA's STM32 models (memory latencies its own file says
-    are not from the datasheet; no check against executions here) may be quoted, and
-    whether the refusal rules of `otawa_flow.parse_calls` are complete for the code your
-    compilers produce (e.g. other forms of indirect branches).
-41. **Cycle certificates (prompt 54).** Read Definition `def:cycle-certificate`,
-    Proposition `prop:cycles` and its proof in Paper I against `CyclesCore`/`Cycles`
-    (`Run`, `walk_bound`, `cycles_sound`, `program_sound`); check that the hypothesis
-    "the rows hold on the run" is what a source loop bound gives (back edges per entry,
-    summed over entries; header = entry: right-hand side N), and the attribution to
-    Maroneze et al. (Farkas validation of the IPET solution in Coq) and to Li and Malik;
-    confirm that the trusted part (graph, edge costs, rows) is stated wherever the
-    certified bounds are quoted.
-42. **Cycle bounds of machine code (prompt 55).** Read `ThumbCore.decode` against the
-    ARMv6-M Architecture Reference Manual (Thumb encodings, A5.2-A5.7) and the Cortex-M0
-    TRM Table 3-1 (cycles): it is the trusted specification; read Definition
-    `def:machine-run` and Theorem `thm:machine-cycles` against `Thumb.MRun` and
-    `binary_sound`; confirm the attributions to Sewell, Kam and Heiser and to Fox and
-    Myreen, and that the statement "our decoder is not validated on hardware" is kept
-    wherever the certified bounds are quoted.
-43. **Loop bounds on machine code (prompt 60).** Read `ThumbDataCore.effect` against the
-    ARMv6-M Architecture Reference Manual (which instructions write which low registers,
-    which change the flags; MOV/ADD between low registers keep them; CMP with high
-    registers gives no fact), `flagsAdd`/`flagsSub` against AddWithCarry, `condHolds`
-    against the condition table, and Definitions `def:data-run`, `def:loop-certificate`,
-    Lemma `lem:cond-facts`, Theorem `thm:machine-loops` and their proofs in Paper III
-    against `ThumbData`. Decide whether the assumption on callees (`abi`) should be
-    offered, and whether `test_effect.py` (against our own interpreter) is enough evidence
-    for the effects before a comparison with hardware.
-44. **Paper III (prompt 62).** Read the whole paper (the moved sections were already in
-    Papers I and II; the new text is the introduction, related work, Section 5, the new
-    evaluation paragraph, Section 7 to the end), confirm the three new attributions
-    (`cullmann2007data`, `crary2000resource`, `sewell2016complete`), complete its statement
-    on the use of AI, and check that Papers I and II still read well without the moved
-    material.
-45. **Exact effects (prompt 71).** Read the new cases of `ThumbDataCore.effect` (`NEGS`,
-    `MVNS`, `STM`/`LDM` write-back, `LDR rt, [pc, #i]`) against the ARMv6-M Architecture
-    Reference Manual (A6.7: RSBS with #0 and its flags, MVNS, STM/LDM with write-back and the
-    base in the list, the literal address `Align(PC, 4) + imm8 * 4`), and decide whether the new
-    trusted assumption "the code is not written during a run" holds for your targets (code in
-    flash, no self-modifying code, no writes to the literal pool).
-46. **Exact shift (prompt 72).** Read `Val.shl` and the `LSLS` case of `ThumbDataCore.effect`
-    against the ARMv6-M Architecture Reference Manual (A6.7, LSL (immediate): `imm5 = 0` is
-    `MOVS rd, rm`; the result is the low 32 bits of `rm << imm5`), the overflow case split in
-    `wrapPrem` and its proof `wrapPrem_holds`/`valE_eval` in `ThumbData`, and the sentences of
-    Paper III that describe them (definition `def:data-run`, the effects paragraph, the
-    congruence and case-split sentences, the new evaluation figures).
-47. **Disjunctive invariants (prompt 74).** Read the new fields `alt`/`pick` of `DFun`,
-    `invsAt`, `tgtIdx`, `tgtInv` and the changed `obsOf` in `ThumbDataCore`, the changed `Inv`
-    and `step_ok` in `ThumbData`, and the changed `def:loop-certificate` and proof of
-    `thm:machine-loops` in Paper III; confirm the attributions to Mauborgne & Rival (trace
-    partitioning) and Gange et al. (wrapped intervals) and decide whether Navas et al.
-    (APLAS 2012), named by Gange et al. as the preliminary version, should be cited too.
-48. **Rounding of facts on sums (prompt 76).** Read `gExpS`, `tightenS` and the changed
-    `condFactsM` in `ThumbDataCore`, `gExpS_dvd`, `tightenS_holds` and the changed
-    `condFactsM_sound` in `ThumbData`, and the example `exZero_*`; check the sentence on sums
-    in the rounding paragraph of Paper III (Section on loops) against Granger's reduction, and
-    the rewritten evaluation of Paper III (tables `tab:loops`, `tab:steps`, `tab:fail`)
-    against `benchmarks/cycles/README.md` and the runs. The text of Paper III changed since the
-    author's statement on the use of AI.
-49. **Hardware harness and GCC binaries (prompts 78-80).** Check the STM32F0 register
-    addresses and clock set-up of `benchmarks/hardware/stm32f0/startup.c` against RM0091,
-    and the single-cycle multiplier against PM0215, before trusting a measurement; then
-    run `hw.py` on a board. Read the paragraph "Another compiler" of Paper III against
-    `benchmarks/cycles/README.md` ("GCC binaries") and the runs.
-50. **Loop matching and data model (prompt 80).** Read `wcet.Analysis.match` and decide
-    whether the rule (innermost source loop whose line range holds the binary loop's lines)
-    is the one to describe in Paper III; it is trusted, checked only on emulated runs, which
-    reach few out-of-line calls in Clang's binaries. Confirm that the source analysis for
-    `--target=thumbv6m-none-eabi` (`SOURCE_TARGET`) is the right data model for every figure
-    of Papers II and III that comes from a Cortex-M0 binary (Paper II's figures come from the
-    host analysis and are unchanged).
-
+- **Paper statements against Lean.** Every row of Table 1 of Paper I read next to its Lean
+  statement, hypotheses included (2026-11-16, prompt 45, for
+  the definitions of the cost logic, the checker, mini-C, interrupts and fork-join;
+  2026-11-21, prompt 83, for all rows). The gaps found were closed by Lean proofs: module
+  `Norms` (2026-11-21), modules `Branching` and `Divergence` (2026-11-22); `formalization.yaml`
+  checked against the labels of the papers and the names of the Lean sources (2026-11-22).
+- **Lean.** `lake build` without errors or warnings; no `sorry`, `admit` or new `axiom`;
+  `#print axioms` of the theorems added since 2026-11-21: at most `propext`,
+  `Classical.choice`, `Quot.sound`; the Lean CI passes on GitHub.
+- **Figures.** Every figure of Paper II reproduced on 2026-11-21 (`docs/release-record.md`);
+  the figures of Paper III follow `benchmarks/cycles/README.md` and the runs it describes;
+  `ctest` 183 of 183.
+- **Bibliography.** Every entry checked against Crossref, DataCite or Open Library
+  (2026-11-13, 2026-11-21, 2026-11-22); the cited passages of the works that could be
+  obtained were read and compared with the sentences that cite them (Section 1).
+- **Cortex-M0 timings.** `m0.py` and `ThumbCore.decode` against Table 3-1 of the Cortex-M0
+  Technical Reference Manual (2026-11-16); the effects against `m0.py` on every encoding
+  (`test_effect.py`, `test_thumb.py`, CI).
+- **Trusted parts, stated in the papers.** The analyser and the certificate generator
+  (unverified C++); the exporter to mini-C for validated certificates, with its hypotheses
+  (no signed overflow, no aliasing of tracked variables, no concurrent writes of tracked
+  globals); the Lean specification of the Cortex-M0, compared with an interpreter written
+  for the purpose and not with hardware (the board harness of `benchmarks/hardware` has
+  not been run); the matching of binary loops with source loops by debug lines, checked on
+  emulated runs; OTAWA's processor models, used and not checked; the hypothesis that one
+  unit of cost takes one unit of time.

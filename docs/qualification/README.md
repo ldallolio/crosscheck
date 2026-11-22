@@ -65,7 +65,7 @@ All three run in CI (`.github/workflows/lean_build.yml`).
 | For VALIDATED: the mini-C exporter and "C function = its mini-C description" | outside the checker | exporter tests (`tests/c/minic.c`), comparison of interpreted mini-C with compiled C on random programs (`tests/fuzz_bounds.py`) |
 | Weights of the cost model; "cost unit = time" | a certificate bounds a cost, not a time | stated in every report; see Paper II, Limitations |
 
-## Open items before this could support a real qualification
+## What a real qualification would need beyond this skeleton
 
 - A tool qualification plan and the tool's intended use in the user's process (which
   verification activity the checker replaces or automates): the applicant's documents.

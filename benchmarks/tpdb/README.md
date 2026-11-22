@@ -56,7 +56,7 @@ Programs whose entry function gets a bound:
 (2026-11-13: 165 with ranges; then one more in `Sinn_2016`; five more in
 `Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15;
 36 more on 2026-11-16, since the search for a potential is repeated with more candidate
-invariants (`docs/proposals.md`, step 9). One program, `sipmamergesort2`, exceeded the 120 s
+invariants. One program, `sipmamergesort2`, exceeded the 120 s
 limit in both modes in that run, on a machine shared with other work; it had no bound before.
 2026-11-17: 8 more, since conditional expressions keep the facts true in both arms
 (`len -= min(len, 64)`) and a disequality in a loop guard is split into two paths

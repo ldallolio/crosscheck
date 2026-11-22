@@ -157,7 +157,7 @@ interpreter's decoder on all 2¹⁶ halfwords and against llvm-objdump on the 24
 of the kernels (`test_thumb.py`): no difference. It is not validated on hardware (Fox and
 Myreen's ARM model in HOL4 is, and is the standard to aim at).
 
-**Towards a board** (`benchmarks/hardware/`, not yet run). The cycle table can only be
+**A board harness** (`benchmarks/hardware/`, not run). The cycle table can only be
 confirmed on a real processor. `hw.py build` links each kernel's object file, unchanged,
 with a small start-up file for an STM32F0 board (a Cortex-M0 microcontroller): it starts a
 32-bit timer, calls `main`, stops the timer, and prints the count on the serial line. It

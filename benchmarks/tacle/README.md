@@ -168,7 +168,7 @@ concatenation), without annotations, 572 loops with a flow fact:
   programs (`measure_loops.py` covers the kernels).
 - **No bound** (297 loops for every call): mostly loops over data read from memory,
   global or `struct` counters, pointers and floating-point values, which the analysis
-  does not track (see `docs/proposals.md` §4).
+  does not track.
 - **Entry functions** bounded without annotation: `adpcm_dec`, `adpcm_enc`, `petrinet`,
   `statemate`.
 - **Certificates: 231 of 263 bounded functions, all 231 accepted by the checker**; 208

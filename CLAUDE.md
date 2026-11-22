@@ -31,11 +31,8 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `benchmarks/cycles/binloops.py` | Loop bounds certified on the same Cortex-M0 machine code (`ipet.certify(loops=True)`, `run_cycles.py --certify-loops [--abi]`; format version 2): mirror of `ThumbDataCore` (`effect`, `condFacts`, `postE`, obligation order: keep identical), congruences modulo powers of two (Granger) on the checker's post-expressions, zone analysis for invariants (branch facts rounded by the congruences; the zone split at an addition or subtraction that may wrap around and joined after the next branch, `window_transfer`: disjunctive invariants), potentials ±r or ±(r−q) with scale, else potentials per instruction from one linear program over the obligations (`synth_lp`, HiGHS limited to `LP_SECONDS`; retried without presolve, with split constants, and with linear parts that follow a header variable, `transport`, whose constants come first from longest paths, `synth_transport`; widening thresholds at the wrap-around values of additions), Farkas proofs (shortest paths, negative cycles, contradictions of the one-variable bounds, LP, then exact rational elimination on the premises the LP used, for multipliers too small to round); drops what it cannot prove (the loop's row stays trusted); zone widening that keeps creeping is stopped after `HARD_VISITS` visits of a head by forgetting the growing entries (`forget_growing`); its own analysis ignores literal-pool constants above `BIG` and retries a function with literal loads as any value when a loop is left uncertified (HiGHS fails numerically on these constants). `test_binloops.py` (must-reject mutations), `compare_runs.py OLD NEW --check` (lost loops or higher bounds between runs), `run_cycles.py --jobs N`, `test_effect.py` (Lean effects/flags/conditions vs `m0.py`, every encoding; CI). Untrusted. `classify_loops.py RUN.json`: groups the uncertified loops by what drives their exits (heuristic diagnosis; table in the cycles README). |
 | `benchmarks/cycles/stack.py` | Stack bounds of the same Cortex-M0 binaries (high-water mark on the control-flow graph; Lean `Stack`), checked by `run_cycles.py` against the lowest stack pointer of every emulated call. |
 | `benchmarks/cycles/` | `run_cycles.py`: cycle bounds of the TACLeBench kernels compiled for a Cortex-M0 (`-O1`), from CrossCheck's source loop bounds: `wcet.py` (CFG of the binary, loops matched to source loops by debug lines: the innermost source loop whose range `line`..`end_line` of the plugin's report holds the lines of the loop's own instructions that lie in some loop, `Analysis.match`; line-0 rows end a line, `zero_ranges`; timing schema), `m0.py` (ARMv6-M decoder, Cortex-M0 timing table, ELF loader, an interpreter written for this purpose; no external package); every bound is checked against the cycles of a run (`--check`). The source is analysed for the binary's data model (`SOURCE_TARGET`, 32-bit `long`). `--gcc IMAGE --tag=.gcc`: objects compiled by arm-none-eabi-gcc in a Docker image without network (`GCC_FLAGS`). Results in its `README.md` and Paper III. |
-| `benchmarks/hardware/` | `hw.py`: links each kernel object, unchanged, with `stm32f0/startup.c` (TIM2 timing of `main`, result on the serial port), flashes an STM32F0 board and compares its cycles with the emulator (`MUL_CYCLES = 1`) and the certified bound of `main`. Docker image `armgcc:local` (`Dockerfile`). **Not yet run on a board**: register addresses from RM0091, untried. |
+| `benchmarks/hardware/` | `hw.py`: links each kernel object, unchanged, with `stm32f0/startup.c` (TIM2 timing of `main`, result on the serial port), flashes an STM32F0 board and compares its cycles with the emulator (`MUL_CYCLES = 1`) and the certified bound of `main`. Docker image `armgcc:local` (`Dockerfile`). **Not run on a board**: register addresses from RM0091, untried. |
 | `frontends/rust/` | Rust front-end: `mir2c.py` translates `rustc --emit=mir` text (pinned to rustc 1.100.0; the format changes between releases) into C for the analyser; `crosscheck_rust.py` runs translation, analysis and checker; `tests/test_rust.py` is a differential test (Rust vs generated C on random inputs) plus must-be-unbounded functions (`rejected_*` in `examples/kernels.rs`). See its `README.md`. |
-| `references/` | `fetch_papers.py` downloads open-access copies of cited papers into `references/pdf/` (gitignored: do not commit PDFs, most are copyrighted); `README.md` records, per entry, the source and what was actually read and checked. Update it when a paper is read. |
-| `docs/proposals.md` | Argued proposals and order after the first certificate results: scientific (verified lowering, modular symbolic certificates…), industrial (flow-fact export, CI, qualification, contracts), legacy-language subset. |
-| `docs/implementation-plan.md` | Hand-off from the theory phase: what is proved, the certificate format (= Lean type `ACmd`), and the ordered implementation tasks. Keep it current. |
 | `AI_USAGE.md` | AI usage record required by the AGMAI guidelines (see below). |
 | `docs/guide/` | Companion guide for the author, written for a non-specialist (rewritten 2026-11-18 at the author's request), 9 parts, about 3,300 lines, 27 diagrams and 9 figures (`img/`, drawn by `tools/figures.py`, plain Python): the big picture on one example, the toolbox (potentials, invariants, linear constraints, Farkas, LP duality and IPET, Z3's three uses, intervals, Fourier–Motzkin in the certificate generator, zones and shortest paths, abstract interpretation, envelopes, recursion, Lean, Cortex-M0), Papers I, II and III, plugin internals, Lean, bibliography map, expert Q&A. Quotes Lean names, plugin classes and paper labels: update it when they change; explain before abbreviating; prefer a worked example or a figure to a table of labels. |
 | `formalization/formalization.yaml` | Machine-readable paper-label ↔ Lean-name map (mirrors Table 1 of the paper). |
@@ -46,7 +43,7 @@ Single author: Luca Dall'Olio. MIT licensed.
 | `clang-plugin/scripts/` | `crosscheck_link.py` (time budgets `CROSSCHECK_DEADLINE_CYCLES/_US` checked after compilation on the binary, object or linked executable of several translation units (`--report`/`--source` pairs), from the reports' loop bounds: Cortex-M0 with `benchmarks/cycles/m0.py`/`wcet.py`, or `--processor stm32f4/stm32h7` with OTAWA (`otawa_flow.py`, Docker image without network); exit 1 if exceeded; `--certify`: Cortex-M0 IPET bounds accepted by the verified checker; ctest `time_budgets_after_compilation`), `cost_diff.py` (CI cost diff), `crosscheck_project.py` (whole `compile_commands.json`: `project.json`, `index.html`), `acsl_export.py` (ACSL `requires` / `loop invariant` / `loop variant` from reports; not run through Frama-C here). |
 | `docs/slides/` | Slidev presentation (`slides.md`; `npm install && npm run dev`): theory, one example (`demo/fir.c`) through the whole pipeline with its real artifacts, benchmarks and tool comparison. `demo/run_demo.py` regenerates the artifacts into `demo/out/` (paths relative to the repository); the slides quote them: rerun and update the quotes when the tools change. |
 | `history/revenge/` | The author's Java prototype that preceded CrossCheck (2008-2017, METACad on SourceForge, r291), MIT; historical, not maintained, not built. Its tests include Paper I's infinite loop and linear recursion examples (README). Do not modify it. |
-| `docs/release-checklist.md` | What is done and what only the author can do before the arXiv upload of Papers I and II (repository private, `main` behind, archive, arXiv, reading); reproduction of Paper II's figures (2026-11-21). Keep it current. `paper/make_arxiv.py`: self-contained source bundles (`.bbl`, cross-paper `\ref{I-...}` resolved to numbers), each compiled alone; output in `paper/arxiv/` (gitignored). `CITATION.cff`, `.zenodo.json`: archive metadata. |
+| `docs/release-record.md` | The checks made before the release (Lean against the papers, bibliography, reading of cited works), the archive identifiers of `v1.0`, and the reproduction of Paper II's figures (2026-11-21). `paper/make_arxiv.py`: self-contained source bundles (`.bbl`, cross-paper `\ref{I-...}` resolved to numbers), each compiled alone; output in `paper/arxiv/` (gitignored). `CITATION.cff`, `.zenodo.json`: archive metadata. |
 | `docs/certificate-format.md` | The certificate format (= Lean `ACmd`, `FunCert`; version 2 = program certificates) and how the plugin produces certificates. |
 | `docs/contracts.md` | Library contracts (`contracts=FILE`): trusted costs linear in the arguments; assumed contracts in certificates. |
 
@@ -193,8 +190,9 @@ Axioms: only Lean's standard `propext`, `Quot.sound`, `Classical.choice` may app
   was checked against Crossref, DataCite or Open Library (see `AI_USAGE.md`); check new entries
   the same way.
 - Macros: `\lean{name}` for Lean identifiers (breakable), `\sem{t}` for the valuation,
-  `\cost`, `\depth`, `\leaves`, `\lfp`, `\bigstep`; `\authortodo{...}` marks text the author
-  must confirm — the paper must not be submitted while any `\authortodo` remains.
+  `\cost`, `\depth`, `\leaves`, `\lfp`, `\bigstep`. The papers carry no marks for the author
+  (the `\authortodo` macro was removed on 2026-11-22): a point that needs the author is raised
+  with the author in the session, not left in the text.
 - Keep the file ASCII (it is loaded with `latin9` inputenc); write accents as `\"o`, `\'e`.
 - Do not over-claim: the Clang plugin is an unverified research prototype; the evaluation is
   `tab:plugin` (our own small examples) plus `tab:tacle`/`tab:tools` (TACLeBench kernels compared
@@ -266,13 +264,16 @@ tool (including you) touches mathematical content:
 
 1. **Human responsibility comes first.** The author must understand every argument, verify it
    personally and take full responsibility. Never write text asserting that the author has
-   verified something; use `\authortodo{...}` and list what needs checking in `AI_USAGE.md` §3.
+   verified something. Raise what needs the author in the session; record in `AI_USAGE.md` §3
+   (review record) what the AI checked, never an open to-do list.
 2. **Record the AI use** in `AI_USAGE.md`: date, tool, exact model name(s), the prompts
-   verbatim, a summary of the reasoning and of what changed. Time and compute cost are filled in
-   by the author. Keep the paper's "Statement on the Use of AI" consistent with that file.
+   verbatim, a summary of the reasoning and of what changed. Time and tokens are measured from
+   the transcripts; the monetary cost is not recorded (author's decision, 2026-11-22). Keep the paper's "Statement on the Use of AI" consistent with that file.
 3. **Literature.** Search for prior work and cite the papers where ideas were first introduced,
    even if rediscovered independently. Do not present classical results as new (see the
-   "Positioning" subsection). Flag every reference taken from memory for author verification.
+   "Positioning" subsection). Do not cite from memory: read the cited passage (the author
+   supplies copies) and record what was read in the local reading notes, which are not part of
+   the repository.
 4. **Write-up.** Traditional style: precise statements, complete proofs, standard terminology.
 5. **Formalize as far as possible** and state the formalization status precisely: what is
    machine-checked, what is not, and under which modelling choices. Keep Table 1 and
@@ -281,15 +282,12 @@ tool (including you) touches mathematical content:
    history (arXiv for the paper; an archived, tagged revision for the Lean code).
 7. **No marketing.** No superlatives or unverifiable claims ("uniquely", "fully", "zero ...").
 
-Open items before submission are tracked in `AI_USAGE.md` §2 (audit table).
+How each item is met is in `AI_USAGE.md` §2; the repository keeps no list of open items.
 
 ## Current focus
 1. **Release** (Papers I and II on arXiv): code public, tag `v1.0`, archived (Zenodo
-   `doi:10.5281/zenodo.24425070`, concept `doi:10.5281/zenodo.24425069`; Software Heritage); `docs/release-checklist.md` lists what
-   only the author can still do (arXiv upload, the reading of `AI_USAGE.md` section 3). `main` is the released branch.
-2. Paper III: draft; its evaluation follows `benchmarks/cycles/README.md`.
-3. The order of the work done so far is in `docs/proposals.md` and
-   `docs/implementation-plan.md` (historical, not maintained) and in `AI_USAGE.md`.
-4. Open directions: logarithmic potentials and bounds in the parameters on machine code
-   (Paper III), the board measurement (`benchmarks/hardware`), and in Lean the tree order
-   for arbitrary arity and termination for relational updates.
+   `doi:10.5281/zenodo.24425070`, concept `doi:10.5281/zenodo.24425069`; Software Heritage);
+   `docs/release-record.md`. `main` is the released branch.
+2. Paper III: its evaluation follows `benchmarks/cycles/README.md`.
+3. The history of the work is in `AI_USAGE.md` (the planning documents of November 2026
+   were removed on 2026-11-22; they are in git history).

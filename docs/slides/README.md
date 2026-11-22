@@ -27,4 +27,4 @@ show into `demo/out/`, with paths relative to the repository: `report.json`,
 files; after a change of the tools, rerun the script and update the quotes.
 
 The benchmark figures are those of `benchmarks/*/README.md` and the papers (reproduced on
-2026-11-21, `docs/release-checklist.md`).
+2026-11-21, `docs/release-record.md`).

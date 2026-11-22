@@ -13,7 +13,7 @@
  * virtual COM port of the Nucleo boards), 115200 baud 8N1:
  *     CROSSCHECK raw=<cycles> empty=<cycles> ret=<main's return value>
  * The register addresses are those of the STM32F0 reference manual (RM0091); they were
- * written from it and not yet tried on a board.
+ * written from it and have not been tried on a board.
  */
 #define REG(a) (*(volatile unsigned *)(a))
 #define RCC_AHBENR REG(0x40021014u)

@@ -504,7 +504,7 @@ ok    ok_sum: bound 460 cycles = 9.583 us, budget 5000 cycles
 processor: cortex-m0 (certified cycle bounds); trusted: the Lean specification of the Cortex-M0 (Thumb.decode: ...); that the code in the cycle certificate is the binary's (copied by ipet.py); the Lean checker (theorem Thumb.binary_sound); ...
 ```
 
-Not yet: aiT as a back end (the flow facts it needs are exported already, `flowfacts=`);
+Not supported: aiT as a back end (the flow facts it needs are exported, `flowfacts=`);
 certified bounds for the OTAWA processors. Test: `time_budgets_after_compilation` (ctest, `tests/c/time_budget*.c`;
 the two-file program needs an LLVM linker, `ld.lld` or `rust-lld`).
 
