@@ -2335,6 +2335,27 @@ warnings, bundles regenerated.
 
 What the AI did for 114 (Claude Opus 5.5, 2026-11-22): committed the work of 113 and pushed it to `main`.
 
+115. "Here is a DOI for paper I from Zenodo : 10.5281/zenodo.24444576"
+
+What the AI did for 115 (Claude Opus 5.5, 2026-11-22): the DOI does not resolve yet (a
+reserved DOI of an unpublished Zenodo record: doi.org and Zenodo's API answer 404); put into
+the `crosscheckTheory` entry of `paper/crosscheck.bib` (Preprint, Zenodo, with the DOI's URL),
+which Papers II and III cite. Papers rebuilt without warnings, bundles regenerated.
+
+116. "I want you to put the DOIs in the papers I and II. I will publish both papers today, one after the other"
+
+117. "Here is the DOI for Paper II : 10.5281/zenodo.24444646"
+
+What the AI did for 116-117 (Claude Opus 5.5, 2026-11-22): asked for Paper II's DOI; then
+put it into the `crosscheckTool` entry (Preprint, Zenodo, with the DOI's URL), so that Papers I
+and II cite each other by DOI (Paper III cites both), and added each paper's own DOI to its
+first-page footnote ("This preprint: doi:..."). Both DOIs are reserved and resolve once the
+records are published. Papers rebuilt without warnings, bundles regenerated.
+
+118. "commit and push to main"
+
+What the AI did for 118 (Claude Opus 5.5, 2026-11-22): committed the work of 115-117 and pushed it to `main`.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
