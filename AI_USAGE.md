@@ -2242,6 +2242,14 @@ Corollary 7.1h), the soundness direction needing none; Floyd cited for lexicogra
 before `prop:lex-log`. Guide part 9 and the release checklist updated. Paper I: 43 pages;
 the three papers build without warnings.
 
+103. "Adapt the guide and slides if needed, then commit and push on main"
+
+What the AI did for 103 (Claude Opus 5.5, 2026-11-22): guide parts 1, 2, 3, 8 and 9 adapted
+(Courcelle's tree order, Tarjan for the size potential, Nielson 1987 and Atkey 2010 as prior
+work for the amortised rule and the logic, reading status of the bibliography, a node for
+loop acceleration and closed forms); the slides needed no change (no novelty claim; the
+trace order is called the prefix order there). Committed and pushed to `main`.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
