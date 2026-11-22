@@ -17,5 +17,19 @@
     "Lean 4",
     "Clang"
   ],
-  "description": "Lean 4 formalization (theory, cost logic, verified certificate checker, Cortex-M0 machine code), the Clang plugin that produces cost certificates, and the benchmark scripts of the CrossCheck papers I-III. See AI_USAGE.md for the record of AI assistance."
+  "description": "Lean 4 formalization (theory, cost logic, verified certificate checker, Cortex-M0 machine code), the Clang plugin that produces cost certificates, and the benchmark scripts of the CrossCheck papers I-III. See AI_USAGE.md for the record of AI assistance.",
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.24444576",
+      "relation": "isSupplementTo",
+      "resource_type": "publication-preprint",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "10.5281/zenodo.24444646",
+      "relation": "isSupplementTo",
+      "resource_type": "publication-preprint",
+      "scheme": "doi"
+    }
+  ]
 }

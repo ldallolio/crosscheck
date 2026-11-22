@@ -2,7 +2,9 @@
 
 [![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
 [![Clang plugin CI](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml)
-[![DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069)
+[![Code DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069)
+[![Paper I DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24444576.svg)](https://doi.org/10.5281/zenodo.24444576)
+[![Paper II DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24444646.svg)](https://doi.org/10.5281/zenodo.24444646)
 
 CrossCheck derives upper bounds on the execution cost of imperative programs (loops, linear
 and branching recursion) from ranking potentials, and lets a small checker, proved sound in
@@ -25,11 +27,11 @@ Papers I and II are in abstract units, not time.
 
 ## Papers
 
-| | Source | Content |
-|---|---|---|
-| I | `paper/theory/crosscheck-theory.tex` | theory, cost logic, certificate checker, Lean formalization |
-| II | `paper/tool/crosscheck-tool.tex` | the Clang plugin, certificate generation, evaluation |
-| III | `paper/binary/crosscheck-binary.tex` | certified cycle bounds of machine code, loop bounds included |
+| | Source | Content | Preprint |
+|---|---|---|---|
+| I | `paper/theory/crosscheck-theory.tex` | theory, cost logic, certificate checker, Lean formalization | [doi:10.5281/zenodo.24444576](https://doi.org/10.5281/zenodo.24444576) |
+| II | `paper/tool/crosscheck-tool.tex` | the Clang plugin, certificate generation, evaluation | [doi:10.5281/zenodo.24444646](https://doi.org/10.5281/zenodo.24444646) |
+| III | `paper/binary/crosscheck-binary.tex` | certified cycle bounds of machine code, loop bounds included | not published |
 
 Build Paper I first (Papers II and III refer to its numbered results), then II, then III;
 `python3 paper/make_arxiv.py theory tool binary` makes self-contained source bundles.

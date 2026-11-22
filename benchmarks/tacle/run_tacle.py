@@ -136,7 +136,8 @@ def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None,
                           timeout=int(os.environ.get("CROSSCHECK_TACLE_TIMEOUT", "1800")))
     seconds = time.monotonic() - t0
     if not report.exists():
-        sys.exit(f"{name}: no report written\n{proc.stderr[-2000:]}")
+        # a negative status is the signal that killed the tool (e.g. -9: out of memory)
+        sys.exit(f"{name}: no report written (exit status {proc.returncode})\n{proc.stderr[-2000:]}")
     rep = json.loads(report.read_text())
 
     error_lines = {int(m.group(1)) for m in map(DIAG_RE.search, proc.stderr.splitlines()) if m}

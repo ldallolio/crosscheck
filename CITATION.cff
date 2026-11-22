@@ -34,3 +34,22 @@ abstract: >-
   and a checker of cost certificates proved sound in Lean 4, a Clang plugin that produces
   such certificates for C and C++ functions, and certified cycle bounds of Cortex-M0
   machine code.
+references:
+  - type: article
+    title: "CrossCheck I: Cost Bounds of Imperative Programs as Constrained Optimization, with a Sound Cost Logic and a Verified Certificate Checker"
+    authors:
+      - family-names: "Dall'Olio"
+        given-names: "Luca"
+        orcid: "https://orcid.org/0009-0006-8839-5909"
+    year: 2026
+    doi: "10.5281/zenodo.24444576"
+    notes: "Preprint, Zenodo"
+  - type: article
+    title: "CrossCheck II: A Compiler Plugin for Certified Cost Bounds of Real-Time C and C++ Code, and its Evaluation"
+    authors:
+      - family-names: "Dall'Olio"
+        given-names: "Luca"
+        orcid: "https://orcid.org/0009-0006-8839-5909"
+    year: 2026
+    doi: "10.5281/zenodo.24444646"
+    notes: "Preprint, Zenodo"

@@ -2384,6 +2384,33 @@ warnings, bundles regenerated.
 
 What the AI did for 124 (Claude Opus 5.5, 2026-11-22): committed the work of 119-123 and pushed it to `main`.
 
+125. "give me zenodo information for the second paper"
+
+126. "I do not like the "Other" in the role of the author, what should I choose ?"
+
+127. "I published https://zenodo.org/records/24444646"
+
+What the AI did for 125-127 (Claude Opus 5.5, 2026-11-22): the fields of Paper II's record;
+advice on the creator role (optional for creators; otherwise "Researcher"); checked the
+published record: DOI resolves, the file is identical to the PDF built from `main` (MD5
+48d25d5e...), metadata as given except the keywords (CMSIS-DSP twice, Lean 4 missing).
+
+128. "In a previous run, the clang pipelines were failing, please check : [the log of the step "Cortex-M0 cycle bounds": "cosf: no report written" followed by the plugin's diagnostics] https://github.com/ldallolio/crosscheck/actions/runs/45037996688/job/137255894708"
+
+129. "Should we add badges or links to the paper DOIs ?"
+
+130. "The latest pipeline passes : https://github.com/ldallolio/crosscheck/commit/b85571f1d283286081a5e56813c9ed453ea58f82 so it was intermittent, commit and push when you are ready"
+
+What the AI did for 128-130 (Claude Opus 5.5, 2026-11-22): the failing run (commit 1be370d)
+died in the step "Cortex-M0 cycle bounds" when the plugin wrote no report for `cosf`; the
+analyser code was unchanged since the last green run (only two READMEs), the same analysis
+passes locally, and the tool writes its report unless its process dies, so the cause was
+the runner (the tool killed without a message); the failed job was re-run. `run_tacle.py`
+now prints the tool's exit status when no report is written (a negative status names the
+signal). README: DOI badges and links for Papers I and II; `CITATION.cff`: the two papers
+under `references`; `.zenodo.json`: the papers as related works (`isSupplementTo`) for the
+next code release.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
