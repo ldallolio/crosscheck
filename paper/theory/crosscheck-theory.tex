@@ -126,8 +126,9 @@ standard big-step semantics is machine-checked end to end.
 \subsection*{Contributions}
 The primary contributions of this work are:
 \begin{itemize}
-    \item \textbf{Order-by-Composition:} We define the partial order
-    $\sqsubseteq$ on the free trace monoid and on computation trees, prove the Minimal Exiting Trace Theorem via
+    \item \textbf{Order-by-Composition:} We use the prefix order $\sqsubseteq$ on the free trace monoid
+    and the corresponding order on computation trees, in which a leaf may be replaced by any tree
+    (Courcelle's order on trees \cite{courcelle1983trees}), prove the Minimal Exiting Trace Theorem via
     the well-ordering of $\mathbb{N}$, and prove that the minimizer coincides with the result of the standard
     big-step semantics of while loops (Theorems~\ref{thm:minimal-trace} and~\ref{thm:extensional-equivalence}).
     \item \textbf{Generalization to Recursion:} We extend the characterization to linear recursion
@@ -171,7 +172,7 @@ A companion paper \cite{crosscheckTool} describes a Clang plugin that implements
 Automatic derivation of symbolic resource bounds goes back to Wegbreit \cite{wegbreit1975mechanical}.
 Modern analyzers derive bounds from ranking functions, counters and invariants
 \cite{gulwani2009speed,alias2010multi,sinn2014complexity,brockschmidt2016analyzing,lommen2022automatic}, from cost
-relations or recurrences solved into closed forms \cite{albert2011closed,kincaid2019closed}, or from potential-based
+relations solved into closed forms \cite{albert2011closed}, or from potential-based
 amortized analysis \cite{hoffmann2012multivariate,carbonneaux2015compositional}; see \cite{hoffmann2022two} for a survey of
 the latter. Our Lyapunov bound (Theorem~\ref{thm:lyapunov-bound})
 is the single-loop core shared by these methods; we do not improve on their precision (in particular we perform no
@@ -188,7 +189,7 @@ Section~\ref{subsubsec:smt-synthesis} adopts the linear-template method unchange
 
 \paragraph{Loop acceleration.}
 Replacing a loop by a closed form of its $n$-fold iterate is known as acceleration \cite{bardin2008fast}; recent work
-combines acceleration techniques modularly \cite{frohn2020calculus}. Our exact
+combines acceleration techniques modularly \cite{frohn2020calculus}, and closed forms of linear and polynomial loops, with decision procedures for their safety and termination, are computed in \cite{kincaid2019closed}. Our exact
 (non-relaxed) treatment of loops is an acceleration together with a minimization over $n$.
 
 \paragraph{WCET analysis.}
@@ -206,7 +207,7 @@ A machine-checked loop-bound estimation for WCET analysis was developed
 in Coq by Blazy, Maroneze and Pichardie \cite{blazy2013formal} and extended to a formally verified WCET estimation tool
 integrated in the CompCert compiler \cite{maroneze2014formally}; certified resource bounds for C programs were obtained
 in \cite{carbonneaux2015compositional}. Program logics for running time have been formalized in Isabelle/HOL
-\cite{haslbeck2018hoare} and in Coq, with asymptotic bounds \cite{gueneau2018fistful}. Compared with these, our
+\cite{haslbeck2018hoare} and in Coq, with asymptotic bounds \cite{gueneau2018fistful}. Atkey \cite{atkey2010amortised} embeds amortised resource analysis in separation logic for a small language modelled on Java bytecode, proves the logic sound in Coq, extracts a certified generator of verification conditions, and infers the resource annotations by linear programming, a division of labour close to ours between an untrusted search and a checked proof. Compared with these, our
 mechanization is smaller in scope: it covers the semantic characterization and the bounds of this paper, not a
 verified analyzer for a real programming language.
 
@@ -289,6 +290,7 @@ The \textit{order-by-composition} (prefix order) $\sqsubseteq$ on the trace mono
 u \sqsubseteq w \iff \exists\, v \in \Sigma^* \quad \text{such that} \quad w = u \cdot v.
 \]
 \end{defn}
+This is the usual prefix order on words; the name records the reading used below, in which $w$ continues the execution $u$.
 
 \begin{prop}[Properties of Intensional Order-by-Composition]
 \label{prop:poset-properties}
@@ -448,6 +450,7 @@ Equivalently, it is the least relation such that $\epsilon \sqsubseteq_{\text{tr
 g(T_1, \dots, T_b) \sqsubseteq_{\text{tree}} g(T_1', \dots, T_b') \quad \text{whenever } T_i \sqsubseteq_{\text{tree}} T_i' \text{ for all } i.
 \]
 \end{defn}
+With the leaf $\epsilon$ in the role of the undefined tree $\Omega$, this is the order of Courcelle \cite[Section~2.4]{courcelle1983trees} restricted to finite trees.
 
 \begin{prop}[Properties of Tree Order-by-Composition]\label{prop:tree-order-properties}
 The relation $\sqsubseteq_{\text{tree}}$ is a partial order on $\mathcal{T}_\Sigma$ with least element $\epsilon$, and:
@@ -716,7 +719,7 @@ By induction on $k$ and assumption~(1), $s_k \in I$ for every $k \le n$. The run
 
 The set $I$ is an inductive invariant of the loop. The set $C$ is a \emph{context}: a constraint on the initial state, for instance on the values of the parameters of a function at its entry. Two consequences are used by the implementation of the companion paper \cite{crosscheckTool}. First, since every state of the run is in $I$, the invariant holds wherever the run stops, in particular when a loop is left by an early exit and not by its guard. Second, the bound is a function of the context: if a cost bound $B$ has been derived for a function under a context $C$, it applies to every call whose arguments satisfy $C$, so that $m$ such calls cost at most $m \cdot B$; a function may thus be given different bounds at different call sites, each under a context that is proved at that site.
 
-Two classical shapes of termination argument give bounds for loops that have no single affine potential; lexicographic and multi-dimensional rankings are studied in \cite{alias2010multi,benamram2014ranking}.
+Two classical shapes of termination argument give bounds for loops that have no single affine potential; Floyd \cite{floyd1967assigning} already used, besides the number of steps until termination or an upper bound on it, $n$-tuples of non-negative integers ordered lexicographically; lexicographic and multi-dimensional rankings are studied in \cite{alias2010multi,benamram2014ranking}.
 
 \begin{prop}[Lexicographic and logarithmic potentials]
 \label{prop:lex-log}
@@ -778,7 +781,7 @@ If the call with argument $x$ terminates, its call tree has at most $\lfloor U(x
 By induction on the call tree: its size is $1$ plus the sizes of its subtrees, which by induction are at most $U(c_i(x))$. The second statement is Proposition~\ref{prop:tree-envelope} for trees whose nodes have at most $b$ children (\lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak potential}, \lean{callTree\_\allowbreak size\_\allowbreak le\_\allowbreak geom}).
 \end{proof}
 
-This is the potential method of amortized analysis \cite{hoffmann2012multivariate} specialized to counting calls. For a function that splits a range $[lo, hi)$ with $lo < hi$ at an interior point and recurses on both halves, $U(lo, hi) = 2(hi - lo) - 1$ is a size potential, so the number of calls is linear in the size of the range.
+This is the potential method of amortized analysis \cite{tarjan1985complexity} (whose potential view Tarjan credits to Sleator), as used in automatic resource analysis \cite{hoffmann2012multivariate}, specialized to counting calls. For a function that splits a range $[lo, hi)$ with $lo < hi$ at an interior point and recurses on both halves, $U(lo, hi) = 2(hi - lo) - 1$ is a size potential, so the number of calls is linear in the size of the range.
 
 \subsubsection{SMT-Based Synthesis of Ranking Potentials}
 \label{subsubsec:smt-synthesis}
@@ -791,7 +794,7 @@ The conditions of Definition~\ref{def:ranking-potential} become the universally 
 \[
 G\mathbf{x} \le \mathbf{g} \implies \mathbf{w}^T (\mathbf{x} - A\mathbf{x} - \mathbf{b}) \ge \Delta, \qquad G\mathbf{x} \le \mathbf{g} \implies \mathbf{w}^T \mathbf{x} + c_0 \ge 1 .
 \]
-By the affine form of Farkas' Lemma \cite{schrijver1986theory}, each implication between linear inequalities is equivalent, over the rationals, to the existence of non-negative multipliers satisfying linear equalities. The synthesis problem thus becomes a quantifier-free linear arithmetic query in the unknowns $\mathbf{w}$, $c_0$ and the multipliers \cite{colon2001synthesis,podelski2004complete}, which is discharged by an SMT solver such as Z3 \cite{demoura2008z3}. Only the soundness direction of the lemma is needed to trust a result, and it is elementary (\lean{farkas\_\allowbreak sound\_\allowbreak affine}). The method is sound for integer programs and complete for linear ranking functions over the rationals \cite{benamram2014ranking}; a loop that terminates only by a non-linear or lexicographic argument is not handled by this template.
+By the affine form of Farkas' Lemma \cite{schrijver1986theory}, each implication between linear inequalities whose premises are satisfiable is equivalent, over the rationals, to the existence of non-negative multipliers satisfying linear equalities (Corollary~7.1h there). The synthesis problem thus becomes a quantifier-free linear arithmetic query in the unknowns $\mathbf{w}$, $c_0$ and the multipliers \cite{colon2001synthesis,podelski2004complete}, which is discharged by an SMT solver such as Z3 \cite{demoura2008z3}. Only the soundness direction of the lemma, from multipliers to the implication, is needed to trust a result; it does not need the premises to be satisfiable and it is elementary (\lean{farkas\_\allowbreak sound\_\allowbreak affine}). The method is sound for integer programs and complete for linear ranking functions over the rationals \cite{benamram2014ranking}; a loop that terminates only by a non-linear or lexicographic argument is not handled by this template.
 
 When the query is satisfiable, the model provides $\mathbf{w}$ and $c_0$, and Theorem~\ref{thm:lyapunov-bound} gives the closed-form certificate
 \[
@@ -854,7 +857,7 @@ For rule (5), write $w = \omega(b)$ and let $L$ be the loop. We show, for every 
 For rule (9), we show by strong induction on $n$ that every triple of the family of rank $n$ is valid. Let $r(k) = n$. The triples of the family of smaller rank are valid by the induction hypothesis on $n$, and those of $\Gamma$ by assumption; by the induction hypothesis on the derivation, the triple $\{P_k\}\ \Phi(p_k)\ \{Q_k\}\!\downarrow\! B_k$ is therefore valid. An execution of $\mathtt{call}\ p_k$, terminated or not, is the payment of $\omega_{\mathrm{call}}$ followed by an execution of the body, so the triple about the call is valid with the bound $\omega_{\mathrm{call}} + B_k$.
 \end{proof}
 
-The loop rule pays every iteration the largest cost $W$ of the body. When the cost of an iteration depends on the potential before it, a sharper bound is the sum over the iterations; the next statement is a derived rule, stated on executions. Summing the iteration counts of a non-rectangular loop nest is classical in WCET analysis: Healy et al.\ \cite{healy2000supporting} formulate the number of iterations of an inner loop whose bounds depend on an outer counter as a summation, following Sakellariou's summations for load balancing, and use it for tighter timing predictions; in cost analysis, Albert, Genaim and Masud \cite{albert2011more} bound the cost of the successive iterations of a loop by an arithmetic (or geometric) sequence, increasing or decreasing, and sum it, instead of multiplying the number of iterations by the largest cost. The rule below is this summation as a rule of the cost logic, in two forms: a cost that grows with the potential (part 1) and, more generally, any cost bounded through a monotone function of the potential (part 2), which covers a cost that grows as the potential falls.
+The loop rule pays every iteration the largest cost $W$ of the body. When the cost of an iteration depends on the potential before it, a sharper bound is the sum over the iterations; the next statement is a derived rule, stated on executions. In a Hoare logic for running time, this is already the while rule of Nielson \cite{nielson1987hoare}: the number of unfoldings of the loop is bounded by a variable $z$, and the time of the loop is a solution of a recurrence relation in the unfoldings; Nielson's Section~5 derives in this way the summing series $T(i) = (i - 1) + T(i - 1)$ of bubble sort, a triangular nest. Summing the iteration counts of a non-rectangular loop nest is also classical in WCET analysis: Healy et al.\ \cite{healy2000supporting} formulate the number of iterations of an inner loop whose bounds depend on an outer counter as a summation, following Sakellariou's summations for load balancing, and use it for tighter timing predictions; in cost analysis, Albert, Genaim and Masud \cite{albert2011more} bound the cost of the successive iterations of a loop by an arithmetic (or geometric) sequence, increasing or decreasing, and sum it, instead of multiplying the number of iterations by the largest cost. The rule below is this summation as a derived rule of the cost logic of this paper, with a case of the checker of Section~\ref{subsec:checker} and a Lean proof, in two forms: a cost that grows with the potential (part 1) and, more generally, any cost bounded through a monotone function of the potential (part 2), which covers a cost that grows as the potential falls.
 
 \begin{prop}[Amortised loop rule]
 \label{prop:amortised-loop}

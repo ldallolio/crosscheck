@@ -53,9 +53,19 @@ Paper III only.
    is that each Lean statement says what the paper says (the AI's comparison is in
    section A; sample it) and the paper's prose proofs.
 2. **Novelty and attributions** (items 7, 9, 18, 36, 37): the papers must not present
-   classical ideas as new. `references/README.md` says, per entry, what the AI read; 18 of
-   the 69 cited works have no reading note (books, classical papers such as Floyd 1967,
-   Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only.
+   classical ideas as new. `references/README.md` says, per entry, what the AI read. On
+   2026-11-22 the AI read the cited passages of 16 works the author provided; Paper I now
+   says it uses the prefix order (Courcelle 1983 for trees) and cites Tarjan 1985 for the
+   size potential. Of the 71 cited works, 6 are still unread (Kahn, Manna, Winskel,
+   Diekert, Matiyasevich, Podelski and Rybalchenko's transition invariants; all cited for
+   well-known results) and about 20 were read in the abstract and the passage the citation
+   relies on. Done the same day at the author's request: Nielson 1987's rule [R-4] and its
+   bubble-sort recurrence cited as an earlier form of `prop:amortised-loop`, whose claim is
+   now the checker case and the Lean proof; Atkey 2010 cited; Kincaid 2019 moved to loop
+   acceleration; the satisfiability premise of the affine Farkas lemma stated; Floyd
+   cited for lexicographic tuples. To read yourself: Nielson 1987 ([R-4], Section 5),
+   Healy et al. Section 5, Albert, Genaim and Masud, Atkey Section 1, Courcelle Section 2.4,
+   and the closest prior work, Sinn et al. 2014 and Carbonneaux et al. 2015.
 3. **Statements only you can confirm** (items 3, 5): the sentence of Paper I, Section
    "Examples", on the prototype was reworded on 2026-11-21 to what `history/revenge/` shows
    (its tests include the infinite loop and the linear recursion); confirm the wording. Items 6 (old title) and 17 (an `\authortodo`

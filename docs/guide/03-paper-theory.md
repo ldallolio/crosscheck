@@ -66,7 +66,8 @@ instructions (`def:order-by-composition`). This is a partial order (`prop:poset-
 `order_refl`, `order_trans`, `order_antisymm`) and cost grows along it (`order_cost_le`). For
 the iterations of one body, `tᵐ ⊑ tⁿ` exactly when `m ≤ n` (`prop:n-monotony`;
 `iter_monotone_iff`): the iterations of a loop form a chain, and "more iterations" means
-"later in the order".
+"later in the order". This is the usual prefix order of words; the tree order is
+Courcelle's order on trees (1983), with a leaf in the role of the undefined tree Ω.
 
 ### The minimal exiting trace (`thm:minimal-trace`)
 
@@ -247,14 +248,18 @@ composition rule (1987).
 
 The loop rule pays every iteration the worst body. When the cost of an iteration depends on
 the potential (the inner loop of a triangular nest), the iterations can be summed
-(`valid_whileSum`, `valid_whileMono`). Prior work: Healy et al. 2000 (WCET), Albert, Genaim
-and Masud 2011 (cost analysis). Part 2, section 2.12 has the picture.
+(`valid_whileSum`, `valid_whileMono`). Prior work: Nielson 1987, whose while rule takes the
+loop's time as a solution of a recurrence in the unfoldings and derives bubble sort's
+triangular sum this way; Healy et al. 2000 (WCET), Albert, Genaim and Masud 2011 (cost
+analysis). The paper claims only the rule's checker case and its Lean proof. Part 2, section 2.12 has the picture.
 
 ### Prior work
 
 Nielson's logic (thesis 1984, paper 1987) is the origin of Hoare logics for running time;
 Shaw (1989) extended Hoare logic with a real-time variable; Haslbeck and Nipkow (2018)
-formalised three such logics in Isabelle for a deterministic language. CrossCheck's logic is
+formalised three such logics in Isabelle for a deterministic language; Atkey (2010) proved an
+amortised resource logic sound in Coq and found its annotations by linear programming, the
+design closest to CrossCheck's (untrusted search, checked proof). CrossCheck's logic is
 weaker in one way (only soundness, not completeness) and different in three: atoms are
 relations (unknown inputs), triples bound non-terminating runs too, and the loop rule takes
 exactly the analyser's certificate as premises.

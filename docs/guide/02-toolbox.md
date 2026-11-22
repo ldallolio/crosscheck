@@ -814,7 +814,8 @@ Two ways to bound the tree:
 - **Size potential**: a quantity `U` with `U(x) ≥ 1 + U(x₁) + … + U(x_k)` whenever `x` calls
   `x₁ … x_k` bounds the **number** of nodes by `U(x)` directly. For divide and conquer on a
   range of length `L`, `U = 2L − 1` works: linear, where the depth formula gives
-  `2^(log L + 1)`.
+  `2^(log L + 1)`. This is the potential method of amortized analysis (Tarjan 1985, who
+  credits the potential view to Sleator) applied to counting calls.
 
 Paper I proves both (`exec_depth_le`, `callTree_size_le_potential`, for any number of
 children in `Arity.lean`). The plugin bounds linear recursion (one recursive call) by a

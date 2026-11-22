@@ -256,7 +256,8 @@ checker program), `benchmarks/` (the evaluation scripts; `benchmarks/cycles/` fo
 - Not complete: many loops are not bounded (those controlled by values read from memory,
   floating point, pointer chasing). A function that is not bounded is *rejected*, which is
   the safe outcome.
-- Not new in its ingredients: ranking functions (Floyd 1967), the timing schema (Shaw,
-  Puschner–Koza 1989), Hoare logics for time (Nielson 1984), Farkas' Lemma (1902), IPET
+- Not new in its ingredients: the prefix order (on trees: Courcelle 1983), ranking functions
+  (Floyd 1967), the timing schema (Shaw, Puschner–Koza 1989), Hoare logics for time and the
+  summing of iteration costs (Nielson 1984/1987), potentials (Tarjan 1985), Farkas' Lemma (1902), IPET
   (Li–Malik 1995), proof-carrying code (Necula 1997). What is new is how they are put
   together, checked end to end in Lean, and carried down to the machine code.

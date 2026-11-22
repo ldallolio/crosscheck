@@ -6,17 +6,18 @@ closed forms, amortisation, mechanised cost) is discussed in Paper I's `sec:rela
 related work (bound analysers, WCET flow analysis, verified and certified bounds, Clang's
 function effects) in Paper II's `sec:related`. On 2026-11-13/14 the bibliographic data of
 every entry were checked against Crossref, DataCite or Open Library (one error fixed). The
-column **Read** is taken from `references/README.md` (2026-11-18), which is the authoritative
+column **Read** is taken from `references/README.md` (2026-11-22), which is the authoritative
 record of what was read, which sections, and from which copy; open it before quoting a
 detail.
 Summaries are short on purpose; read the originals before quoting a detail.
 
 ```mermaid
 flowchart LR
-  SEM["Semantics<br/>Manna, Winskel, Kahn,<br/>Leroy & Grall, Diekert"] --> CC["CrossCheck"]
+  SEM["Semantics<br/>Manna, Winskel, Kahn,<br/>Leroy & Grall, Diekert,<br/>Courcelle (trees)"] --> CC["CrossCheck"]
   TERM["Ranking functions<br/>Floyd, Colón & Sipma,<br/>Podelski & Rybalchenko,<br/>Ben-Amram & Genaim"] --> CC
-  COST["Cost / bound analysis<br/>Wegbreit, SPEED, Alias,<br/>Albert, Sinn, KoAT, CoFloCo,<br/>Kincaid, Frohn"] --> CC
-  AARA["Amortised analysis<br/>Hoffmann, Carbonneaux,<br/>Hoffmann & Jost"] --> CC
+  COST["Cost / bound analysis<br/>Wegbreit, SPEED, Alias,<br/>Albert, Sinn, KoAT, CoFloCo"] --> CC
+  ACC["Loop acceleration,<br/>closed forms<br/>Bardin, Frohn, Kincaid"] --> CC
+  AARA["Amortised analysis<br/>Tarjan, Hoffmann, Carbonneaux,<br/>Hoffmann & Jost, Atkey"] --> CC
   WCET["WCET<br/>Wilhelm, Li & Malik, Shaw,<br/>Puschner & Koza, oRange,<br/>TACLeBench, Mälardalen"] --> CC
   MECH["Mechanised cost<br/>Blazy, Maroneze, Guéneau,<br/>Haslbeck & Nipkow, Nielson, Nipkow"] --> CC
   TOOLS["Tools<br/>Z3, Lean, mathlib, LLVM,<br/>llvm2kittel, Infer, TermComp"] --> CC
@@ -33,27 +34,29 @@ flowchart LR
 | `kahn1987natural` | Kahn, *Natural Semantics*, 1987 | big-step (natural) semantics | not obtained |
 | `leroy2009coinductive` | Leroy & Grall, coinductive big-step semantics, 2009 | divergence captured coinductively (contrast) | read (parts) |
 | `diekert1995traces` | Diekert & Rozenberg, *The Book of Traces*, 1995 | trace monoids | book or web page |
+| `courcelle1983trees` | Courcelle, *Fundamental Properties of Infinite Trees*, 1983 | the order on trees (Section 2.4): Paper I's tree order with the leaf as Ω | read (Section 2.4) |
 | `matiyasevich1970enumerable` | Matiyasevich, 1970 | undecidability for polynomial arithmetic | not obtained |
-| `baccelli1992synchronization` | Baccelli et al., *Synchronization and Linearity*, 1992 | the (max,+) semiring | book or web page |
-| `cousot1977abstract` | Cousot & Cousot, abstract interpretation, 1977 | contrast: fixed points in abstract domains | not obtained |
-| `floyd1967assigning` | Floyd, *Assigning Meanings to Programs*, 1967 | ranking functions | not obtained |
+| `baccelli1992synchronization` | Baccelli et al., *Synchronization and Linearity*, 1992 | the (max,+) semiring | read (Chapter 3) |
+| `cousot1977abstract` | Cousot & Cousot, abstract interpretation, 1977 | contrast: fixed points in abstract domains | read (introduction) |
+| `floyd1967assigning` | Floyd, *Assigning Meanings to Programs*, 1967 | ranking functions; also the number of steps as a bound, lexicographic tuples, after Perlis and Gorn | read |
 | `colon2001synthesis` | Colón & Sipma, 2001 | linear ranking synthesis by Farkas | read (parts) |
-| `podelski2004complete`, `podelski2004transition` | Podelski & Rybalchenko, 2004 | complete linear ranking synthesis; transition invariants | not obtained |
+| `podelski2004complete` | Podelski & Rybalchenko, 2004 | complete linear ranking synthesis (LP, affine Farkas) | read |
+| `podelski2004transition` | Podelski & Rybalchenko, 2004 | transition invariants | not obtained |
 | `benamram2014ranking` | Ben-Amram & Genaim, 2014 | linear ranking: PTIME over ℚ, coNP-complete over ℤ | read (parts) |
-| `schrijver1986theory` | Schrijver, 1986 | Farkas' Lemma | book or web page |
+| `schrijver1986theory` | Schrijver, 1986 | Farkas' Lemma (affine form: Corollary 7.1h, needs satisfiable premises for the converse) | read (Section 7.6) |
 | `shaw1989reasoning`, `puschner1989calculating` | Shaw; Puschner & Koza, 1989 | the timing schema | read |
-| `nielson1987hoare` | Nielson, 1987 | first Hoare-like logic for computation time | provided by the author (2026-1 |
+| `nielson1987hoare` | Nielson, 1987 | first Hoare-like logic for computation time; its while rule sums a recurrence (bubble sort): earliest form of the amortised loop rule | provided by the author (2026-1 |
 | `haslbeck2018hoare` | Haslbeck & Nipkow, 2018 | three time logics for IMP in Isabelle, sound and complete: closest prior work to the cost logic | read (parts) |
 | `nipkow2002hoare` | Nipkow, 2002 | rule for recursive procedures | read |
 | `necula1997proof` | Necula, 1997 | proof-carrying code: the idea behind the checker | read |
 | `blumofe1999scheduling` | Blumofe & Leiserson, 1999 | work and span (parallelism paragraph) | read |
-| `cormen2009introduction` | Cormen et al. | recurrences, Master Theorem | book or web page |
+| `cormen2009introduction` | Cormen et al. | recurrences, Master Theorem | read (Theorem 4.1) |
 
 ## Cost and bound analysis
 
 | Key | Work | Role | Read |
 |---|---|---|---|
-| `wegbreit1975mechanical` | Wegbreit, 1975 | first automatic cost analysis | not obtained |
+| `wegbreit1975mechanical` | Wegbreit, 1975 | first automatic cost analysis | read (parts) |
 | `gulwani2009speed` | Gulwani et al., SPEED, 2009 | bounds from counters and invariants | read |
 | `alias2010multi` | Alias et al., 2010 | multi-dimensional rankings, complexity bounds | read (parts) |
 | `albert2011closed` | Albert et al., 2011 | cost relations solved in closed form (COSTA/PUBS) | read |
@@ -61,8 +64,10 @@ flowchart LR
 | `brockschmidt2016analyzing` | Brockschmidt et al., 2016 | runtime and size bounds (KoAT) | read (parts) |
 | `lommen2022automatic` | Lommen et al., 2022 | KoAT2, twn-loops | read (parts) |
 | `floresmontoya2014cofloco` | Flores-Montoya & Hähnle, 2014 | CoFloCo | technical-report version downl |
-| `kincaid2019closed`, `frohn2020calculus`, `bardin2008fast` | closed forms, loop acceleration | contrast with exact closed forms | downloaded; not obtained |
+| `kincaid2019closed`, `frohn2020calculus`, `bardin2008fast` | closed forms of loops, loop acceleration | contrast with exact closed forms (not cost analyses) | read (parts) |
 | `hoffmann2012multivariate`, `carbonneaux2015compositional`, `hoffmann2022two` | amortised resource analysis (RAML, C4B), survey | contrast: amortisation; certified bounds for C in Coq | read |
+| `tarjan1985complexity` | Tarjan, *Amortized Computational Complexity*, 1985 | the potential method (credited to Sleator): the size potential | read |
+| `atkey2010amortised` | Atkey, 2010 (LMCS 2011) | amortised resources in separation logic, sound in Coq, annotations by LP: the closest design | read (parts) |
 
 ## WCET and benchmarks (Paper II)
 

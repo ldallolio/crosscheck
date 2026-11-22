@@ -27,8 +27,9 @@ limitation, it says so.
 - **"What about divergence?"** In Paper I's cost logic, triples bound every *prefix*
   (`Pre`), so a derivable bound with positive test weights excludes divergence. The
   minimisation view sees divergence as infeasibility (`infinite_loop_diverges`).
-- **"Is the tree order known?"** It is the prefix order on trees by leaf substitution;
-  binary in Lean, any arity on paper.
+- **"Is the tree order known?"** Yes: Courcelle's order on trees (1983, Section 2.4), on
+  finite trees, with the leaf in the role of the undefined tree Ω; binary in Lean, any arity
+  on paper. On traces, ⊑ is the ordinary prefix order. Paper I says it *uses* them.
 - **"Expressiveness?"** Structured control flow over scalar state; no heap, no aliasing, no
   concurrency in the theory. The plugin adds calls (contexts; inlining for certificates)
   and rejects the rest.
@@ -64,9 +65,13 @@ limitation, it says so.
   `0` to the outer counter (node `whileUp`, `valid_whileMono`) gets the sum bound (Paper I
   `prop:amortised-loop`). The analyser itself multiplies; merge sort, entry bounds in
   parameters and outer bodies with both shapes are not amortised. **"Is this new?"** No:
-  summation over non-rectangular nests is in Healy et al. 2000 (WCET, after Sakellariou),
-  and arithmetic sequences of iteration costs in Albert, Genaim, Masud 2011 (cost
-  analysis); what is ours is the rule in a cost logic with a verified checker case.
+  Nielson's 1987 while rule already takes the loop's time as a solution of a recurrence in
+  the unfoldings and derives bubble sort's triangular sum with it; summation over
+  non-rectangular nests is in Healy et al. 2000 (WCET, after Sakellariou), and arithmetic
+  sequences of iteration costs in Albert, Genaim, Masud 2011 (cost analysis). What is ours
+  is the checker case with its Lean proof. Atkey 2010 is the closest design: amortised
+  resources in a separation logic proved sound in Coq, annotations found by linear
+  programming.
 - **"Is your cost logic new?"** No: Nielson 1987; Haslbeck & Nipkow mechanised three such
   logics, sound *and* complete, for deterministic IMP. Here: soundness only, but
   nondeterministic atoms, bounds on prefixes, and a loop rule shaped like the analyser's

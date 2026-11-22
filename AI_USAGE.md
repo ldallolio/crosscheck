@@ -2190,6 +2190,58 @@ release object is the tag `v1.0`. Paper I's paragraph "Artifact" and a new secti
 checklist. Fixed a hyperref warning (duplicate anchor of the two parts of Table 1). Papers
 rebuilt without warnings (42, 23, 20 pages), arXiv bundles regenerated.
 
+93. "You are on main branch, I pushed the commit, should we remove the evaluation-and-contexts branch if it is merged on main ? Also, I am registering on arXiv Group(s) you would like to submit to:
+
+ cs econ eess math physics q-bio q-fin stat"
+
+94. "which license should I choose ? [followed by arXiv's list of licences: CC BY, CC BY-SA, CC BY-NC-SA, CC BY-NC-ND, arXiv.org perpetual non-exclusive license, CC Zero]"
+
+95. "how to build the slides pdf ?"
+
+96. "Can you explain the usage of dot ?"
+
+97. "I have an hard time finding the arxiv endorsement, are there other ways to ask for one ?"
+
+98. "Can (should) I upload the papers into HAL and Zenodo first then in arxiv when I will get the endorsement ?"
+
+99. "I would like to understand better some points from section C so that I can decide : tell me more about Novelty and attributions (items 7, 9, 18, 36, 37): the papers must not present classical ideas as new. references/README.md says, per entry, what the AI read; 18 of the 69 cited works have no reading note (books, classical papers such as Floyd 1967, Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only."
+
+100. "I agree with "We use the prefix order ..." and citation, also for citing Tarjan. I added courcelle1983trees.pdf tarjan1985complexity.pdf floyd1967assigning.pdf wegbreit1975mechanical.pdf podelski2004complete.pdf bardin2008fast.pdf kincaid2019closed.pdf schrijver1986theory.pdf cormen2009introduction.pdf baccelli1992synchronization.pdf cousot1977abstract.pdf nielson1987hoare.pdf start reading these then tell me again what is still missing"
+
+101. "I also added blumofe1999scheduling.pdf healy2000supporting.pdf albert2011more.pdf atkey2010amortised.pdf"
+
+What the AI did for 93-98 (Claude Opus 5.5, 2026-11-21/22): advice only (the branch is
+merged; arXiv group `cs`, cs.LO and cs.PL; licence CC BY 4.0 or arXiv's non-exclusive
+licence; endorsement; Zenodo preprints with reserved DOIs before arXiv, HAL optional),
+the slides exported to PDF (22 pages, checked), and an explanation of `dot` in the slides'
+example.
+
+What the AI did for 99-101 (Claude Opus 5.5, 2026-11-22): explained items 7, 9, 18, 36 and
+37 from the papers' text. Then read the cited passages of the 16 works the author
+provided (two scanned copies through OCR) and recorded each in `references/README.md`.
+Changes approved by the author: the contribution list of Paper I says the prefix order is
+used, not defined, and cites Courcelle 1983 (Section 2.4) for the tree order, also after
+`def:tree-order`; a sentence after `def:order-by-composition` calls it the usual prefix
+order; `prop:size-potential` cites Tarjan 1985 for the potential method. Both entries
+checked on Crossref. Found and reported, not changed: Nielson 1987's while rule [R-4]
+and its bubble-sort recurrence are an earlier form of `prop:amortised-loop` (1); Atkey
+2010 (Coq-verified VC generator, LP-inferred annotations) is not cited; Kincaid 2019 is
+not a cost analysis; the affine Farkas lemma needs a satisfiable premise for the
+equivalence Paper I states; Floyd 1967 already proposes the W-function as a bound on the
+number of steps, and lexicographic tuples.
+
+102. "Proceed with the changes"
+
+What the AI did for 102 (Claude Opus 5.5, 2026-11-22): in Paper I, Nielson 1987 (rule [R-4],
+the bubble-sort recurrence of its Section 5) cited before `prop:amortised-loop`, whose claim
+is now "a derived rule of the cost logic, with a case of the checker and a Lean proof";
+Atkey 2010 cited in the related work on mechanized logics (entry checked on Crossref, LMCS
+7(2:17), 2011); Kincaid 2019 moved from the cost analyses to the paragraph on loop
+acceleration; the affine Farkas lemma stated with its satisfiability premise (Schrijver,
+Corollary 7.1h), the soundness direction needing none; Floyd cited for lexicographic tuples
+before `prop:lex-log`. Guide part 9 and the release checklist updated. Paper I: 43 pages;
+the three papers build without warnings.
+
 ### Earlier work
 
 **Author to fill in:** tools, models, prompts and scope of any AI use before
