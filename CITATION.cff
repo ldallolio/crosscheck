@@ -5,6 +5,7 @@ type: software
 authors:
   - family-names: "Dall'Olio"
     given-names: "Luca"
+    affiliation: "Alter Ego Engineering"
 license: MIT
 version: "1.0"
 date-released: "2026-11-21"

@@ -2310,6 +2310,20 @@ statements on the use of AI no longer point to it. Papers rebuilt without warnin
 
 What the AI did for 109 (Claude Opus 5.5, 2026-11-22): committed the work of 107-108 and pushed it to `main`.
 
+110. "I wonder if we should add the author affiliation (Alter Ego Engineering, 5 rue du Docteur Lequeux, 92330 Sceaux) and email in a footer note on the papers ?"
+
+111. "The company is mine so I think that we could leave the copyright as it is, use ld@aego.ai as the email"
+
+What the AI did for 110-111 (Claude Opus 5.5, 2026-11-22): advised `\address`/`\email` (the
+`amsart` convention, printed at the end of the paper) and asked for the address and the
+copyright question; then added the affiliation and the email to the three papers and the
+affiliation to `CITATION.cff` and `.zenodo.json`. Papers rebuilt without warnings, bundles
+regenerated.
+
+112. "commit and push to main"
+
+What the AI did for 112 (Claude Opus 5.5, 2026-11-22): committed the work of 110-111 and pushed it to `main`.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
