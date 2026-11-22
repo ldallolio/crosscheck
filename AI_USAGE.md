@@ -12,8 +12,12 @@ to the numbered items of an earlier Section 3, describe the state at the time; o
 review could close them: Section 3 now records what was checked, and the author's review
 is the subject of the statement in each paper.
 
-Prompts are verbatim, except that names of local files that are not part of the repository
-are replaced by a description in square brackets.
+The log keeps what bears on the theory, the Lean code, the tools and their tests: the
+prompts that led to such work, verbatim, and what the AI did. Exchanges about publication
+logistics (archiving, metadata, licences, affiliation, arXiv endorsement), requests to commit
+or push, and advice that changed nothing are left out; the prompt numbers keep their gaps.
+Names of local files that are not part of the repository are replaced by a description in
+square brackets.
 
 ## 1. Sessions
 
@@ -23,8 +27,7 @@ are replaced by a description in square brackets.
 |---|---|
 | Tool | Claude Code (Anthropic) |
 | Models | Claude Opus 5.5 (`claude-opus-5-5`), then Claude Fable 5.2 (`claude-fable-5-2`); Claude Haiku 5.5 (`claude-haiku-5-5`) inside the subagent that reads web pages (27 responses over all sessions, found in the transcripts on 2026-11-21) |
-| Wall-clock time | not recorded — **author to fill in** |
-| Estimated compute cost | not recorded — **author to fill in** |
+| Time and usage | measured over all sessions, see Section 2 (item 3) |
 
 Prompts (verbatim):
 
@@ -72,8 +75,8 @@ Summary of the AI's reasoning and of what it changed:
   original restored as `attali1998formal`. The record gave "Princeton University,
   1990", which cannot be right (Java postdates 1990); the AI changed it from memory to
   the OOPSLA'98 Workshop on Formal Underpinnings of Java (1998). A web search confirmed
-  the work exists and dates from 1997--98 (ERCIM News 36) but **not the venue — author
-  to verify**. `Havelund2000` → Havelund & Pressburger 2000 (matches the record, with
+  the work exists and dates from 1997--98 (ERCIM News 36) but not the venue (the entry was
+  later removed, prompt 107). `Havelund2000` → Havelund & Pressburger 2000 (matches the record, with
   the spelling "Pressburguer" corrected).
 
 ### Session of 2026-11-12 (same conversation, continued)
@@ -82,8 +85,7 @@ Summary of the AI's reasoning and of what it changed:
 |---|---|
 | Tool | Claude Code (Anthropic) |
 | Model | Claude Fable 5.2 (`claude-fable-5-2`) |
-| Wall-clock time | not recorded — **author to fill in** |
-| Estimated compute cost | not recorded — **author to fill in** |
+| Time and usage | measured over all sessions, see Section 2 (item 3) |
 
 Prompts (verbatim; the first one consisted only of pasted BibTeX records, which the AI
 used to resolve the two guessed citations, see above):
@@ -143,8 +145,7 @@ Summary of the AI's reasoning and of what it changed:
 |---|---|
 | Tool | Claude Code (Anthropic) |
 | Model | Claude Fable 5.2 (`claude-fable-5-2`) |
-| Wall-clock time | not recorded — **author to fill in** |
-| Estimated compute cost | not recorded — **author to fill in** |
+| Time and usage | measured over all sessions, see Section 2 (item 3) |
 
 Prompt (verbatim):
 
@@ -1411,7 +1412,7 @@ binary (the research step of prompts 51-53).
 
 What the AI did for 55 (Claude Opus 5.5, 2026-11-17).
 - **Prior work searched and read** (contributions,
-  Sections 2.4 and 4.1; `fox2010trustworthy.pdf`, abstract and introduction): Sewell, Kam
+  Sections 2.4 and 4.1; Fox and Myreen 2010, abstract and introduction): Sewell, Kam
   and Heiser obtain the seL4 binary's CFG from a decompiler proved (HOL4) against the
   Cambridge ARM model of Fox and Myreen (validated on hardware), and leave as future work
   the proof that the CFG given to Chronos captures the binary's control paths. Both DOIs
@@ -1454,7 +1455,7 @@ DOI; handle checked on the archive) and cited with the journal paper; the `\auth
 reduced to confirming the attribution. No open copy of `necula1997proof`,
 `demichiel2008orange`, `albert2011more`, `joseph1986finding`, `puschner1989calculating`.
 
-57. "I do not feel like reporting the filterbank discrepancy to the oRange authors, maybe after the paper has been accepted and reviewed. I added nielson1987hoare.pdf to the references, check if you can read it."
+57. "I do not feel like reporting the filterbank discrepancy to the oRange authors, maybe after the paper has been accepted and reviewed. I added [a copy of Nielson 1987], check if you can read it."
 
 What the AI did for 57 (Claude Opus 5.5, 2026-11-17).
 - **Author decision recorded**: the `filterbank` discrepancy is not reported to oRange's
@@ -1467,7 +1468,7 @@ What the AI did for 57 (Claude Opus 5.5, 2026-11-17).
   `prop:summary-call`, that its second statement is Nielson's composition rule R-3. The
   `\authortodo` now asks to confirm these two attributions.
 
-58. "I added puschner1989calculating.pdf joseph1986finding.pdf healy2000supporting.pdf necula1997proof.pdf demichiel2008orange.pdf"
+58. "I added [copies of five cited works: Puschner and Koza 1989, Joseph and Pandya 1986, Healy et al. 2000, Necula 1997, de Michiel et al. 2008]"
 
 What the AI did for 58 (Claude Opus 5.5, 2026-11-17): read the five files (not committed);
 reading notes in the reading notes.
@@ -1481,14 +1482,14 @@ reading notes in the reading notes.
   `\authortodo` removed.
 - `healy2000supporting`: the journal version; Section 5 agrees with the preprint read
   before. Paper I's `\authortodo` now says the journal version was read.
-- `demichiel2008orange.pdf` is not the cited RTCSA paper but a six-page summary of it by
+- The copy supplied for `demichiel2008orange` is not the cited RTCSA paper but a six-page summary of it by
   Bonenfant, de Michiel and Sainrat (September 2008); read entirely, consistent with Paper
   II's description of oRange. Not cited (venue unknown); Paper II's `\authortodo` now says
   the paper itself is still unread and the summary was read.
-- `joseph1986finding.pdf` is another paper (O'Rourke et al., minimal enclosing triangles,
+- The copy supplied for `joseph1986finding` is another paper (O'Rourke et al., minimal enclosing triangles,
   J. Algorithms 1986); the `\authortodo` of Paper I is unchanged and the author is told.
 
-59. "look at joseph1986finding_bis.pdf conf-vmcai-AlbertGM11.pdf demichiel2008orange_bis.pdf"
+59. "look at [second copies for Joseph and Pandya 1986 and de Michiel et al. 2008, and a copy of Albert et al. 2011 (VMCAI)]"
 
 What the AI did for 59 (Claude Opus 5.5, 2026-11-17): read the three files (not committed);
 notes in the reading notes.
@@ -1505,7 +1506,7 @@ notes in the reading notes.
 
 60. "Start on the binary loop-bound certificates"
 
-61. (sent while 60 was in progress) "I added shaw1989reasoning.pdf and albert2011closed.pdf and replaced most of remaining authortodo, fix the remaining ones"
+61. (sent while 60 was in progress) "I added [copies of Shaw 1989 and Albert et al. 2011 (closed forms)] and replaced most of remaining authortodo, fix the remaining ones"
 
 What the AI did for 61 (Claude Opus 5.5, 2026-11-17): read both files (not committed);
 notes in the reading notes. `shaw1989reasoning`: Sections I-III; confirms the
@@ -1695,7 +1696,7 @@ Crossref, text not obtained: attribution flagged in Paper III's `\authortodo`).
 
 67. "Those tests are taking hours on multiple processors, I feels that something is wrong, what do you think?"
 
-68. "I added cullmann2007data.pdf crary2000resource.pdf sewell2016complete.pdf granger1989static.pdf and fixed the authortodo, read them and adapt the corresponding lines"
+68. "I added [copies of Cullmann and Martin 2007, Crary and Weirich 2000, Sewell et al. 2016, Granger 1989] and fixed the authortodo, read them and adapt the corresponding lines"
 
 What the AI did for 66 and 67 (Claude Opus 5.5, 2026-11-18): **potentials per instruction by
 linear programming** in the producer of loop certificates on machine code
@@ -2078,13 +2079,6 @@ with the `fft` example, a note on the GCC binaries, the board harness, figures),
 (matching), part 9 (figures; GCC and the harness in the answers on the processor model and
 on the compiler).
 
-82. "Would it be a good idea to upload paper I and II on arxiv as they are now ?"
-
-What the AI did for 82 (Claude Opus 5.5, 2026-11-21): an answer, no change: not yet; the
-papers build and have no `\authortodo`, but item 2.A of section 2 was still open, the
-code was not archived (and `main` was behind the working branch), time and cost were
-blank; it listed what it could do itself.
-
 83. "I am pretty busy rereading the guide and papers right now, could you work on all the open points yourself ? I think that many, if not all, can be done by you without my intervention"
 
 What the AI did for 83 (Claude Opus 5.5, 2026-11-21); summary in `docs/release-checklist.md`:
@@ -2158,70 +2152,11 @@ What the AI did for 86-88 (Claude Opus 5.5, 2026-11-21):
   to a final section (a stale TPDB classification corrected); local build leftovers
   deleted. Not done: the commit email (the author's choice).
 
-89. "I would like to add a short presentation (if not already present, I do not remember) using sli.dev tools to convert markdow into slides about this project, showing a real case workflow with examples of artifacts : initial code, untrusted facts, certificate, lean demonstration, assembly verifications and so on, identifying the compiler and linker parts, time and complexity assertions (these are just hints, you are free to integrate or change anything). Maybe even a bit of theory similar to the initial part in the guide but for slides. Include also benchmarks and tool comparisons"
-
-What the AI did for 89 (Claude Opus 5.5, 2026-11-21): no presentation existed. `docs/slides/`:
-a Slidev deck of 22 slides (Slidev 53.1.0 pinned), and a running example `demo/fir.c` (an
-8-tap FIR filter, a parameter range, a 500 µs budget) whose artifacts are all produced by
-`demo/run_demo.py` and quoted in the slides: the plugin's remarks and report (untrusted),
-the source certificate with a bound symbolic in the parameter, accepted and validated by
-the checker, the Lean statements (`check_sound`, `binary_sound`), the Cortex-M0
-disassembly, the matching of loops by line ranges, the cycle certificate, a loop bound
-proved on the instructions (`dot`: potential (28 − r2)/4, 7 back edges) and one left
-trusted (`fir_peak`, bounded by its parameter), an emulated run (20,806 cycles ≤ 21,177),
-the time budget after linking (491 µs ≤ 500 µs; 400 µs fails), a tampered certificate
-rejected, and the time of each step. Theory slides adapted from guide part 1; benchmark and
-tool-comparison slides with the figures reproduced on 2026-11-21. Every slide was rendered
-to an image and checked for overflow. The budget was first 400 µs, which the example misses
-(the time-budget step certifies without the loop certificates): set to 500 µs, the failing
-case is stated on the slide.
-
-90. "Push this into main too"
-
-What the AI did for 90 (Claude Opus 5.5, 2026-11-21): fast-forwarded `main` to the slides
-commit and pushed it; the CI runs passed.
-
-91. "I have tagged the release, please give me instructions about the DOI and arXiv"
-
-What the AI did for 91 (Claude Opus 5.5, 2026-11-21): instructions only (Zenodo's GitHub
-integration archives a published GitHub release of a public repository; version and concept
-DOIs; Software Heritage; arXiv endorsement, categories, upload order of Papers I and II).
-
-92. "Here is the DOI : 10.5281/zenodo.24425070 markdown : [![DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069) This is the only DOI I found on zenodo. The SWHID swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f;origin=https://github.com/ldallolio/crosscheck;visit=swh:1:snp:84c735986d2163ea55f8ab246c5b7a18cc5ccc5a and permalink : https://archive.softwareheritage.org/swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f;origin=https://github.com/ldallolio/crosscheck;visit=swh:1:snp:84c735986d2163ea55f8ab246c5b7a18cc5ccc5a"
-
-What the AI did for 92 (Claude Opus 5.5, 2026-11-21): read both records from Zenodo's public
-API: `10.5281/zenodo.24425070` is the version DOI of v1.0 and `10.5281/zenodo.24425069` (the badge's) the concept DOI; the SWHID's
-release object is the tag `v1.0`. Paper I's paragraph "Artifact" and a new section
-"Artifact" in Papers II and III give the repository, the version DOI and the SWHID;
-`CITATION.cff` (version, date, both DOIs, SWHID), README badge and citation line, release
-checklist. Fixed a hyperref warning (duplicate anchor of the two parts of Table 1). Papers
-rebuilt without warnings (42, 23, 20 pages), arXiv bundles regenerated.
-
-93. "You are on main branch, I pushed the commit, should we remove the evaluation-and-contexts branch if it is merged on main ? Also, I am registering on arXiv Group(s) you would like to submit to:
-
- cs econ eess math physics q-bio q-fin stat"
-
-94. "which license should I choose ? [followed by arXiv's list of licences: CC BY, CC BY-SA, CC BY-NC-SA, CC BY-NC-ND, arXiv.org perpetual non-exclusive license, CC Zero]"
-
-95. "how to build the slides pdf ?"
-
-96. "Can you explain the usage of dot ?"
-
-97. "I have an hard time finding the arxiv endorsement, are there other ways to ask for one ?"
-
-98. "Can (should) I upload the papers into HAL and Zenodo first then in arxiv when I will get the endorsement ?"
-
 99. "I would like to understand better some points from section C so that I can decide : tell me more about Novelty and attributions (items 7, 9, 18, 36, 37): the papers must not present classical ideas as new. [the reading notes] says, per entry, what the AI read; 18 of the 69 cited works have no reading note (books, classical papers such as Floyd 1967, Wegbreit 1975, Podelski and Rybalchenko 2004) and 30 were read in the abstract only."
 
-100. "I agree with "We use the prefix order ..." and citation, also for citing Tarjan. I added courcelle1983trees.pdf tarjan1985complexity.pdf floyd1967assigning.pdf wegbreit1975mechanical.pdf podelski2004complete.pdf bardin2008fast.pdf kincaid2019closed.pdf schrijver1986theory.pdf cormen2009introduction.pdf baccelli1992synchronization.pdf cousot1977abstract.pdf nielson1987hoare.pdf start reading these then tell me again what is still missing"
+100. "I agree with "We use the prefix order ..." and citation, also for citing Tarjan. I added [copies of twelve cited works: Courcelle 1983, Tarjan 1985, Floyd 1967, Wegbreit 1975, Podelski and Rybalchenko 2004, Bardin et al. 2008, Kincaid et al. 2019, Schrijver 1986, Cormen et al. 2009, Baccelli et al. 1992, Cousot and Cousot 1977, Nielson 1987] start reading these then tell me again what is still missing"
 
-101. "I also added blumofe1999scheduling.pdf healy2000supporting.pdf albert2011more.pdf atkey2010amortised.pdf"
-
-What the AI did for 93-98 (Claude Opus 5.5, 2026-11-21/22): advice only (the branch is
-merged; arXiv group `cs`, cs.LO and cs.PL; licence CC BY 4.0 or arXiv's non-exclusive
-licence; endorsement; Zenodo preprints with reserved DOIs before arXiv, HAL optional),
-the slides exported to PDF (22 pages, checked), and an explanation of `dot` in the slides'
-example.
+101. "I also added [copies of Blumofe and Leiserson 1999, Healy et al. 2000, Albert et al. 2011 (VMCAI), Atkey 2010]"
 
 What the AI did for 99-101 (Claude Opus 5.5, 2026-11-22): explained items 7, 9, 18, 36 and
 37 from the papers' text. Then read the cited passages of the 16 works the author
@@ -2255,7 +2190,7 @@ What the AI did for 103 (Claude Opus 5.5, 2026-11-22): guide parts 1, 2, 3, 8 an
 (Courcelle's tree order, Tarjan for the size potential, Nielson 1987 and Atkey 2010 as prior
 work for the amortised rule and the logic, reading status of the bibliography, a node for
 loop acceleration and closed forms); the slides needed no change (no novelty claim; the
-trace order is called the prefix order there). Committed and pushed to `main`.
+trace order is called the prefix order there).
 
 104. "I am perplex about the A part on missing lean proofs, do you have any opinion about this ?"
 
@@ -2281,15 +2216,9 @@ theorems; Paper I about 11,000 lines and 499 theorems), CLAUDE.md, README, guide
 theorems: at most `propext`, `Classical.choice`, `Quot.sound`. The three papers build
 without warnings (Paper I: 43 pages).
 
-106. "Yes commit and push"
-
-What the AI did for 106 (Claude Opus 5.5, 2026-11-22): committed the work of 104-105 and pushed it to `main`.
-
 107. "I do not think that leaving open points such as in docs/release-checklist.md or AI_USAGE.md on submission : please close them all, or remove the remarks, do the same for other files. If we can handle that, let's do it, otherwise let's clean up"
 
-108. "Remove any record of the "references" folder and its content : this is for local use only. You can keep the gitignore line but nothing else about it"
-
-What the AI did for 107-108 (Claude Opus 5.5, 2026-11-22): asked the author the two facts
+What the AI did for 107 (Claude Opus 5.5, 2026-11-22): asked the author the two facts
 only the author knows (AI use before 2026-11-11: not recorded; monetary cost: not recorded,
 usage in time and tokens). Closed what could be closed: `matiyasevich1970enumerable`
 corrected to the English translation whose title it gives (checked on Math-Net.ru and the
@@ -2302,122 +2231,23 @@ the state at the time. `docs/release-checklist.md` replaced by `docs/release-rec
 (checks, archive identifiers, reproduction); the historical `docs/proposals.md` and
 `docs/implementation-plan.md` deleted (in git history); "not yet" phrasings in the guide,
 READMEs, slides and the hardware start-up file reworded; CLAUDE.md updated (no to-do lists,
-no `\authortodo`). The folder of cited works and reading notes is no longer tracked
-(`.gitignore` covers it) and no file of the repository mentions it any more; the papers'
-statements on the use of AI no longer point to it. Papers rebuilt without warnings.
-
-109. "commit and push to main"
-
-What the AI did for 109 (Claude Opus 5.5, 2026-11-22): committed the work of 107-108 and pushed it to `main`.
-
-110. "I wonder if we should add the author affiliation (Alter Ego Engineering, 5 rue du Docteur Lequeux, 92330 Sceaux) and email in a footer note on the papers ?"
-
-111. "The company is mine so I think that we could leave the copyright as it is, use ld@aego.ai as the email"
-
-What the AI did for 110-111 (Claude Opus 5.5, 2026-11-22): advised `\address`/`\email` (the
-`amsart` convention, printed at the end of the paper) and asked for the address and the
-copyright question; then added the affiliation and the email to the three papers and the
-affiliation to `CITATION.cff` and `.zenodo.json`. Papers rebuilt without warnings, bundles
-regenerated.
-
-112. "commit and push to main"
-
-What the AI did for 112 (Claude Opus 5.5, 2026-11-22): committed the work of 110-111 and pushed it to `main`.
-
-113. "I do not understand why I do not see the affiliation nor the email in the pdf paper"
-
-What the AI did for 113 (Claude Opus 5.5, 2026-11-22): `amsart` prints `\address` and
-`\email` at the end of the paper, after the references; replaced them in the three papers by a
-`\thanks` footnote on the first page, as the author had first asked. Papers rebuilt without
-warnings, bundles regenerated.
-
-114. "commit and push to main"
-
-What the AI did for 114 (Claude Opus 5.5, 2026-11-22): committed the work of 113 and pushed it to `main`.
-
-115. "Here is a DOI for paper I from Zenodo : 10.5281/zenodo.24444576"
-
-What the AI did for 115 (Claude Opus 5.5, 2026-11-22): the DOI does not resolve yet (a
-reserved DOI of an unpublished Zenodo record: doi.org and Zenodo's API answer 404); put into
-the `crosscheckTheory` entry of `paper/crosscheck.bib` (Preprint, Zenodo, with the DOI's URL),
-which Papers II and III cite. Papers rebuilt without warnings, bundles regenerated.
-
-116. "I want you to put the DOIs in the papers I and II. I will publish both papers today, one after the other"
-
-117. "Here is the DOI for Paper II : 10.5281/zenodo.24444646"
-
-What the AI did for 116-117 (Claude Opus 5.5, 2026-11-22): asked for Paper II's DOI; then
-put it into the `crosscheckTool` entry (Preprint, Zenodo, with the DOI's URL), so that Papers I
-and II cite each other by DOI (Paper III cites both), and added each paper's own DOI to its
-first-page footnote ("This preprint: doi:..."). Both DOIs are reserved and resolve once the
-records are published. Papers rebuilt without warnings, bundles regenerated.
-
-118. "commit and push to main"
-
-What the AI did for 118 (Claude Opus 5.5, 2026-11-22): committed the work of 115-117 and pushed it to `main`.
-
-119. "what should I write in Zenodo in the description field, the abstract text ?"
-
-120. "Tell me about other fields : License, Copyright, Keywords, other things I should be careful of to be able to submit to arxiv or conferences or reviews later ?"
-
-121. "I published the first paper : https://zenodo.org/records/24444576"
-
-122. "I would like to leave the Acknowledgements only for the first paper, since we only talked theory"
-
-What the AI did for 119-122 (Claude Opus 5.5, 2026-11-22): advice on the Zenodo fields and on
-later submissions; checked the published record of Paper I (DOI resolves, the file is
-identical to the PDF built from `main`, MD5 936587e5..., metadata listed to the author).
-Removed the acknowledgements from Paper II and the empty heading from Paper III; Paper I
-unchanged (its PDF stays identical to the published file). Papers II and III rebuilt
-without warnings, their bundles regenerated.
-
-123. "Add my ORCID to CITATION.cff and .zenodo.json and to the papers for a later version. I updated the Zenodo record for the first paper"
-
-What the AI did for 123 (Claude Opus 5.5, 2026-11-22): ORCID 0009-0006-8839-5909 added to
-`CITATION.cff`, `.zenodo.json` and the first-page footnote of the three papers (Paper I's
-published v1 file is unchanged; the source now differs from it by this footnote). Checked
-the updated Zenodo record of Paper I: title in title case, the relation "References" to
-Paper II, the links in the description, the file unchanged. Papers rebuilt without
-warnings, bundles regenerated.
-
-124. "commit and push to main"
-
-What the AI did for 124 (Claude Opus 5.5, 2026-11-22): committed the work of 119-123 and pushed it to `main`.
-
-125. "give me zenodo information for the second paper"
-
-126. "I do not like the "Other" in the role of the author, what should I choose ?"
-
-127. "I published https://zenodo.org/records/24444646"
-
-What the AI did for 125-127 (Claude Opus 5.5, 2026-11-22): the fields of Paper II's record;
-advice on the creator role (optional for creators; otherwise "Researcher"); checked the
-published record: DOI resolves, the file is identical to the PDF built from `main` (MD5
-48d25d5e...), metadata as given except the keywords (CMSIS-DSP twice, Lean 4 missing).
+no `\authortodo`). Papers rebuilt without warnings.
 
 128. "In a previous run, the clang pipelines were failing, please check : [the log of the step "Cortex-M0 cycle bounds": "cosf: no report written" followed by the plugin's diagnostics] https://github.com/ldallolio/crosscheck/actions/runs/45037996688/job/137255894708"
 
-129. "Should we add badges or links to the paper DOIs ?"
-
-130. "The latest pipeline passes : https://github.com/ldallolio/crosscheck/commit/b85571f1d283286081a5e56813c9ed453ea58f82 so it was intermittent, commit and push when you are ready"
-
-What the AI did for 128-130 (Claude Opus 5.5, 2026-11-22): the failing run (commit 1be370d)
+What the AI did for 128 (Claude Opus 5.5, 2026-11-22): the failing run (commit 1be370d)
 died in the step "Cortex-M0 cycle bounds" when the plugin wrote no report for `cosf`; the
 analyser code was unchanged since the last green run (only two READMEs), the same analysis
 passes locally, and the tool writes its report unless its process dies, so the cause was
 the runner (the tool killed without a message); the failed job was re-run. `run_tacle.py`
 now prints the tool's exit status when no report is written (a negative status names the
-signal). README: DOI badges and links for Papers I and II; `CITATION.cff`: the two papers
-under `references`; `.zenodo.json`: the papers as related works (`isSupplementTo`) for the
-next code release.
+signal).
 
 131. "Now start working again on the third paper. Remember that crosscheck aims to become an industrial grade tool in the future."
 
 [Answer to the AI's question on the direction of Paper III: "Check the conventions (Recommended)"]
 
-132. "While you improve the third paper, I would like you to select a couple of authors among the cited ones so that I can ask them for the arxiv endorsement"
-
-What the AI did for 131-132 (Claude Opus 5.5, 2026-11-22): proposed four directions for
+What the AI did for 131 (Claude Opus 5.5, 2026-11-22): proposed four directions for
 Paper III (the author chose to check the calling convention instead of assuming it). A
 prototype showed that 374 of 381 analysable functions of the kernels follow the
 push/pop pattern. New Lean module `ThumbConv` (about 860 lines) and the executable check
@@ -2438,24 +2268,7 @@ loops, no certificate rejected). Paper III: subsection "The calling convention, 
 contributions, `tab:loops`, conclusions, mechanization (`tab:lean3`, about 5,000 lines and
 193 theorems), the not-mechanized list; Paper I's count of the third paper's modules;
 `formalization.yaml`, CLAUDE.md, README, cycles README, guide parts 5 and 7, slides; test
-`Producer.test_convention_checked`. For 132: candidate endorsers chosen among the cited
-authors, with their recent arXiv postings in cs.LO/cs.PL checked through the arXiv API
-(names only sent).
-
-133. "did you check if those authors can endorse in arxiv, do they appear in the lists for CS ?"
-134. "Please write a short mail for Florian Frohn (object and content)"
-135. [The arXiv endorsement request message, pasted.]
-136. [A list of Florian Frohn's publications from another source, in Italian, pasted.]
-137. "should I attach the papers ?"
-138. "commit and push to main"
-
-What the AI did for 133-138 (Claude Opus 5.5, 2026-11-22): explained that arXiv publishes
-no list of endorsers and that its per-paper endorser page needs a login (a request without
-one returned 401); listed recent arXiv papers of the candidates as pages to check. Drafted
-an endorsement request (not part of the repository). Checked two arXiv identifiers of the
-pasted list on the arXiv API: one is by Frohn and Giesl, the other (KoAT, 2606.28542) is by
-Lommen, Meyer and Giesl, not by Frohn as the list said, so the draft does not attribute
-KoAT to him. Advised links rather than attachments. No change to the papers or the code.
+`Producer.test_convention_checked`.
 
 ### Earlier work
 

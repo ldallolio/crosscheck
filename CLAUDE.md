@@ -268,7 +268,10 @@ tool (including you) touches mathematical content:
    verified something. Raise what needs the author in the session; record in `AI_USAGE.md` §3
    (review record) what the AI checked, never an open to-do list.
 2. **Record the AI use** in `AI_USAGE.md`: date, tool, exact model name(s), the prompts
-   verbatim, a summary of the reasoning and of what changed. Time and tokens are measured from
+   verbatim, a summary of the reasoning and of what changed. Record only what bears on the
+   theory, the Lean code, the tools and their tests; leave out publication logistics
+   (archiving, metadata, licences, endorsement), commit/push requests and advice that changed
+   nothing (author's decision, 2026-11-22). Time and tokens are measured from
    the transcripts; the monetary cost is not recorded (author's decision, 2026-11-22). Keep the paper's "Statement on the Use of AI" consistent with that file.
 3. **Literature.** Search for prior work and cite the papers where ideas were first introduced,
    even if rediscovered independently. Do not present classical results as new (see the
