@@ -70,6 +70,69 @@ def gcc_command(image, dirs):
             *mounts, image, "arm-none-eabi-gcc"]
 
 
+# compiler-rt's soft-float routines (Apache-2.0 with LLVM exception), at the tag of the Clang
+# used here, fetched into the cache (never vendored) and compiled for the Cortex-M0
+COMPILER_RT_TAG = "llvmorg-18.1.8"
+COMPILER_RT_FILES = [
+    "int_lib.h", "int_types.h", "int_endianness.h", "int_util.h", "int_math.h", "fp_lib.h", "fp_mode.h",
+    "fp_add_impl.inc", "fp_mul_impl.inc", "fp_div_impl.inc", "fp_extend.h", "fp_extend_impl.inc",
+    "fp_trunc.h", "fp_trunc_impl.inc", "fp_fixint_impl.inc", "fp_fixuint_impl.inc",
+    "fp_compare_impl.inc", "int_to_fp.h", "int_to_fp_impl.inc", "assembly.h",
+    "addsf3.c", "subsf3.c", "mulsf3.c", "divsf3.c", "adddf3.c", "subdf3.c", "muldf3.c", "divdf3.c",
+    "comparesf2.c", "comparedf2.c", "fixsfsi.c", "fixunssfsi.c", "fixdfsi.c", "fixunsdfsi.c",
+    "floatsisf.c", "floatunsisf.c", "floatsidf.c", "floatunsidf.c", "extendsfdf2.c", "truncdfsf2.c",
+    "clzsi2.c", "fp_mode.c", "muldi3.c", "ashldi3.c", "lshrdi3.c", "ashrdi3.c", "arm/aeabi_fcmp.S", "arm/aeabi_dcmp.S"]
+COMPILER_RT_FLAGS = ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft", "-O2",
+                     "-ffreestanding", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables"]
+
+
+def compiler_rt(cache, clang):
+    """The archive of compiler-rt's soft-float routines for the Cortex-M0 (built once)."""
+    import subprocess
+    import urllib.request
+    d = pathlib.Path(cache) / f"compiler-rt-{COMPILER_RT_TAG.removeprefix('llvmorg-')}"
+    lib = d / "libclang_rt.builtins-armv6m.a"
+    if lib.exists():
+        return lib
+    base = f"https://raw.githubusercontent.com/llvm/llvm-project/{COMPILER_RT_TAG}/compiler-rt/lib/builtins/"
+    for f in COMPILER_RT_FILES:
+        out = d / f
+        if not out.exists():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            req = urllib.request.Request(base + f, headers={"User-Agent": "Mozilla/5.0 (generic client)"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                out.write_bytes(r.read())
+    objs = []
+    for f in COMPILER_RT_FILES:
+        if f.endswith((".c", ".S")):
+            o = d / "obj" / (pathlib.Path(f).stem + ".o")
+            o.parent.mkdir(exist_ok=True)
+            subprocess.run([str(clang), *COMPILER_RT_FLAGS, f"-I{d}", "-c", str(d / f), "-o", str(o)], check=True)
+            objs.append(str(o))
+    ar = pathlib.Path(clang).with_name("llvm-ar")
+    subprocess.run([str(ar) if ar.exists() else "llvm-ar", "rcs", str(lib), *objs], check=True)
+    return lib
+
+
+def link_command(image, obj, out, lib=None):
+    """A relocatable link (`ld -r`) of `obj` with a run-time library, by arm-none-eabi-ld of
+    `image` (run without network): the archive members that `obj` needs (floating point,
+    ...) are added, as a link with the toolchain would add them; the division routines of
+    runtime.c stay (they are defined in `obj`, so the library's are not taken). `lib`: an
+    archive (compiler-rt), else the Cortex-M0 libgcc of the image's arm-none-eabi-gcc."""
+    import os
+    dirs = sorted({str(pathlib.Path(x).parent.resolve()) for x in [obj, out] + ([lib] if lib else [])})
+    mounts = [x for d in dirs for x in ("-v", f"{d}:{d}")]
+    archive = str(pathlib.Path(lib).resolve()) if lib else \
+        "$(arm-none-eabi-gcc -mcpu=cortex-m0 -mthumb -mfloat-abi=soft -print-libgcc-file-name)"
+    cmd = (f"arm-none-eabi-ld -r --no-warn-mismatch -o {pathlib.Path(out).resolve()} "
+           f"{pathlib.Path(obj).resolve()} {archive}")
+    if not image:   # arm-none-eabi-ld (binutils-arm-none-eabi) on this machine; compiler-rt only
+        return ["sh", "-c", cmd]
+    return ["docker", "run", "--rm", "--network", "none", "-u", f"{os.getuid()}:{os.getgid()}",
+            *mounts, image, "sh", "-c", cmd]
+
+
 def runtime_bounds(tool, work, extra):
     """CrossCheck's loop bounds for runtime.c (integer division)."""
     import subprocess
@@ -93,7 +156,7 @@ def loop_ends(functions, offset=0, ends=None):
 
 
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
-            frame=False, cflags=(), tag="", gcc=None):
+            frame=False, cflags=(), tag="", gcc=None, rtlib=None):
     import subprocess
     run_tacle.run_kernel(tool, kernel, work, [*extra, *SOURCE_TARGET])
     rep = json.loads((work / f"{kernel.name}.json").read_text())
@@ -116,7 +179,17 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                        capture_output=True, text=True)
     if p.returncode:
         return dict(kernel=kernel.name, error="compilation failed: " + p.stderr[-300:])
+    base_funcs = set(m0.load(str(obj)).funcs)
+    if rtlib:
+        image, lib = rtlib
+        linked = work / f"{kernel.name}.m0{tag}.{'crt' if lib else 'lg'}.o"
+        p = subprocess.run(link_command(image, obj, linked, lib), capture_output=True, text=True)
+        if p.returncode:
+            return dict(kernel=kernel.name, error="link with the run-time library failed: " + p.stderr[-300:])
+        obj = linked
     img = m0.load(str(obj))
+    # the run-time support: runtime.c's division and what the link with a run-time library added
+    runtime = {n for n in img.funcs if n.startswith("__aeabi") or n not in base_funcs}
     lines = wcet.line_table(str(objdump), str(obj), f"{kernel.name}.m0.c")
     rt_rep = json.loads((work / "runtime.json").read_text())["functions"]
     ends = loop_ends(rt_rep, offset)
@@ -215,16 +288,16 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
     sobserved["main"] = frames[0][0] - min(f[1] for f in frames)
     sviol = [f"{fn}: observed {s} bytes of stack > bound {sbound[fn]}"
              for fn, s in sobserved.items() if sbound.get(fn) is not None and s > sbound[fn]]
-    scompared = [fn for fn in sobserved if sbound.get(fn) is not None and not fn.startswith("__aeabi")]
-    sown = {n: v for n, v in sbound.items() if not n.startswith("__aeabi")}
+    scompared = [fn for fn in sobserved if sbound.get(fn) is not None and fn not in runtime]
+    sown = {n: v for n, v in sbound.items() if n not in runtime}
     for fn, c in observed.items():
         if static.get(fn) is not None and c > static[fn]:
             viol.append(f"{fn}: observed {c} cycles > bound {static[fn]}")
         if certified.get(fn) is not None and c > certified[fn]:
             viol.append(f"{fn}: observed {c} cycles > certified bound {certified[fn]}")
-    compared = [fn for fn in observed if static.get(fn) is not None and not fn.startswith("__aeabi")]
+    compared = [fn for fn in observed if static.get(fn) is not None and fn not in runtime]
     ratios = [static[fn] / observed[fn] for fn in compared if observed[fn]]
-    own = {n: v for n, v in static.items() if not n.startswith("__aeabi")}  # not runtime.c
+    own = {n: v for n, v in static.items() if n not in runtime}  # not runtime.c
     return dict(kernel=kernel.name, functions=len(own),
                 bounded=sum(v is not None for v in own.values()),
                 bounded_functions={n: v for n, v in own.items() if v is not None},
@@ -242,7 +315,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                 stack_why={n: sa.why[n] for n in sa.why if n in sown},
                 seconds=round(time.monotonic() - t0, 1),
                 **({} if not certdir else dict(
-                    certified_functions={n: v for n, v in certified.items() if not n.startswith("__aeabi")},
+                    certified_functions={n: v for n, v in certified.items() if n not in runtime},
                     certificates_accepted=cert_info["accepted"],
                     certificate_checker_output=cert_info["checker_output"],
                     not_certified={n: cert_info["why"].get(n, "?") for n in own
@@ -284,6 +357,14 @@ def main():
     ap.add_argument("--gcc", metavar="IMAGE",
                     help="compile with arm-none-eabi-gcc from this Docker image (run without network) "
                          "instead of Clang; use with --tag, e.g. --tag=.gcc")
+    ap.add_argument("--rtlib", choices=["libgcc", "compiler-rt"],
+                    help="link each object with a run-time library, so that floating point is "
+                         "analysed on its machine code: libgcc (Cortex-M0 multilib of the image's "
+                         "arm-none-eabi-gcc) or compiler-rt (fetched at COMPILER_RT_TAG, compiled "
+                         "by --clang); the link runs in --link-image")
+    ap.add_argument("--link-image", default="armgcc:local", metavar="IMAGE",
+                    help="Docker image with arm-none-eabi-ld (and gcc, for libgcc), run without network; "
+                         "'' for the arm-none-eabi-ld of this machine (with compiler-rt)")
     ap.add_argument("--mul-cycles", type=int, default=32, help="MULS cycles (32: small multiplier)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="kernels analysed in parallel (processes; the largest objects first, "
@@ -300,8 +381,9 @@ def main():
     if a.certify:
         pathlib.Path(a.certify).mkdir(parents=True, exist_ok=True)
     rt = runtime_bounds(a.tool, work, a.extra_arg)
+    rtlib = None if not a.rtlib else (a.link_image, compiler_rt(a.cache, a.clang) if a.rtlib == "compiler-rt" else None)
     args = lambda k: (k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify,  # noqa: E731
-                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc)
+                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc, rtlib)
     if a.jobs > 1:
         import concurrent.futures
         size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731

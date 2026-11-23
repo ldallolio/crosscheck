@@ -438,6 +438,15 @@ altered certificates are refused.
   against executions.
 - **Stack bounds.** The high-water mark of the stack (Paper I, `prop:stack`) on the same
   binaries: 143 of 267 functions; 9 of the 10 `main` bounds equal the observed stack.
+- **Floating point on its machine code.** The Cortex-M0 has no floating-point unit: `a * b`
+  on floats becomes a call of a library routine, `__aeabi_fmul`. In the runs above that
+  routine has no code in the binary (the interpreter computes it in Python), so every
+  function that multiplies floats has no bound. `run_cycles.py --rtlib compiler-rt` links
+  each kernel with LLVM's real routines first, so they are decoded, bounded and certified
+  like the kernel's own code: 187 of 267 functions certified instead of 121, 10 `main`
+  functions instead of 6. GCC's libgcc works too, except for its float divisions, which
+  jump through a table (`mov pc, r3`: the target is read from memory), something the
+  checker cannot follow yet.
 - **Time budgets after compilation.** `CROSSCHECK_DEADLINE_CYCLES(n)` / `_US(n)` are checked
   on the binary by `clang-plugin/scripts/crosscheck_link.py` (optionally with certified
   bounds, `--certify`), as a post-build step that fails when a budget is exceeded.

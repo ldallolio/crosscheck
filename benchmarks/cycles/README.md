@@ -317,6 +317,72 @@ certificates of small loops whose instruction is changed (classes `ExactEffects`
 
 `BINLOOPS_CHECK_CLOSE=1` compares each incremental closure of a zone with the full one.
 
+## Floating point on its machine code: a run-time library linked (2026-11-23)
+
+The Cortex-M0 has no floating-point unit: each float or double operation calls a routine of
+the run-time library (`__aeabi_fadd`, `__aeabi_ddiv`, ...). In the runs above these routines
+have no code (the interpreter computes them in Python, at no cycle cost), so every function
+that reaches one has no bound. `run_cycles.py --rtlib compiler-rt|libgcc` links each object
+with a real library first (`ld -r`, so that the archive members the object needs are added
+as the toolchain's link would add them; `runtime.c`'s integer division stays), and the
+routines are analysed, certified and run on their machine code like the kernels' own:
+
+- `compiler-rt`: LLVM's soft-float routines and the 64-bit multiply and shifts they call
+  (`COMPILER_RT_FILES`, Apache-2.0 with LLVM exception), fetched at tag `llvmorg-18.1.8` (the
+  Clang used here) into `.cache/` (never vendored) and compiled by Clang at `-O2`. No loop,
+  no indirect jump.
+- `libgcc`: the Cortex-M0 multilib (`thumb/v6-m/nofp`) of arm-none-eabi-gcc 13.2.1 in the
+  Docker image, unmodified. Its float and double divisions (`divsf3`, `divdf3`) dispatch the
+  special cases through a jump table (`mov pc, r`), which the decoder refuses (an indirect
+  jump), so functions that divide floating-point numbers stay without a bound.
+
+The link runs in `--link-image` (default `armgcc:local`, without network) or, with
+`--link-image ''`, with the `arm-none-eabi-ld` of the machine (Ubuntu's
+`binutils-arm-none-eabi`; CI). The functions the library adds are counted apart from the
+kernels' (the 267 functions below are the kernels' own).
+
+| all 29 kernels, `--certify-loops` | before | compiler-rt | libgcc |
+|---|---:|---:|---:|
+| functions with a certified cycle bound, no assumption | 116 | 181 | |
+| ... with `--abi --frame` | 121 | 187 | 173 |
+| entry functions (`main`) certified, `--abi --frame` | 6 | 10 | 8 |
+| functions with a timing-schema bound | 107 | 172 | 158 |
+| functions with a stack bound | 143 | 239 | 204 |
+| entry functions with a stack bound | 10 | 21 | 15 |
+| kernel loops certified, `--abi --frame` (of 403) | 257 | 257 | 257 |
+
+Every certificate is accepted and no emulated run exceeds a cycle, loop or stack bound
+(`--check`). The calling convention is not established everywhere any more, so `abi` is
+assumed for the functions the checker names: with compiler-rt in 1 of the 29 programs
+(`ludcmp_test`, which gets a certificate now that it has a bound: it restores SP from its
+frame pointer, `subs r6, r7, #7; subs r6, #5; mov sp, r6`, which the SP offsets do not
+follow); with libgcc in 13, all in its hand-written assembly routines (`__aeabi_cfrcmple`,
+`__aeabi_cdrcmple`, `__aeabi_d2iz`, `__aeabi_f2uiz`; `__aeabi_cfrcmple`, for instance, swaps
+its operands and branches into `__aeabi_cfcmple`). With compiler-rt, the certified bounds of the entry functions are 1.00
+to 5.53 times the observed cycles:
+
+| Kernel | Certified (cycles) | Observed | Ratio |
+|---|---:|---:|---:|
+| binarysearch | 24,895 | 24,241 | 1.03 |
+| bsort | 282,526 | 148,668 | 1.90 |
+| complex_updates | 102,437 | 42,672 | 2.40 |
+| countnegative | 330,607 | 327,923 | 1.01 |
+| iir | 23,926 | 6,840 | 3.50 |
+| isqrt | 774,612 | 689,071 | 1.12 |
+| jfdctint | 61,923 | 60,911 | 1.02 |
+| ludcmp | 1,545,949 | 279,707 | 5.53 |
+| matrix1 | 48,548 | 48,548 | 1.00 |
+| st | 10,133,978 | 6,067,895 | 1.67 |
+
+The four new ones (`complex_updates`, `iir`, `ludcmp`, `st`) compute in floating point; why
+`ludcmp` and `iir` are further from their runs (the paths through the routines, their data or
+the loops) was not analysed. libgcc's routines are faster than compiler-rt's
+(`complex_updates`: 52,352 certified, 34,623 observed; `iir`: 13,888 and 6,799). The observed
+cycles of the default runs leave the floating-point routines out (they cost nothing there):
+`st` takes 6.07 million cycles with compiler-rt, 4.76 million with libgcc, 1.78 million
+without code for them. The library's code is trusted to be the code the program is linked
+with, as the kernels' code is; the run with compiler-rt takes 20 minutes with `--jobs 4`.
+
 ## OTAWA on the same binaries
 
 `run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)

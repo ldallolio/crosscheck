@@ -2270,6 +2270,25 @@ contributions, `tab:loops`, conclusions, mechanization (`tab:lean3`, about 5,000
 `formalization.yaml`, CLAUDE.md, README, cycles README, guide parts 5 and 7, slides; test
 `Producer.test_convention_checked`.
 
+140. "commit and push to main, then keep working on improving benchmark results and making crosscheck an industrial grade WCET validator"
+
+What the AI did for 140 (Claude Opus 5.5, 2026-11-22/23): found that the main obstacle to
+bounds of the kernels' entry functions was software floating point, whose run-time routines
+had no code in the binaries. Added `run_cycles.py --rtlib compiler-rt|libgcc`: each object is
+linked (`ld -r`, arm-none-eabi-ld in a Docker image without network, or the machine's) with a
+run-time library; compiler-rt's soft-float sources fetched at `llvmorg-18.1.8` into the
+gitignored cache and compiled by Clang; the library's functions counted apart from the
+kernels'. libgcc's float and double divisions use a jump table (`mov pc, r`), which the
+decoder refuses; compiler-rt's have none. Full runs (29 kernels, `--certify-loops`,
+`--check`): with compiler-rt, 187 of 267 functions certified with both assumptions (121
+before), 181 with none (116), 10 entry functions (6), 239 stack bounds (143); with libgcc,
+173 and 8. No certificate rejected, no emulated run above a bound. The calling convention is
+not established in one function with compiler-rt (`ludcmp_test`, SP restored from the frame
+pointer) and in libgcc's assembly routines of 13 programs. Cycles README, Paper III
+(paragraph "Floating point on its machine code", abstract, limitations, conclusions; 23
+pages, no warnings), guide part 5, CLAUDE.md, CI (a compiler-rt run of four kernels whose
+certificates the Lean job checks).
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed
