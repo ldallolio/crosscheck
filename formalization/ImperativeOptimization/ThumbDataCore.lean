@@ -47,7 +47,7 @@ that every run in the data semantics satisfies these rows, so they become theore
 
 namespace ImperativeOptimization.Thumb
 
-open ImperativeOptimization.Checker (Lin PExp entails1 vadd vsmul unit)
+open ImperativeOptimization.Checker (Lin PExp entails1 vadd vsmul unit isZero)
 
 
 /-- An operand: a low register or a constant. -/
@@ -822,12 +822,22 @@ def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
         spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n)
     | none => true
 
+/-- The congruence `x` after the instruction at `a` follows from a shift alone: `LSLS rd, rm, #k`
+    writes `(rm * 2^k) mod 2^32`, a multiple of `2^k` whether it overflows or not (the
+    post-expression of the overflow case is any value). -/
+def shlCong (abi : Bool) (c : Code) (a : Nat) (x : Cong) : Bool :=
+  decide (x.1 < 8) &&
+  match (effect abi c a).dst.find? (fun p => p.1 == x.1) with
+  | some (_, .shl _ k) => decide (x.2.1 ≤ k ∧ k < 32 ∧ x.2.2 % 2 ^ x.2.1 = 0)
+  | _ => false
+
 /-- The congruences after every transition of the instruction at `a`, in every wrap case. -/
 def congOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
   match decode mul c a with
   | none => true
   | some i => (transJ f.jumps i a).all fun p => match p.1 with
-    | some n => (mcases (effect abi c a)).all fun m => (congAt f L n).all fun x =>
+    | some n => (congAt f L n).all fun x => shlCong abi c a x ||
+        (mcases (effect abi c a)).all fun m =>
         congPE (congAt f L a) x.2.1 x.2.2
           (postS (effect abi c a) (stackEffect abi c a) L.frame (spAt f L a) L.slots m x.1)
     | none => true
@@ -904,10 +914,127 @@ def jumpOk (abi : Bool) (mul : Nat) (c : Code) (t : JT) : Bool :=
       | none => false
   | _, _, _ => false
 
+/-! #### Windows whose index is bounded by an instruction (no `CMP`)
+
+When the compiler knows the range of the index (`switch (x & 7)` with every case present),
+it emits no range check. The window then starts at `start`, is evaluated from no known
+register, and its instruction at `p` (`ix = some p`) bounds the register it writes: `ANDS`
+by the value of either operand, `LSRS rd, rm, #s` by `2^(32-s) - 1` (by `0` when `s = 0`,
+a shift by 32), `UXTB` and `LDRB` by `255`. These bounds are part of the trusted
+specification (`ThumbData.XOk`, compared with `m0.py`). -/
+
+/-- The bounds of the value an instruction writes: register `d` is at most the value of the
+    source before the instruction. -/
+def rngOps (c : Code) (a : Nat) : List (Nat × Src) :=
+  match c.get a with
+  | some h =>
+    if h >>> 6 = 0b0100000000 then [(h % 8, .reg ((h >>> 3) % 8)), (h % 8, .reg (h % 8))]
+    else if h >>> 11 = 0b00001 then
+      [(h % 8, .imm (if (h >>> 6) % 32 = 0 then 0 else 2 ^ (32 - (h >>> 6) % 32) - 1))]
+    else if h >>> 6 = 0b1011001011 ∨ h >>> 11 = 0b01111 ∨ h >>> 9 = 0b0101110 then
+      [(h % 8, .imm 255)]
+    else []
+  | none => []
+
+/-- The register bounded at `a` and its bound, from the registers known before. -/
+def rngB (c : Code) (a : Nat) (P : Nat → Option Nat) : Option (Nat × Nat) :=
+  (rngOps c a).findSome? fun q => (srcP P q.2).map fun b => (q.1, b)
+
+/-- `P` with register `d` set to `x`. -/
+def setR (P : Nat → Option Nat) (d x : Nat) : Nat → Option Nat := fun i => if i = d then some x else P i
+
+/-- The largest bound enumerated. -/
+def RCAP : Nat := 1024
+
+/-- The registers known before the instruction at `p` of a window from `start`. -/
+def wpre (abi : Bool) (c : Code) (t : JT) (p : Nat) : Nat → Option Nat :=
+  wrun abi c ((p - t.start) / 2) t.start fun _ => none
+
+/-- The window of a jump bounded at `p`: for every value `x` up to the bound, the window
+    evaluated after `p` with the bounded register at `x` gives a listed target. -/
+def jumpRng (abi : Bool) (c : Code) (t : JT) : Bool :=
+  match t.ix, pcWrite c t.pos with
+  | some p, some (add, m) =>
+    decide (t.start ≤ p) && decide (p < t.pos) && (p - t.start) % 2 == 0 &&
+    (t.pos - t.start) % 2 == 0 &&
+    match rngB c p (wpre abi c t p) with
+    | some (d, b) => decide (d < 8) && decide (b < RCAP) &&
+      (List.range (b + 1)).all fun x =>
+        match wrun abi c ((t.pos - (p + 2)) / 2) (p + 2) (setR (wstep abi c p (wpre abi c t p)) d x) m with
+        | some v => decide (pcDestV t.pos add v ∈ t.tgts)
+        | none => false
+    | none => false
+  | _, _ => false
+
+/-- The addresses of such a window after its first: `start + 2`, ..., the jump. -/
+def interiorR (t : JT) : List Nat :=
+  (List.range ((t.pos - t.start) / 2)).map fun k => t.start + 2 + 2 * k
+
+/-! #### Windows whose index is bounded by the invariant
+
+When the index is bounded only by a loop (`switch (i)` in a loop on `i < 8`) or by
+constants set on several paths, no instruction of the window bounds it; the certified
+invariant at the instruction `p` of the window does: every disjunct of the invariant at `p`
+has a fact `x_d - u <= 0` with `u <= hi` and, when `lo > 0`, a fact `l - x_d <= 0` with
+`lo <= l` (`invBound`); the congruence of `x_d` at `p`, if any, removes the values of the
+wrong residue. The window is evaluated from no known register up to `p`, then from `p`
+with `r_d = x` for every remaining `x` in `lo..hi`. The invariant holds at `p` on every
+data run whose steps before `p` follow the transitions of the function
+(`ThumbData.inv_prefix`), which `ThumbData.steps_good` establishes in the same induction. -/
+
+/-- The bound `u` of a fact `x_d + c <= 0` (`u = -c`). -/
+def ubOf (g : Lin) (d : Nat) : Option Int :=
+  if isZero (vadd g.sv (vsmul (-1) (unit d))) then some (-g.c) else none
+
+/-- The bound `l` of a fact `-x_d + c <= 0` (`l = c`). -/
+def lbOf (g : Lin) (d : Nat) : Option Int :=
+  if isZero (vadd g.sv (unit d)) then some g.c else none
+
+/-- Every disjunct of the invariant at `p` puts register `d` in `lo..hi`. -/
+def invBound (f : BFun) (L : DFun) (p d lo hi : Nat) : Bool :=
+  (invsAt f L p).all fun I =>
+    (I.any fun g => match ubOf g d with
+      | some u => decide (u ≤ hi)
+      | none => false) &&
+    (lo == 0 || I.any fun g => match lbOf g d with
+      | some l => decide ((lo : Int) ≤ l)
+      | none => false)
+
+/-- `x` has the residue of register `d` at `p` (`true` when no congruence is given). -/
+def congFits (f : BFun) (L : DFun) (p d x : Nat) : Bool :=
+  decide ((x : Int) % ((2 ^ (congOf (congAt f L p) d).1 : Nat) : Int) =
+    ((congOf (congAt f L p) d).2 : Int) % ((2 ^ (congOf (congAt f L p) d).1 : Nat) : Int))
+
+/-- The window of a jump whose register `d` is bounded at `p` by the invariant: for every
+    value in the bounds with the residue of `d`, a listed target. -/
+def jumpInv (abi : Bool) (c : Code) (f : BFun) (L : DFun) (t : JT) : Bool :=
+  match t.ix, t.vr, pcWrite c t.pos with
+  | some p, some (d, lo, hi), some (add, m) =>
+    decide (t.start ≤ p) && decide (p ≤ t.pos) && (p - t.start) % 2 == 0 &&
+    (t.pos - t.start) % 2 == 0 && decide (d < 8) && decide (hi < RCAP) &&
+    invBound f L p d lo hi &&
+    (List.range (hi + 1)).all fun x => decide (x < lo) || !congFits f L p d x ||
+      match wrun abi c ((t.pos - p) / 2) p (setR (wpre abi c t p) d x) m with
+      | some v => decide (pcDestV t.pos add v ∈ t.tgts)
+      | none => false
+  | _, _, _ => false
+
+/-- The check of a jump, by its form. -/
+def jumpOkF (abi : Bool) (mul : Nat) (c : Code) (f : BFun) (L : DFun) (t : JT) : Bool :=
+  if t.ix.isSome then (if t.vr.isSome then jumpInv abi c f L t else jumpRng abi c t)
+  else jumpOk abi mul c t
+
 /-- Nothing enters the window of a jump except from the instruction before it on its path
-    (`wpred`), the entry is not in it, and no listed jump is at its branch. -/
+    (`wpred`; `p - 2` for a window without `CMP`), the entry is not in it, and no listed jump
+    is at its branch. -/
 def interiorOk (mul : Nat) (c : Code) (f : BFun) : Bool :=
-  f.jumps.all fun t => !(interior c t).contains f.entry && jumpTr f.jumps (t.start + 2) == [] &&
+  f.jumps.all fun t => if t.ix.isSome then
+    !(interiorR t).contains f.entry &&
+    (medges mul c f.jumps f.nodes).all fun m => match m.2.1 with
+      | some p => !(interiorR t).contains p || m.1 == p - 2
+      | none => true
+  else
+    !(interior c t).contains f.entry && jumpTr f.jumps (t.start + 2) == [] &&
     (medges mul c f.jumps f.nodes).all fun m => match m.2.1 with
       | some p => !(interior c t).contains p || m.1 == wpred c t p
       | none => true
@@ -922,7 +1049,7 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   L.alt.all (·.all (·.all (wfLin L.slots.length))) &&
   L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
   checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L &&
-  f.jumps.all (jumpOk abi mul c) && interiorOk mul c f
+  f.jumps.all (jumpOkF abi mul c f L) && interiorOk mul c f
 
 /-- The check of the loop certificates of all functions (aligned with the functions);
     `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`

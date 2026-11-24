@@ -321,7 +321,9 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   them without Farkas certificates (Lean `congOk`): after every transition, in every wrap
   case, the post-expression `Σ k_v·x_v + c` of `v` (the same as for the invariants) must
   have, for each term, `2^e` dividing `k_v·2^{e_v}` (`e_v` from the congruences before the
-  instruction, `0` if none), and `Σ k_v·r_v + c ≡ r (mod 2^e)`. At a conditional branch,
+  instruction, `0` if none), and `Σ k_v·r_v + c ≡ r (mod 2^e)`; or `v` is the register
+  written by `LSLS v, rm, #k` and `e ≤ k`, `r ≡ 0` (a multiple of `2^k`, overflow or not,
+  Lean `shlCong`). At a conditional branch,
   if the ghosts `8` and `9` are congruent modulo `2^e` (largest such `e`, Lean `gExp`),
   the facts `±(x₈ − x₉) + c ≤ 0` of the condition are rounded to `c` a multiple of `2^e`
   (`tightenL`) before they become premises (Paper III, after `lem:cond-facts`). Likewise,
@@ -337,6 +339,18 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   transition `j`, wrap case `m`, fact `d` of the branch and source disjunct `s` lands in
   disjunct `t` of the next instruction's invariant (Lean `tgtIdx`, `tgtInv`); cases not
   listed land in disjunct `0`, as does a `t` without such a disjunct.
+- `"jumps"` (optional, default none): the jumps through a table (`ADD PC, rm` /
+  `MOV PC, rm`), each `{"start": s, "pos": p, "targets": [...]}` and optionally
+  `"index": q` and `"bound": [d, lo, hi]` (Lean `JT`; allowed only in version 2). Without
+  `index`: the window starts with `CMP rI, #n` at `s` and a `BHI`/`BLS` (`jumpOk`). With
+  `index` alone: the instruction at `q` bounds the register it writes (`ANDS`, `LSRS`,
+  `UXTB`, `LDRB`; `jumpRng`). With `bound`: every disjunct of the invariant at `q` states
+  `r_d ≤ u` with `u ≤ hi` and, if `lo > 0`, `r_d ≥ l` with `l ≥ lo`; the window is
+  evaluated for every value of `lo..hi` with the residue of the congruence of `d` at `q`
+  (`jumpInv`; `hi < 1024`). In every form the checker evaluates the window for each value
+  of the index, requires the address to be a listed target, and requires that nothing
+  enters the window but from the instruction before (`interiorOk`); the targets are then
+  the jump's transitions in the graph (`transJ`).
 - `"proofs"`: one Farkas certificate `[mu, [[premise index, multiplier], ...]]` per
   obligation, in the order of `Thumb.obligations` (the entry's invariant and the
   potentials at the entry from the ranges alone; then, for every instruction, every

@@ -177,8 +177,10 @@ class Image:
 
 def load(path, base=0, ram=1 << 22):
     """Link one relocatable object into a flat image: allocated sections in file order from
-    `base`, then `ram` bytes of stack. Undefined functions get stub addresses (calls to
-    them stop the interpreter)."""
+    `base` (`img.ro_top`: the end of the read-only sections before the first writable one:
+    the code and the constant tables that follow it, as `ld -r` with a run-time library
+    places them), then `ram` bytes of stack. Undefined functions get stub addresses (calls
+    to them stop the interpreter)."""
     data = open(path, "rb").read()
     if struct.unpack_from("<H", data, 0x10)[0] == 2:
         return _load_exec(data)
@@ -197,10 +199,13 @@ def load(path, base=0, ram=1 << 22):
     img = Image()
     addr = {}
     pos = base
+    img.ro_top = None
     for k, s in enumerate(secs):
         sh_type, sh_flags, sh_size, sh_align = s[1], s[2], s[5], max(1, s[8])
         if not (sh_flags & 2) or names[k].startswith(".ARM.exidx"):
             continue
+        if sh_flags & 1 and img.ro_top is None:      # SHF_WRITE: the end of the read-only part
+            img.ro_top = pos
         pos = (pos + sh_align - 1) // sh_align * sh_align
         addr[k] = pos
         if len(img.mem) < pos + sh_size:
@@ -208,6 +213,8 @@ def load(path, base=0, ram=1 << 22):
         if sh_type != 8:  # not NOBITS
             img.mem[pos:pos + sh_size] = data[s[4]:s[4] + sh_size]
         pos += sh_size
+    if img.ro_top is None:
+        img.ro_top = pos
     symtab = next(k for k, s in enumerate(secs) if s[1] == 2)
     strtab = secs[secs[symtab][6]]
     syms = []

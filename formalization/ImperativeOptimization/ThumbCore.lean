@@ -169,11 +169,19 @@ that every data run then follows a listed target. -/
 /-- `2^32`. -/
 def U : Nat := 4294967296
 
-/-- A jump through a table: the address of its `CMP`, of the jump, and the targets. -/
+/-- A jump through a table: the address of its `CMP`, of the jump, and the targets; or,
+    with `ix = some p`, a window from `start` whose index is bounded by the instruction at
+    `p` (an `ANDS` with a known mask, `LSRS` by a constant, `UXTB`, `LDRB`: Clang's form
+    when it knows the range of the index and emits no `CMP`); with also
+    `vr = some (d, lo, hi)`, a window whose register `d` lies in `lo..hi` at `p` by the
+    certified invariant there (an index bounded by a loop or by constants set on several
+    paths). -/
 structure JT where
   start : Nat
   pos : Nat
   tgts : List Nat
+  ix : Option Nat := none
+  vr : Option (Nat × Nat × Nat) := none
   deriving DecidableEq, Repr
 
 /-- The halfword, byte and word of the code at an address (aligned; halfwords below

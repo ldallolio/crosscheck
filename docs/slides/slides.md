@@ -424,12 +424,12 @@ zoom: 0.78
 | calls / loops compared with emulated runs, violations | 11 / 45, 0 | 73 / 65, 0 |
 | `main`: bound / observed | 1.24–2.46 | 1.31–2.51 |
 | functions with a **certified** cycle bound | 121 | 112 |
-| kernel loops certified on the code (both assumptions) | 257 of 403 | 74 of 215 |
+| kernel loops certified on the code (both assumptions) | 260 of 403 | 75 of 215 |
 | loops of the division routines certified | 116 of 116 | 29 of 29 |
 
 - **OTAWA** with the same loop bounds as flow facts: the same 107 functions; geometric mean of bound / executed 2.32 (instructions), 2.69 (cycles)
 - OTAWA's STM32 models (Cortex-M4 / M7): 169 / 163 functions bounded (not checked against executions)
-- Stack bounds: 143 functions, 24 calls compared, 19 exact
+- Stack bounds: 151 functions, 29 calls compared, 24 exact
 - GCC's binaries found three defects that Clang's did not show (data model, loop matching, a producer that did not terminate) — all fixed
 
 ---

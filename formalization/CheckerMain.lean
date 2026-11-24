@@ -518,7 +518,20 @@ def optArr {α : Type} (j : Json) (k : String) (f : Json → Except String α) :
 
 /-- A jump through a table: the address of its `CMP`, of the jump, its targets. -/
 def parseJT (j : Json) : Except String ImperativeOptimization.Thumb.JT := do
-  pure ⟨← getNat j "start", ← getNat j "pos", ← natList (← field j "targets") "targets"⟩
+  let ix ← match j.getObjVal? "index" with
+    | .ok (.null) => pure none
+    | .ok v => match v.getNat? with
+      | .ok n => pure (some n)
+      | .error _ => throw "index: a natural number"
+    | .error _ => pure none
+  -- `"bound": [d, lo, hi]`: register `d` lies in `lo..hi` at the index, by the invariant there
+  let vr ← match j.getObjVal? "bound" with
+    | .ok (.null) => pure none
+    | .ok v => match (← natList v "bound") with
+      | [d, lo, hi] => pure (some (d, lo, hi))
+      | _ => throw "bound: [register, lower bound, upper bound]"
+    | .error _ => pure none
+  pure ⟨← getNat j "start", ← getNat j "pos", ← natList (← field j "targets") "targets", ix, vr⟩
 
 /-- A function: entry, instruction addresses, trusted rows, certificate (potentials per
     address in the order of `nodes`, then the exit), and its loop certificate (empty if
@@ -700,7 +713,11 @@ def runEffect (j : Json) : Except String (List String) := do
     let pcs := match ImperativeOptimization.Thumb.pcWrite code a with
       | some (add, m) => s!"j{ImperativeOptimization.Thumb.pcDestV a add (rf m)}"
       | none => "-"
-    s!"{a} {" ".intercalate regs} {fs} {conds} {sps} {mems} {lds} {if st.escapes then 1 else 0} {xs} {pcs}"
+    -- the bounds of `rngOps` (`XOk`): register `d` at most the value given
+    let rs := match ImperativeOptimization.Thumb.rngOps code a with
+      | [] => "-"
+      | l => ";".intercalate (l.map fun (q : Nat × ImperativeOptimization.Thumb.Src) => s!"b{q.1},{ImperativeOptimization.Thumb.srcVal rf q.2}")
+    s!"{a} {" ".intercalate regs} {fs} {conds} {sps} {mems} {lds} {if st.escapes then 1 else 0} {xs} {pcs} {rs}"
 
 /-! ### Printing what was checked -/
 

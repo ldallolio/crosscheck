@@ -212,6 +212,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
     rt_rep = json.loads((work / "runtime.json").read_text())["functions"]
     ends = loop_ends(rt_rep, offset)
     an = wcet.Analysis(img, lines, bounds, loop_ends(rep["functions"], ends=ends))
+    # jumps whose index the loop analysis bounds: with the assumptions of the certificates
+    an.jt_opts = (abi, frame)
     static = {n: an.function(n) for n in sorted(img.funcs)}
     certified, cert_info = {}, {}
     if certdir:
@@ -228,7 +230,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
             accepted = out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
             output = None if accepted else (out.stdout + out.stderr)[-400:]
         cert_info = dict(accepted=accepted, why=iwhy, checker_output=output, loops=lstats)
-    sa = stackbound.StackAnalysis(img)
+    sa = stackbound.StackAnalysis(img, jumps=an.jumps)
     sbound = {n: sa.function(n) for n in sorted(img.funcs)}
     # run, with the checks
     entry = {a: n for n, (a, _) in img.funcs.items()}

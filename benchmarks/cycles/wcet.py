@@ -132,7 +132,16 @@ class Analysis:
         self.memo, self.active = {}, set()
         self.loops = {}      # function -> [(header, matched line, bound)]
         self.why = {}
-        self.jumps = {}      # function -> {address of a jump through a table: (start, targets)}
+        self.jumps = {}      # function -> {address of a jump through a table: (start, targets, ix[, vr])}
+        # jumps whose index is bounded by the invariant (`jumptable.inv_candidates`): their
+        # targets come from the loop analysis of the function's graph, which needs them;
+        # `cfg` iterates until they are stable (`_resolve_jumps`). `jt_opts`: the
+        # assumptions of that analysis (abi, frame), those of the loop certificates.
+        self.jt_opts = (False, False)
+        self.jt_guess = {}   # function -> {jump: (start, targets, p, (d, lo, hi))}
+        self.jt_cands = {}   # function -> {jump: [(start, p, d)]}
+        self.jt_failed = {}  # function -> reason
+        self.jt_resolving = set()
 
     def _within(self, k, l):
         """Line `l` lies in the source loop of line `k` (keys: lines, or (file, line) pairs)."""
@@ -205,9 +214,10 @@ class Analysis:
             if i.kind == "indirect":
                 # a jump through a table, if its window is recognised (jumptable.py)
                 import jumptable
-                jt = jumptable.find(jumptable.getter(self.img), a)
+                within = (entry, entry + max(size, 2))
+                jt = jumptable.find(jumptable.getter(self.img), a, within=within)
                 if jt is None or not all(entry <= t < entry + max(size, 2) for t in jt[1]):
-                    raise Unbounded(f"{i.op} at {a:#x} (indirect jump or unsupported instruction)")
+                    jt = self._inv_jump(name, a, within)
                 self.jumps.setdefault(name, {})[a] = jt
                 for t in jt[1]:
                     leaders.add(t)
@@ -245,7 +255,51 @@ class Analysis:
             if last.kind == "indirect":
                 s.extend(self.jumps[name][last.addr][1])
             succ[b] = [x for x in s if x in blocks]
+        if self.jt_cands.get(name) and name not in self.jt_resolving and name not in self.jt_failed \
+                and set(self.jt_cands[name]) - set(self.jt_guess.get(name, {})):
+            self._resolve_jumps(name)
+            return self.cfg(name)
         return entry, blocks, succ
+
+    def _inv_jump(self, name, a, within):
+        """The jump at `a` bounded by the invariant: its targets found so far (none at first),
+        or Unbounded."""
+        import jumptable
+        i = m0.decode(self.img.mem, a)
+        if name in self.jt_failed:
+            raise Unbounded(f"{i.op} at {a:#x} (jump through a table: {self.jt_failed[name]})")
+        g = self.jt_guess.get(name, {}).get(a)
+        if g is not None:
+            return g
+        cands = jumptable.inv_candidates(jumptable.getter(self.img), a, within=within)
+        if not cands:
+            raise Unbounded(f"{i.op} at {a:#x} (indirect jump or unsupported instruction)")
+        self.jt_cands.setdefault(name, {})[a] = cands
+        return (None, [], None, None)
+
+    JT_ROUNDS = 6
+
+    def _resolve_jumps(self, name):
+        """Targets of the jumps bounded by the invariant: the loop analysis of the graph with
+        the targets found so far bounds each index (`binloops.inv_jumps`), until the targets
+        are stable; failure makes the function unbounded."""
+        import binloops
+        self.jt_resolving.add(name)
+        try:
+            for _ in range(self.JT_ROUNDS):
+                self.cfg(name)          # records the candidates of the jumps reached
+                cands = self.jt_cands.get(name, {})
+                res, why = binloops.inv_jumps(self, name, cands, *self.jt_opts)
+                if res is None:
+                    self.jt_failed[name] = why
+                    return
+                old = self.jt_guess.get(name, {})
+                if res == old and set(res) == set(cands):
+                    return
+                self.jt_guess[name] = res
+            self.jt_failed[name] = "its targets are not stable"
+        finally:
+            self.jt_resolving.discard(name)
 
     def _function(self, name):
         entry, blocks, succ = self.cfg(name)

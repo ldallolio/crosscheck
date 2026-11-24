@@ -340,7 +340,7 @@ when every function keeps the convention, and otherwise names the functions that
 |---|---|---|
 | no assumption | 143 (142 before the matching by line ranges, 136 without the wrap-to-zero step below, the same without the disjunctive invariants, 131 without the exact shift, 121 without the exact effects, 116 without the linear programs, 73 without congruences) | 116 |
 | `abi` | 200 (199, 193, 193, 183, 173, 167, 105) | 116 |
-| `abi` and `frame` | 257 (256, 250, 246, 229, 215, 175 before the frame-pointer exception, 169, 107) | 121 |
+| `abi` and `frame` | 260 (257 before the jump indices bounded by the invariants, 256, 250, 246, 229, 215, 175 before the frame-pointer exception, 169, 107) | 121 |
 
 All 116 loops of the division routines are certified in every configuration (none before the
 disjunctive invariants below). Every certificate
@@ -437,15 +437,17 @@ altered certificates are refused.
   Cortex-M4 and an M7 (OTAWA's STM32 models): 169 and 163 functions bounded; not checked
   against executions.
 - **Stack bounds.** The high-water mark of the stack (Paper I, `prop:stack`) on the same
-  binaries: 143 of 267 functions; 9 of the 10 `main` bounds equal the observed stack.
+  binaries: 151 of 267 functions; 11 of the 12 `main` bounds equal the observed stack (the
+  stack pointer restored from the frame pointer is followed).
 - **Floating point on its machine code.** The Cortex-M0 has no floating-point unit: `a * b`
   on floats becomes a call of a library routine, `__aeabi_fmul`. In the runs above that
   routine has no code in the binary (the interpreter computes it in Python), so every
   function that multiplies floats has no bound. `run_cycles.py --rtlib compiler-rt` links
   each kernel with LLVM's real routines first, so they are decoded, bounded and certified
   like the kernel's own code: 187 of 267 functions certified instead of 121, 10 `main`
-  functions instead of 6. GCC's libgcc works too, except for its float divisions, whose
-  jumps through a table are in forms the checker does not follow (see the next point).
+  functions instead of 6. GCC's libgcc works too, its float divisions included: their
+  jumps go through tables kept in the read-only data just after the code, which the
+  certificate now holds with the code (see the next point).
 - **Jumps through a table (`switch`).** A `switch` with many consecutive cases is compiled
   into a table and one jump that reads its destination from it. In lift's `check_run`,
   Clang emits:
@@ -470,10 +472,48 @@ altered certificates are refused.
   the run's register holds one of the values the checker computed. The window is evaluated
   by the same effects as the rest of the data semantics, plus the exact values of
   `add rd, pc`, `adr` and loads from the code. Result: `lift` is bounded and certified
-  entirely, and the switches of `gsm_dec`/`gsm_enc` too. Not followed: a table without a
-  range check before it (Clang omits the check when it knows the index's range from
-  elsewhere, as in `bitcount`) and tables kept in read-only data instead of the code
-  (libgcc). The form where the range check is `bls` over `b default` (Clang uses it when
+  entirely, and the switches of `gsm_dec`/`gsm_enc` too. Tables kept in the read-only data
+  right after the code (libgcc's) are read the same way: the certificate holds those data
+  with the code, under the same assumption that nothing writes them during a run.
+
+  Without a range check. When Clang knows the range of the case number it emits no `cmp`.
+  In sha's `sha_wordcopy_fwd_aligned`, `switch (len % 8)` becomes
+
+  ```
+  movs r5, #7
+  mov  r3, r2
+  ands r3, r5        @ r3 := r2 & 7, so r3 <= 7
+  add  r3, pc
+  ldrb r3, [r3, #4]
+  lsls r3, r3, #1
+  add  pc, r3
+  ```
+
+  The certificate then names the instruction that bounds the case number (`index`: here
+  the `ands`). The checker evaluates the window up to it (it learns `r5 = 7`), takes the
+  bound the instruction gives (an `ands` is at most each operand, an `lsrs` by `s` is below
+  `2^(32-s)`, a `uxtb` or `ldrb` at most 255: part of the trusted description of the
+  processor, checked against `m0.py`), and runs the rest of the window for every value up
+  to it (Lean `jumpRng`, `jump_good_rng`).
+
+  A third form covers case numbers bounded only by a loop (`bitcount` runs `switch (i)`
+  inside `for (i = 0; i < 8; i++)`) or by constants set on several paths (sha's second
+  switch: each path sets `r5` to a number from 1 to 8). No instruction of the window bounds
+  them, but the loop certificate already carries an invariant at every instruction. The
+  certificate names an instruction of the window and a register, say `r1` in `0..28`;
+  every disjunct of the invariant there must state `r1 <= 28`, and its congruence says
+  `r1` is a multiple of 4 (it was computed by `lsls r0, r6, #2`), so the checker runs the
+  window for `r1 = 0, 4, ..., 28` only (Lean `jumpInv`). Why the invariant may be used
+  here takes one more step of proof: the invariant is proved along the edges of the
+  graph, and the edges of the jump are what is being established. The proof walks the
+  run from the start: at each step, all earlier steps follow edges (by induction), so the
+  invariant holds at the bounding instruction (Lean `inv_prefix`), which gives the jump's
+  target, so this step follows an edge too (`steps_good`, `jump_good_inv`). The producer
+  meets the same circle and goes round it: it builds the graph with the targets found so
+  far (none at first), computes the invariant, evaluates the window, and repeats until the
+  targets stop changing (`wcet.Analysis._resolve_jumps`). In `bitcount` and `sha` both
+  jumps are now followed (their stack bounds follow), but their cycle bounds still fail
+  for other reasons (a recursive callee, a loop on a parameter). The form where the range check is `bls` over `b default` (Clang uses it when
   the default case is too far for a conditional branch) is followed too. The calling convention is checked in a function
   with such a jump too: the check follows the listed targets like any other transition, so
   a register written only in one case of the `switch` is found (Lean example
@@ -517,5 +557,5 @@ code and builds the graph itself, so the analysis of the binary leaves the trust
 loop bounds can be certified on the same code: invariants on registers, flags and frame words,
 and potentials that drop on back edges, checked by Farkas multipliers against a model of the
 instructions' effects. On TACLeBench for a Cortex-M0, 116–121 functions get a certified cycle
-bound and 143–257 of 403 loops are bounded on the code (258 built without frame pointers), with the 116 loops of the division routines, with nothing trusted about them; the
+bound and 143–260 of 403 loops are bounded on the code (261 built without frame pointers), with the 116 loops of the division routines, with nothing trusted about them; the
 rest keep their source bounds as assumptions.

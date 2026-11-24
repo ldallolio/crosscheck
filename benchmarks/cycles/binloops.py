@@ -313,6 +313,11 @@ def congruences(ctx):
             for v in vs:
                 Ps = [post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for m in mcases(eff)]
                 b = cong_best(Ca, Ps)
+                if b is None and v < 8:
+                    # `LSLS rd, rm, #k`: a multiple of 2^k, overflow or not (Lean `shlCong`)
+                    w = next((x for r, x in eff[0] if r == v), None)
+                    if w is not None and w != "any" and w[0] == "shl" and 0 < w[2] < 32:
+                        b = (w[2], 0)
                 if b is not None:
                     post[v] = b
             old = C[nxt]
@@ -1183,10 +1188,13 @@ def post_exprs(ctx, a, M):
         else:
             op, x, y = v
             if op == "shl":
-                # a constant only when the register holds one and no overflow
-                l, hh = Zd.lohi(M, x[1])
+                # a constant only when the register holds one and no overflow; else, when the
+                # register is bounded without overflow, an interval (`apply_post`, key "rng")
+                l, hh = Zd.lohi(M, x[1]) if x[0] == "reg" else (x[1], x[1])
                 val = l << y if l == hh else None
                 out[r] = ("shift", Z, val) if val is not None and 0 <= val <= BIG else "any"
+                if out[r] == "any" and l >= 0 and (hh << y) <= min(BIG, U - 1):
+                    out.setdefault("rng", {})[r] = (l << y, hh << y)
             elif x[0] == "imm" and y[0] == "imm":
                 val = x[1] + y[1] if op == "add" else x[1] - y[1]
                 # constants above BIG (addresses from the literal pool) are not tracked:
@@ -1239,8 +1247,9 @@ def apply_post(Zd, M, ex, closed=False):
     n, Z = Zd.n, Zd.Z
     N = Zd.top()
     ex = dict(ex)
+    rng = ex.pop("rng", None)
     ex[Z] = ("shift", Z, 0)
-    fast = closed and all(
+    fast = not rng and closed and all(
         e == "any" or (M[e[1]][Z] + e[2] <= U - 1 and M[Z][e[1]] - e[2] <= 0)
         for x, e in ((x, ex.get(x, "any")) for x in range(n)) if x != Z)
     for x in range(n):
@@ -1256,6 +1265,10 @@ def apply_post(Zd, M, ex, closed=False):
             b = M[wx][wy]
             if b < INF:
                 N[x][y] = min(N[x][y], b + cx - cy)
+    for x, (l, h) in (rng or {}).items():
+        if ex.get(x, "any") == "any":
+            N[x][Z] = min(N[x][Z], h)
+            N[Z][x] = min(N[Z][x], -l)
     if not fast:
         return Zd.close(N)
     anyv = [x for x in range(n) if x != Z and ex.get(x, "any") == "any"]
@@ -1313,6 +1326,11 @@ class Ctx:
         self.sp = sp_offsets(self)
         # tracked words: those accessed through SP inside a loop, at a known offset
         inloop = {a for _h, b, _n in self.iloops for a in b}
+        # and the windows of the jumps whose index the invariant bounds (`inv_jumps`: before
+        # their targets are known, the loops through them are not in the graph)
+        for pos, cl in getattr(an, "jt_cands", {}).get(name, {}).items():
+            for start, _p, _d in cl:
+                inloop |= {a for a in self.nodes if start <= a <= pos}
         slots = set()
         for a in inloop:
             d = self.sp.get(a)
@@ -2094,6 +2112,65 @@ def relevant(ctx, loops):
     return {r for r in R if r < 10 + len(ctx.slots) and r not in (8, 9)}
 
 
+def inv_jumps(an, name, cands, abi=False, frame=False):
+    """The jumps of a function whose index is bounded by the invariant (`jumptable.inv_candidates`,
+    Lean `jumpInv`), from the zones and congruences of the function's graph with the targets
+    found so far: ({jump: (start, targets, p, (d, lo, hi))}, None), or (None, reason). For
+    each jump, the candidate window with the fewest targets inside the function."""
+    import jumptable
+    try:
+        ctx = Ctx(an, name, abi, frame)
+        kind = kinds_of(ctx)
+        ctx.cong = congruences(ctx) if CONG else {}
+        state = analyse(ctx, kind)
+    except BudgetSpent:
+        return None, "time budget spent in the analysis of its index"
+    except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
+        return None, f"no analysis of its index ({e})"
+    entry, size = an.img.funcs[name]
+    get = jumptable.getter(an.img)
+    res = {}
+    for pos, cl in sorted(cands.items()):
+        best = None
+        edges = [(a, n) for a in ctx.nodes for n, _w, _c in ctx.out[a] if n is not None]
+        for start, p, d in cl:
+            M = state.get(p)
+            if M is None or not jumptable.interior_ok_r(start, pos, entry, edges):
+                continue
+            lo, hi = ctx.zones.lohi(M, d)
+            if lo < 0 or hi >= jumptable.RCAP:
+                continue
+            t = jumptable.window_inv(abi, get, start, p, pos, d, lo, hi, cong_of(ctx.cong.get(p, {}), d))
+            if t is None or not all(entry <= q < entry + max(size, 2) for q in t):
+                continue
+            if best is None or len(t) < len(best[1]):
+                best = (start, t, p, (d, lo, hi))
+        if best is None:
+            return None, f"index of the jump at {pos:#x} not bounded by the loop analysis"
+        res[pos] = best
+    return res, None
+
+
+def inv_jumps_unproved(ctx, inv):
+    """The jumps bounded by the invariant whose check (`jumpInv`) the certificate's final
+    invariants and congruences do not pass."""
+    import jumptable
+    get = jumptable.getter(ctx.an.img)
+    bad = []
+    for pos, jt in sorted(ctx.jumps.items()):
+        if len(jt) < 4 or jt[3] is None:
+            continue
+        start, tg, p, (d, lo, hi) = jt
+        disj = [inv.get(p, [])] + list(inv.alt.get(p, []))
+        t = None
+        if jumptable.inv_bound(disj, d, lo, hi):
+            t = jumptable.window_inv(ctx.abi, get, start, p, pos, d, lo, hi,
+                                     cong_of((ctx.cong or {}).get(p, {}), d))
+        if t is None or not set(t) <= set(tg):
+            bad.append(pos)
+    return bad
+
+
 def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
     N)] of the certified loops, [(header, reason)] of the others). If a loop is left
@@ -2156,7 +2233,12 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
     # the offsets of SP are given for every function, with loops or not: the checker uses them
     # to establish the calling convention on the code (Lean `convOk`)
     sp_only = {"sp": [ctx.sp.get(a) for a in ctx.nodes]}
-    if not ctx.iloops:
+    # jumps whose index the invariant bounds: the certificate carries the invariants even
+    # without a certified loop
+    injumps = any(len(jt) > 3 and jt[3] is not None for jt in ctx.jumps.values())
+    if injumps:
+        sp_only = dict(sp_only, unproved_jumps=sorted(ctx.jumps))
+    if not ctx.iloops and not injumps:
         return sp_only, [], []
     kind = kinds_of(ctx)
     if CONG:        # the congruences do not depend on the zones: one analysis, with them
@@ -2225,14 +2307,16 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
             continue
         loops.append(Loop(h, body, D, N, pots))
         info.append((h, eff_n, Nsrc))
-    if not loops:
+    if not loops and not injumps:
         return sp_only, [], why
+    if full is None and injumps:
+        full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
     inv = full if full is not None else invariants(relevant(ctx, loops))
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:
         why.append((h, "an obligation of its potential could not be proved"))
     info = [x for x in info if any(lc.header == x[0] for lc in loops)]
-    if not loops:
+    if not loops and not injumps:
         return sp_only, [], why
     fields = dict(
         kinds=[kind.get(a, "none") for a in ctx.nodes],
@@ -2247,6 +2331,10 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
     if any(inv.alt.get(a) for a in ctx.nodes):
         fields["alt"] = [[[js_lin(g) for g in d] for d in inv.alt.get(a, [])] for a in ctx.nodes]
         fields["pick"] = picks_of(ctx, inv, kind)
+    if injumps:
+        bad = inv_jumps_unproved(ctx, inv)
+        if bad:
+            fields["unproved_jumps"] = bad
     return fields, info, why
 
 

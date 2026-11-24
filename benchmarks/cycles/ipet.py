@@ -28,6 +28,7 @@ import math
 import struct
 from fractions import Fraction
 
+import jumptable
 import m0
 import wcet
 
@@ -194,8 +195,18 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
     fn = dict(name=name, entry=entry + base, nodes=[a + base for a in nodes], rows=mrows,
               certificate=dict(scale=D, pot=[pot[v] for v in allnodes], mult=mult, bound=B))
     if jumps:
-        fn["jumps"] = [dict(start=st + base, pos=p + base, targets=[t + base for t in ts])
-                       for p, (st, ts) in sorted(jumps.items())]
+        fn["jumps"] = []
+        for p, jt in sorted(jumps.items()):
+            st, ts, ix = jt[0], jt[1], jt[2]
+            vr = jt[3] if len(jt) > 3 else None
+            if ix is not None and not jumptable.interior_ok_r(st, p, entry, pairs):
+                raise NoCertificate(f"a branch into the window of the jump at {p:#x}")
+            j = dict(start=st + base, pos=p + base, targets=[t + base for t in ts])
+            if ix is not None:
+                j["index"] = ix + base
+            if vr is not None:
+                j["bound"] = list(vr)
+            fn["jumps"].append(j)
     return fn, B
 
 
@@ -204,9 +215,11 @@ def an_preds(blocks, succ, h):
 
 
 def code_top(img):
-    """The end of the code region of a certificate: up to the end of the last function
-    (the RAM of the image is not code)."""
-    top = max((a + s for a, s in img.funcs.values()), default=0) + 4
+    """The end of the code region of a certificate: up to the end of the last function and
+    of the read-only data that follow the code (`m0.load`: constant tables, read by jumps
+    through tables; assumed, like the code, not written during a run); the RAM of the image
+    is not code."""
+    top = max(max((a + s for a, s in img.funcs.values()), default=0) + 4, getattr(img, "ro_top", None) or 0)
     return min(top + (top % 2), len(img.mem) - (len(img.mem) % 2))
 
 
@@ -241,6 +254,9 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
             if loops:
                 import binloops
                 fields, info, lwhy = binloops.certify_loops(an, name, abi, frame=frame)
+                if fields.get("unproved_jumps"):
+                    raise NoCertificate("the invariants of the certificate do not bound the index of the "
+                                        f"jump at {min(fields['unproved_jumps']):#x}")
                 cl = [(l["header"], l["body"], l["scale"], l["bound"]) for l in fields.get("loops", [])]
                 if stats is not None:
                     stats[name] = dict(certified=info, other=lwhy)

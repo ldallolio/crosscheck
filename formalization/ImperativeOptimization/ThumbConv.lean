@@ -750,7 +750,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
     have hcv := dfAt_conv hC hdf
     have hchT := chainL_chain hR (x :: t) e σo hch hokM
     have hgood : ∀ y ∈ x :: t, Good mul c f y := by
-      have hg := steps_good hcd (x :: t) (by rw [hentry]; exact hchT) hX hokM
+      have hg := steps_good hcd (x :: t) (by rw [hentry]; simpa [headSp, hxσ] using hchT) hX hokM
       intro y hy
       obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hy
       exact hg k y hk

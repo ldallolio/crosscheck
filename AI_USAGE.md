@@ -2343,6 +2343,99 @@ three standard axioms. Paper III (`def:convention`, proof of `thm:machine-conv`,
 `prop:jump-table`'s remark, Lean table, larger programs; 25 pages, no warnings), Paper I's count, cycles README,
 guide parts 5 and 7, CLAUDE.md, `formalization.yaml`.
 
+143. "Commit and push the current work then start working on tables outside the code and tables without a range check as you suggest"
+
+What the AI did for 143 (Claude Opus 5.5, 2026-11-24): two forms of jump table that 142
+left refused. Tables in read-only data: `m0.load` records the end of the read-only sections
+after the code (`ro_top`, in file order) and `ipet.py` puts the code up to there in the
+certificate, under the assumption already made for literal pools (the certificate's code
+is not written during a run); no change to the checker. Tables without a range check
+(second form of `prop:jump-table`): `JT` gets an optional field `ix`, the bounding
+instruction; `rngOps`/`rngB` give its bound (`ANDS` by a known operand, `LSRS` by a
+constant, `UXTB`, `LDRB`; trusted, added to `XOk` as a second conjunct and compared with
+`m0.py` by `test_jumptable.py`); `jumpRng` evaluates the window from no known register up
+to it, then for every value up to the bound (below `RCAP` = 1024); `interiorR`: nothing
+enters the window after the start but from the instruction before the bounding one, the
+entry outside it; `jumpOkF` in `checkDFun`. Proofs: `rngB_spec`, `interiorR_spec`,
+`back_walkR`, `jump_good_rng`, used by `jump_good`; examples `exMask_checks`,
+`exMask_data`, `exMask_wide` (widened mask refused), `exMask_needs_ix`, `exMask_sound`
+(`switch (x & 3)`, 12 cycles). Producer: `jumptable.find_rng`; `wcet.py`/`stack.py` keep
+the targets inside the function. Tests: `test_jumptable.py` (the form accepted and run on
+`m0.py`; a dropped target, a widened mask, the index at the wrong instruction, a moved start
+and a missing index rejected; range bounds against `m0.py`); `test_effect.py` 297,244
+executions, no difference. Results: kernels without a library and with compiler-rt
+unchanged (121 / 187 functions certified, 257 kernel loops); with libgcc 173 -> 187
+functions and 8 -> 10 entry functions (`ludcmp`, `st`), stack bounds 204 -> 239; every
+certificate accepted, no emulated run above a bound. A scratch `switch (x & 7)` compiled by
+Clang: certified 20 cycles, 20 observed. Still refused: indices bounded only by a loop or
+by constants set on several paths (`bitcount`, `sha`'s second jump). Lean: 743 theorems,
+no warnings, only the three standard axioms. Paper III (`def:data-run`, `prop:jump-table`
+and its proof, the remark after it, floating point, limitations, Lean table), Paper I's
+count, cycles README, guide parts 5 and 7, CLAUDE.md, `formalization.yaml`.
+
+144. "Proceed with follow jumps whose index is bounded only by a loop"
+
+What the AI did for 144 (Claude Opus 5.5, 2026-11-24): third form of `prop:jump-table`, a
+jump whose index only the certified invariant bounds. `JT` gets an optional field `vr =
+(d, lo, hi)`; `jumpInv` requires that every disjunct of the invariant at the bounding
+instruction contain `r_d - u <= 0` with `u <= hi` (`ubOf`) and, when `lo > 0`, `l - r_d <= 0`
+with `l >= lo` (`lbOf`), `hi` below `RCAP`; values of the wrong residue for the certified
+congruence are skipped (`congFits`) and the others evaluated through the window as for
+`jumpRng`; `jumpOkF` dispatches. The circularity (the invariant is proved along the edges
+that the jump's targets define) is resolved in the strong induction along the run: when
+the earlier steps follow `transJ`, the invariant holds at the bounding instruction
+(`inv_entry`, `inv_prefix`), so the jump goes to a listed target (`jump_good_inv`,
+`steps_good` with a `DChain` hypothesis). Congruence of a shift: after `LSLS rd, rm, #k`,
+`rd` is a multiple of `2^e` for `e <= k`, overflow or not (`shlCong`, `shlCong_sound`, a
+second case of `congOk`). Examples `exPath_checks`, `exPath_data`, `exPath_needs_bound`,
+`exPath_wide`, `exPath_sound` (an index set to 0 or 1 on two paths, 17 cycles, equal to the
+emulated run). Producer: `jumptable.inv_candidates` (straight-line windows whose address
+depends on the register), a fixpoint between the graph and the invariants in
+`wcet.Analysis._resolve_jumps` (`binloops.inv_jumps`, at most 6 rounds), shift congruences
+and intervals of shifts in the zones, tracked frame words of the windows, `"bound"` in the
+certificates (`ipet.py`, `CheckerMain.parseJT`); `stack.py` uses the resolved jumps.
+Tests: `test_jumptable.py` (a loop switch and a path switch accepted; a widened, lowered
+or missing bound, a dropped target, a code change and a removed congruence rejected);
+79 cycle tests pass; `test_effect.py` 297,244 executions, no difference. Results (each run:
+no loop lost, no bound higher, every certificate accepted, no emulated run above a bound):
+kernel loops with `--abi --frame` 257 -> 260 without a library (258 -> 261 without frame
+pointer), 257 -> 261 with compiler-rt and libgcc (three in `bitcount_main`, one in
+`fft_bit_reduct`); no assumption and `--abi` alone unchanged; stack bounds 143 / 239 / 239
+-> 148 / 244 / 244 (`bitcount_main` 104 bytes, equal to the observed value); certified
+cycle bounds unchanged (`bitcount_main` calls a recursive function, `sha`'s caller loops over
+a parameter). Scratch Clang programs accepted: a loop switch, 126 certified cycles, 117
+observed; a path switch, 49 and 45. Lean: 756 theorems, no warnings, only the three
+standard axioms. Paper III (`prop:jump-table` third part and proof, congruences, jump
+paragraph, `tab:loops`, `tab:steps`, stack, abstract, Lean table, limitations,
+conclusion), Paper I's count, cycles README, guide parts 5, 7 and 9, slides, CLAUDE.md,
+`formalization.yaml`, `requirements.yaml`, `docs/certificate-format.md`.
+
+145. "What would be the next logical thing to do now ?", then "Proceed"
+
+What the AI did for 145 (Claude Opus 5.5, 2026-11-24): proposed rerunning the larger
+programs and the GCC binaries, then following the stack pointer set from a register; did
+both. `stack.py`: every instruction gets, with its depth, the registers known on every path
+(a literal-pool constant, or the entry stack pointer minus a constant, from `add r7, sp, #i`,
+`mov r, sp`, `adds`/`subs` by constants and moves), joined by equality; `mov sp, r` with `r`
+known relative to the entry (the frame pointer restoring SP) sets the depth, as `add sp, r`
+with a known constant did; a call keeps a register only if the callee preserves it on its
+code (`preserved`: saved by its entry `push` and popped by every return, or never written by
+it or its callees). Untrusted: every bound is compared with the emulated runs. Tests:
+`test_stack.py` (a frame restored through `r7` accepted, with the callee saving `r7` or
+leaving it alone; refused when the callee overwrites `r7`, when `r7` is moved before the
+call, set to a constant, or different on two joining paths), added to CI. Results (`--abi
+--frame`; no loop lost, every certificate accepted, no emulated run above a bound): kernel
+loops 260 / 261 / 261 (no library / compiler-rt / libgcc); stack bounds 148 / 244 / 244 ->
+151 / 256 / 247, 24 of the 29 compared calls equal to the observed stack without library;
+GCC binaries 40 / 66 / 75 certified loops (no assumption / `abi` / both). Larger programs
+(two at a time, one hour each): `ammunition` now finishes (2,038 s; 44 of 74 functions
+certified, 100 of 1,135 loops, 57 stack bounds); `mpeg2` and `susan` exceed the hour, and
+`mpeg2` also exceeds 80 minutes with the previous code under a profiler alongside the new
+one; in the 22 others, two more loops and four more stack bounds. Totals of the 23
+programs: 316 of 455 functions certified, 409 stack bounds, 614 of 1,925 loops. Paper III
+(abstract, stack paragraph, `tab:steps`, larger programs), cycles README, guide parts 5 and
+9, slides, CLAUDE.md, the plugin workflow.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

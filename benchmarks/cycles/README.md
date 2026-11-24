@@ -115,7 +115,7 @@ python3 benchmarks/cycles/run_cycles.py --gcc armgcc:local --tag=.gcc --check --
 | `main`: bound / observed | 1.31-2.51 | 1.24-2.46 |
 | functions with a certified cycle bound (none / `--abi` / both) | 110 / 110 / 112 | 116 / 116 / 121 |
 | `main`: certified / observed (both assumptions) | 1.12-1.90 | 1.00-1.90 |
-| kernel loops certified on the code (none / `--abi` / both) | 40 / 65 / 74 of 215 | 143 / 200 / 257 of 403 |
+| kernel loops certified on the code (none / `--abi` / both) | 40 / 66 / 75 of 215 | 143 / 200 / 260 of 403 |
 | loops of the division routines certified | 29 of 29 | 116 of 116 |
 
 GCC inlines less at `-O1`, so many more calls are compared with the runs (73 instead of 11);
@@ -249,10 +249,10 @@ that still grow are forgotten, so that the analysis terminates.
 
 | | no assumption | `--abi` | `--abi --frame` |
 |---|---:|---:|---:|
-| kernel loops certified (of 403) | 143 | 200 | 257 |
-| ... built with `-fomit-frame-pointer` | 146 | 204 | 258 |
+| kernel loops certified (of 403) | 143 | 200 | 260 |
+| ... built with `-fomit-frame-pointer` | 146 | 204 | 261 |
 | ... certified bound below the source bound | 84 | 116 | 153 |
-| ... no source bound | 59 | 84 | 104 |
+| ... no source bound | 59 | 84 | 107 |
 | loops of the division routines certified (of 116) | 116 | 116 | 116 |
 | functions with a certified cycle bound | 116 | 116 | 121 |
 | loop rows still trusted in these bounds | 41 | 35 | 17 |
@@ -260,7 +260,7 @@ that still grow are forgotten, so that the analysis terminates.
 | run time with `--jobs 4` | 5 min | 8 min | 16 min |
 
 Every certificate is accepted, and no back-edge count of the emulated runs exceeds a
-certified bound. With both assumptions 373 of the 519 loops of the binaries are certified,
+certified bound. With both assumptions 376 of the 524 loops of the binaries are certified,
 and 160 of the 174 functions with loops have no trusted row left. A certified bound is
 never above the source bound (the producer keeps the source row then); those below it are
 often below by one, since the binary counts back edges. `--frame` is refused in 26 of the
@@ -334,9 +334,9 @@ routines are analysed, certified and run on their machine code like the kernels'
   no indirect jump.
 - `libgcc`: the Cortex-M0 multilib (`thumb/v6-m/nofp`) of arm-none-eabi-gcc 13.2.1 in the
   Docker image, unmodified. Its float and double divisions (`divsf3`, `divdf3`) dispatch the
-  special cases through jump tables (`mov pc, r`) kept in `.rodata`, outside the
-  certificate's code, which the checker does not follow (see "Jumps through a table"
-  below), so functions that divide floating-point numbers stay without a bound.
+  special cases through jump tables (`mov pc, r`) kept in `.rodata`; since 2026-11-24 the
+  certificate's code includes the read-only data that follow the code, and these jumps are
+  followed (see "Tables in read-only data and tables without a range check" below).
 
 The link runs in `--link-image` (default `armgcc:local`, without network) or, with
 `--link-image ''`, with the `arm-none-eabi-ld` of the machine (Ubuntu's
@@ -346,12 +346,12 @@ kernels' (the 267 functions below are the kernels' own).
 | all 29 kernels, `--certify-loops` | before | compiler-rt | libgcc |
 |---|---:|---:|---:|
 | functions with a certified cycle bound, no assumption | 116 | 181 | |
-| ... with `--abi --frame` | 121 | 187 | 173 |
-| entry functions (`main`) certified, `--abi --frame` | 6 | 10 | 8 |
-| functions with a timing-schema bound | 107 | 172 | 158 |
-| functions with a stack bound | 143 | 239 | 204 |
-| entry functions with a stack bound | 10 | 21 | 15 |
-| kernel loops certified, `--abi --frame` (of 403) | 257 | 257 | 257 |
+| ... with `--abi --frame` | 121 | 187 | 187 |
+| entry functions (`main`) certified, `--abi --frame` | 6 | 10 | 10 |
+| functions with a timing-schema bound | 107 | 172 | 161 |
+| functions with a stack bound | 151 | 256 | 247 |
+| entry functions with a stack bound | 12 | 26 | 23 |
+| kernel loops certified, `--abi --frame` (of 403) | 260 | 261 | 261 |
 
 Every certificate is accepted and no emulated run exceeds a cycle, loop or stack bound
 (`--check`). The calling convention is not established everywhere any more, so `abi` is
@@ -384,6 +384,9 @@ cycles of the default runs leave the floating-point routines out (they cost noth
 `st` takes 6.07 million cycles with compiler-rt, 4.76 million with libgcc, 1.78 million
 without code for them. The library's code is trusted to be the code the program is linked
 with, as the kernels' code is; the run with compiler-rt takes 20 minutes with `--jobs 4`.
+With libgcc, the figures before its tables were followed were 173 certified functions, 8
+entry functions, 158 schema bounds and 204 / 15 stack bounds; `ludcmp` (891,004 certified,
+221,543 observed) and `st` (5,995,251 and 4,758,503) were added.
 
 ## Larger programs and jumps through tables (2026-11-24)
 
@@ -400,36 +403,38 @@ hour each (`--category`; the source analysis with `CROSSCHECK_TACLE_TIMEOUT=5400
 commented out at the pinned revision. `cjpeg_transupp` reads
 `cjpeg_transupp_input5_2[65..71]` of an array of 65 (its "lower right corner" loop runs with
 `i == 8`), so its expected checksum holds for x86's layout of the globals only: on the
-Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). `ammunition` does not finish within
-the hour (74 functions; the source analysis alone takes more than 5 minutes).
+Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Rerun on 2026-11-24 (two programs at
+a time): `ammunition`, which did not finish within the hour before, now takes 2,038 s;
+`mpeg2` and `susan` (2,981 s and 3,560 s in the previous run, one at a time) exceed the hour;
+`mpeg2` analysed by the code before the changes of that day, alongside the new code and both
+under a profiler, exceeds 80 minutes as well. Their rows are left out.
 
 | program | functions | certified | loops certified on the code | stack bounds | `main` certified |
 |---|---:|---:|---:|---:|:-:|
 | adpcm_dec | 17 | 13 | 23 of 28 | 17 | no |
 | adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
+| ammunition | 74 | 44 | 100 of 1,135 | 57 | no |
 | anagram | 26 | 13 | 29 of 51 | 20 | no |
 | audiobeam | 36 | 28 | 20 of 43 | 36 | no |
 | cjpeg_transupp | 11 | 4 | 57 of 87 | 11 | no |
 | cjpeg_wrbmp | 8 | 3 | 16 of 17 | 5 | no |
 | dijkstra | 8 | 4 | 12 of 16 | 8 | no |
 | epic | 9 | 1 | 15 of 67 | 9 | no |
-| fmref | 19 | 14 | 25 of 34 | 17 | no |
+| fmref | 19 | 14 | 25 of 34 | 19 | no |
 | g723_enc | 18 | 16 | 26 of 32 | 18 | no |
 | gsm_dec | 24 | 17 | 27 of 48 | 24 | no |
 | gsm_enc | 36 | 28 | 57 of 79 | 36 | no |
 | h264_dec | 5 | 2 | 13 of 17 | 5 | no |
-| huff_dec | 11 | 7 | 14 of 32 | 9 | no |
-| huff_enc | 18 | 9 | 12 of 38 | 12 | no |
+| huff_dec | 11 | 7 | 14 of 32 | 11 | no |
+| huff_enc | 18 | 9 | 14 of 38 | 12 | no |
 | lift | 16 | 16 | 20 of 20 | 16 | yes |
-| mpeg2 | 17 | 8 | 40 of 62 | 12 | no |
 | ndes | 8 | 4 | 12 of 20 | 4 | no |
 | petrinet | 4 | 2 | 10 of 10 | 2 | no |
 | powerwindow | 51 | 49 | 70 of 78 | 51 | no |
 | rijndael_dec | 13 | 8 | 11 of 18 | 9 | no |
 | rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
-| susan | 41 | 20 | 38 of 83 | 31 | no |
-| **24 programs** | **439** | **300** | **590 of 935** | **391** | **2** |
+| **23 programs** | **455** | **316** | **614 of 1,925** | **409** | **2** |
 
 Functions and loops include those of compiler-rt. No certificate is rejected and no
 emulated run exceeds a cycle or stack bound. `lift` (`main`: 1,157,990 cycles certified,
@@ -449,11 +454,12 @@ that every data run follows a listed target (Paper III `prop:jump-table`, `jump_
 `steps_good`). The 25 programs have 8 such jumps (`gsm_dec` 2, `gsm_enc` 4, `lift` 1,
 `ammunition` 1), all recognised; 3 are in functions that receive a certificate (`gsm_enc`'s
 `Autocorrelation` and `Long_term_analysis_filtering`, `lift`'s `check_run`). Not followed: a
-table without a range check (`bitcount_main`, `sha_wordcopy_fwd_aligned`), tables in
-`.rodata` outside the certificate's code (libgcc's divisions), calls through pointers. The
+table whose index is bounded only by a loop or by constants set on several paths
+(`bitcount_main`, the second jump of `sha_wordcopy_fwd_aligned`; see below), calls through
+pointers. The
 calling convention is checked in these functions too (Lean `convAll` along the targets;
 before 2026-11-24 it stayed assumed there): with the new checker the certificates of the
-24 programs report it as established on the code of every function. Tests: `test_jumptable.py` (a switch
+23 programs report it as established on the code of every function. Tests: `test_jumptable.py` (a switch
 in both forms certified and accepted; a dropped target, a moved window, a widened range
 check and a branch into the window rejected, the last shown on `m0.py` to leave the
 function; the convention established with a jump, and not established when a case reached
@@ -469,6 +475,74 @@ kernels it loses no loop (`compare_runs.py`: 257 kernel loops certified before a
 with and without compiler-rt; the largest function, `pm_kernel`, needs about 400 s). An
 exception in one program is reported as its error, and `--check` fails on it, instead of
 stopping the run.
+
+## Tables in read-only data and tables without a range check (2026-11-24)
+
+**Read-only data.** `m0.load` records `ro_top`, the end of the read-only sections that follow
+the code before the first writable one (in file order; the `ld -r` objects are ordered
+`.text`, `.rodata`, ...), and `ipet.py` puts the code up to there in the certificate, so a
+table in `.rodata` is read by the checker's exact values like a table in the code. The
+assumption is the one already made for literal pools: the certificate's code, read-only data
+included, is not written during a run. With libgcc this follows the jump tables of `divsf3`
+and `divdf3` (`ldr r1, =table; lsls r3, r3, #2; ldr r3, [r1, r3]; mov pc, r3`); the figures
+are in the table of the previous section (187 functions and 10 entry functions certified,
+against 173 and 8). Kernel loops are unchanged (`compare_runs.py`: 257 before and after,
+none lost); loops of the library's routines certified 116 → 125.
+
+**Windows without `CMP`.** When the compiler knows the range of the index it emits no range
+check: Clang compiles `switch (x & 7)` with all eight cases into
+`movs r2, #7; ands r1, r2; ...; add pc, r1`. The certificate's jump then names the bounding
+instruction (`index`); the checker (Lean `jumpRng`, `jumpOkF`) takes its bound from
+`rngOps` (`ANDS` by a known operand, `LSRS` by a constant, `UXTB`, `LDRB`; trusted, compared
+with `m0.py` by `test_jumptable.py`), requires it below 1,024, evaluates the window from no
+known register up to that instruction and then for every value up to the bound, and checks
+that nothing enters the window after it but from the instruction before (`interiorR`);
+Lean: `jump_good_rng`, `exMask_sound`. `jumptable.find_rng` looks for the bounding
+instruction closest to the jump whose targets stay in the function. On a scratch program
+with that switch, the certified bound of the function is 20 cycles, the largest of the
+emulated calls also 20, and the checker accepts the certificate with the convention
+established. On the benchmarks this form adds nothing: `sha`'s first jump is found (8
+targets), but its function has a second jump, and `bitcount`'s jump, whose index is bounded
+only by its loop or by constants set on several paths (followed since, next section). Tests:
+`test_jumptable.py` (the form accepted; a dropped target, a widened mask, the index at the
+wrong instruction, a moved start and a missing index rejected).
+
+## Jump indices bounded by the loop analysis (2026-11-24)
+
+The two jumps left refused above have an index that no instruction of the window bounds:
+`bitcount_main` jumps on `4 i` (`lsls r0, r6, #2`) where `i` is its loop counter, and
+`sha`'s second jump on a value set to constants on several paths. The certificate's jump
+then also names a register and a range (`"bound": [d, lo, hi]`, `hi` below 1,024), and the
+checker (Lean `jumpInv`) requires that every disjunct of the certified invariant at the
+bounding instruction contain `r_d <= u` with `u <= hi` (and `l <= r_d` with `l >= lo` when
+`lo > 0`); values of the wrong residue for the certified congruence are skipped, the others
+are evaluated through the window as for the masked form. The proof is circular on its face
+(the invariant is proved along the graph's edges, the jump's edges are what is being
+established) and Lean resolves it by induction along the run: when every earlier step
+follows an edge, the invariant holds at the bounding instruction (`inv_prefix`), so the
+jump goes to a listed target and that step follows an edge too (`steps_good`,
+`jump_good_inv`; example `exPath_sound`, 17 cycles, equal to the emulated run). The
+producer goes round the same circle (`wcet.Analysis._resolve_jumps`): graph with the
+targets found so far (none at first), zones and congruences at the bounding instruction
+(`binloops.inv_jumps`), window evaluated, until the targets stay the same (at most 6
+rounds). `bitcount` also needed the congruence of a shift: after `LSLS rd, rm, #k`, `rd` is
+a multiple of `2^k` whether the shift overflows or not (`shlCong`, proved), and the zones
+now give a shift of a bounded register its interval.
+
+On the 29 kernels (`compare_runs.py`, against the previous runs): no loop lost, no bound
+higher, every certificate accepted, no emulated run above a bound. Kernel loops certified
+257 → 261 with compiler-rt and libgcc (three in `bitcount_main`, one in `fft_bit_reduct`
+by the shift congruence), 257 → 260 without a library (258 → 261 built with
+`-fomit-frame-pointer`; with no assumption or `--abi` alone, 143 / 200 and 146 / 204, unchanged:
+`bitcount_main`'s loops need `--frame`); stack bounds 239 → 244 (143 → 148
+without a library), entry functions with a stack bound 21 → 22 (`bitcount_main`: 104
+bytes, equal to the observed value; `sha`: 7 → 10 functions). Certified cycle bounds are
+unchanged (121 / 187 / 187): `bitcount_main` calls the recursive `bitcount_ntbl_bitcnt`,
+and `sha`'s caller loops over a parameter (`sha_wordcopy`, no constant bound). On scratch
+programs compiled by Clang the checker accepts the certificates: `switch (i)` in a loop,
+certified 126 cycles, 117 observed; a switch on constants set on several paths, 49 and 45.
+Tests: `test_jumptable.py` (both programs accepted; a widened or missing bound, a dropped
+target, a path that breaks the invariant, a removed congruence rejected).
 
 ## OTAWA on the same binaries
 
@@ -621,16 +695,33 @@ functions get a stack bound than a cycle bound. `run_cycles.py` computes them an
 each against the run: for every activation, the stack pointer at entry minus the lowest
 value seen until it returns (`--check` fails on a violation).
 
+The stack pointer may also be set from a register: `add sp, r` with `r` a constant of the
+literal pool (`ldr r, =-size; add sp, r`, for frames larger than `sub sp, #imm` can
+reserve) and, since 2026-11-24, `mov sp, r` with `r` the stack pointer at entry minus a
+constant, as when Clang restores it from the frame pointer (`add r7, sp, #12` after the
+`push`, then `subs r6, r7, #7; subs r6, #5; mov sp, r6` before the `pop`). Every
+instruction gets, with its depth, the registers whose value is known on every path to it
+(`ldr r, =c`; `add r, sp, #i`, `mov r, sp`, then `adds`/`subs` by constants and `mov`
+between registers); where paths meet, a register stays known only if its value is the same
+on all of them. A call keeps a register known only if the callee preserves it on its own
+code (`StackAnalysis.preserved`): its entry `push` saves the register and every return is a
+`pop` of it, or neither it nor its callees write it; like the calling convention, this
+assumes that the saved words are not overwritten during the call. `test_stack.py` (CI):
+the frame pointer followed and the bound compared with a run on `m0.py`; a callee that
+writes `r7` without saving it, `r7` changed or overwritten before the call, and two values
+of `r7` meeting at a join get no bound.
+
 | | |
 |---|---:|
-| functions with a stack bound | **143 of 267** |
-| entry functions (`main`) with a stack bound | 10 of 29 |
-| calls compared with the run | 24, **no violation** |
-| of which the bound equals the observed stack | 19 |
+| functions with a stack bound | **151 of 267** |
+| entry functions (`main`) with a stack bound | 12 of 29 |
+| calls compared with the run | 29, **no violation** |
+| of which the bound equals the observed stack | 24 |
 
 | Kernel | Stack bound of `main` (bytes) | Observed |
 |---|---:|---:|
 | binarysearch | 56 | 56 |
+| bitcount | 104 | 104 |
 | bsort | 28 | 28 |
 | countnegative | 64 | 64 |
 | fac | 24 | 24 |
@@ -640,14 +731,18 @@ value seen until it returns (`--check` fails on a violation).
 | matrix1 | 36 | 36 |
 | md5 | 584 | 552 |
 | prime | 56 | 56 |
+| sha | 8,648 | 8,648 |
 
 (`fac` is recursive in the source; at `-O1` the compiler turns its recursion into a loop.)
 
-No bound, by cause (124 functions): a call to a software floating-point helper, which the
-interpreter provides in Python, without code (84); a call to such a function (32); the
-stack pointer written from a register whose value is not a constant loaded just before
-(4; `ldr r, =-size; add sp, r`, the way large frames are reserved, is handled); recursion
-in the binary (4: `bitonic`, `quicksort`, `recursion`). A recursive function could be bounded
+No bound, by cause (116 functions): a call to a software floating-point helper, which the
+interpreter provides in Python, without code (86); a call to such a function or to a
+recursive one (26); recursion in the binary (4: `bitonic`, `quicksort`, `recursion`). The
+stack pointer written from a register no longer stops any function (five did before it
+was restored from the frame pointer, three of them in `sha`).
+With compiler-rt the frame pointer adds the entry functions of `filterbank`, `ludcmp`,
+`minver` and `sha` (stack bounds 244 → 256, all four within 4 bytes of the observed stack);
+with libgcc `sha` (244 → 247). A recursive function could be bounded
 from a recursion depth (`Stack.highWater_le_depth`); this is not implemented.
 
 What the bound covers: the stack of the program's own code. Not counted: exception frames
@@ -661,6 +756,18 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-24, stack pointer restored from the frame pointer.** `stack.py` follows
+  registers known on every path (`mov sp, r` from the frame pointer). Stack bounds 148 /
+  244 / 244 → 151 / 256 / 247, entry functions 11 / 22 / 22 → 12 / 26 / 23; no violation.
+- **2026-11-24, indices bounded by the loop analysis.** Jumps whose index only the certified
+  invariant bounds are followed (`bitcount`, `sha`); shift congruences. Kernel loops 257 →
+  260 / 261 / 261, stack bounds 143 / 239 / 239 → 148 / 244 / 244; certified functions
+  unchanged. GCC binaries: kernel loops 40 / 65 / 74 → 40 / 66 / 75 (no earlier run kept to compare
+  loop by loop), certified functions unchanged.
+- **2026-11-24, read-only data and masked indices.** The certificate's code includes the
+  read-only data after it, and jumps whose index is bounded by `ANDS`, `LSRS`, `UXTB` or
+  `LDRB` are followed. Kernels without a library or with compiler-rt unchanged (121 / 187
+  certified); with libgcc 173 → 187, entry functions 8 → 10.
 - **2026-11-21, GCC binaries, line ranges, target data model.** The GCC runs revealed three
   defects ("GCC binaries" above). The source had been analysed with the host's 64-bit
   `long`: `sha_byte_reverse` had a certified bound of 213 cycles, 367 observed in GCC's

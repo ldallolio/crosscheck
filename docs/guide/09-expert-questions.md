@@ -169,7 +169,7 @@ limitation, it says so.
   (the calling convention); no other code writes a function's frame (true of C without
   undefined behaviour when the function never takes an address of its frame other than the
   frame pointer r7, used only to load, which the checker verifies syntactically). Without them, fewer loops are certified, never wrong ones.
-- **"Why not all loops certified on the code (143–257 of 403 kernel loops, 258 without frame pointers, plus the 116 of the division routines)?"** Counters kept in a
+- **"Why not all loops certified on the code (143–260 of 403 kernel loops, 261 without frame pointers, plus the 116 of the division routines)?"** Counters kept in a
   frame whose address is passed to callees (26 of 265 functions), computed conditions,
   shifts, soft-float comparisons, loops over data in memory, and counters against a parameter
   (`classify_loops.py` groups them). Allowing the
