@@ -145,7 +145,7 @@ statements:
     paper: paper/binary/crosscheck-binary.tex
     note: "the calling convention checked on the code instead of assumed: linked data runs (a callee runs from the caller's state; PUSH/POP exact; no stack smashing), the check convOk, callees restore r4-r7 and SP, the bounds hold without the assumption abi"
     module: ImperativeOptimization.ThumbConv
-    lean: [convOk, convAll, PushPopOk, SaveSafe, StepL, DChainL, DRunL, DOkT, nojump_steps, stepL_step, chainL_chain, ConvInv, conv_step, conv_ret, conv_chain, drunL_drun, data_sound_conv, exConv_checks, exConvData_checks, exConv_sound, exConv_run, exSave_conv, exClobber_refused, exMismatch_refused]
+    lean: [convOk, convAll, PushPopOk, SaveSafe, StepL, DChainL, DRunL, stepL_step, chainL_chain, ConvInv, conv_step, conv_ret, conv_chain, drunL_drun, data_sound_conv, exConv_checks, exConvData_checks, exConv_sound, exConv_run, exSave_conv, exClobber_refused, exMismatch_refused, exSwConv_checks, exSwConv_sound, exSwClobber_data, exSwClobber_refused]
   - paper_labels: [prop:summary-call]
     note: "symbolic bounds and the call rule for function summaries"
     module: ImperativeOptimization.Language

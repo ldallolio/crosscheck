@@ -451,11 +451,13 @@ that every data run follows a listed target (Paper III `prop:jump-table`, `jump_
 `Autocorrelation` and `Long_term_analysis_filtering`, `lift`'s `check_run`). Not followed: a
 table without a range check (`bitcount_main`, `sha_wordcopy_fwd_aligned`), tables in
 `.rodata` outside the certificate's code (libgcc's divisions), calls through pointers. The
-calling convention is not checked in a function with a jump through a table (`abi` stays
-assumed there, and the checker names the function). Tests: `test_jumptable.py` (a switch
+calling convention is checked in these functions too (Lean `convAll` along the targets;
+before 2026-11-24 it stayed assumed there): with the new checker the certificates of the
+24 programs report it as established on the code of every function. Tests: `test_jumptable.py` (a switch
 in both forms certified and accepted; a dropped target, a moved window, a widened range
 check and a branch into the window rejected, the last shown on `m0.py` to leave the
-function; Lean's exact values of `ADD rd, PC`, `ADR` and the loads from the code, and its
+function; the convention established with a jump, and not established when a case reached
+only through the table writes `r4`; Lean's exact values of `ADD rd, PC`, `ADR` and the loads from the code, and its
 jump destinations, against `m0.py` on more than 1,000 states).
 
 **Robustness.** On these programs the producer met two problems the kernels never showed:

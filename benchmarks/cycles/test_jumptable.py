@@ -181,6 +181,28 @@ class Checker(unittest.TestCase):
         doc = certify(hws)[0]
         self.assertRejected(doc)
 
+    def test_convention_with_jumps(self):
+        # with `abi`, the calling convention is checked on the code of a function with a jump
+        # (Lean `ThumbConv.convAll`, along `transJ`)
+        an = wcet.Analysis(image(SWITCH), {}, {})
+        doc = ipet.certify(an, ["f"], mul=32, loops=True, abi=True)[0]
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("checked on the code of every function", out)
+
+    def test_convention_clobber_through_the_table(self):
+        # case 0 branches to `movs r4, #1; bx lr`, reached only through the table: r4 is
+        # written and not saved, the convention is not established (the bounds still hold
+        # with the assumption)
+        hws = list(SWITCH)
+        hws[8] = 0xE002                    # b 0x118
+        hws += [0x2401, 0x4770]            # movs r4, #1; bx lr
+        an = wcet.Analysis(image(hws), {}, {})
+        doc = ipet.certify(an, ["f"], mul=32, loops=True, abi=True)[0]
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("not established on the code of 1 function(s): f", out)
+
     def test_jumps_need_the_data_check(self):
         # the format without loop certificates does not allow jumps (`checkBinary` without `jt`):
         # the checker takes the data path when a function lists jumps; here the list is moved

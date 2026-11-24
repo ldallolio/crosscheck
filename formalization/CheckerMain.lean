@@ -616,7 +616,7 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
       -- with `abi`: the calling convention, checked on the code of every function
       -- (`convAll`, theorem `ThumbConv.data_sound_conv`), else assumed
       let conv := abi && ImperativeOptimization.Thumb.convAll mul code fs Ls
-      let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D || !F.jumps.isEmpty).map (·.1)
+      let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D).map (·.1)
       let callees := if !abi then "no assumption on callees"
         else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
         else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"

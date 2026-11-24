@@ -963,11 +963,11 @@ def convNode (mul : Nat) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
   let P := saveList c f.entry
   match decode mul c a, c.get a with
   | some i, some h =>
-    (trans i a).all (fun t => t.1 != some f.entry) &&
-    (if i.kind == .ret then
+    (transJ f.jumps i a).all (fun t => t.1 != some f.entry) &&
+    (if i.kind == .ret then (jumpTr f.jumps a).isEmpty && (
       (h >>> 9 == 0b1011110 && (h >>> 8) % 2 == 1 && h % 256 == P && saveLr c f.entry &&
         spAt f L a == some (-(4 * n))) ||
-      (h >>> 8 == 0b01000111 && n == 0 && spAt f L a == some 0)
+      (h >>> 8 == 0b01000111 && n == 0 && spAt f L a == some 0))
     else
       (a == f.entry && isPushH h) ||
       ((effect true c a).dst.all (fun p => p.1 < 4 || 8 ≤ p.1 || (P >>> p.1) % 2 == 1) &&
@@ -987,7 +987,6 @@ def convOk (mul : Nat) (c : Code) (f : BFun) (L : DFun) : Bool :=
 
 /-- The calling convention of every function of the certificate. -/
 def convAll (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
-  fs.length == Ls.length && ((fs.zip Ls).all fun p => convOk mul c p.1 p.2) &&
-  fs.all fun f => f.jumps.isEmpty
+  fs.length == Ls.length && (fs.zip Ls).all fun p => convOk mul c p.1 p.2
 
 end ImperativeOptimization.Thumb

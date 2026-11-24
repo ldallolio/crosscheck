@@ -2321,6 +2321,28 @@ programs, limitations, conclusions; 24 pages), Paper I's count of Paper III's mo
 cycles README, guide parts 5 and 7, slides, CLAUDE.md, `formalization.yaml`, qualification
 requirements.
 
+142. "Proceed with the next logical improvement"
+
+What the AI did for 142 (Claude Opus 5.5, 2026-11-24): removed the gap left by 141, the
+calling convention assumed in functions with a jump through a table. `convNode` now follows
+`transJ` (no listed target leads to the entry; a return is no listed jump) and `convAll`
+no longer requires functions without jumps. In `ThumbConv`, the step lemmas (`wide_call`,
+`calls_cases`, `stepL_step`, `chainL_chain`) take the trusted step `DOkM` (a 32-bit
+instruction is no `ADD PC`/`MOV PC`); `drunL_drun` first turns the linked run into a chain
+with `abi`, then obtains by `ThumbData.steps_good` that every step follows `transJ`, and
+`conv_step`/`conv_ret`/`conv_chain` are proved along these transitions; `DOkT`,
+`nojump_steps`, `dfAt_nojump` removed. Examples `exSwConv_sound` (the switch, 12 cycles, in
+the linked semantics) and `exSwClobber_data`/`exSwClobber_refused` (`r4` written only in a
+case reached through the table: the loop check accepts, the convention is refused). The
+checker program no longer names functions for having jumps. Tests: two in
+`test_jumptable.py` (convention established with a jump; not established with the
+clobbering case). The stored certificates of the 24 larger programs, rechecked: all
+accepted, the convention established on every function (3 functions with jumps); kernels
+unchanged (`ludcmp_test` still names one function). Lean: 733 theorems, no warnings, only the
+three standard axioms. Paper III (`def:convention`, proof of `thm:machine-conv`,
+`prop:jump-table`'s remark, Lean table, larger programs; 25 pages, no warnings), Paper I's count, cycles README,
+guide parts 5 and 7, CLAUDE.md, `formalization.yaml`.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

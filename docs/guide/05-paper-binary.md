@@ -474,8 +474,10 @@ altered certificates are refused.
   range check before it (Clang omits the check when it knows the index's range from
   elsewhere, as in `bitcount`) and tables kept in read-only data instead of the code
   (libgcc). The form where the range check is `bls` over `b default` (Clang uses it when
-  the default case is too far for a conditional branch) is followed too. In a function with such a jump the calling
-  convention is not checked (it stays an assumption, which the checker names).
+  the default case is too far for a conditional branch) is followed too. The calling convention is checked in a function
+  with such a jump too: the check follows the listed targets like any other transition, so
+  a register written only in one case of the `switch` is found (Lean example
+  `exSwClobber_refused`).
 - **Time budgets after compilation.** `CROSSCHECK_DEADLINE_CYCLES(n)` / `_US(n)` are checked
   on the binary by `clang-plugin/scripts/crosscheck_link.py` (optionally with certified
   bounds, `--certify`), as a post-build step that fails when a budget is exceeded.
