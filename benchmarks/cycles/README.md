@@ -96,8 +96,9 @@ it is listed in `EXPECTED_FAILURE`). 156 s in total.
 The same kernels compiled by arm-none-eabi-gcc 13.2.1 (Ubuntu's package, Docker image
 `benchmarks/hardware/Dockerfile`, run without network), `GCC_FLAGS`: `-mcpu=cortex-m0
 -mthumb -O1 -g -fno-unroll-loops -ffreestanding -fno-builtin -fno-jump-tables
--fno-tree-loop-distribute-patterns` (no jump tables, which the decoder refuses; no
-loops replaced by `memset`/`memcpy` calls):
+-fno-tree-loop-distribute-patterns` (no jump tables: GCC's Thumb-1 tables call libgcc
+helpers, `__gnu_thumb1_case_*`, that rewrite the PC; no loops replaced by `memset`/`memcpy`
+calls):
 
 ```bash
 python3 benchmarks/cycles/run_cycles.py --gcc armgcc:local --tag=.gcc --check --certify OUT \
@@ -333,8 +334,9 @@ routines are analysed, certified and run on their machine code like the kernels'
   no indirect jump.
 - `libgcc`: the Cortex-M0 multilib (`thumb/v6-m/nofp`) of arm-none-eabi-gcc 13.2.1 in the
   Docker image, unmodified. Its float and double divisions (`divsf3`, `divdf3`) dispatch the
-  special cases through a jump table (`mov pc, r`), which the decoder refuses (an indirect
-  jump), so functions that divide floating-point numbers stay without a bound.
+  special cases through jump tables (`mov pc, r`) kept in `.rodata`, outside the
+  certificate's code, which the checker does not follow (see "Jumps through a table"
+  below), so functions that divide floating-point numbers stay without a bound.
 
 The link runs in `--link-image` (default `armgcc:local`, without network) or, with
 `--link-image ''`, with the `arm-none-eabi-ld` of the machine (Ubuntu's
@@ -382,6 +384,89 @@ cycles of the default runs leave the floating-point routines out (they cost noth
 `st` takes 6.07 million cycles with compiler-rt, 4.76 million with libgcc, 1.78 million
 without code for them. The library's code is trusted to be the code the program is linked
 with, as the kernels' code is; the run with compiler-rt takes 20 minutes with `--jobs 4`.
+
+## Larger programs and jumps through tables (2026-11-24)
+
+```bash
+python3 run_cycles.py --category sequential --category app --only lift --check --certify DIR \
+  --checker ../../formalization/.lake/build/bin/crosscheck-check --certify-loops --abi --frame \
+  --rtlib compiler-rt --json lift.json
+```
+
+TACLeBench's 23 `sequential` and 2 `app` programs, run one at a time with a limit of one
+hour each (`--category`; the source analysis with `CROSSCHECK_TACLE_TIMEOUT=5400` for
+`cjpeg_transupp`, whose plugin run takes about 30 minutes). Work-copy fixes
+(`SOURCE_FIXES`): the debugging `printf` of `anagram` and `huff_enc`, whose declaration is
+commented out at the pinned revision. `cjpeg_transupp` reads
+`cjpeg_transupp_input5_2[65..71]` of an array of 65 (its "lower right corner" loop runs with
+`i == 8`), so its expected checksum holds for x86's layout of the globals only: on the
+Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). `ammunition` does not finish within
+the hour (74 functions; the source analysis alone takes more than 5 minutes).
+
+| program | functions | certified | loops certified on the code | stack bounds | `main` certified |
+|---|---:|---:|---:|---:|:-:|
+| adpcm_dec | 17 | 13 | 23 of 28 | 17 | no |
+| adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
+| anagram | 26 | 13 | 29 of 51 | 20 | no |
+| audiobeam | 36 | 28 | 20 of 43 | 36 | no |
+| cjpeg_transupp | 11 | 4 | 57 of 87 | 11 | no |
+| cjpeg_wrbmp | 8 | 3 | 16 of 17 | 5 | no |
+| dijkstra | 8 | 4 | 12 of 16 | 8 | no |
+| epic | 9 | 1 | 15 of 67 | 9 | no |
+| fmref | 19 | 14 | 25 of 34 | 17 | no |
+| g723_enc | 18 | 16 | 26 of 32 | 18 | no |
+| gsm_dec | 24 | 17 | 27 of 48 | 24 | no |
+| gsm_enc | 36 | 28 | 57 of 79 | 36 | no |
+| h264_dec | 5 | 2 | 13 of 17 | 5 | no |
+| huff_dec | 11 | 7 | 14 of 32 | 9 | no |
+| huff_enc | 18 | 9 | 12 of 38 | 12 | no |
+| lift | 16 | 16 | 20 of 20 | 16 | yes |
+| mpeg2 | 17 | 8 | 40 of 62 | 12 | no |
+| ndes | 8 | 4 | 12 of 20 | 4 | no |
+| petrinet | 4 | 2 | 10 of 10 | 2 | no |
+| powerwindow | 51 | 49 | 70 of 78 | 51 | no |
+| rijndael_dec | 13 | 8 | 11 of 18 | 9 | no |
+| rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
+| statemate | 10 | 10 | 5 of 5 | 10 | yes |
+| susan | 41 | 20 | 38 of 83 | 31 | no |
+| **24 programs** | **439** | **300** | **590 of 935** | **391** | **2** |
+
+Functions and loops include those of compiler-rt. No certificate is rejected and no
+emulated run exceeds a cycle or stack bound. `lift` (`main`: 1,157,990 cycles certified,
+883,716 observed) and `statemate` are bounded entirely. In the others, `main` stays
+unbounded because some function on its call paths has a loop bounded neither by the source
+analysis nor on the machine code, a call of a routine without code (`__aeabi_memcpy4`, for
+struct copies, in `ndes` and `cjpeg_wrbmp`) or a recursion (`huff_enc`).
+
+**Jumps through tables.** A `switch` compiled to a table (`cmp rI, #n; bhi default;` ...
+`add pc, rm` or `mov pc, rm`) was an indirect jump, refused. `jumptable.py` now finds the
+window of the jump (the `cmp`, the `bhi`, or a `bls` to `start + 6` over `b default`, the
+form Clang uses when the default case is beyond the reach of a conditional branch) and
+evaluates it for every index `0..n` on the code, as the checker does (Lean `jumpOk`): the
+certificate lists the targets (`jumps`), the checker evaluates the window again, checks that
+nothing branches into it but from the instruction before (`interiorOk`), and Lean proves
+that every data run follows a listed target (Paper III `prop:jump-table`, `jump_good`,
+`steps_good`). The 25 programs have 8 such jumps (`gsm_dec` 2, `gsm_enc` 4, `lift` 1,
+`ammunition` 1), all recognised; 3 are in functions that receive a certificate (`gsm_enc`'s
+`Autocorrelation` and `Long_term_analysis_filtering`, `lift`'s `check_run`). Not followed: a
+table without a range check (`bitcount_main`, `sha_wordcopy_fwd_aligned`), tables in
+`.rodata` outside the certificate's code (libgcc's divisions), calls through pointers. The
+calling convention is not checked in a function with a jump through a table (`abi` stays
+assumed there, and the checker names the function). Tests: `test_jumptable.py` (a switch
+in both forms certified and accepted; a dropped target, a moved window, a widened range
+check and a branch into the window rejected, the last shown on `m0.py` to leave the
+function; Lean's exact values of `ADD rd, PC`, `ADR` and the loads from the code, and its
+jump destinations, against `m0.py` on more than 1,000 states).
+
+**Robustness.** On these programs the producer met two problems the kernels never showed:
+a recursion limit (the depth-first searches of `wcet.py` were recursive; now iterative) and
+analyses that run for hours on large functions. The loop certifier now has a budget per
+function, 600 CPU seconds (`CROSSCHECK_LOOP_SECONDS`): past it the function's analysis stops
+and its loops stay uncertified, which is sound since the producer is untrusted; on the 29
+kernels it loses no loop (`compare_runs.py`: 257 kernel loops certified before and after,
+with and without compiler-rt; the largest function, `pm_kernel`, needs about 400 s). An
+exception in one program is reported as its error, and `--check` fails on it, instead of
+stopping the run.
 
 ## OTAWA on the same binaries
 

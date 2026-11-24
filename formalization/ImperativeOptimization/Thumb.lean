@@ -34,10 +34,12 @@ namespace ImperativeOptimization.Thumb
 
 open ImperativeOptimization.Cycles
 
-/-- The instruction at `a` allows the step to `next` with `w` cycles calling `calls`. -/
-def Step (mul : Nat) (c : Code) (a : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) : Prop :=
+/-- The instruction at `a` allows the step to `next` with `w` cycles calling `calls`; a
+    jump listed in `J` goes to one of its targets (for `J = []`, the steps of `trans`, and a
+    `stop` instruction does anything). -/
+def Step (mul : Nat) (c : Code) (J : List JT) (a : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) : Prop :=
   match decode mul c a with
-  | some i => i.kind = .stop ∨ (next, w, calls) ∈ trans i a
+  | some i => (i.kind = .stop ∧ jumpTr J a = []) ∨ (next, w, calls) ∈ transJ J i a
   | none => True
 
 /-- A step of a run: address, next address, cycles, callees, cycles spent in the calls. -/
@@ -62,7 +64,7 @@ def fnAt (fs : List BFun) (e : Nat) : Option BFun :=
 def MRun (mul : Nat) (c : Code) (fs : List BFun) : Nat → Nat → Int → Prop
   | 0, _, _ => False
   | d + 1, e, total => ∃ f s, fnAt fs e = some f ∧ MChain (some e) s ∧
-      (∀ st ∈ s, Step mul c st.a st.next st.w st.calls ∧ CallsWith (MRun mul c fs d) st.calls st.x) ∧
+      (∀ st ∈ s, Step mul c f.jumps st.a st.next st.w st.calls ∧ CallsWith (MRun mul c fs d) st.calls st.x) ∧
       (∀ r ∈ f.rows, (s.map (fun st => coefPair r.coef st.a st.next)).sum ≤ r.rhs) ∧
       total = (s.map (fun st => (st.w : Int) + st.x)).sum
 
@@ -92,15 +94,15 @@ theorem optMap_get {α β : Type} (f : α → Option β) : ∀ (l : List α) (L 
         exact ⟨z, hz, by simpa using hz'⟩
     · cases h
 
-theorem mem_medges (mul : Nat) (c : Code) (a : Nat) (i : Insn) (p : Option Nat × Nat × List Nat)
-    (hi : decode mul c a = some i) (hp : p ∈ trans i a) :
-    ∀ nodes : List Nat, a ∈ nodes → (a, p.1, p.2.1, p.2.2) ∈ medges mul c nodes
+theorem mem_medges (mul : Nat) (c : Code) (J : List JT) (a : Nat) (i : Insn) (p : Option Nat × Nat × List Nat)
+    (hi : decode mul c a = some i) (hp : p ∈ transJ J i a) :
+    ∀ nodes : List Nat, a ∈ nodes → (a, p.1, p.2.1, p.2.2) ∈ medges mul c J nodes
   | [], h => by simp at h
   | b :: bs, h => by
     simp only [medges, List.mem_append]
     rcases List.mem_cons.mp h with rfl | h
     · left; rw [hi]; exact List.mem_map.mpr ⟨p, hp, rfl⟩
-    · right; exact mem_medges mul c a i p hi hp bs h
+    · right; exact mem_medges mul c J a i p hi hp bs h
 
 theorem coefOf_indexed {α : Type} (F : α → Int) : ∀ (L : List α) (s j : Nat),
     coefOf ((indexed s L).map (fun p => (p.1, F p.2))) j =
@@ -116,10 +118,10 @@ theorem coefOf_indexed {α : Type} (F : α → Int) : ∀ (L : List α) (s j : N
         simp [h, h', this, show s ≤ j by omega]
       · simp [h, h', show ¬ s ≤ j by omega]
 
-theorem closed_spec (mul : Nat) (c : Code) (e : Nat) (nodes : List Nat)
-    (h : closed mul c e nodes = true) :
-    e ∈ nodes ∧ ∀ a ∈ nodes, ∃ i, decode mul c a = some i ∧ i.kind ≠ .stop ∧
-      ∀ p ∈ trans i a, ∀ q, p.1 = some q → q ∈ nodes := by
+theorem closed_spec (mul : Nat) (c : Code) (J : List JT) (e : Nat) (nodes : List Nat)
+    (h : closed mul c J e nodes = true) :
+    e ∈ nodes ∧ ∀ a ∈ nodes, ∃ i, decode mul c a = some i ∧ (i.kind ≠ .stop ∨ jumpTr J a ≠ []) ∧
+      ∀ p ∈ transJ J i a, ∀ q, p.1 = some q → q ∈ nodes := by
   simp only [closed, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
   refine ⟨h.1, fun a ha => ?_⟩
   have := h.2 a ha
@@ -151,14 +153,14 @@ theorem callsWith_transfer (entries : List Nat) (R1 R2 : Nat → Int → Prop)
 /-- The walk of a machine run in the graph built from the code. -/
 theorem chain_walk (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) (G : Graph)
     (R1 R2 : Nat → Int → Prop) (hR : ∀ t j c, R1 t c → find entries t = some j → R2 j c)
-    (hcl : closed mul c f.entry f.nodes = true)
-    (edges : List Edge) (hE : optMap (mkEdge entries f.nodes) (medges mul c f.nodes) = some edges)
+    (hcl : closed mul c f.jumps f.entry f.nodes = true)
+    (edges : List Edge) (hE : optMap (mkEdge entries f.nodes) (medges mul c f.jumps f.nodes) = some edges)
     (hG : G.edges = edges) :
     ∀ (s : List MStep) (o : Option Nat), MChain o s → (∀ q, o = some q → q ∈ f.nodes) →
-      (∀ st ∈ s, Step mul c st.a st.next st.w st.calls ∧ CallsWith R1 st.calls st.x) →
+      (∀ st ∈ s, Step mul c f.jumps st.a st.next st.w st.calls ∧ CallsWith R1 st.calls st.x) →
       ∃ gs : List (Nat × Int), Walk G (nid f.nodes o) gs (nid f.nodes none) ∧
         walkCost G gs = (s.map (fun st => (st.w : Int) + st.x)).sum ∧
-        (∀ r : MRow, rowVal (mkRow (medges mul c f.nodes) r) gs =
+        (∀ r : MRow, rowVal (mkRow (medges mul c f.jumps f.nodes) r) gs =
           (s.map (fun st => coefPair r.coef st.a st.next)).sum) ∧
         (∀ st ∈ gs, CallsWith R2 (callsOf G st.1) st.2)
   | [], o, hch, _, _ => by
@@ -171,16 +173,18 @@ theorem chain_walk (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) (G : G
     | some a =>
       obtain ⟨hsa, hrest⟩ := hch
       have ha : a ∈ f.nodes := hin a rfl
-      obtain ⟨_, hcl2⟩ := closed_spec mul c f.entry f.nodes hcl
+      obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
       obtain ⟨i, hi, hstop, hsucc⟩ := hcl2 a ha
       obtain ⟨hstep, hcalls⟩ := hsteps st (by simp)
-      have htr : (st.next, st.w, st.calls) ∈ trans i a := by
+      have htr : (st.next, st.w, st.calls) ∈ transJ f.jumps i a := by
         simp only [Step] at hstep
         rw [hsa, hi] at hstep
         rcases hstep with h | h
-        · exact absurd h hstop
+        · rcases hstop with h' | h'
+          · exact absurd h.1 h'
+          · exact absurd h.2 h'
         · exact h
-      have hme := mem_medges mul c a i _ hi htr f.nodes ha
+      have hme := mem_medges mul c f.jumps a i _ hi htr f.nodes ha
       obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hme
       obtain ⟨ed, hed, hk'⟩ := optMap_get _ _ edges k _ hE hk
       simp only [mkEdge] at hed
@@ -198,7 +202,7 @@ theorem chain_walk (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) (G : G
           rw [hrows r]
           simp only [mkRow]
           have hci := coefOf_indexed (fun m : Nat × Option Nat × Nat × List Nat => coefPair r.coef m.1 m.2.1)
-            (medges mul c f.nodes) 0 k
+            (medges mul c f.jumps f.nodes) 0 k
           simp only at hci
           rw [hci]
           simp [hk, hsa]
@@ -234,9 +238,9 @@ theorem translate (mul : Nat) (c : Code) (fs : List BFun) (Ps : List Graph)
       · rename_i edges hE
         cases hb
         obtain ⟨gs, hw, hcost, hrv, hc⟩ := chain_walk mul c (fs.map (·.entry)) f
-          ⟨nid f.nodes (some f.entry), f.nodes.length, edges, f.rows.map (mkRow (medges mul c f.nodes))⟩
+          ⟨nid f.nodes (some f.entry), f.nodes.length, edges, f.rows.map (mkRow (medges mul c f.jumps f.nodes))⟩
           (MRun mul c fs d) (Run Ps d) ih hcl edges hE rfl s (some e) hch
-          (fun q hq => by cases hq; rw [← hentry]; exact (closed_spec mul c _ _ hcl).1) hsteps
+          (fun q hq => by cases hq; rw [← hentry]; exact (closed_spec mul c _ _ _ hcl).1) hsteps
         refine ⟨_, gs, hPi, ?_, ?_, hc, hcost.symm⟩
         · simpa [hentry] using hw
         · intro r hr
@@ -248,19 +252,24 @@ theorem translate (mul : Nat) (c : Code) (fs : List BFun) (Ps : List Graph)
 
 /-- **Soundness on machine code**: if `checkBinary` accepts, every run of the function at
     entry `e` (the `i`-th of the program) costs at most its certified bound. -/
-theorem binary_sound (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert)
-    (h : checkBinary mul c fs Cs = true) (d e i : Nat) (tot : Int)
+theorem binary_sound (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (jt : Bool)
+    (h : checkBinary mul c fs Cs jt = true) (d e i : Nat) (tot : Int)
     (hrun : MRun mul c fs d e tot) (hfind : find (fs.map (·.entry)) e = some i) :
     tot ≤ ((Cs.map Cert.bound).getD i 0 : Nat) := by
-  simp only [checkBinary] at h
+  simp only [checkBinary, Bool.and_eq_true] at h
+  replace h := h.2
   split at h
   · rename_i Ps hP
     exact program_sound Ps Cs h d i tot (translate mul c fs Ps hP d e i tot hrun hfind)
   · cases h
 
-theorem step_of {mul : Nat} {c : Code} {a : Nat} {i : Insn} {n : Option Nat} {w : Nat} {cs : List Nat}
-    (h : decode mul c a = some i) (hm : (n, w, cs) ∈ trans i a) : Step mul c a n w cs := by
+theorem step_of {mul : Nat} {c : Code} {J : List JT} {a : Nat} {i : Insn} {n : Option Nat} {w : Nat}
+    {cs : List Nat} (h : decode mul c a = some i) (hm : (n, w, cs) ∈ transJ J i a) : Step mul c J a n w cs := by
   simp [Step, h, hm]
+
+/-- Without jumps (the checks of `checkBinary` without `jt`), `transJ` is `trans`. -/
+theorem transJ_nil (i : Insn) (a : Nat) : transJ [] i a = trans i a := by
+  simp [transJ, jumpTr]
 
 /-! ### An example: a counting loop in machine code
 
@@ -271,7 +280,7 @@ at most 10 iterations (row: the back edge `0x108 → 0x102` at most 10 times per
 def exCode : Code := ⟨0x100, #[0x2000, 0x280A, 0xDA01, 0x3001, 0xE7FB, 0x4770]⟩
 
 def exFun : BFun :=
-  ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], [⟨[(0x108, 0x102, 1), (0x100, 0x102, -10)], 0⟩]⟩
+  ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], [⟨[(0x108, 0x102, 1), (0x100, 0x102, -10)], 0⟩], []⟩
 
 /-- Potentials: worst cycles from each instruction to the return, the loop paid by the
     multiplier 6 on its entry. -/
@@ -298,7 +307,7 @@ theorem exBinary_run : MRun 32 exCode [exFun] 1 0x100 8 := by
   · intro r hr
     simp [exFun] at hr; subst hr; decide
 
-example : (8 : Int) ≤ 68 := binary_sound 32 exCode [exFun] [exCert] exBinary_checks 1 0x100 0 8
+example : (8 : Int) ≤ 68 := binary_sound 32 exCode [exFun] [exCert] false exBinary_checks 1 0x100 0 8
   exBinary_run (by decide)
 
 end ImperativeOptimization.Thumb

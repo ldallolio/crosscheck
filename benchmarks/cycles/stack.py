@@ -73,7 +73,11 @@ class StackAnalysis:
             a = todo.pop()
             d = depth[a]
             i = m0.decode(mem, a)
-            if i.kind in ("stop", "indirect"):
+            jt = None
+            if i.kind == "indirect":
+                import jumptable
+                jt = jumptable.find(jumptable.getter(self.img), a)
+            if i.kind == "stop" or (i.kind == "indirect" and jt is None):
                 raise NoBound(f"{i.op} at {a:#x} (indirect jump or unsupported instruction)")
             if i.op == "push":
                 nd = d + 4 * len(i.a[0])
@@ -108,6 +112,10 @@ class StackAnalysis:
                 succ.append(i.target)
             if i.kind in ("cond", "seq", "call"):
                 succ.append(a + i.size)
+            if jt is not None:
+                if not all(entry <= t < entry + max(size, 2) for t in jt[1]):
+                    raise NoBound(f"jump out of the function at {a:#x}")
+                succ.extend(jt[1])
             # Constants loaded from the literal pool, known at the next instruction when it
             # is reached only by falling through from this one (a frame larger than
             # `sub sp, #imm` can express is reserved by `ldr r, =-size; add sp, r`).

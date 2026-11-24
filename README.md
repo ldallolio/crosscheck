@@ -2,7 +2,6 @@
 
 [![Lean 4 CI](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/lean_build.yml)
 [![Clang plugin CI](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml/badge.svg)](https://github.com/ldallolio/crosscheck/actions/workflows/plugin_build.yml)
-[![Code DOI](https://zenodo.org/badge/1423112486.svg)](https://doi.org/10.5281/zenodo.24425069)
 [![Paper I DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24444576.svg)](https://doi.org/10.5281/zenodo.24444576)
 [![Paper II DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24444646.svg)](https://doi.org/10.5281/zenodo.24444646)
 

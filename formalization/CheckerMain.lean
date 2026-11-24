@@ -516,6 +516,10 @@ def optArr {α : Type} (j : Json) (k : String) (f : Json → Except String α) :
   | .ok _ => parseArr j k f
   | .error _ => pure []
 
+/-- A jump through a table: the address of its `CMP`, of the jump, its targets. -/
+def parseJT (j : Json) : Except String ImperativeOptimization.Thumb.JT := do
+  pure ⟨← getNat j "start", ← getNat j "pos", ← natList (← field j "targets") "targets"⟩
+
 /-- A function: entry, instruction addresses, trusted rows, certificate (potentials per
     address in the order of `nodes`, then the exit), and its loop certificate (empty if
     absent). The rows of the certified loops are added after the trusted ones. -/
@@ -525,7 +529,7 @@ def parseBFun (f : Json) : Except String
   let trusted ← parseArr f "rows" parseMRow
   let loops ← optArr f "loops" parseLoop
   let F0 : ImperativeOptimization.Thumb.BFun :=
-    ⟨← getNat f "entry", ← natList (← field f "nodes") "nodes", trusted⟩
+    ⟨← getNat f "entry", ← natList (← field f "nodes") "nodes", trusted, ← optArr f "jumps" parseJT⟩
   let F : ImperativeOptimization.Thumb.BFun :=
     { F0 with rows := trusted ++ loops.map (ImperativeOptimization.Thumb.loopRow F0) }
   let C : ImperativeOptimization.Cycles.Cert := ⟨← getNat c "scale", ← intList (← field c "pot") "pot",
@@ -600,23 +604,28 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
       if !D.loops.isEmpty || !D.inv.isEmpty then
         let okD := ImperativeOptimization.Thumb.checkDFun mul abi code F D
         IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked, {(D.cong.map List.length).foldl (· + ·) 0} congruences{if D.frame then ", frame written only through SP (assumed)" else ""})"
-    -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
-    let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
     let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
     let nTrust := (Ls.map (·.trusted.length)).foldl (· + ·) 0
-    if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) then
+    let nJump : Nat := (fs.map (·.jumps.length)).foldl (· + ·) 0
+    if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) || nJump > 0 then
+      -- the decision of the verified `checkBinary`, jumps through tables allowed (theorem
+      -- `ThumbData.data_sound`: the data semantics follows their targets)
+      let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1)) true
       -- the decision of the verified `checkData` (theorem `ThumbData.data_sound`)
       let okD := ImperativeOptimization.Thumb.checkData mul abi code fs Ls
       -- with `abi`: the calling convention, checked on the code of every function
       -- (`convAll`, theorem `ThumbConv.data_sound_conv`), else assumed
       let conv := abi && ImperativeOptimization.Thumb.convAll mul code fs Ls
-      let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D).map (·.1)
+      let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D || !F.jumps.isEmpty).map (·.1)
       let callees := if !abi then "no assumption on callees"
         else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
         else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
-      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
+      let jumps := if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else ""
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
       if !(okP && okD) then status := 1
     else
+      -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
+      let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
       IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
       if !okP then status := 1
   return status
@@ -682,7 +691,16 @@ def runEffect (j : Json) : Except String (List String) := do
     let lds := match st.load with
       | some (rt, imm) => s!"l{rt},{imm}"
       | none => "-"
-    s!"{a} {" ".intercalate regs} {fs} {conds} {sps} {mems} {lds} {if st.escapes then 1 else 0}"
+    -- the exact values of `xop` (`XOk`) and the address of `ADD PC, rm`/`MOV PC, rm` (`DOkM`)
+    let xs := match ImperativeOptimization.Thumb.xop code a with
+      | some op => match ImperativeOptimization.Thumb.xres code a (fun i => some (rf i)) op with
+        | some v => s!"x{op.dst},{v}"
+        | none => s!"x{op.dst},?"
+      | none => "-"
+    let pcs := match ImperativeOptimization.Thumb.pcWrite code a with
+      | some (add, m) => s!"j{ImperativeOptimization.Thumb.pcDestV a add (rf m)}"
+      | none => "-"
+    s!"{a} {" ".intercalate regs} {fs} {conds} {sps} {mems} {lds} {if st.escapes then 1 else 0} {xs} {pcs}"
 
 /-! ### Printing what was checked -/
 

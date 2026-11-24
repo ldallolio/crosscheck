@@ -20,6 +20,7 @@ whose row then stays trusted). The definitions mirrored from Lean (`effect`,
 import itertools
 import math
 import os
+import time
 from fractions import Fraction
 
 import ipet
@@ -31,6 +32,22 @@ DISJ = True          # disjunctive invariants at a possible wrap-around (`window
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
 LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
+# per function, in CPU seconds of the process (both analyses): past it the analysis of the
+# function stops (`BudgetSpent`: no loop certified) or, during the linear programs, the
+# remaining loops get none. The producer is untrusted: the budget can only leave loops
+# uncertified. 600 s loses no loop of the 29 kernels (the largest function, pm_kernel, needs
+# about 400 s); environment variable CROSSCHECK_LOOP_SECONDS, 0 = no budget.
+FUNC_SECONDS = float(os.environ.get("CROSSCHECK_LOOP_SECONDS", "600"))
+_DEADLINE = None     # the deadline of the function being certified (checked by `_tick`)
+
+
+class BudgetSpent(Exception):
+    """The time budget of the function is spent (its analysis is abandoned)."""
+
+
+def _tick():
+    if _DEADLINE is not None and time.process_time() >= _DEADLINE:
+        raise BudgetSpent()
 HARD_VISITS = 200    # visits of a loop head after which growing bounds are dropped (forget)
 
 
@@ -285,10 +302,11 @@ def congruences(ctx):
     C[ctx.entry] = {}
     work = [ctx.entry]
     while work:
+        _tick()
         a = work.pop()
         Ca = C[a]
         eff, st = ctx.aeff[a], ctx.st[a]
-        for nxt, _w, _cs in ipet.trans(ctx.insn[a]):
+        for nxt, _w, _cs in ipet.trans(ctx.insn[a], ctx.jumps):
             if nxt is None or nxt not in C:
                 continue
             post = {}
@@ -617,7 +635,7 @@ def obligation_cases(ctx, a, inv, kinds):
     i, eff = ctx.insn[a], ctx.eff[a]
     ka = kinds.get(a, "none")
     out = []
-    for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
+    for j, (nxt, _w, _cs) in enumerate(ipet.trans(i, ctx.jumps)):
         facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
         for m in mcases(eff):
             for d, D in enumerate(facts):
@@ -1264,6 +1282,7 @@ class Ctx:
         self.get = lambda a: (int.from_bytes(mem[a:a + 2], "little") if 0 <= a and a + 2 <= len(mem) else None)
         (self.entry, self.blocks, self.succ, self.back, self.loops, self.headers,
          self.bound) = structure(an, name)
+        self.jumps = an.jumps.get(name, {})   # jumps through tables (jumptable.py)
         insns = sorted((i for il in self.blocks.values() for i in il), key=lambda i: i.addr)
         self.nodes = [i.addr for i in insns]
         self.insn = {i.addr: i for i in insns}
@@ -1285,7 +1304,7 @@ class Ctx:
                                      for r, v in self.eff[a][0]], self.eff[a][1])
         self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
-        self.out = {a: ipet.trans(self.insn[a]) for a in self.nodes}
+        self.out = {a: ipet.trans(self.insn[a], self.jumps) for a in self.nodes}
         self.frame = frame and all(frame_use_ok(self, a) for a in self.nodes)
         self.iloops = []
         for h in self.headers:
@@ -1523,6 +1542,7 @@ def analyse(ctx, kind):
     work = [ctx.entry]
     visits = {}
     while work:
+        _tick()
         work.sort(key=lambda x: order[x])
         a = work.pop(0)
         M = state[a]
@@ -1914,7 +1934,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     for a in ctx.nodes:
         i, eff, st = ctx.insn[a], ctx.aeff[a], ctx.st[a]
         ka = kind.get(a, "none")
-        for j, (nxt, _w, _cs) in enumerate(ipet.trans(i)):
+        for j, (nxt, _w, _cs) in enumerate(ipet.trans(i, ctx.jumps)):
             if a not in B and nxt not in B:
                 continue
             facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
@@ -2090,20 +2110,45 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
         if key in _RUNTIME_EMPTY:
             fields, why = _RUNTIME_EMPTY[key]
             return dict(fields), [], [(None if h is None else h + start, w) for h, w in why]
-    res = _certify_loops(an, name, abi, prefer_source, frame, False)
-    if res[2] and any(w == "no potential found" for _h, w in res[2]):
-        alt = _certify_loops(an, name, abi, prefer_source, frame, True)
-        if len(alt[1]) > len(res[1]):
-            res = alt
+    global _DEADLINE
+    deadline = time.process_time() + FUNC_SECONDS if FUNC_SECONDS > 0 else None
+    _DEADLINE = deadline
+    try:
+        res = _certify_loops_budget(an, name, abi, prefer_source, frame, False, deadline)
+        if res[2] and any(w == "no potential found" for _h, w in res[2]) and \
+                (deadline is None or time.process_time() < deadline):
+            alt = _certify_loops_budget(an, name, abi, prefer_source, frame, True, deadline)
+            if len(alt[1]) > len(res[1]):
+                res = alt
+    finally:
+        _DEADLINE = None
     if key is not None and set(res[0]) <= {"sp"} and not res[1]:
         _RUNTIME_EMPTY[key] = (res[0], [(None if h is None else h - start, w) for h, w in res[2]])
     return res
 
 
+def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline):
+    """`_certify_loops`; when the budget is spent during the analysis, no loop is certified
+    (the offsets of SP are still given)."""
+    try:
+        return _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline)
+    except BudgetSpent:
+        global _DEADLINE
+        saved, _DEADLINE = _DEADLINE, None
+        try:
+            ctx = Ctx(an, name, abi, frame, lit_any)
+        except Exception as e:      # noqa: BLE001
+            return {}, [], [(None, str(e))]
+        finally:
+            _DEADLINE = saved
+        return ({"sp": [ctx.sp.get(a) for a in ctx.nodes]}, [],
+                [(h, "no potential found (time budget of the function spent)") for h, _b, _n in ctx.iloops])
+
+
 _RUNTIME_EMPTY = {}
 
 
-def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
+def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
     try:
         ctx = Ctx(an, name, abi, frame, lit_any)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
@@ -2139,7 +2184,8 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
     for h, body, Nsrc in ctx.iloops:
         s = synth(ctx, kind, state, h, body, cache)
         eff_n = -(-s[0] // s[2]) if s is not None else None
-        if LP and (s is None or (Nsrc is not None and eff_n > Nsrc)):
+        late = deadline is not None and time.process_time() >= deadline
+        if LP and not late and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
                 full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
             def transported(h=h, body=body):
@@ -2161,6 +2207,9 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
                 (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
                 transported())
             for N, pots, D in cands:
+                if deadline is not None and time.process_time() >= deadline:
+                    late = True
+                    break
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
                     continue
                 if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots)])[0]:
@@ -2168,7 +2217,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any):
                     if Nsrc is None or eff_n <= Nsrc:
                         break       # else look on for a bound within the source bound
         if s is None:
-            why.append((h, "no potential found"))
+            why.append((h, "no potential found" + (" (time budget of the function spent)" if late else "")))
             continue
         N, pots, D = s
         if prefer_source and Nsrc is not None and eff_n > Nsrc:

@@ -156,6 +156,105 @@ def trans (i : Insn) (a : Nat) : List (Option Nat × Nat × List Nat) :=
   | .ret => [(none, i.cyc, [])]
   | .stop => []
 
+/-! ### Jumps through a table
+
+A `switch` compiled to a table: `CMP rI, #n; BHI default`, then straight-line
+instructions that compute an address from `rI` and a table in the code, then
+`ADD PC, rm` or `MOV PC, rm` (`m < 8`). The jump is `stop` for `decode`; a function lists
+its jumps (`JT`), whose targets are the jump's transitions in the graph (`transJ`). The
+check of the data certificates (`ThumbDataCore.jumpOk`) evaluates the instructions between
+the branch and the jump for every value `0..n` of `rI`, and `ThumbData.drun_mrun` proves
+that every data run then follows a listed target. -/
+
+/-- `2^32`. -/
+def U : Nat := 4294967296
+
+/-- A jump through a table: the address of its `CMP`, of the jump, and the targets. -/
+structure JT where
+  start : Nat
+  pos : Nat
+  tgts : List Nat
+  deriving DecidableEq, Repr
+
+/-- The halfword, byte and word of the code at an address (aligned; halfwords below
+    `2^16`), as the processor reads them: little-endian. -/
+def halfAt (c : Code) (A : Nat) : Option Nat :=
+  if A % 2 = 0 then (c.get A).bind fun h => if h < 65536 then some h else none else none
+def byteAt (c : Code) (A : Nat) : Option Nat :=
+  (halfAt c (A - A % 2)).map fun h => if A % 2 = 0 then h % 256 else h / 256
+def wordAt (c : Code) (A : Nat) : Option Nat :=
+  if A % 4 = 0 then
+    match halfAt c A, halfAt c (A + 2) with
+    | some l, some u => some (l + 65536 * u)
+    | _, _ => none
+  else none
+
+/-- A load of `sz` bytes (1, 2, 4) from the code. -/
+def loadAt (c : Code) (sz A : Nat) : Option Nat :=
+  if sz = 1 then byteAt c A else if sz = 2 then halfAt c A else wordAt c A
+
+/-- Instructions whose value is exact in the data semantics beyond `effect`: `ADD rd, PC`,
+    `ADR`, and loads `LDR`/`LDRH`/`LDRB` (immediate or register offset) from the code. -/
+inductive XOp where
+  | addPc (d : Nat)
+  | adr (d k : Nat)
+  | ldImm (sz d n off : Nat)
+  | ldReg (sz d n m : Nat)
+  deriving DecidableEq, Repr
+
+def xop (c : Code) (a : Nat) : Option XOp :=
+  match c.get a with
+  | none => none
+  | some h =>
+    if h >>> 8 = 0b01000100 ∧ (h >>> 7) % 2 = 0 ∧ (h >>> 3) % 16 = 15 then some (.addPc (h % 8))
+    else if h >>> 11 = 0b10100 then some (.adr ((h >>> 8) % 8) ((a + 4) / 4 * 4 + 4 * (h % 256)))
+    else if h >>> 11 = 0b01101 then some (.ldImm 4 (h % 8) ((h >>> 3) % 8) (4 * ((h >>> 6) % 32)))
+    else if h >>> 11 = 0b10001 then some (.ldImm 2 (h % 8) ((h >>> 3) % 8) (2 * ((h >>> 6) % 32)))
+    else if h >>> 11 = 0b01111 then some (.ldImm 1 (h % 8) ((h >>> 3) % 8) ((h >>> 6) % 32))
+    else if h >>> 9 = 0b0101100 then some (.ldReg 4 (h % 8) ((h >>> 3) % 8) ((h >>> 6) % 8))
+    else if h >>> 9 = 0b0101101 then some (.ldReg 2 (h % 8) ((h >>> 3) % 8) ((h >>> 6) % 8))
+    else if h >>> 9 = 0b0101110 then some (.ldReg 1 (h % 8) ((h >>> 3) % 8) ((h >>> 6) % 8))
+    else none
+
+def XOp.dst : XOp → Nat
+  | .addPc d => d
+  | .adr d _ => d
+  | .ldImm _ d _ _ => d
+  | .ldReg _ d _ _ => d
+
+/-- The value written, from the values of the registers (`none`: unknown, or a load from
+    outside the code). -/
+def xres (c : Code) (a : Nat) (r : Nat → Option Nat) : XOp → Option Nat
+  | .addPc d => (r d).map fun v => (v + a + 4) % U
+  | .adr _ k => some k
+  | .ldImm sz _ n off => (r n).bind fun v => loadAt c sz ((v + off) % U)
+  | .ldReg sz _ n m => (r n).bind fun v => (r m).bind fun w => loadAt c sz ((v + w) % U)
+
+/-- `ADD PC, rm` or `MOV PC, rm` with `m < 8`: `some (add?, m)`. -/
+def pcWrite (c : Code) (a : Nat) : Option (Bool × Nat) :=
+  match c.get a with
+  | some h =>
+    if (h >>> 8 = 0b01000100 ∨ h >>> 8 = 0b01000110) ∧ (h >>> 7) % 2 = 1 ∧ h % 8 = 7 ∧
+        (h >>> 3) % 16 < 8 then
+      some (h >>> 8 = 0b01000100, (h >>> 3) % 16)
+    else none
+  | none => none
+
+/-- The address the PC gets from the value `v` of `rm` (bit 0 cleared). -/
+def pcDestV (a : Nat) (add : Bool) (v : Nat) : Nat :=
+  let x := if add then (a + 4 + v) % U else v
+  x - x % 2
+
+/-- The transitions of the jump at `a` listed in `J`. -/
+def jumpTr (J : List JT) (a : Nat) : List (Option Nat × Nat × List Nat) :=
+  match J.find? (fun t => t.pos == a) with
+  | some t => t.tgts.map fun q => (some q, 3, [])
+  | none => []
+
+/-- The transitions of an instruction, with those of a listed jump. -/
+def transJ (J : List JT) (i : Insn) (a : Nat) : List (Option Nat × Nat × List Nat) :=
+  trans i a ++ jumpTr J a
+
 /-- A loop row on transitions between addresses: `Σ coef(src, dst)·x(src → dst) ≤ rhs`. -/
 structure MRow where
   coef : List (Nat × Nat × Int)
@@ -173,6 +272,7 @@ structure BFun where
   entry : Nat
   nodes : List Nat
   rows : List MRow
+  jumps : List JT
 
 /-- The position of `t` in a list. -/
 def find : List Nat → Nat → Option Nat
@@ -192,20 +292,20 @@ def nid (nodes : List Nat) : Option Nat → Nat
   | some a => (find nodes a).getD nodes.length
 
 /-- The transitions of the instructions at `nodes`: (address, next, cycles, callees). -/
-def medges (mul : Nat) (c : Code) : List Nat → List (Nat × Option Nat × Nat × List Nat)
+def medges (mul : Nat) (c : Code) (J : List JT) : List Nat → List (Nat × Option Nat × Nat × List Nat)
   | [] => []
   | a :: as => (match decode mul c a with
-      | some i => (trans i a).map fun p => (a, p.1, p.2.1, p.2.2)
-      | none => []) ++ medges mul c as
+      | some i => (transJ J i a).map fun p => (a, p.1, p.2.1, p.2.2)
+      | none => []) ++ medges mul c J as
 
-/-- The entry is a node, every node decodes to an instruction other than `stop`, and every
-    successor address is a node. -/
-def closed (mul : Nat) (c : Code) (entry : Nat) (nodes : List Nat) : Bool :=
-  decide (entry ∈ nodes) && nodes.all fun a => match decode mul c a with
-    | some i => decide (i.kind ≠ .stop) && (trans i a).all fun p => match p.1 with
+/-- The entry is a node, every node decodes to an instruction other than `stop` (or is a
+    listed jump), and every successor address is a node. -/
+def closed (mul : Nat) (c : Code) (J : List JT) (entry : Nat) (nodes : List Nat) : Bool :=
+  decide (entry ∈ nodes) && (nodes.all fun a => match decode mul c a with
+    | some i => decide (i.kind ≠ .stop ∨ jumpTr J a ≠ []) && (transJ J i a).all fun p => match p.1 with
         | some q => decide (q ∈ nodes)
         | none => true
-    | none => false
+    | none => false)
 
 /-- Pairs (position from `k`, element). -/
 def indexed {α : Type} : Nat → List α → List (Nat × α)
@@ -224,15 +324,17 @@ def mkRow (me : List (Nat × Option Nat × Nat × List Nat)) (r : MRow) : Row :=
 
 /-- The control-flow graph of a function, built from the code. -/
 def buildFn (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) : Option Graph :=
-  if closed mul c f.entry f.nodes then
-    match optMap (mkEdge entries f.nodes) (medges mul c f.nodes) with
+  if closed mul c f.jumps f.entry f.nodes then
+    match optMap (mkEdge entries f.nodes) (medges mul c f.jumps f.nodes) with
     | some edges => some ⟨nid f.nodes (some f.entry), f.nodes.length, edges,
-        f.rows.map (mkRow (medges mul c f.nodes))⟩
+        f.rows.map (mkRow (medges mul c f.jumps f.nodes))⟩
     | none => none
   else none
 
-/-- The check of cycle certificates on machine code. -/
-def checkBinary (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) : Bool :=
+/-- The check of cycle certificates on machine code; jumps through tables only with `jt`
+    (the data semantics, `ThumbData.data_sound`, proves that they follow their targets). -/
+def checkBinary (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (jt : Bool := false) : Bool :=
+  fs.all (fun f => jt || f.jumps.isEmpty) &&
   match optMap (buildFn mul c (fs.map (·.entry))) fs with
   | some Ps => checkProgram Ps Cs
   | none => false

@@ -43,8 +43,19 @@ def default_tool(name):
     return found or str(pathlib.Path.home() / "miniforge3/envs/crosscheck/bin" / name)
 # Programs whose result is not checked: fft converts negative floats to `unsigned long`
 # (undefined behaviour in C; Arm's conversion saturates to 0, x86's wraps), so it fails its
-# own check on Arm. Its cycles are still compared.
-EXPECTED_FAILURE = {"fft"}
+# own check on Arm. Its cycles are still compared. cjpeg_transupp (sequential) reads
+# `cjpeg_transupp_input5_2[65..71]` of an array of 65 (the "lower right corner" loop runs
+# with `i == 8` after the loop before it): its expected checksum holds for x86's layout of
+# the globals only.
+EXPECTED_FAILURE = {"fft", "cjpeg_transupp"}
+
+# Fixes of the work copy (never of the cache): debugging output left in two programs of the
+# sequential category at the pinned revision (`printf` of counters, its declaration commented
+# out). The binary has no `printf`, so the runs would stop at the call.
+SOURCE_FIXES = {
+    "anagram": [('printf("1: %d\\n", counter1);', ""), ('printf("2: %d\\n", counter2);', "")],
+    "huff_enc": [('printf("%d\\n", counter1);', "")],
+}
 
 # the source analysis must use the binary's data model (sizeof(long), pointers: 4 bytes, not
 # the host's 8), or a bound computed from sizeof is not the binary's (sha_byte_reverse: 8
@@ -52,7 +63,10 @@ EXPECTED_FAILURE = {"fft"}
 SOURCE_TARGET = ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft"]
 FLAGS = ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft", "-O1", "-g",
          "-fno-unroll-loops", "-ffreestanding", "-fno-builtin", "-fno-unwind-tables",
-         "-fno-asynchronous-unwind-tables", "-w", "-std=gnu99"]
+         "-fno-asynchronous-unwind-tables", "-w", "-std=gnu99",
+         # a call of an undeclared function is an error since Clang 16; such a function has
+         # no code in the binary, so what reaches it stays unbounded
+         "-Wno-error=implicit-function-declaration"]
 # the same build with GCC (`--gcc IMAGE`: arm-none-eabi-gcc in a Docker image, run without
 # network). Switch tables are compiled as branches (GCC's Thumb-1 tables call libgcc helpers,
 # `__gnu_thumb1_case_*`, that rewrite the PC), and loops are not replaced by calls of memset
@@ -158,7 +172,11 @@ def loop_ends(functions, offset=0, ends=None):
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
             frame=False, cflags=(), tag="", gcc=None, rtlib=None):
     import subprocess
-    run_tacle.run_kernel(tool, kernel, work, [*extra, *SOURCE_TARGET])
+    unit = kernel
+    if kernel.name in SOURCE_FIXES:
+        unit = run_tacle.Unit(kernel.name, sorted(kernel.glob("*.c")), [kernel],
+                              patches=SOURCE_FIXES[kernel.name])
+    run_tacle.run_kernel(tool, unit, work, [*extra, *SOURCE_TARGET])
     rep = json.loads((work / f"{kernel.name}.json").read_text())
     # the kernel followed by the run-time support (its lines shifted)
     text = (work / f"{kernel.name}.c").read_text(errors="replace")
@@ -330,12 +348,25 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                     certified_main_observed_ratio=(certified["main"] / mach.cyc) if certified.get("main") and ret is not None and mach.cyc else None)))
 
 
+def analyse_guarded(kernel, *args, **kw):
+    """`analyse`, with an exception of the analysis reported as the program's error (so that
+    one program does not stop the run; `--check` still fails on it)."""
+    import traceback
+    try:
+        return analyse(kernel, *args, **kw)
+    except Exception as e:   # noqa: BLE001
+        return dict(kernel=kernel.name, error=f"analysis failed: {type(e).__name__}: {e}"[:300],
+                    traceback=traceback.format_exc()[-2000:])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tool", default=str(ROOT / "clang-plugin/build/crosscheck-tool"))
     ap.add_argument("--cache", default=str(ROOT / "benchmarks/tacle/.cache"))
     ap.add_argument("--extra-arg", action="append", default=[])
     ap.add_argument("--only", action="append")
+    ap.add_argument("--category", action="append",
+                    help="TACLeBench category (kernel, sequential, app; repeatable; default kernel)")
     ap.add_argument("--clang", default=default_tool("clang"), help="Clang 18 with the ARM target")
     ap.add_argument("--objdump", default=default_tool("llvm-objdump"))
     ap.add_argument("--json")
@@ -374,7 +405,8 @@ def main():
     src = run_tacle.fetch(pathlib.Path(a.cache), run_tacle.REV)
     work = pathlib.Path(a.cache) / "work"
     work.mkdir(parents=True, exist_ok=True)
-    kernels = sorted((src / "bench/kernel").iterdir())
+    kernels = [k for cat in (a.category or ["kernel"]) for k in sorted((src / "bench" / cat).iterdir())
+               if k.is_dir()]
     if a.only:
         kernels = [k for k in kernels if k.name in a.only]
     rows = []
@@ -388,10 +420,10 @@ def main():
         import concurrent.futures
         size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731
         pool = concurrent.futures.ProcessPoolExecutor(a.jobs)
-        futs = {k.name: pool.submit(analyse, *args(k)) for k in sorted(kernels, key=size, reverse=True)}
+        futs = {k.name: pool.submit(analyse_guarded, *args(k)) for k in sorted(kernels, key=size, reverse=True)}
         results = (futs[k.name].result() for k in kernels)
     else:
-        results = (analyse(*args(k)) for k in kernels)
+        results = (analyse_guarded(*args(k)) for k in kernels)
     for k, r in zip(kernels, results):
         rows.append(r)
         if "error" in r:
@@ -446,7 +478,10 @@ def main():
     wrong = [r["kernel"] for r in ok if r["returned"] != 0 and r["kernel"] not in EXPECTED_FAILURE]
     if wrong:
         print("wrong result or run error: " + ", ".join(wrong), file=sys.stderr)
-    if a.check and (tot["violations"] or tot["stack_violations"] or wrong or tot.get("certificates_rejected")):
+    failed = [r["kernel"] for r in rows if "error" in r and r["error"].startswith("analysis failed")]
+    if failed:
+        print("analysis failed: " + ", ".join(failed), file=sys.stderr)
+    if a.check and (failed or tot["violations"] or tot["stack_violations"] or wrong or tot.get("certificates_rejected")):
         sys.exit("cycle check failed")
 
 

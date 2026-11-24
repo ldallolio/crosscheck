@@ -49,8 +49,6 @@ namespace ImperativeOptimization.Thumb
 
 open ImperativeOptimization.Checker (Lin PExp entails1 vadd vsmul unit)
 
-/-- `2^32`. -/
-def U : Nat := 4294967296
 
 /-- An operand: a low register or a constant. -/
 inductive Src where
@@ -683,7 +681,7 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
     let e := effect abi c a
     let st := stackEffect abi c a
     let ka := kindAt f L a
-    (indexed 0 (trans i a)).flatMap fun p =>
+    (indexed 0 (transJ f.jumps i a)).flatMap fun p =>
       let next := p.2.1
       let facts := match i.kind with
         | .cond _ => condFactsM ka (ccOf c a) (p.1 == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
@@ -819,7 +817,7 @@ def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
   wfEff (effect abi c a) && !(L.frame && !frameUseOk c f a) && stackWf (stackEffect abi c a) &&
   match decode mul c a with
   | none => false
-  | some i => (trans i a).all fun p => match p.1 with
+  | some i => (transJ f.jumps i a).all fun p => match p.1 with
     | some n => kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n) &&
         spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n)
     | none => true
@@ -828,7 +826,7 @@ def nodeOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
 def congOk (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
   match decode mul c a with
   | none => true
-  | some i => (trans i a).all fun p => match p.1 with
+  | some i => (transJ f.jumps i a).all fun p => match p.1 with
     | some n => (mcases (effect abi c a)).all fun m => (congAt f L n).all fun x =>
         congPE (congAt f L a) x.2.1 x.2.2
           (postS (effect abi c a) (stackEffect abi c a) L.frame (spAt f L a) L.slots m x.1)
@@ -839,16 +837,92 @@ def congChecks (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool 
   (congAt f L f.entry).isEmpty && L.cong.all (·.all (wfCong L.slots.length)) &&
   f.nodes.all (congOk mul abi c f L)
 
+/-! ### Jumps through a table: the window
+
+The instructions between the `BHI` and the jump are evaluated on partial registers
+(`none`: unknown) by their effect (`effect`) and, for `ADD rd, PC`, `ADR` and the loads from
+the code, by `xres`: `wrun`. `jumpOk` evaluates the window for every value of the compared
+register allowed by the branch not taken, and requires the address computed for the jump to
+be a listed target; `interiorOk` requires that nothing enters the window but from the
+instruction before (so that every run reaching the jump has executed the whole window). -/
+
+def srcP (P : Nat → Option Nat) : Src → Option Nat
+  | .reg i => P i
+  | .imm k => some k
+
+def valP (P : Nat → Option Nat) : Val → Option Nat
+  | .add a b => (srcP P a).bind fun x => (srcP P b).map fun y => (x + y) % U
+  | .sub a b => (srcP P a).bind fun x => (srcP P b).map fun y => (x + (U - y)) % U
+  | .shl a k => (srcP P a).map fun x => (x * 2 ^ k) % U
+  | .any => none
+
+/-- The low registers after the instruction at `a`, from those before. -/
+def wstep (abi : Bool) (c : Code) (a : Nat) (P : Nat → Option Nat) : Nat → Option Nat := fun i =>
+  if i < 8 then
+    match (effect abi c a).dst.find? (fun p => p.1 == i) with
+    | none => P i
+    | some p => match xop c a with
+      | some op => if op.dst = i then xres c a P op else valP P p.2
+      | none => valP P p.2
+  else none
+
+/-- `wstep` on `k` consecutive instructions from `a`. -/
+def wrun (abi : Bool) (c : Code) : Nat → Nat → (Nat → Option Nat) → (Nat → Option Nat)
+  | 0, _, P => P
+  | k + 1, a, P => wrun abi c k (a + 2) (wstep abi c a P)
+
+/-- The form of the window: `BLS` to `start + 6` (over a branch to the default case at
+    `start + 4`), rather than `BHI` to the default case. -/
+def lsForm (c : Code) (t : JT) : Bool := ccOf c (t.start + 2) == 9
+
+/-- The first address of the window evaluated: after the branch not taken, or at the target
+    of `BLS`. -/
+def wbeg (c : Code) (t : JT) : Nat := if lsForm c t then t.start + 6 else t.start + 4
+
+/-- The instruction before an address of the window, on its path. -/
+def wpred (c : Code) (t : JT) (p : Nat) : Nat :=
+  if lsForm c t ∧ p = t.start + 6 then t.start + 2 else p - 2
+
+/-- The addresses of the window after the `CMP`: the branch, then from `wbeg` to the jump. -/
+def interior (c : Code) (t : JT) : List Nat :=
+  (t.start + 2) :: (List.range ((t.pos + 2 - wbeg c t) / 2)).map fun k => wbeg c t + 2 * k
+
+/-- The window of a jump: `CMP rI, #n` at `start` (its effect), at `start + 2` a `BHI` not
+    to `start + 4` or a `BLS` to `start + 6`, the jump at `pos`; for every `rI ≤ n`, the
+    address computed for the jump is a target. -/
+def jumpOk (abi : Bool) (mul : Nat) (c : Code) (t : JT) : Bool :=
+  match effect abi c t.start, decode mul c (t.start + 2), pcWrite c t.pos with
+  | ⟨[], .sub (.reg r) (.imm n)⟩, some ⟨_, .cond tb, _, _⟩, some (add, m) =>
+    decide (r < 8) && decide (n < U) &&
+    (if lsForm c t then tb == t.start + 6 else ccOf c (t.start + 2) == 8 && tb != t.start + 4) &&
+    effect abi c (t.start + 2) == ⟨[], .keep⟩ &&
+    decode mul c (t.start + 2) == some ⟨2, .cond tb, 3, 1⟩ &&
+    decide (wbeg c t ≤ t.pos) && (t.pos - t.start) % 2 == 0 &&
+    (List.range (n + 1)).all fun x =>
+      match wrun abi c ((t.pos - wbeg c t) / 2) (wbeg c t) (fun i => if i = r then some x else none) m with
+      | some v => decide (pcDestV t.pos add v ∈ t.tgts)
+      | none => false
+  | _, _, _ => false
+
+/-- Nothing enters the window of a jump except from the instruction before it on its path
+    (`wpred`), the entry is not in it, and no listed jump is at its branch. -/
+def interiorOk (mul : Nat) (c : Code) (f : BFun) : Bool :=
+  f.jumps.all fun t => !(interior c t).contains f.entry && jumpTr f.jumps (t.start + 2) == [] &&
+    (medges mul c f.jumps f.nodes).all fun m => match m.2.1 with
+      | some p => !(interior c t).contains p || m.1 == wpred c t p
+      | none => true
+
 /-- The check of the loop certificates of a function. -/
 def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :=
-  closed mul c f.entry f.nodes && nodupB f.nodes &&
+  closed mul c f.jumps f.entry f.nodes && nodupB f.nodes &&
   decide (f.rows = L.trusted ++ L.loops.map (loopRow f)) &&
   f.nodes.all (nodeOk mul abi c f L) && kindAt f L f.entry == .none &&
   (spAt f L f.entry == some 0 || spAt f L f.entry == none) && slotsOk L &&
   L.inv.all (·.all (wfLin L.slots.length)) &&
   L.alt.all (·.all (·.all (wfLin L.slots.length))) &&
   L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
-  checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L
+  checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L &&
+  f.jumps.all (jumpOk abi mul c) && interiorOk mul c f
 
 /-- The check of the loop certificates of all functions (aligned with the functions);
     `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`
@@ -913,6 +987,7 @@ def convOk (mul : Nat) (c : Code) (f : BFun) (L : DFun) : Bool :=
 
 /-- The calling convention of every function of the certificate. -/
 def convAll (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
-  fs.length == Ls.length && (fs.zip Ls).all fun p => convOk mul c p.1 p.2
+  fs.length == Ls.length && ((fs.zip Ls).all fun p => convOk mul c p.1 p.2) &&
+  fs.all fun f => f.jumps.isEmpty
 
 end ImperativeOptimization.Thumb

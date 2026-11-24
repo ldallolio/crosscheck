@@ -444,9 +444,38 @@ altered certificates are refused.
   function that multiplies floats has no bound. `run_cycles.py --rtlib compiler-rt` links
   each kernel with LLVM's real routines first, so they are decoded, bounded and certified
   like the kernel's own code: 187 of 267 functions certified instead of 121, 10 `main`
-  functions instead of 6. GCC's libgcc works too, except for its float divisions, which
-  jump through a table (`mov pc, r3`: the target is read from memory), something the
-  checker cannot follow yet.
+  functions instead of 6. GCC's libgcc works too, except for its float divisions, whose
+  jumps through a table are in forms the checker does not follow (see the next point).
+- **Jumps through a table (`switch`).** A `switch` with many consecutive cases is compiled
+  into a table and one jump that reads its destination from it. In lift's `check_run`,
+  Clang emits:
+
+  ```
+  cmp  r0, #3        @ is the case number at most 3?
+  bhi  default       @ no: the default case
+  add  r0, pc        @ r0 := address of the table (relative to the program counter) + r0
+  ldrb r0, [r0, #4]  @ the byte of the table for this case
+  lsls r0, r0, #1    @ times 2 (instructions are 2 bytes long)
+  add  pc, r0        @ jump there
+  .byte ...          @ the table
+  ```
+
+  For the program-counter-only semantics this last instruction could go anywhere, so the
+  function used to get no bound. The checker now *runs the six instructions itself* for
+  every case number that survives the `bhi` (0, 1, 2, 3 here), reading the table from the
+  code it holds, and requires every address it finds to be listed as a target of the jump
+  in the certificate. Lean then proves (Proposition `prop:jump-table`, `jump_good`) that a
+  real run cannot reach the `add pc` without having executed the whole window from the
+  `cmp`, because the checker also verifies that nothing branches into the middle of it, so
+  the run's register holds one of the values the checker computed. The window is evaluated
+  by the same effects as the rest of the data semantics, plus the exact values of
+  `add rd, pc`, `adr` and loads from the code. Result: `lift` is bounded and certified
+  entirely, and the switches of `gsm_dec`/`gsm_enc` too. Not followed: a table without a
+  range check before it (Clang omits the check when it knows the index's range from
+  elsewhere, as in `bitcount`) and tables kept in read-only data instead of the code
+  (libgcc). The form where the range check is `bls` over `b default` (Clang uses it when
+  the default case is too far for a conditional branch) is followed too. In a function with such a jump the calling
+  convention is not checked (it stays an assumption, which the checker names).
 - **Time budgets after compilation.** `CROSSCHECK_DEADLINE_CYCLES(n)` / `_US(n)` are checked
   on the binary by `clang-plugin/scripts/crosscheck_link.py` (optionally with certified
   bounds, `--certify`), as a post-build step that fails when a budget is exceeded.

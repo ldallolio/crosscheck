@@ -87,9 +87,12 @@ def potentials(nodes, edges, exit_, slack):
     return pot
 
 
-def trans(i):
-    """The successors of an instruction, as Lean `Thumb.trans`: (next or None, cycles, callees)."""
+def trans(i, jumps=None):
+    """The successors of an instruction, as Lean `Thumb.transJ`: (next or None, cycles,
+    callees); `jumps`: the function's jumps through tables, {address: (start, targets)}."""
     nxt = i.addr + i.size
+    if i.kind == "indirect" and jumps and i.addr in jumps:
+        return [(t, 3, []) for t in jumps[i.addr][1]]
     if i.kind == "seq":
         return [(nxt, m0.cycles(i, True), [])]
     if i.kind == "cond":
@@ -127,8 +130,9 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
     exit_ = len(nodes)
     edges = []   # (src, dst, cycles, callee addresses), in node indices
     pairs = []   # (src address, dst address or None)
+    jumps = an.jumps.get(name, {})
     for i in insns:
-        for n, w, cs in trans(i):
+        for n, w, cs in trans(i, jumps):
             if n is not None and n not in idx:
                 raise NoCertificate(f"successor {n:#x} of {i.addr:#x} outside the function's instructions")
             edges.append((idx[i.addr], exit_ if n is None else idx[n], w, cs))
@@ -189,6 +193,9 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
     B, D, mult, pot = best
     fn = dict(name=name, entry=entry + base, nodes=[a + base for a in nodes], rows=mrows,
               certificate=dict(scale=D, pot=[pot[v] for v in allnodes], mult=mult, bound=B))
+    if jumps:
+        fn["jumps"] = [dict(start=st + base, pos=p + base, targets=[t + base for t in ts])
+                       for p, (st, ts) in sorted(jumps.items())]
     return fn, B
 
 

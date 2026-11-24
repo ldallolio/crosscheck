@@ -2289,6 +2289,38 @@ pointer) and in libgcc's assembly routines of 13 programs. Cycles README, Paper 
 pages, no warnings), guide part 5, CLAUDE.md, CI (a compiler-rt run of four kernels whose
 certificates the Lean job checks).
 
+141. "Yes commit and push, then keep improving crosscheck"
+
+What the AI did for 141 (Claude Opus 5.5, 2026-11-23/24): ran the Cortex-M0 analysis on
+TACLeBench's 23 sequential and 2 application programs for the first time (`run_cycles.py
+--category`). They exposed a recursion limit in `wcet.py` (graph searches made iterative),
+the absence of isolation between programs (`analyse_guarded`), loop analyses running for
+hours (a budget per function in `binloops.py`, 600 CPU seconds, `CROSSCHECK_LOOP_SECONDS`;
+no kernel loop lost, checked with `compare_runs.py` with and without compiler-rt), debugging
+`printf` in two programs (removed in the work copy) and an out-of-bounds read in
+`cjpeg_transupp` (expected wrong result). The remaining obstacle common to industrial code
+was the jump through a table. Asked how to support it, the author chose "Prove it in Lean
+(Recommended)" over an assumption. Lean: `BFun.jumps`, `transJ`, the graph and `MRun` with
+listed jumps (`checkBinary` allows them only with the data check, `jt`); the trusted data
+step `DOkM` (the jump goes to the address computed from `rm`) and `XOk` (exact values of
+`ADD rd, PC`, `ADR`, loads from the code); the checks `jumpOk` (window `CMP`; `BHI`, or `BLS`
+to `start + 6`; evaluation of the window for every index by `effect` and `xres`, `wrun`) and
+`interiorOk` (nothing enters the window but from its predecessor); proofs `wrun_sound`,
+`back_walk`, `jump_good`, `steps_good` (strong induction along the run), new `drun_mrun`;
+`ThumbConv` keeps the convention check for functions without jumps (`DOkT`,
+`nojump_steps`); examples `exSw_*`, `exLs_*`. The first approach, lemmas on the effect of each
+instruction of the window, was abandoned because `simp` timed out on the decoder; the
+evaluator was made generic instead. Producer: `jumptable.py` (mirror), `wcet.cfg`,
+`ipet.trans`, `binloops`, `stack.py`; `crosscheck-check --effect` prints the exact values
+and jump destinations; `test_jumptable.py` (CI). Results: on the 24 larger programs that
+finish within an hour, 300 of 439 functions certified, 590 of 935 loops certified on the
+code, 391 stack bounds, `main` certified in `lift` and `statemate`; 8 jumps through tables,
+all recognised. Kernel figures unchanged. Lean: 33 modules, 730 theorems, no warnings, only
+the three standard axioms. Paper III (`prop:jump-table`, definitions, Lean table, larger
+programs, limitations, conclusions; 24 pages), Paper I's count of Paper III's modules,
+cycles README, guide parts 5 and 7, slides, CLAUDE.md, `formalization.yaml`, qualification
+requirements.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

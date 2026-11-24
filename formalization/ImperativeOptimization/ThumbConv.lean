@@ -86,9 +86,68 @@ def DRunL (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) :
   | 0, _, _, _, _ => False
   | d + 1, e, σi, σo, total => ∃ f L x t, dfAt fs Ls e = some (f, L) ∧ x.σ = σi ∧
       DChainL (DRunL mul c fs Ls d) L.frame c σi.sp (saveN c e) (some e) (x :: t) σo ∧
-      (∀ y ∈ x :: t, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) ∧
+      XChain c (x :: t) ∧
+      (∀ y ∈ x :: t, DOkM mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) ∧
       (∀ r ∈ L.trusted, ((x :: t).map fun y => coefPair r.coef y.st.a y.st.next).sum ≤ r.rhs) ∧
       total = ((x :: t).map fun y => (y.st.w : Int) + y.st.x).sum
+
+/-- The steps of `ThumbData` along `trans` (the functions checked by `convAll` list no jump
+    through a table: their steps are these, `nojump_steps`). -/
+def DOkT (mul : Nat) (c : Code) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
+    (calls : List Nat) : Prop :=
+  wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧ (trans i a)[j]? = some (next, w, calls) ∧
+    (∀ t, i.kind = .cond t → condHolds (ccOf c a) σ.f = (j == 0))
+
+theorem nojump_steps {mul : Nat} {c : Code} {f : BFun} (hJ : f.jumps = [])
+    (hcl : closed mul c f.jumps f.entry f.nodes = true) :
+    ∀ (s : List DStep) (o : Option Nat), MChain o (s.map (·.st)) → (∀ q, o = some q → q ∈ f.nodes) →
+      (∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) →
+      ∀ x ∈ s, DOkT mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls
+  | [], _, _, _, _ => by simp
+  | x :: t, o, hm, hin, hok => by
+    cases o with
+    | none => simp [MChain] at hm
+    | some a =>
+      obtain ⟨hxa, hrest⟩ := hm
+      have ha : x.st.a ∈ f.nodes := by rw [hxa]; exact hin a rfl
+      obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
+      obtain ⟨i', hi', hns, hsucc⟩ := hcl2 _ ha
+      obtain ⟨hw, hws, i, hi, hcase⟩ := hok x (by simp)
+      have hii : i = i' := by rw [hi] at hi'; exact Option.some.inj hi'
+      subst hii
+      have hx : DOkT mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls := by
+        rcases hcase with ⟨hj, hc⟩ | ⟨hstop, _⟩
+        · exact ⟨hw, hws, i, hi, hj, hc⟩
+        · rcases hns with h | h
+          · exact absurd hstop h
+          · rw [hJ] at h; simp [jumpTr] at h
+      intro y hy
+      rcases List.mem_cons.mp hy with rfl | hy
+      · exact hx
+      · refine nojump_steps hJ hcl t x.st.next hrest (fun q hq => ?_) (fun z hz => hok z (by simp [hz])) y hy
+        obtain ⟨_, _, i2, hi2, hj2, _⟩ := hx
+        have hii2 : i = i2 := by rw [hi] at hi2; exact Option.some.inj hi2
+        subst hii2
+        exact hsucc _ (List.mem_append_left _ (List.mem_of_getElem? hj2)) q hq
+
+theorem dchainL_mchain {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
+    {SP0 n : Nat} : ∀ (s : List DStep) (o : Option Nat) (σf : MState),
+      DChainL R frame c SP0 n o s σf → MChain o (s.map (·.st))
+  | [], o, _, h => by cases o <;> simp [DChainL] at h
+  | [x], o, σf, h => by
+    cases o with
+    | none => simp [DChainL] at h
+    | some a =>
+      obtain ⟨hxa, hn, _⟩ := h
+      refine ⟨hxa, ?_⟩
+      simp only [List.map_nil]
+      rw [hn]; trivial
+  | x :: z :: t, o, σf, h => by
+    cases o with
+    | none => simp [DChainL] at h
+    | some a =>
+      obtain ⟨hxa, _, hrest⟩ := h
+      exact ⟨hxa, dchainL_mchain (z :: t) x.st.next σf hrest⟩
 
 /-! ### Outside `BL`, the effects do not depend on the assumption -/
 
@@ -105,7 +164,7 @@ theorem stackEffect_narrow {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : 
 
 /-- A step allowed at a 32-bit instruction is a call of one function. -/
 theorem wide_call {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
-    {calls : List Nat} {h : Nat} (hok : DOk mul c a j σ next w calls) (hc : c.get a = some h)
+    {calls : List Nat} {h : Nat} (hok : DOkT mul c a j σ next w calls) (hc : c.get a = some h)
     (hw : isWide h) : ∃ t, calls = [t] := by
   obtain ⟨_, _, i, hi, htr, _⟩ := hok
   unfold isWide at hw
@@ -125,7 +184,7 @@ theorem wide_call {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Optio
 
 /-- The calls of a step: none or one. -/
 theorem calls_cases {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
-    {calls : List Nat} (hok : DOk mul c a j σ next w calls) : calls = [] ∨ ∃ t, calls = [t] := by
+    {calls : List Nat} (hok : DOkT mul c a j σ next w calls) : calls = [] ∨ ∃ t, calls = [t] := by
   obtain ⟨_, _, i, _, htr, _⟩ := hok
   cases hk : i.kind <;> simp [trans, hk] at htr <;>
     (try (rcases j with _ | _ | j <;> simp at htr)) <;> (try (obtain ⟨_, _, rfl⟩ := htr)) <;> simp_all
@@ -148,7 +207,7 @@ theorem stackEffect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : is
 theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
     {SP0 n mul : Nat} {x : DStep} {σ' : MState}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo)
-    (hs : StepL R frame c SP0 n x σ') (hok : DOk mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
+    (hs : StepL R frame c SP0 n x σ') (hok : DOkT mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
     EffOk (effect true c x.st.a) x.σ σ' ∧ StackOk frame SP0 (stackEffect true c x.st.a) x.σ σ' := by
   obtain ⟨he, hst, _, _, _, hlink⟩ := hs
   cases hc : c.get x.st.a with
@@ -186,7 +245,7 @@ theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Boo
 theorem chainL_chain {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
     {SP0 n mul : Nat} (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) :
     ∀ (s : List DStep) (a : Nat) (σf : MState), DChainL R frame c SP0 n (some a) s σf →
-      (∀ y ∈ s, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ s, DOkT mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
       DChain true frame c SP0 (some a) s
   | [], _, _, h, _ => by simp [DChainL] at h
   | [x], a, σf, h, _ => by
@@ -392,7 +451,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U)
     (hJ : ConvInv c f L σi a x.σ) (hxa : x.st.a = a)
     (hs : StepL R L.frame c σi.sp (saveN c f.entry) x σ')
-    (hok : DOk mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hn : x.st.next = some b) :
+    (hok : DOkT mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hn : x.st.next = some b) :
     ConvInv c f L σi b σ' := by
   obtain ⟨hcl, _, _, hnodes, _, _, hslok, _⟩ := checkDFun_spec hcd
   obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
@@ -404,10 +463,10 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
   rw [hn] at hmem
   obtain ⟨h, hget⟩ := decode_get hdec
   have hb : b ∈ f.nodes := by
-    obtain ⟨_, hcl2⟩ := closed_spec mul c f.entry f.nodes hcl
+    obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
     obtain ⟨i', hi', _, hsucc⟩ := hcl2 a ha
     rw [hdec] at hi'; cases hi'
-    exact hsucc _ hmem b rfl
+    exact hsucc _ (List.mem_append_left _ hmem) b rfl
   have hcv' := hcv
   simp only [convOk, Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hcv'
   have hcn := hcv'.2 a ha
@@ -420,7 +479,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
   simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hcase
   obtain ⟨_, _, i', hi', hspok⟩ := nodeOk_spec (hnodes a ha)
   rw [hdec] at hi'; cases hi'
-  have hspb := sp_next (hspok _ hmem b rfl).2 hsp hst
+  have hspb := sp_next (hspok _ (List.mem_append_left _ hmem) b rfl).2 hsp hst
   have hn9 := saveN_le c f.entry
   by_cases hpush : a = f.entry ∧ isPushH h = true
   · -- the entry pushes: the saved words get the entry values
@@ -533,7 +592,7 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U)
     (hJ : ConvInv c f L σi a x.σ) (hxa : x.st.a = a)
     (hs : StepL R L.frame c σi.sp (saveN c f.entry) x σf)
-    (hok : DOk mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hn : x.st.next = none) :
+    (hok : DOkT mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hn : x.st.next = none) :
     Preserves σi σf := by
   obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
   obtain ⟨heff, hst⟩ := stepL_step hR hs hok
@@ -621,7 +680,7 @@ theorem conv_chain {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U) :
     ∀ (x : DStep) (t : List DStep) (a : Nat),
       DChainL R L.frame c σi.sp (saveN c f.entry) (some a) (x :: t) σf →
-      (∀ y ∈ x :: t, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ x :: t, DOkT mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
       ConvInv c f L σi a x.σ → Preserves σi σf
   | x, [], a, h, hok, hJ => by
     obtain ⟨hxa, hn, hs⟩ := h
@@ -675,7 +734,26 @@ theorem dfAt_conv {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
         simp [hf, hl] at h
         obtain ⟨rfl, rfl⟩ := h
         simp only [convAll, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hC
-        exact hC.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
+        exact hC.1.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
+
+theorem dfAt_nojump {c : Code} {mul : Nat} {fs : List BFun} {Ls : List DFun}
+    (hC : convAll mul c fs Ls = true) {e : Nat} {f : BFun} {L : DFun}
+    (h : dfAt fs Ls e = some (f, L)) : f.jumps = [] := by
+  simp only [dfAt] at h
+  cases hk : find (fs.map (·.entry)) e with
+  | none => simp [hk] at h
+  | some k =>
+    simp only [hk, Option.bind_some] at h
+    cases hf : fs[k]? with
+    | none => simp [hf] at h
+    | some f' =>
+      cases hl : Ls[k]? with
+      | none => simp [hf, hl] at h
+      | some L' =>
+        simp [hf, hl] at h
+        obtain ⟨rfl, rfl⟩ := h
+        simp only [convAll, Bool.and_eq_true, List.all_eq_true, List.isEmpty_iff] at hC
+        exact hC.2 f' (List.mem_of_getElem? hf)
 
 /-- **A run of the linked semantics is a run with the assumption on callees, and returns
     with `r4`-`r7` and SP restored**, when the checker accepts the loop certificates (with the
@@ -691,17 +769,22 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
   | zero => intro e σi σo tot h; simp [DRunL] at h
   | succ d ih =>
     intro e σi σo tot h
-    obtain ⟨f, L, x, t, hdf, hxσ, hch, hok, htr, htot⟩ := h
+    obtain ⟨f, L, x, t, hdf, hxσ, hch, hX, hokM, htr, htot⟩ := h
     have hR : ∀ g σ σo k, DRunL mul c fs Ls d g σ σo k → Preserves σ σo :=
       fun g σ σo k h => (ih g σ σo k h).2
     obtain ⟨_, hcd, hentry⟩ := dfAt_spec hD hdf
     have hcv := dfAt_conv hC hdf
+    have hok : ∀ y ∈ x :: t, DOkT mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls := by
+      obtain ⟨hcl, _⟩ := checkDFun_spec hcd
+      refine nojump_steps (dfAt_nojump hC hdf) hcl (x :: t) (some e) (dchainL_mchain _ _ _ hch)
+        (fun q hq => ?_) hokM
+      cases hq; rw [← hentry]; exact (closed_spec mul c _ _ _ hcl).1
     have hSP0 : σi.sp < U := by rw [← hxσ]; exact (hok x (by simp)).2.1.1
-    refine ⟨⟨f, L, x :: t, hdf, ?_, ?_, htr, htot⟩, ?_⟩
+    refine ⟨⟨f, L, x :: t, hdf, ?_, hX, ?_, htr, htot⟩, ?_⟩
     · have := chainL_chain hR (x :: t) e σo hch hok
       simpa [headSp, hxσ] using this
     · intro y hy
-      refine ⟨hok y hy, ?_⟩
+      refine ⟨hokM y hy, ?_⟩
       obtain ⟨σ', hs⟩ := chainL_steps (x :: t) (some e) σo hch y hy
       obtain ⟨_, _, _, _, hnil, hlink⟩ := hs
       rcases calls_cases (hok y hy) with hc0 | ⟨g, hg⟩
@@ -714,7 +797,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
         obtain ⟨hcl, _⟩ := checkDFun_spec hcd
         have hcv' := hcv
         simp only [convOk, Bool.and_eq_true, beq_iff_eq] at hcv'
-        refine ⟨(closed_spec mul c f.entry f.nodes hcl).1, ?_, ?_, ?_⟩
+        refine ⟨(closed_spec mul c f.jumps f.entry f.nodes hcl).1, ?_, ?_, ?_⟩
         · intro d hd
           rw [hcv'.1] at hd; cases hd
           rw [hxσ]; simp only [aOf, U] at *; omega
@@ -728,7 +811,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
     bound. The loop rows left in `trusted` remain assumed; the callees' preservation of
     `r4`-`r7` and SP is proved, under the hypothesis `SaveSafe` (no stack smashing). -/
 theorem data_sound_conv (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (Ls : List DFun)
-    (h : checkBinary mul c fs Cs = true) (hD : checkData mul true c fs Ls = true)
+    (h : checkBinary mul c fs Cs true = true) (hD : checkData mul true c fs Ls = true)
     (hC : convAll mul c fs Ls = true)
     (d e i : Nat) (σi σo : MState) (tot : Int) (hrun : DRunL mul c fs Ls d e σi σo tot)
     (hfind : find (fs.map (·.entry)) e = some i) :
@@ -752,14 +835,14 @@ theorem exConv_sound (d : Nat) (σi σo : MState) (tot : Int)
 
 /-- `push {r4, lr}; movs r4, #0; pop {r4, pc}`: saves `r4`, writes it, restores it. -/
 def exSaveCode : Code := ⟨0x300, #[0xB510, 0x2400, 0xBD10]⟩
-def exSaveFn : BFun := ⟨0x300, [0x300, 0x302, 0x304], []⟩
+def exSaveFn : BFun := ⟨0x300, [0x300, 0x302, 0x304], [], []⟩
 def exSaveD : DFun := { exDFun with spOff := [some 0, some (-8), some (-8)] }
 
 theorem exSave_conv : convOk 32 exSaveCode exSaveFn exSaveD = true := by decide
 
 /-- `movs r4, #0; bx lr`: writes `r4` without saving it; refused. -/
 def exClobberCode : Code := ⟨0x300, #[0x2400, 0x4770]⟩
-def exClobberFn : BFun := ⟨0x300, [0x300, 0x302], []⟩
+def exClobberFn : BFun := ⟨0x300, [0x300, 0x302], [], []⟩
 def exClobberD : DFun := { exDFun with spOff := [some 0, some 0] }
 
 theorem exClobber_refused : convOk 32 exClobberCode exClobberFn exClobberD = false := by decide
@@ -828,7 +911,7 @@ theorem exConv_run :
   have hlast : effOkB (effect false exCode 0x10A) (regs0 10) (regs0 10) (flagsSub 10 10)
       (flagsSub 10 10) = true ∧ stackKeep (stackEffect false exCode 0x10A) = true := by decide
   refine ⟨exFunD, exDFunC, toD (cstep 0x100 (some 0x102) 1 0 0 f0), (exRunC.map toD).tail,
-    rfl, rfl, ?_, ?_, ?_, ?_⟩
+    rfl, rfl, ?_, ?_, ?_, ?_, ?_⟩
   · rw [hsave]
     have hch := chainB_sound false exDFunC.frame exCode (mkS (regs0 0) f0).sp (some 0x100) exRunC exRun_chain
     refine chainL_of_chain _ (exRunC.map toD) 0x100 hch ?_ ?_
@@ -849,6 +932,11 @@ theorem exConv_run :
       simp only [Option.mem_def, Option.some.injEq] at hy
       subst hy
       exact ⟨effOkB_sound _ _ _ _ _ hlast.1, stackKeep_sound _ hlast.2 _ _ _ _ _ _⟩
+  · have hsame : toD (cstep 0x100 (some 0x102) 1 0 0 f0) :: (exRunC.map toD).tail = exRunC.map toD := rfl
+    rw [hsame]
+    exact xchain_none exCode _ (fun x hx => by
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
+      simpa [toD] using List.all_eq_true.mp exRun_noX y hy)
   · intro y hy
     have : y ∈ exRunC.map toD := hy
     obtain ⟨z, hz, rfl⟩ := List.mem_map.mp this

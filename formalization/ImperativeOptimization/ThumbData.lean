@@ -81,12 +81,30 @@ def StackOk (frame : Bool) (SP0 : Nat) (s : StackE) (σ σ' : MState) : Prop :=
        σ'.mem (aOf (SP0 - k)) = σ.mem (aOf (SP0 - k))) ∧
   (∀ p, s.load = some p → σ'.r p.1 = σ.mem (aOf (σ.sp + p.2)))
 
-/-- The instruction at `a`, in state `σ`, allows its `j`-th transition (to `next`, with `w`
-    cycles, calling `calls`). -/
-def DOk (mul : Nat) (c : Code) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
+/-- The step of the machine: the instruction at `a`, in state `σ`, takes its `j`-th
+    transition (to `next`, with `w` cycles, calling `calls`); `ADD PC, rm` and `MOV PC, rm`
+    (`m < 8`) go to the address computed from `rm` (`pcDestV`, bit 0 cleared), in 3 cycles. -/
+def DOkM (mul : Nat) (c : Code) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
     (calls : List Nat) : Prop :=
-  wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧ (trans i a)[j]? = some (next, w, calls) ∧
+  wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧
+    (((trans i a)[j]? = some (next, w, calls) ∧
+      (∀ t, i.kind = .cond t → condHolds (ccOf c a) σ.f = (j == 0))) ∨
+     (i.kind = .stop ∧ ∃ add m, pcWrite c a = some (add, m) ∧
+       next = some (pcDestV a add (σ.r m)) ∧ w = 3 ∧ calls = []))
+
+/-- A step along the transitions of the function (`transJ`: those of `decode`, and the
+    targets of the jumps listed in `J`). Every step of a data run is one
+    (`dokm_dok`, by `jumpOk` and `interiorOk`). -/
+def DOk (mul : Nat) (c : Code) (J : List JT) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
+    (calls : List Nat) : Prop :=
+  wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧ (transJ J i a)[j]? = some (next, w, calls) ∧
     (∀ t, i.kind = .cond t → condHolds (ccOf c a) σ.f = (j == 0))
+
+/-- The exact values of `ADD rd, PC`, of `ADR` and of the loads from the code (`xop`):
+    the register gets the value `xres` computes from the registers before (a load from the
+    code gives the code: the code is not written during a run). -/
+def XOk (c : Code) (a : Nat) (σ σ' : MState) : Prop :=
+  ∀ op, xop c a = some op → ∀ v, xres c a (fun i => some (σ.r i)) op = some v → σ'.r op.dst = v
 
 /-- A step of a data run: the step of the machine run, the transition taken, the state
     before it. -/
@@ -94,6 +112,10 @@ structure DStep where
   st : MStep
   j : Nat
   σ : MState
+
+/-- `XOk` between consecutive steps. -/
+def XChain (c : Code) (s : List DStep) : Prop :=
+  ∀ (k : Nat) (x y : DStep), s[k]? = some x → s[k + 1]? = some y → XOk c x.st.a x.σ y.σ
 
 /-- The steps follow each other from the given address until a return, each state being
     the effect of the previous instruction on the previous state (`SP₀`: the stack pointer
@@ -124,7 +146,8 @@ def DRun (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) :
     Nat → Nat → Int → Prop
   | 0, _, _ => False
   | d + 1, e, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧ DChain abi L.frame c (headSp s) (some e) s ∧
-      (∀ x ∈ s, DOk mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
+      XChain c s ∧
+      (∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
         CallsWith (DRun mul abi c fs Ls d) x.st.calls x.st.x) ∧
       (∀ r ∈ L.trusted, (s.map fun x => coefPair r.coef x.st.a x.st.next).sum ≤ r.rhs) ∧
       total = (s.map fun x => (x.st.w : Int) + x.st.x).sum
@@ -701,7 +724,7 @@ theorem checkObs_mem : ∀ (obs : List (List Lin × Lin)) (ps : List (Nat × Lis
 
 theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (h : checkDFun mul abi c f L = true) :
-    closed mul c f.entry f.nodes = true ∧ nodupB f.nodes = true ∧
+    closed mul c f.jumps f.entry f.nodes = true ∧ nodupB f.nodes = true ∧
     f.rows = L.trusted ++ L.loops.map (loopRow f) ∧
     (∀ a ∈ f.nodes, nodeOk mul abi c f L a = true) ∧ kindAt f L f.entry = .none ∧
     (spAt f L f.entry = some 0 ∨ spAt f L f.entry = none) ∧ slotsOk L = true ∧
@@ -710,7 +733,7 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     checkObs (obligations mul abi c f L) L.proofs = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩, _⟩, _⟩ := h
   exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
 
 theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
@@ -718,7 +741,7 @@ theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     ∀ l ∈ L.alt, ∀ I ∈ l, ∀ g ∈ I, wfLin L.slots.length g = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
   exact ha
 
 theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
@@ -726,7 +749,7 @@ theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     congAt f L f.entry = [] ∧ (∀ l ∈ L.cong, ∀ x ∈ l, wfCong L.slots.length x = true) ∧
     ∀ a ∈ f.nodes, congOk mul abi c f L a = true := by
   simp only [checkDFun, Bool.and_eq_true] at h
-  have h' := h.2
+  have h' := h.1.1.2
   simp only [congChecks, Bool.and_eq_true, List.all_eq_true, List.isEmpty_iff] at h'
   exact ⟨h'.1.1, h'.1.2, h'.2⟩
 
@@ -969,7 +992,7 @@ theorem congHolds_congr (S : Nat) (cs : List Cong) (hw : ∀ x ∈ cs, wfCong S 
 
 theorem congOk_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun} {a : Nat} {i : Insn}
     (h : congOk mul abi c f L a = true) (hdec : decode mul c a = some i)
-    {p : Option Nat × Nat × List Nat} (hp : p ∈ trans i a) {n : Nat} (hn : p.1 = some n)
+    {p : Option Nat × Nat × List Nat} (hp : p ∈ transJ f.jumps i a) {n : Nat} (hn : p.1 = some n)
     {m : Int} (hm : m ∈ mcases (effect abi c a)) {x : Cong} (hx : x ∈ congAt f L n) :
     congPE (congAt f L a) x.2.1 x.2.2
       (postS (effect abi c a) (stackEffect abi c a) L.frame (spAt f L a) L.slots m x.1) = true := by
@@ -1036,7 +1059,7 @@ theorem potAt_wf (S : Nat) (lc : LoopCert) (hw : ∀ p ∈ lc.pot, wfSv S p.sv =
 theorem nodeOk_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun} {a : Nat}
     (h : nodeOk mul abi c f L a = true) :
     wfEff (effect abi c a) = true ∧ stackWf (stackEffect abi c a) = true ∧
-    ∃ i, decode mul c a = some i ∧ ∀ p ∈ trans i a, ∀ n, p.1 = some n →
+    ∃ i, decode mul c a = some i ∧ ∀ p ∈ transJ f.jumps i a, ∀ n, p.1 = some n →
       kindOk (kindAt f L a) (effect abi c a).fl (kindAt f L n) = true ∧
       spOk (spAt f L a) (stackEffect abi c a).sp (spAt f L n) = true := by
   simp only [nodeOk, Bool.and_eq_true] at h
@@ -1072,7 +1095,7 @@ def tGoals (f : BFun) (L : DFun) (e : Eff) (st : StackE) (frame : Bool) (m : Int
 theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) (i : Insn)
     (j : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) (m : Int) (D : List Lin) (g : Lin)
     (di si : Nat) (I : List Lin)
-    (hdec : decode mul c a = some i) (hj : (trans i a)[j]? = some (next, w, calls))
+    (hdec : decode mul c a = some i) (hj : (transJ f.jumps i a)[j]? = some (next, w, calls))
     (hm : m ∈ mcases (effect abi c a))
     (hD : (match i.kind with
       | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
@@ -1237,7 +1260,7 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
 theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) {SP0 a j : Nat} (hSP0 : SP0 < U) {σ : MState}
     {next : Option Nat} {w : Nat}
-    {calls : List Nat} (ha : a ∈ f.nodes) (hok : DOk mul c a j σ next w calls) {fa fb : Nat}
+    {calls : List Nat} (ha : a ∈ f.nodes) (hok : DOk mul c f.jumps a j σ next w calls) {fa fb : Nat}
     (hinv : Inv f L SP0 a σ fa fb) (σ' : MState) (hwf' : wfState σ') (hws' : wfStack σ')
     (heff : next ≠ none → EffOk (effect abi c a) σ σ' ∧ StackOk L.frame SP0 (stackEffect abi c a) σ σ') :
     (∀ n, next = some n →
@@ -1374,7 +1397,7 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) {SP0 : Nat} (hSP0 : SP0 < U) :
     ∀ (t : List DStep) (x : DStep) (a fa fb : Nat), DChain abi L.frame c SP0 (some a) (x :: t) →
       a ∈ f.nodes →
-      (∀ y ∈ x :: t, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ x :: t, DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
       Inv f L SP0 a x.σ fa fb →
       (∀ y ∈ x :: t, y.st.a ∈ f.nodes) ∧
       ∀ lc ∈ L.loops, ((x :: t).map fun y => coefStep lc y.st.a y.st.next).sum ≤
@@ -1406,7 +1429,7 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       obtain ⟨hinvn, hpot⟩ := step_ok hc hSP0 ha hok' hinv y.σ hwfy hwsy (fun _ => hE)
       have hnn : n ∈ f.nodes := by
         obtain ⟨hcl, _⟩ := (checkDFun_spec hc)
-        obtain ⟨_, hcl2⟩ := closed_spec mul c f.entry f.nodes hcl
+        obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
         obtain ⟨i, hi, _, hsucc⟩ := hcl2 a ha
         obtain ⟨_, _, i', hi', hj, _⟩ := hok'
         rw [hi] at hi'; cases hi'
@@ -1466,7 +1489,7 @@ theorem loopRow_coef (f : BFun) (lc : LoopCert) (hd : nodupB f.nodes = true) (a 
 theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) (s : List DStep)
     (hch : DChain abi L.frame c (headSp s) (some f.entry) s)
-    (hok : ∀ y ∈ s, DOk mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) :
+    (hok : ∀ y ∈ s, DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) :
     ∀ lc ∈ L.loops, (s.map fun y => coefPair (loopRow f lc).coef y.st.a y.st.next).sum ≤ (loopRow f lc).rhs := by
   obtain ⟨hcl, hnd, _, _, hke, hspe, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
   cases s with
@@ -1477,7 +1500,7 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have hws : wfStack x.σ := (hok x (by simp)).2.1
     have hSP0 : x.σ.sp < U := hws.1
     set S := L.slots.length
-    have he : f.entry ∈ f.nodes := (closed_spec mul c f.entry f.nodes hcl).1
+    have he : f.entry ∈ f.nodes := (closed_spec mul c f.jumps f.entry f.nodes hcl).1
     have env0 := rangesN_holds x.σ x.σ 0 0 x.σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)
     have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
@@ -1553,6 +1576,470 @@ theorem dfAt_spec {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
           simp [hf] at this
           exact this
 
+/-! ### Jumps through a table: every step of a data run follows `transJ`
+
+At a listed jump, the data semantics goes to the address computed from the register
+(`DOkM`). Nothing enters the window but from the instruction before (`interiorOk`), so a
+run at the jump has executed the whole window from its `CMP` (`back_walk`); the branch not
+taken bounds the compared register; the evaluation of the window (`wrun`) agrees with the
+run (`wrun_sound`), so the address is one that `jumpOk` found among the targets. -/
+
+theorem checkDFun_jumps {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
+    (h : checkDFun mul abi c f L = true) :
+    (∀ t ∈ f.jumps, jumpOk abi mul c t = true) ∧ interiorOk mul c f = true := by
+  simp only [checkDFun, Bool.and_eq_true, List.all_eq_true] at h
+  exact ⟨h.1.2, h.2⟩
+
+theorem getElem?_append_some {α : Type} : ∀ (l l' : List α) (j : Nat) (x : α),
+    l[j]? = some x → (l ++ l')[j]? = some x
+  | [], _, _, _, h => by simp at h
+  | y :: ys, l', 0, x, h => by simpa using h
+  | y :: ys, l', j + 1, x, h => by
+    simpa using getElem?_append_some ys l' j x (by simpa using h)
+
+theorem dchain_head {abi frame : Bool} {c : Code} {SP0 : Nat} {e : Nat} :
+    ∀ (s : List DStep) (x : DStep), DChain abi frame c SP0 (some e) s → s[0]? = some x → x.st.a = e
+  | [], _, _, hx => by simp at hx
+  | y :: t, x, h, hx => by
+    simp at hx; subst hx; exact h.1
+
+theorem dchain_get {abi frame : Bool} {c : Code} {SP0 : Nat} :
+    ∀ (s : List DStep) (o : Option Nat), DChain abi frame c SP0 o s →
+      ∀ k x y, s[k]? = some x → s[k + 1]? = some y →
+        x.st.next = some y.st.a ∧ EffOk (effect abi c x.st.a) x.σ y.σ
+  | [], _, _, _, _, _, hx, _ => by simp at hx
+  | _ :: _, none, h, _, _, _, _, _ => by simp [DChain] at h
+  | x' :: t, some a, h, k, x, y, hx, hy => by
+    obtain ⟨hxa, heff, hrest⟩ := h
+    cases k with
+    | zero =>
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at hx
+      subst hx
+      cases t with
+      | nil => simp at hy
+      | cons y' t' =>
+        simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq] at hy
+        subst hy
+        refine ⟨?_, ?_⟩
+        · cases hn : x'.st.next with
+          | none => rw [hn] at hrest; simp [DChain] at hrest
+          | some b => rw [hn] at hrest; exact congrArg some hrest.1.symm
+        · rw [hxa]; exact (heff y' (by simp)).1
+    | succ k => exact dchain_get t x'.st.next hrest k x y (by simpa using hx) (by simpa using hy)
+
+/-- Partial registers that agree with a state. -/
+def Agree (P : Nat → Option Nat) (σ : MState) : Prop := ∀ i v, P i = some v → σ.r i = v
+
+theorem srcP_sound {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) :
+    ∀ (s : Src) (v : Nat), srcP P s = some v → srcVal σ.r s = v
+  | .reg i, v, hv => h i v hv
+  | .imm k, v, hv => by simpa [srcP, srcVal] using hv
+
+theorem valP_sound {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) :
+    ∀ (x : Val) (v : Nat), valP P x = some v → valOf σ.r x = some v
+  | .add a b, v, hv => by
+    simp only [valP, Option.bind_eq_some, Option.map_eq_some'] at hv
+    obtain ⟨x, hx, y, hy, rfl⟩ := hv
+    simp [valOf, srcP_sound h a x hx, srcP_sound h b y hy]
+  | .sub a b, v, hv => by
+    simp only [valP, Option.bind_eq_some, Option.map_eq_some'] at hv
+    obtain ⟨x, hx, y, hy, rfl⟩ := hv
+    simp [valOf, srcP_sound h a x hx, srcP_sound h b y hy]
+  | .shl a k, v, hv => by
+    simp only [valP, Option.map_eq_some'] at hv
+    obtain ⟨x, hx, rfl⟩ := hv
+    simp [valOf, srcP_sound h a x hx]
+  | .any, v, hv => by simp [valP] at hv
+
+theorem xres_mono {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) (c : Code) (a : Nat) :
+    ∀ (op : XOp) (v : Nat), xres c a P op = some v → xres c a (fun i => some (σ.r i)) op = some v
+  | .addPc d, v, hv => by
+    simp only [xres, Option.map_eq_some'] at hv ⊢
+    obtain ⟨x, hx, rfl⟩ := hv
+    exact ⟨σ.r d, rfl, by rw [h d x hx]⟩
+  | .adr d k, v, hv => by simpa [xres] using hv
+  | .ldImm sz d n off, v, hv => by
+    simp only [xres, Option.bind_eq_some] at hv ⊢
+    obtain ⟨x, hx, hl⟩ := hv
+    exact ⟨σ.r n, rfl, by rw [h n x hx]; exact hl⟩
+  | .ldReg sz d n m, v, hv => by
+    simp only [xres, Option.bind_eq_some] at hv ⊢
+    obtain ⟨x, hx, y, hy, hl⟩ := hv
+    exact ⟨σ.r n, rfl, σ.r m, rfl, by rw [h n x hx, h m y hy]; exact hl⟩
+
+theorem wstep_sound {abi : Bool} {c : Code} {a : Nat} {P : Nat → Option Nat} {σ σ' : MState}
+    (hP : Agree P σ) (he : EffOk (effect abi c a) σ σ') (hx : XOk c a σ σ') :
+    Agree (wstep abi c a P) σ' := by
+  intro i v hv
+  simp only [wstep] at hv
+  by_cases hi : i < 8
+  · rw [if_pos hi] at hv
+    cases hf : (effect abi c a).dst.find? (fun p => p.1 == i) with
+    | none =>
+      rw [hf] at hv
+      rw [he.2.1 i hi hf]
+      exact hP i v hv
+    | some p =>
+      rw [hf] at hv
+      cases hxo : xop c a with
+      | none =>
+        rw [hxo] at hv
+        exact he.2.2.1 i hi p hf v (valP_sound hP p.2 v hv)
+      | some op =>
+        rw [hxo] at hv
+        simp only at hv
+        by_cases hd : op.dst = i
+        · rw [if_pos hd] at hv
+          rw [← hd]
+          exact hx op hxo v (xres_mono hP c a op v hv)
+        · rw [if_neg hd] at hv
+          exact he.2.2.1 i hi p hf v (valP_sound hP p.2 v hv)
+  · rw [if_neg hi] at hv
+    cases hv
+
+theorem wrun_sound {abi frame : Bool} {c : Code} {SP0 : Nat} {o : Option Nat} (s : List DStep)
+    (hch : DChain abi frame c SP0 o s) (hX : XChain c s) :
+    ∀ (n a b : Nat) (P : Nat → Option Nat) (x : DStep), s[b]? = some x → Agree P x.σ →
+      (∀ i ≤ n, ∃ y, s[b + i]? = some y ∧ y.st.a = a + 2 * i) →
+      ∃ y, s[b + n]? = some y ∧ Agree (wrun abi c n a P) y.σ := by
+  intro n
+  induction n with
+  | zero => intro a b P x hx hP _; exact ⟨x, by simpa using hx, hP⟩
+  | succ n ih =>
+    intro a b P x hx hP haddr
+    have hxa : x.st.a = a := by
+      obtain ⟨y0, hy0, hy0a⟩ := haddr 0 (by omega)
+      rw [Nat.add_zero, hx] at hy0
+      cases hy0
+      simpa using hy0a
+    obtain ⟨y1, hy1, hy1a⟩ := haddr 1 (by omega)
+    obtain ⟨_, he⟩ := dchain_get s o hch b x y1 hx hy1
+    have hxx := hX b x y1 hx hy1
+    rw [hxa] at he hxx
+    have hP1 := wstep_sound hP he hxx
+    obtain ⟨y, hy, hag⟩ := ih (a + 2) (b + 1) (wstep abi c a P) y1 hy1 hP1 (fun i hi => by
+      obtain ⟨z, hz, hza⟩ := haddr (i + 1) (by omega)
+      exact ⟨z, by rw [show b + 1 + i = b + (i + 1) by omega]; exact hz, by rw [hza]; ring⟩)
+    exact ⟨y, by rw [show b + (n + 1) = b + 1 + n by omega]; exact hy, by simpa [wrun] using hag⟩
+
+theorem hi_false (v n : Nat) (hv : v < U) (hn : n < U) (h : condHolds 8 (flagsSub v n) = false) :
+    v ≤ n := by
+  simp only [condHolds, flagsSub, U, Bool.and_eq_false_iff, decide_eq_false_iff_not,
+    Bool.not_eq_false', decide_eq_true_eq] at h hv hn
+  omega
+
+/-- A step whose address is a node and that follows a transition of the function. -/
+def Good (mul : Nat) (c : Code) (f : BFun) (x : DStep) : Prop :=
+  x.st.a ∈ f.nodes ∧ ∃ j, DOk mul c f.jumps x.st.a j x.σ x.st.next x.st.w x.st.calls
+
+theorem good_medge {mul : Nat} {c : Code} {f : BFun} {x : DStep} (h : Good mul c f x) :
+    (x.st.a, x.st.next, x.st.w, x.st.calls) ∈ medges mul c f.jumps f.nodes := by
+  obtain ⟨ha, j, _, _, i, hi, hj, _⟩ := h
+  exact mem_medges mul c f.jumps x.st.a i _ hi (List.mem_of_getElem? hj) f.nodes ha
+
+/-- The address of the window `i` steps before the jump: from the jump down to `wbeg`, then
+    the branch, then the `CMP`. -/
+def wpath (c : Code) (t : JT) (i : Nat) : Nat :=
+  if i ≤ (t.pos - wbeg c t) / 2 then t.pos - 2 * i
+  else if i = (t.pos - wbeg c t) / 2 + 1 then t.start + 2 else t.start
+
+theorem wbeg_cases (c : Code) (t : JT) :
+    (lsForm c t = true ∧ wbeg c t = t.start + 6) ∨ (lsForm c t = false ∧ wbeg c t = t.start + 4) := by
+  unfold wbeg
+  cases h : lsForm c t <;> simp
+
+theorem wpath_mem (c : Code) (t : JT) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos - t.start) % 2 = 0)
+    (i : Nat) (hi : i < (t.pos - wbeg c t) / 2 + 2) : wpath c t i ∈ interior c t := by
+  have hw := wbeg_cases c t
+  unfold wpath interior
+  by_cases h1 : i ≤ (t.pos - wbeg c t) / 2
+  · rw [if_pos h1]
+    simp only [List.mem_cons, List.mem_map, List.mem_range]
+    right
+    exact ⟨(t.pos - wbeg c t) / 2 - i, by omega, by omega⟩
+  · rw [if_neg h1, if_pos (by omega)]
+    simp
+
+theorem wpath_pred (c : Code) (t : JT) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos - t.start) % 2 = 0)
+    (i : Nat) (hi : i < (t.pos - wbeg c t) / 2 + 2) : wpred c t (wpath c t i) = wpath c t (i + 1) := by
+  rcases wbeg_cases c t with ⟨hl, hb⟩ | ⟨hl, hb⟩
+  · rw [hb] at hwb hi
+    simp only [wpath, wpred, hl, hb, true_and]
+    split_ifs <;> omega
+  · rw [hb] at hwb hi
+    simp only [wpath, wpred, hl, hb, Bool.false_eq_true, false_and, if_false]
+    split_ifs <;> omega
+
+theorem interiorOk_spec {mul : Nat} {c : Code} {f : BFun} (hint : interiorOk mul c f = true)
+    (t : JT) (ht : t ∈ f.jumps) :
+    f.entry ∉ interior c t ∧ jumpTr f.jumps (t.start + 2) = [] ∧
+      ∀ m ∈ medges mul c f.jumps f.nodes, ∀ p, m.2.1 = some p → p ∈ interior c t → m.1 = wpred c t p := by
+  unfold interiorOk at hint
+  rw [List.all_eq_true] at hint
+  have htt := hint t ht
+  rw [Bool.and_eq_true, Bool.and_eq_true, List.all_eq_true] at htt
+  obtain ⟨⟨hent, hj2⟩, hm⟩ := htt
+  refine ⟨fun h => ?_, by simpa using hj2, fun m hm' p hp hin => ?_⟩
+  · have : (interior c t).contains f.entry = true := List.contains_iff_mem.mpr h
+    rw [this] at hent; cases hent
+  · have := hm m hm'
+    rw [hp] at this
+    have hcont : (interior c t).contains p = true := List.contains_iff_mem.mpr hin
+    simp only [hcont, Bool.not_true, Bool.false_or, beq_iff_eq] at this
+    exact this
+
+/-- The steps before a jump at `t.pos` are those of its window, along its path. -/
+theorem back_walk {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFun} (s : List DStep)
+    (hch : DChain abi frame c SP0 (some f.entry) s) (t : JT) (ht : t ∈ f.jumps)
+    (hint : interiorOk mul c f = true) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos - t.start) % 2 = 0)
+    (k : Nat) (x : DStep) (hx : s[k]? = some x)
+    (hxa : x.st.a = t.pos) (hgood : ∀ k' < k, ∀ y, s[k']? = some y → Good mul c f y) :
+    ∀ i ≤ (t.pos - wbeg c t) / 2 + 2, i ≤ k ∧ ∃ y, s[k - i]? = some y ∧ y.st.a = wpath c t i := by
+  obtain ⟨hent, _, hm⟩ := interiorOk_spec hint t ht
+  intro i
+  induction i with
+  | zero =>
+    intro _
+    exact ⟨by omega, x, by simpa using hx, by rw [hxa]; unfold wpath; rw [if_pos (by omega)]; omega⟩
+  | succ i ih =>
+    intro hi
+    obtain ⟨hik, y, hy, hya⟩ := ih (by omega)
+    have hin : y.st.a ∈ interior c t := by rw [hya]; exact wpath_mem c t hwb hev i (by omega)
+    have hk0 : k - i ≠ 0 := by
+      intro h0
+      rw [h0] at hy
+      have := dchain_head s y hch hy
+      rw [this] at hin
+      exact hent hin
+    obtain ⟨z, hz⟩ : ∃ z, s[k - i - 1]? = some z := by
+      have : k - i - 1 < s.length := by
+        have := (List.getElem?_eq_some_iff.mp hy).1
+        omega
+      exact ⟨_, List.getElem?_eq_getElem this⟩
+    have hz1 : s[k - i - 1 + 1]? = some y := by rw [show k - i - 1 + 1 = k - i by omega]; exact hy
+    obtain ⟨hzn, _⟩ := dchain_get s _ hch (k - i - 1) z y hz hz1
+    have hg := hgood (k - i - 1) (by omega) z hz
+    have hza := hm _ (good_medge hg) _ hzn hin
+    refine ⟨by omega, z, by rw [show k - (i + 1) = k - i - 1 by omega]; exact hz, ?_⟩
+    simp only at hza
+    rw [hza, hya]
+    exact wpath_pred c t hwb hev i (by omega)
+
+theorem jumpTr_some {J : List JT} {a : Nat} (h : jumpTr J a ≠ []) :
+    ∃ t ∈ J, t.pos = a ∧ jumpTr J a = t.tgts.map fun q => (some q, 3, []) := by
+  unfold jumpTr at h ⊢
+  cases hf : J.find? (fun t => t.pos == a) with
+  | none => rw [hf] at h; simp at h
+  | some t =>
+    exact ⟨t, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf, by simp⟩
+
+theorem ls_true (v n : Nat) (hv : v < U) (hn : n < U) (h : condHolds 9 (flagsSub v n) = true) :
+    v ≤ n := by
+  simp only [condHolds, flagsSub, U, Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not,
+    decide_eq_true_eq] at h hv hn
+  omega
+
+/-- The jump case: the address computed by the run is a target of the jump. -/
+theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFun} {L : DFun}
+    (hc : checkDFun mul abi c f L = true) (s : List DStep)
+    (hch : DChain abi frame c SP0 (some f.entry) s) (hX : XChain c s)
+    (k : Nat) (x : DStep) (hx : s[k]? = some x) (ha : x.st.a ∈ f.nodes) (i : Insn)
+    (hi : decode mul c x.st.a = some i) (hstop : i.kind = .stop) (add : Bool) (m : Nat)
+    (hpw : pcWrite c x.st.a = some (add, m))
+    (hgood : ∀ k' < k, ∀ y, s[k']? = some y → Good mul c f y) :
+    ∃ t ∈ f.jumps, t.pos = x.st.a ∧ pcDestV x.st.a add (x.σ.r m) ∈ t.tgts ∧
+      jumpTr f.jumps x.st.a = t.tgts.map fun q => (some q, 3, []) := by
+  obtain ⟨hcl, _⟩ := checkDFun_spec hc
+  obtain ⟨hjk, hint⟩ := checkDFun_jumps hc
+  obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
+  obtain ⟨i', hi', hns, _⟩ := hcl2 _ ha
+  rw [hi] at hi'; cases hi'
+  have hjt : jumpTr f.jumps x.st.a ≠ [] := by
+    rcases hns with h | h
+    · exact absurd hstop h
+    · exact h
+  obtain ⟨t, ht, htp, hjtr⟩ := jumpTr_some hjt
+  refine ⟨t, ht, htp, ?_, hjtr⟩
+  obtain ⟨_, hj2, _⟩ := interiorOk_spec hint t ht
+  have hok := hjk t ht
+  unfold jumpOk at hok
+  rw [← htp] at hpw
+  rw [hpw] at hok
+  split at hok
+  · rename_i r n _ tb _ _ _ _ he hd hpw'
+    cases hpw'
+    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq, bne_iff_ne, ne_eq,
+      List.all_eq_true, List.mem_range] at hok
+    obtain ⟨⟨⟨⟨⟨⟨⟨hr, hn⟩, hform⟩, hebr⟩, hdec⟩, hwb⟩, hev⟩, hall⟩ := hok
+    set M := (t.pos - wbeg c t) / 2 with hM
+    have hbw := back_walk s hch t ht hint hwb hev k x hx (by rw [htp]) hgood
+    have hw := wbeg_cases c t
+    obtain ⟨hk0, y0, hy0, hy0a⟩ := hbw (M + 2) (le_refl _)
+    obtain ⟨_, y1, hy1, hy1a⟩ := hbw (M + 1) (by omega)
+    obtain ⟨_, y2, hy2, hy2a⟩ := hbw M (by omega)
+    have i01 : s[k - (M + 2) + 1]? = some y1 := by rw [show k - (M + 2) + 1 = k - (M + 1) by omega]; exact hy1
+    have i12 : s[k - (M + 1) + 1]? = some y2 := by rw [show k - (M + 1) + 1 = k - M by omega]; exact hy2
+    obtain ⟨_, he0⟩ := dchain_get s _ hch (k - (M + 2)) y0 y1 hy0 i01
+    obtain ⟨hn12, he1⟩ := dchain_get s _ hch (k - (M + 1)) y1 y2 hy1 i12
+    have hst : y0.st.a = t.start := by rw [hy0a]; unfold wpath; rw [if_neg (by omega), if_neg (by omega)]
+    have hb : y1.st.a = t.start + 2 := by rw [hy1a]; unfold wpath; rw [if_neg (by omega), if_pos rfl]
+    have hc4 : y2.st.a = wbeg c t := by rw [hy2a]; unfold wpath; rw [if_pos (le_refl _)]; omega
+    rw [hst, he] at he0
+    rw [hb, hebr] at he1
+    -- the flags of the CMP, the branch: not taken (`BHI`) or taken (`BLS`)
+    have hfl : y1.σ.f = flagsSub (y0.σ.r r) n := by simpa [flagsOfE, srcVal] using he0.2.2.2
+    have hr01 : y1.σ.r r = y0.σ.r r := he0.2.1 r hr (by simp)
+    have hr12 : y2.σ.r r = y1.σ.r r := he1.2.1 r hr (by simp)
+    have hg1 := hgood (k - (M + 1)) (by omega) y1 hy1
+    obtain ⟨_, j1, hw1, _, i1, hi1, hj1, hcond1⟩ := hg1
+    rw [hb, hdec] at hi1; cases hi1
+    have hch1 := hcond1 tb rfl
+    rw [hb] at hch1
+    have hv0 : y0.σ.r r < U := by rw [← hr01]; exact hw1 r hr
+    rw [hfl] at hch1
+    have hle' : y0.σ.r r ≤ n := by
+      rcases hw with ⟨hl, hwb6⟩ | ⟨hl, hwb4⟩
+      · rw [if_pos hl] at hform
+        have hcc : ccOf c (t.start + 2) = 9 := by simpa [lsForm] using hl
+        rw [hcc] at hch1
+        have hj10 : j1 = 0 := by
+          rw [hb] at hj1
+          simp only [transJ, hj2, trans, List.append_nil] at hj1
+          rcases j1 with _ | _ | j1
+          · rfl
+          · simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq,
+              Prod.mk.injEq] at hj1
+            rw [hn12, hc4, hwb6] at hj1
+            have := Option.some.inj hj1.1
+            omega
+          · simp at hj1
+        rw [hj10] at hch1
+        exact ls_true _ _ hv0 hn (by simpa using hch1)
+      · rw [if_neg (by rw [hl]; simp)] at hform
+        simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hform
+        obtain ⟨hcc, htb⟩ := hform
+        rw [hcc] at hch1
+        have hj1ne : j1 ≠ 0 := by
+          intro h0; subst h0
+          simp only [transJ, trans] at hj1
+          simp only [List.cons_append, List.getElem?_cons_zero, Option.some.injEq, Prod.mk.injEq] at hj1
+          rw [hn12, hc4, hwb4] at hj1
+          exact htb (Option.some.inj hj1.1)
+        have hjf : (j1 == 0) = false := by simp [hj1ne]
+        rw [hjf] at hch1
+        exact hi_false _ _ hv0 hn hch1
+    -- the evaluation of the window
+    have hag : Agree (fun i => if i = r then some (y2.σ.r r) else none) y2.σ := by
+      intro i v hv
+      by_cases h : i = r
+      · subst h; simp at hv; exact hv
+      · simp [h] at hv
+    obtain ⟨y, hy, hagy⟩ := wrun_sound s hch hX M (wbeg c t) (k - M)
+      _ y2 hy2 hag (fun j hj => by
+        obtain ⟨_, z, hz, hza⟩ := hbw (M - j) (by omega)
+        refine ⟨z, by rw [show k - M + j = k - (M - j) by omega]; exact hz, ?_⟩
+        rw [hza]; unfold wpath; rw [if_pos (by omega)]
+        rcases hw with ⟨_, hb'⟩ | ⟨_, hb'⟩ <;> omega)
+    rw [show k - M + M = k by omega, hx] at hy
+    cases hy
+    have hv := hall (y2.σ.r r) (by rw [hr12, hr01]; omega)
+    split at hv
+    · rename_i v hvv
+      rw [hagy m v hvv]
+      rw [← htp]
+      exact of_decide_eq_true hv
+    · cases hv
+  · cases hok
+
+/-- Every step of a data run of a certified function is a step along `transJ`. -/
+theorem steps_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFun} {L : DFun}
+    (hc : checkDFun mul abi c f L = true) (s : List DStep)
+    (hch : DChain abi frame c SP0 (some f.entry) s) (hX : XChain c s)
+    (hok : ∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
+    ∀ (k : Nat) (x : DStep), s[k]? = some x → Good mul c f x := by
+  obtain ⟨hcl, _⟩ := checkDFun_spec hc
+  obtain ⟨hent, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
+  intro k
+  induction k using Nat.strong_induction_on with
+  | _ k ih =>
+    intro x hx
+    have ha : x.st.a ∈ f.nodes := by
+      cases k with
+      | zero => rw [dchain_head s x hch hx]; exact hent
+      | succ k =>
+        obtain ⟨z, hz⟩ : ∃ z, s[k]? = some z := by
+          have := (List.getElem?_eq_some_iff.mp hx).1
+          exact ⟨_, List.getElem?_eq_getElem (by omega)⟩
+        obtain ⟨hzn, _⟩ := dchain_get s _ hch k z x hz hx
+        obtain ⟨hza, j, _, _, i, hi, hj, _⟩ := ih k (by omega) z hz
+        obtain ⟨i', hi', _, hsucc⟩ := hcl2 _ hza
+        rw [hi] at hi'; cases hi'
+        exact hsucc _ (List.mem_of_getElem? hj) _ hzn
+    refine ⟨ha, ?_⟩
+    obtain ⟨hw, hws, i, hi, hcase⟩ := hok x (List.mem_of_getElem? hx)
+    rcases hcase with ⟨hj, hcond⟩ | ⟨hstop, add, m, hpw, hnext, hw3, hcalls⟩
+    · exact ⟨x.j, hw, hws, i, hi, getElem?_append_some _ _ _ _ hj, hcond⟩
+    · obtain ⟨t, _, _, hmem, hjtr⟩ := jump_good hc s hch hX k x hx ha i hi hstop add m hpw
+        (fun k' hk' y hy => ih k' hk' y hy)
+      obtain ⟨q, hq⟩ := List.mem_iff_getElem?.mp hmem
+      have htr : trans i x.st.a = [] := by simp [trans, hstop]
+      refine ⟨q, hw, hws, i, hi, ?_, fun tt htt => by rw [hstop] at htt; cases htt⟩
+      rw [transJ, htr, List.nil_append, hjtr, hnext, hw3, hcalls]
+      simp [hq]
+
+/-- The run with the transitions of `transJ` chosen at each step. -/
+theorem reindex {mul : Nat} {c : Code} {f : BFun} (s : List DStep)
+    (h : ∀ x ∈ s, Good mul c f x) :
+    ∃ s' : List DStep, s'.map (·.st) = s.map (·.st) ∧ s'.map (·.σ) = s.map (·.σ) ∧
+      ∀ y ∈ s', DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls := by
+  induction s with
+  | nil => exact ⟨[], rfl, rfl, by simp⟩
+  | cons x t ih =>
+    obtain ⟨t', h1, h2, h3⟩ := ih (fun y hy => h y (by simp [hy]))
+    obtain ⟨_, j, hj⟩ := h x (by simp)
+    refine ⟨⟨x.st, j, x.σ⟩ :: t', by simp [h1], by simp [h2], ?_⟩
+    intro y hy
+    rcases List.mem_cons.mp hy with rfl | hy
+    · exact hj
+    · exact h3 y hy
+
+theorem dchain_congr (abi frame : Bool) (c : Code) (SP0 : Nat) :
+    ∀ (s s' : List DStep) (o : Option Nat), s'.map (·.st) = s.map (·.st) → s'.map (·.σ) = s.map (·.σ) →
+      DChain abi frame c SP0 o s → DChain abi frame c SP0 o s'
+  | [], [], _, _, _, h => h
+  | [], _ :: _, _, h1, _, _ => by simp at h1
+  | _ :: _, [], _, h1, _, _ => by simp at h1
+  | x :: t, x' :: t', o, h1, h2, h => by
+    simp only [List.map_cons, List.cons.injEq] at h1 h2
+    cases o with
+    | none => simp [DChain] at h
+    | some a =>
+      obtain ⟨hxa, heff, hrest⟩ := h
+      refine ⟨by rw [h1.1]; exact hxa, fun y hy => ?_, ?_⟩
+      · cases t' with
+        | nil => simp at hy
+        | cons z t'' =>
+          cases t with
+          | nil => simp at h1
+          | cons w t3 =>
+            simp only [List.head?_cons, Option.mem_def, Option.some.injEq] at hy
+            subst hy
+            simp only [List.map_cons, List.cons.injEq] at h2
+            have := heff w (by simp)
+            rw [h2.1, h2.2.1]
+            exact this
+      · rw [h1.1]
+        exact dchain_congr abi frame c SP0 t t' _ h1.2 h2.2 hrest
+
+theorem headSp_congr (s s' : List DStep) (h : s'.map (·.σ) = s.map (·.σ)) : headSp s' = headSp s := by
+  cases s with
+  | nil => cases s' with
+    | nil => rfl
+    | cons _ _ => simp at h
+  | cons x t => cases s' with
+    | nil => simp at h
+    | cons y t' => simp only [List.map_cons, List.cons.injEq] at h; simp [headSp, h.1]
+
 /-- Every run of the data semantics is a run of `Thumb.MRun`: the rows of the certified
     loops hold on it. -/
 theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List DFun}
@@ -1563,22 +2050,41 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
   | zero => intro e tot h; simp [DRun] at h
   | succ d ih =>
     intro e tot h
-    obtain ⟨f, L, s, hdf, hch, hsteps, htr, htot⟩ := h
+    obtain ⟨f, L, s, hdf, hch, hX, hsteps, htr, htot⟩ := h
     obtain ⟨hfn, hc, hentry⟩ := dfAt_spec hD hdf
     obtain ⟨_, _, hrows, _⟩ := checkDFun_spec hc
+    have hch' : DChain abi L.frame c (headSp s) (some f.entry) s := by rw [hentry]; exact hch
+    have hgood := steps_good hc s hch' hX (fun x hx => (hsteps x hx).1)
+    obtain ⟨s', h1, h2, hok'⟩ := reindex s (fun x hx => by
+      obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hx
+      exact hgood k x hk)
+    have hch2 : DChain abi L.frame c (headSp s') (some f.entry) s' := by
+      rw [headSp_congr s s' h2]; exact dchain_congr abi L.frame c _ s s' _ h1 h2 hch'
     refine ⟨f, s.map (·.st), hfn, dchain_mchain abi L.frame c _ s _ hch, ?_, ?_, ?_⟩
     · intro st hst
       obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hst
-      obtain ⟨⟨_, _, i, hi, hj, _⟩, hcalls⟩ := hsteps x hx
-      exact ⟨step_of hi (List.mem_of_getElem? hj), callsWith_mono _ _ (ih) _ _ hcalls⟩
+      have hst' : x.st ∈ s'.map (·.st) := by rw [h1]; exact List.mem_map_of_mem _ hx
+      obtain ⟨y, hy, hyx⟩ := List.mem_map.mp hst'
+      obtain ⟨_, _, i, hi, hj, _⟩ := hok' y hy
+      rw [hyx] at hi hj
+      exact ⟨step_of hi (List.mem_of_getElem? hj), callsWith_mono _ _ (ih) _ _ (hsteps x hx).2⟩
     · intro r hr
       rw [hrows] at hr
       rw [List.map_map]
       rcases List.mem_append.mp hr with hr | hr
       · exact htr r hr
       · obtain ⟨lc, hlc, rfl⟩ := List.mem_map.mp hr
-        rw [← hentry] at hch
-        exact chain_rows hc s hch (fun y hy => (hsteps y hy).1) lc hlc
+        have := chain_rows hc s' hch2 hok' lc hlc
+        have hmap : (s.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) =
+            (s'.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) := by
+          have e1 : (s.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) =
+              ((s.map (·.st)).map fun st => coefPair (loopRow f lc).coef st.a st.next) := by
+            rw [List.map_map]; rfl
+          have e2 : (s'.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) =
+              ((s'.map (·.st)).map fun st => coefPair (loopRow f lc).coef st.a st.next) := by
+            rw [List.map_map]; rfl
+          rw [e1, e2, h1]
+        simpa [Function.comp_def, hmap] using this
     · rw [htot, List.map_map]; rfl
 
 /-- **Soundness on machine code, loop bounds included**: if `checkBinary` and `checkData`
@@ -1586,11 +2092,11 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
     the program) costs at most its certified bound. Only the rows left in `trusted` are
     assumed. -/
 theorem data_sound (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Cs : List Cert)
-    (Ls : List DFun) (h : checkBinary mul c fs Cs = true) (hD : checkData mul abi c fs Ls = true)
+    (Ls : List DFun) (h : checkBinary mul c fs Cs true = true) (hD : checkData mul abi c fs Ls = true)
     (d e i : Nat) (tot : Int) (hrun : DRun mul abi c fs Ls d e tot)
     (hfind : find (fs.map (·.entry)) e = some i) :
     tot ≤ ((Cs.map Cert.bound).getD i 0 : Nat) :=
-  binary_sound mul c fs Cs h d e i tot (drun_mrun hD d e tot hrun) hfind
+  binary_sound mul c fs Cs true h d e i tot (drun_mrun hD d e tot hrun) hfind
 
 /-! ### An example: the counting loop of `Thumb.exCode`, its bound proved on the code
 
@@ -1702,14 +2208,14 @@ def exProofs : List (Nat × List Nat) :=
 
 def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], []⟩
 
-def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], []⟩
+def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], [], []⟩
 
 /-- The function with the row of its certified loop (generated, `loopRow`). -/
 def exFunD : BFun := { exFunD0 with rows := [loopRow exFunD0 exLoop] }
 
 theorem exData_checks : checkData 32 false exCode [exFunD] [exDFun] = true := by decide
 
-theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] = true := by decide
+theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] true = true := by decide
 
 /-- A bound of 9 iterations is refused. -/
 theorem exData_tight :
@@ -1826,18 +2332,24 @@ def dOkB (mul : Nat) (c : Code) (x : CStep) : Bool :=
   | none => false
 
 theorem dOkB_sound (mul : Nat) (c : Code) (x : CStep) (h : dOkB mul c x = true) :
-    DOk mul c (toD x).st.a (toD x).j (toD x).σ (toD x).st.next (toD x).st.w (toD x).st.calls := by
+    DOkM mul c (toD x).st.a (toD x).j (toD x).σ (toD x).st.next (toD x).st.w (toD x).st.calls := by
   simp only [dOkB, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
   obtain ⟨hw, hd⟩ := h
   refine ⟨fun i hi => by simpa [toD, mkS] using hw i hi, ⟨by simp [toD, mkS, U], fun _ => by simp [toD, mkS, U]⟩, ?_⟩
   split at hd
   · rename_i i hi
     simp only [Bool.and_eq_true, beq_iff_eq] at hd
-    refine ⟨i, by simpa [toD] using hi, by simpa [toD] using hd.1, fun t ht => ?_⟩
+    refine ⟨i, by simpa [toD] using hi, Or.inl ⟨by simpa [toD] using hd.1, fun t ht => ?_⟩⟩
     have := hd.2
     rw [ht] at this
     simpa [toD, mkS] using this
   · cases hd
+
+/-- Runs of instructions without exact values beyond `effect` (no `xop`) satisfy `XChain`. -/
+theorem xchain_none (c : Code) (s : List DStep) (h : ∀ x ∈ s, xop c x.st.a = none) : XChain c s := by
+  intro k x y hx _ op hop
+  rw [h x (List.mem_of_getElem? hx)] at hop
+  cases hop
 
 /-- The registers `r0 = v`, the others `0`. -/
 def regs0 (v : Nat) : List Nat := [v, 0, 0, 0, 0, 0, 0, 0]
@@ -1862,13 +2374,18 @@ theorem exRun_chain : chainB false exCode (some 0x100) exRunC = true := by decid
 
 theorem exRun_steps : exRunC.all (dOkB 32 exCode) = true := by decide
 
+theorem exRun_noX : exRunC.all (fun x => xop exCode x.1.a == none) = true := by decide
+
 theorem exRun_cost : ((exRunC.map toD).map fun x => (x.st.w : Int) + x.st.x).sum = 68 := by decide
 
 /-- **The hypotheses are satisfiable, and the bound is attained**: the counting loop has a
     run of the data semantics of exactly 68 cycles, the bound of `exData_sound`. -/
 theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 68 := by
-  refine ⟨exFunD, exDFun, exRunC.map toD, rfl, ?_, ?_, ?_, exRun_cost.symm⟩
+  refine ⟨exFunD, exDFun, exRunC.map toD, rfl, ?_, ?_, ?_, ?_, exRun_cost.symm⟩
   · exact chainB_sound false exDFun.frame exCode _ (some 0x100) exRunC exRun_chain
+  · exact xchain_none exCode _ (fun x hx => by
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
+      exact List.all_eq_true.mp exRun_noX y hy |> fun h => by simpa [toD] using h)
   · intro x hx
     obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
     refine ⟨dOkB_sound 32 exCode y (List.all_eq_true.mp exRun_steps y hy), ?_⟩
@@ -1961,7 +2478,7 @@ def exStepProofs : List (Nat × List Nat) :=
 def exStepCong : List (List (Nat × Nat × Nat)) :=
   [[], [(0, 2, 0)], [(0, 2, 0), (8, 2, 0), (9, 32, 4)], [(0, 2, 0), (8, 2, 0), (9, 32, 40)], [(0, 2, 0), (8, 2, 0), (9, 32, 40)]]
 
-def exStepFun0 : BFun := ⟨0x100, [256, 258, 260, 262, 264], []⟩
+def exStepFun0 : BFun := ⟨0x100, [256, 258, 260, 262, 264], [], []⟩
 
 def exStepFun : BFun := { exStepFun0 with rows := [loopRow exStepFun0 exStepLoop] }
 
@@ -1970,7 +2487,7 @@ def exStepCert : Cert := ⟨4, [208, 24, 20, 16, 12, 0], [5], 52⟩
 def exStepDFun : DFun :=
   ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong, [], []⟩
 
-theorem exStep_binary : checkBinary 32 exStepCode [exStepFun] [exStepCert] = true := by decide
+theorem exStep_binary : checkBinary 32 exStepCode [exStepFun] [exStepCert] true = true := by decide
 
 theorem exStep_checks : checkData 32 false exStepCode [exStepFun] [exStepDFun] = true := by decide
 
@@ -2160,7 +2677,7 @@ def exWrapProofs : List (Nat × List Nat) :=
     (1, [0, 0, 0, 0, 0, 16, 1, 0, 0, 0, 0, 16]),
     (1, [])]
 
-def exWrapFun0 : BFun := ⟨256, [256, 258, 260, 262, 264, 266], []⟩
+def exWrapFun0 : BFun := ⟨256, [256, 258, 260, 262, 264, 266], [], []⟩
 
 def exWrapFun : BFun := { exWrapFun0 with rows := [loopRow exWrapFun0 exWrapLoop] }
 
@@ -2169,7 +2686,7 @@ def exWrapDFun : DFun :=
 
 def exWrapCert : Cert := ⟨1, [63, 8, 7, 6, 5, 3, 0], [6], 63⟩
 
-theorem exWrap_binary : checkBinary 32 exWrapCode [exWrapFun] [exWrapCert] = true := by decide
+theorem exWrap_binary : checkBinary 32 exWrapCode [exWrapFun] [exWrapCert] true = true := by decide
 
 theorem exWrap_checks : checkData 32 false exWrapCode [exWrapFun] [exWrapDFun] = true := by decide
 
@@ -2302,7 +2819,7 @@ def exZeroProofs : List (Nat × List Nat) :=
     (1, [0, 0, 0, 1]),
     (1, [])]
 
-def exZeroFun0 : BFun := ⟨256, [256, 258, 260, 262, 264], []⟩
+def exZeroFun0 : BFun := ⟨256, [256, 258, 260, 262, 264], [], []⟩
 
 def exZeroFun : BFun := { exZeroFun0 with rows := [loopRow exZeroFun0 exZeroLoop] }
 
@@ -2311,7 +2828,7 @@ def exZeroDFun : DFun :=
 
 def exZeroCert : Cert := ⟨1, [19, 18, 5, 4, 3, 0], [1], 19⟩
 
-theorem exZero_binary : checkBinary 32 exZeroCode [exZeroFun] [exZeroCert] = true := by decide
+theorem exZero_binary : checkBinary 32 exZeroCode [exZeroFun] [exZeroCert] true = true := by decide
 
 theorem exZero_checks : checkData 32 false exZeroCode [exZeroFun] [exZeroDFun] = true := by decide
 
@@ -2326,5 +2843,65 @@ theorem exZero_sound (d : Nat) (tot : Int)
     d 0x100 0 tot h (by decide)
 
 end
+
+/-! ### An example: a jump through a table
+
+`switch (r0) {0, 1, 2}` as Clang compiles it for the Cortex-M0: `cmp r0, #2; bhi 0x116;
+add r0, pc; ldrb r0, [r0, #4]; lsls r0, r0, #1; add pc, r0`, a table of bytes `1, 2, 3`,
+then `bx lr` at `0x110`, `0x112`, `0x114` (the cases) and `0x116` (the default). The check
+evaluates the window for `r0 = 0, 1, 2` and finds the three targets; worst case
+`1 + 1 + 1 + 2 + 1 + 3 + 3 = 12` cycles. The same certificate is refused without the data
+check (`jt`), and with a target left out. -/
+
+def exSwCode : Code :=
+  ⟨0x100, #[0x2802, 0xD808, 0x4478, 0x7900, 0x0040, 0x4487, 0x0201, 0x0003, 0x4770, 0x4770, 0x4770, 0x4770]⟩
+
+def exSwFun : BFun :=
+  ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x110, 0x112, 0x114, 0x116], [],
+   [⟨0x100, 0x10A, [0x110, 0x112, 0x114]⟩]⟩
+
+def exSwCert : Cert := ⟨1, [12, 11, 10, 9, 7, 6, 3, 3, 3, 3, 0], [], 12⟩
+
+def exSwD : DFun := { kinds := [], inv := [], loops := [], trusted := [], proofs := [] }
+
+theorem exSw_checks : checkBinary 32 exSwCode [exSwFun] [exSwCert] true = true := by decide
+
+theorem exSw_data : checkData 32 false exSwCode [exSwFun] [exSwD] = true := by decide
+
+theorem exSw_needs_jt : checkBinary 32 exSwCode [exSwFun] [exSwCert] = false := by decide
+
+theorem exSw_target_missing :
+    checkData 32 false exSwCode [{ exSwFun with jumps := [⟨0x100, 0x10A, [0x110, 0x112]⟩] }] [exSwD] = false := by
+  decide
+
+/-- Every run of the data semantics of the switch costs at most 12 cycles. -/
+theorem exSw_sound (d : Nat) (tot : Int) (h : DRun 32 false exSwCode [exSwFun] [exSwD] d 0x100 tot) :
+    tot ≤ 12 :=
+  data_sound 32 false exSwCode [exSwFun] [exSwCert] [exSwD] exSw_checks exSw_data d 0x100 0 tot h (by decide)
+
+/-- The same switch with the range check as `BLS` over a branch to the default case (Clang's
+    form when the default case is out of reach of a conditional branch): `cmp r0, #2;
+    bls 0x106; b 0x118; add r0, pc; ldrb r0, [r0, #4]; lsls r0, r0, #1; add pc, r0`, the table,
+    the cases at `0x112`, `0x114`, `0x116`; worst case `1 + 3 + 1 + 2 + 1 + 3 + 3 = 14`. -/
+def exLsCode : Code :=
+  ⟨0x100, #[0x2802, 0xD900, 0xE008, 0x4478, 0x7900, 0x0040, 0x4487, 0x0201, 0x0003, 0x4770, 0x4770, 0x4770, 0x4770]⟩
+
+def exLsFun : BFun :=
+  ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x10C, 0x112, 0x114, 0x116, 0x118], [],
+   [⟨0x100, 0x10C, [0x112, 0x114, 0x116]⟩]⟩
+
+def exLsCert : Cert := ⟨1, [14, 13, 6, 10, 9, 7, 6, 3, 3, 3, 3, 0], [], 14⟩
+
+theorem exLs_checks : checkBinary 32 exLsCode [exLsFun] [exLsCert] true = true := by decide
+
+theorem exLs_data : checkData 32 false exLsCode [exLsFun] [exSwD] = true := by decide
+
+theorem exLs_target_missing :
+    checkData 32 false exLsCode [{ exLsFun with jumps := [⟨0x100, 0x10C, [0x112, 0x116]⟩] }] [exSwD] = false := by
+  decide
+
+theorem exLs_sound (d : Nat) (tot : Int) (h : DRun 32 false exLsCode [exLsFun] [exSwD] d 0x100 tot) :
+    tot ≤ 14 :=
+  data_sound 32 false exLsCode [exLsFun] [exLsCert] [exSwD] exLs_checks exLs_data d 0x100 0 tot h (by decide)
 
 end ImperativeOptimization.Thumb

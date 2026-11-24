@@ -116,6 +116,6 @@ requirements:
       and stack effects are the specification of the processor; they are compared with
       m0.py on every encoding.
     evidence:
-      - {kind: proof, file: formalization/ImperativeOptimization/ThumbData.lean, lean: [data_sound, drun_mrun, chain_rows, step_ok, postS_eval, condFacts_sound, exData_tight, exData_sound]}
-      - {kind: test, files: [benchmarks/cycles/test_binloops.py, benchmarks/cycles/test_effect.py]}
+      - {kind: proof, file: formalization/ImperativeOptimization/ThumbData.lean, lean: [data_sound, drun_mrun, chain_rows, step_ok, postS_eval, condFacts_sound, exData_tight, exData_sound, steps_good, jump_good, exSw_sound]}
+      - {kind: test, files: [benchmarks/cycles/test_binloops.py, benchmarks/cycles/test_effect.py, benchmarks/cycles/test_jumptable.py]}
       - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_binloops.py, test_effect.py, --certify-loops]}

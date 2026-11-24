@@ -79,6 +79,50 @@ class Unbounded(Exception):
     pass
 
 
+
+def acyclic(entry, succ):
+    """No cycle reachable from `entry` in the graph `succ` (iterative depth-first search, so
+    that large functions do not exhaust Python's recursion limit)."""
+    state = {entry: 1}
+    stack = [(entry, iter(succ[entry]))]
+    while stack:
+        b, it = stack[-1]
+        for s in it:
+            if state.get(s) == 1:
+                return False
+            if s not in state:
+                state[s] = 1
+                stack.append((s, iter(succ[s])))
+                break
+        else:
+            state[b] = 2
+            stack.pop()
+    return True
+
+
+def dag_longest(start, kids, cost, is_target):
+    """Longest path from `start` to a node where `is_target` holds, in a DAG given by `kids`:
+    the cost of a path is the sum of the costs of its nodes; None if no target is reachable.
+    Iterative (post-order with an explicit stack)."""
+    memo = {}
+    stack = [(start, False)]
+    while stack:
+        x, done = stack.pop()
+        if x in memo:
+            continue
+        ks = kids(x)
+        if not done:
+            stack.append((x, True))
+            stack.extend((k, False) for k in ks if k not in memo)
+            continue
+        best = cost(x) if is_target(x) else None
+        for k in ks:
+            r = memo[k]
+            if r is not None:
+                best = max(best or 0, cost(x) + r)
+        memo[x] = best
+    return memo[start]
+
 class Analysis:
     def __init__(self, img, lines, loop_bounds, loop_ends=None):
         """`loop_bounds`: source line -> iteration bound (None: no bound); `loop_ends`: source
@@ -88,6 +132,7 @@ class Analysis:
         self.memo, self.active = {}, set()
         self.loops = {}      # function -> [(header, matched line, bound)]
         self.why = {}
+        self.jumps = {}      # function -> {address of a jump through a table: (start, targets)}
 
     def _within(self, k, l):
         """Line `l` lies in the source loop of line `k` (keys: lines, or (file, line) pairs)."""
@@ -157,7 +202,18 @@ class Analysis:
                 continue
             i = m0.decode(mem, a)
             insns[a] = i
-            if i.kind in ("stop", "indirect"):
+            if i.kind == "indirect":
+                # a jump through a table, if its window is recognised (jumptable.py)
+                import jumptable
+                jt = jumptable.find(jumptable.getter(self.img), a)
+                if jt is None or not all(entry <= t < entry + max(size, 2) for t in jt[1]):
+                    raise Unbounded(f"{i.op} at {a:#x} (indirect jump or unsupported instruction)")
+                self.jumps.setdefault(name, {})[a] = jt
+                for t in jt[1]:
+                    leaders.add(t)
+                    todo.append(t)
+                continue
+            if i.kind == "stop":
                 raise Unbounded(f"{i.op} at {a:#x} (indirect jump or unsupported instruction)")
             if i.kind in ("cond", "jump"):
                 if not (entry <= i.target < entry + max(size, 2)):
@@ -177,7 +233,7 @@ class Analysis:
                 blocks[cur] = []
             blocks[cur].append(insns[a])
             i = insns[a]
-            if i.kind in ("cond", "jump", "ret") or (a + i.size) in leaders:
+            if i.kind in ("cond", "jump", "ret", "indirect") or (a + i.size) in leaders:
                 cur = None
         for b, il in blocks.items():
             last = il[-1]
@@ -186,6 +242,8 @@ class Analysis:
                 s.append(last.target)
             if last.kind in ("cond", "seq", "call"):
                 s.append(last.addr + last.size)
+            if last.kind == "indirect":
+                s.extend(self.jumps[name][last.addr][1])
             succ[b] = [x for x in s if x in blocks]
         return entry, blocks, succ
 
@@ -226,17 +284,7 @@ class Analysis:
         back = [(u, h) for u in nodes for h in succ[u] if h in dom[u]]
         # reducible: the graph without back edges is acyclic
         fwd = {b: [s for s in succ[b] if (b, s) not in back] for b in nodes}
-        state = {}
-
-        def acyclic(b):
-            state[b] = 1
-            for s in fwd[b]:
-                if state.get(s) == 1 or (s not in state and not acyclic(s)):
-                    return False
-            state[b] = 2
-            return True
-
-        if not acyclic(entry):
+        if not acyclic(entry, fwd):
             raise Unbounded("irreducible control flow")
         loops = {}
         for u, h in back:
@@ -288,22 +336,10 @@ class Analysis:
             exits = [(rep[u], v) for u in body for v in succ[u] if v not in body]
 
             def longest(target_test):
-                memo = {}
-
-                def go(x):
-                    if x in memo:
-                        return memo[x]
-                    best = ncost[x] if target_test(x) else None
-                    for s in nsucc[x]:
-                        if s == h or rep.get(s, s) not in members or rep.get(s, s) == x:
-                            continue
-                        r = go(rep.get(s, s))
-                        if r is not None:
-                            best = max(best or 0, ncost[x] + r)
-                    memo[x] = best
-                    return best
-
-                return go(h)
+                def kids(x):
+                    return [rep.get(s, s) for s in nsucc[x]
+                            if s != h and rep.get(s, s) in members and rep.get(s, s) != x]
+                return dag_longest(h, kids, lambda x: ncost[x], target_test)
 
             p_iter = longest(lambda x: x in latches) or 0
             exit_nodes = {x for x, _ in exits}
@@ -317,20 +353,8 @@ class Analysis:
                     ncost.pop(x, None)
                     nsucc.pop(x, None)
         # longest path from the entry to a return, on the collapsed DAG
-        memo = {}
-
-        def go(x):
-            if x in memo:
-                return memo[x]
-            best = ncost[x] if not nsucc[x] else None
-            for s in nsucc[x]:
-                r = go(rep[s])
-                if r is not None:
-                    best = max(best or 0, ncost[x] + r)
-            memo[x] = best
-            return best
-
-        res = go(rep[entry])
+        res = dag_longest(rep[entry], lambda x: [rep[s] for s in nsucc[x]], lambda x: ncost[x],
+                          lambda x: not nsucc[x])
         if res is None:
             raise Unbounded("no path to a return")
         return res
