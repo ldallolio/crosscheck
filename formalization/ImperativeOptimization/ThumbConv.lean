@@ -737,7 +737,7 @@ theorem dfAt_conv {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
 theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
     (hD : checkData mul true c fs Ls = true) (hC : convAll mul c fs Ls = true) :
     ∀ d e σi σo tot, DRunL mul c fs Ls d e σi σo tot →
-      DRun mul true c fs Ls d e tot ∧ Preserves σi σo := by
+      DRun mul true c fs Ls d e σi tot ∧ Preserves σi σo := by
   intro d
   induction d with
   | zero => intro e σi σo tot h; simp [DRunL] at h
@@ -755,8 +755,10 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
       obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hy
       exact hg k y hk
     have hSP0 : σi.sp < U := by rw [← hxσ]; exact (hokM x (by simp)).2.1.1
-    refine ⟨⟨f, L, x :: t, hdf, ?_, hX, ?_, htr, htot⟩, ?_⟩
+    refine ⟨⟨f, L, x :: t, hdf, ?_, hX, fun y hy i _ => ?_, ?_, htr, htot⟩, ?_⟩
     · simpa [headSp, hxσ] using hchT
+    · simp only [List.head?_cons, Option.mem_def, Option.some.injEq] at hy
+      rw [← hy, hxσ]
     · intro y hy
       refine ⟨hokM y hy, ?_⟩
       obtain ⟨σ', hs⟩ := chainL_steps (x :: t) (some e) σo hch y hy
@@ -781,16 +783,18 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
 
 /-- **Soundness on machine code without the assumption on callees**: if the checker accepts
     the cycle certificate, the loop certificates and the calling convention of every function,
-    every run of the linked semantics of the function at entry `e` costs at most its certified
-    bound. The loop rows left in `trusted` remain assumed; the callees' preservation of
-    `r4`-`r7` and SP is proved, under the hypothesis `SaveSafe` (no stack smashing). -/
+    every run of the linked semantics of the function at entry `e` that starts with registers
+    satisfying its precondition (none if its certificate gives none) costs at most its
+    certified bound; the preconditions of the callees are proved at the calls. The loop rows
+    left in `trusted` remain assumed; the callees' preservation of `r4`-`r7` and SP is
+    proved, under the hypothesis `SaveSafe` (no stack smashing). -/
 theorem data_sound_conv (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (Ls : List DFun)
     (h : checkBinary mul c fs Cs true = true) (hD : checkData mul true c fs Ls = true)
     (hC : convAll mul c fs Ls = true)
     (d e i : Nat) (σi σo : MState) (tot : Int) (hrun : DRunL mul c fs Ls d e σi σo tot)
-    (hfind : find (fs.map (·.entry)) e = some i) :
+    (hpre : PreAt fs Ls e σi) (hfind : find (fs.map (·.entry)) e = some i) :
     tot ≤ ((Cs.map Cert.bound).getD i 0 : Nat) :=
-  data_sound mul true c fs Cs Ls h hD d e i tot (drunL_drun hD hC d e σi σo tot hrun).1 hfind
+  data_sound mul true c fs Cs Ls h hD d e i σi tot (drunL_drun hD hC d e σi σo tot hrun).1 hpre hfind
 
 /-! ### Examples: the hypotheses are satisfiable, and the check refuses a broken convention -/
 
@@ -805,7 +809,7 @@ theorem exConvData_checks : checkData 32 true exCode [exFunD] [exDFunC] = true :
 theorem exConv_sound (d : Nat) (σi σo : MState) (tot : Int)
     (h : DRunL 32 exCode [exFunD] [exDFunC] d 0x100 σi σo tot) : tot ≤ 68 :=
   data_sound_conv 32 exCode [exFunD] [exCert] [exDFunC] exBinaryD_checks exConvData_checks
-    exConv_checks d 0x100 0 σi σo tot h (by decide)
+    exConv_checks d 0x100 0 σi σo tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 /-- `push {r4, lr}; movs r4, #0; pop {r4, pc}`: saves `r4`, writes it, restores it. -/
 def exSaveCode : Code := ⟨0x300, #[0xB510, 0x2400, 0xBD10]⟩
@@ -833,7 +837,7 @@ theorem exSwConvData_checks : checkData 32 true exSwCode [exSwFun] [exSwDC] = tr
 theorem exSwConv_sound (d : Nat) (σi σo : MState) (tot : Int)
     (h : DRunL 32 exSwCode [exSwFun] [exSwDC] d 0x100 σi σo tot) : tot ≤ 12 :=
   data_sound_conv 32 exSwCode [exSwFun] [exSwCert] [exSwDC] exSw_checks exSwConvData_checks
-    exSwConv_checks d 0x100 0 σi σo tot h (by decide)
+    exSwConv_checks d 0x100 0 σi σo tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 /-- The same switch whose case 0 branches to `movs r4, #1; bx lr`, reached only through the
     table: `r4` is written without being saved; refused. -/

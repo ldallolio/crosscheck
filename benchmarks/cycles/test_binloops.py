@@ -542,6 +542,60 @@ class ForgetGrowing(unittest.TestCase):
         self.assertTrue(all(out[i][j] >= old[i][j] for i in range(Zd.n) for j in range(Zd.n)))
 
 
+# f at 0x100: push {lr}; movs r0, #10; bl g; pop {pc}
+# g at 0x120: movs r1, #0; L: cmp r1, r0; bge out; adds r1, #1; b L; out: bx lr
+CTXCALL = {0x100: [0xB500, 0x200A, 0xF000, 0xF80C, 0xBD00],
+           0x120: [0x2100, 0x4281, 0xDA01, 0x3101, 0xE7FB, 0x4770]}
+
+
+def ctx_doc(contexts=True, code=CTXCALL):
+    an = test_ipet.analysis(code, {"f": (0x100, 10), "g": (0x120, 12)}, [], 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, abi=True, stats=st, contexts=contexts)
+    return doc, bounds, st
+
+
+class Contexts(unittest.TestCase):
+    """Preconditions on the arguments (`--contexts`, Lean `DFun.pre`, `callObs`): `g` counts up
+    to its argument `r0`, which its only caller sets to 10."""
+
+    def fn(self, doc, name):
+        return next(f for f in doc["programs"][0]["functions"] if f["name"] == name)
+
+    def test_bound_from_the_call(self):
+        _, b, st = ctx_doc(contexts=False)
+        self.assertEqual(st["g"]["certified"][0][1], 4294967295)   # r0 unknown: up to 2^32 - 1
+        doc, b, st = ctx_doc()
+        self.assertEqual(st["g"]["certified"][0][1], 10)
+        self.assertEqual((b["g"], b["f"]), (68, 80))
+        self.assertEqual(self.fn(doc, "g")["pre"], [{"sv": [[0, 1]], "c": -10}, {"sv": [[0, -1]], "c": 10}])
+        self.assertTrue(self.fn(doc, "f")["call_proofs"])
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc, _, _ = ctx_doc()
+        code, out = check(doc)
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 function(s) with a precondition on their arguments", out)
+        # must be rejected: the proofs at the call removed; a precondition that the call does
+        # not establish (r0 <= 9, the caller passes 10); the precondition removed (the bound of
+        # g needs it); the caller's argument changed in the code (movs r0, #20)
+        bad = copy.deepcopy(doc)
+        del self.fn(bad, "f")["call_proofs"]
+        self.assertEqual(check(bad)[0], 1)
+        bad = copy.deepcopy(doc)
+        self.fn(bad, "g")["pre"][0]["c"] = -9
+        self.assertEqual(check(bad)[0], 1)
+        bad = copy.deepcopy(doc)
+        del self.fn(bad, "g")["pre"]
+        self.assertEqual(check(bad)[0], 1)
+        bad = copy.deepcopy(doc)
+        hw = bad["code"]["halfwords"]
+        hw[0x102 // 2] = 0x2014
+        self.assertEqual(check(bad)[0], 1)
+
+
 class Checker(unittest.TestCase):
     def setUp(self):
         if not pathlib.Path(CHECKER).exists():

@@ -743,6 +743,48 @@ stepped by 7 up to 28 with an exit on equality (a congruence modulo 7; the check
 modulo powers of two) and a shifted counter; `gsm_dec_RPE_Decoding`, counters through
 `SXTH`; `g723_enc_main`, a counter whose initial value is loaded from the literal pool.
 
+### Bounds that depend on the call: preconditions (2026-11-25)
+
+`run_cycles.py --contexts` (with `--certify-loops`) gives each function with loops a
+precondition: facts `lo <= r <= hi` on `r0`-`r3` at its entry, from its calls. The checker
+assumes them at the entry and proves them at every call, from each disjunct of the caller's
+invariant there (Lean `DFun.pre`, `callObs`, `call_pre`; Paper III `def:loop-certificate`
+condition 3, `thm:machine-loops`): the bound of such a function holds for the runs that start
+in its precondition, that is for the calls of the program; a function without one (`main`) is
+bounded for every run. The producer (`ipet.context_certificates`) certifies the callers first,
+level by level of the call graph; a callee gets the hull of the ranges at its calls, each fact
+kept only if every call proves it; callers then give invariants even without loops. Not
+given: to functions on a cycle of calls, to the run-time routines, and to functions with a
+jump bounded by the invariant (the checker refuses a precondition there). Tests:
+`test_binloops.py Contexts` (a loop up to its argument, `r0 = 10` at its only call: 10
+iterations instead of 2^32 - 1; rejected without the proofs at the call, with a precondition
+that the call does not establish, without the precondition, or with the argument changed in
+the code), Lean `exCtx_*`.
+
+Results, against the runs above (`compare_runs.py --check`: nothing lost, no bound higher,
+every certificate accepted, no emulated run above a bound):
+
+| | without | with `--contexts` |
+|---|---:|---:|
+| kernel loops certified (`--abi --frame`) | 260 | 263 |
+| ... functions with a precondition | | 2 |
+| ... run time (`--jobs 8 --func-jobs 4`, 40-core machine) | 241 s | 235 s |
+| larger programs, loops certified (compiler-rt, `--abi --frame`) | 1,247 | 1,249 |
+| ... functions with a precondition | | 12 |
+| ... run time (`--jobs 10 --func-jobs 4`) | 1,293 s | 1,884 s |
+
+Kernels: `fft_bit_reduct` (1,022 instead of none; its caller passes `r0` = 17,700),
+`filterbank_main`, `sha_update` gained, and `minver_minver`'s loop at `0x104` 2^31 - 2 → 2.
+Larger programs: `audiobeam_find_max_in_arr` and `fmref_init_lpf_data` gained, five bounds
+lower (`ammunition_multiply_integer`, `ammunition_unsigned_integer_remainder`, 2^32 - 2 → 3;
+`cjpeg_wrbmp_write_colormap`, 255 → 0). The certified functions and entry functions are the
+same. The gain is small because the loops whose limit is an argument mostly re-read it from
+the frame where `--frame` is refused (`ludcmp_test`), or are in recursive functions
+(`quicksort_str`, `quicksort_vec`). The larger programs take 46% longer (callers analysed
+without loops, levels computed one after the other), and their slowest successful linear
+program takes 49 CPU seconds, near the 60-second limit; so the option stays off by default and
+the figures of the papers are without it.
+
 ## OTAWA on the same binaries
 
 `run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)
@@ -955,6 +997,8 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-25, preconditions.** `--contexts`: bounds that depend on the calls, proved at
+  every call ("Bounds that depend on the call"); off by default, figures unchanged.
 - **2026-11-25, creeping widening.** `forget_growing` drops the constraints of the growing
   variables only ("Creeping widening"): larger programs 1,227 → 1,247 certified loops; kernel
   figures unchanged.

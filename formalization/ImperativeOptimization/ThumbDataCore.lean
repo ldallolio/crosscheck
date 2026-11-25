@@ -559,6 +559,12 @@ structure DFun where
       `m`, branch fact `d` and source disjunct `s` lands in the disjunct `t` of the next
       instruction's invariant (`0`, the disjunct `inv`, when none is given). -/
   pick : List (List (Nat × Int × Nat × Nat × Nat)) := []
+  /-- The precondition of the function: linear facts on `r0`-`r7` at its entry (`wfPre`),
+      assumed by the obligations of the entry and proved at every call of the function, from
+      the invariant of the caller at the call (`callObs`). -/
+  pre : List Lin := []
+  /-- The Farkas proofs of the obligations of the calls made by the function (`callObs`). -/
+  callProofs : List (Nat × List Nat) := []
   deriving Repr
 
 def kindAt (f : BFun) (L : DFun) (a : Nat) : FKind :=
@@ -697,12 +703,15 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
           goalLin (coefStep lc a next) (substP (potAt lc next) σ) (potAt lc (some a))
         (invGoals ++ loopGoals).map fun g => (prem, g)
 
-/-- All obligations: the invariant and the potentials at the entry (from the ranges
-    alone), then those of every transition. -/
+/-- The premises at the entry: the precondition, then the ranges. -/
+def entryPrem (L : DFun) : List Lin := L.pre ++ rangesN (nVars L.slots.length)
+
+/-- All obligations: the invariant and the potentials at the entry (from the ranges and the
+    precondition), then those of every transition. -/
 def obligations (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) :
     List (List Lin × Lin) :=
-  (invAt f L f.entry).map (fun g => (rangesN (nVars L.slots.length), g)) ++
-  L.loops.map (fun lc => (rangesN (nVars L.slots.length),
+  (invAt f L f.entry).map (fun g => (entryPrem L, g)) ++
+  L.loops.map (fun lc => (entryPrem L,
     goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0))) ++
   f.nodes.flatMap (obsOf mul abi c f L)
 
@@ -1039,6 +1048,33 @@ def interiorOk (mul : Nat) (c : Code) (f : BFun) : Bool :=
       | some p => !(interior c t).contains p || m.1 == wpred c t p
       | none => true
 
+/-- A fact of a precondition: on the registers `r0`-`r7` only. -/
+def wfPre (g : Lin) : Bool := g.lv.isEmpty && decide (g.sv.length ≤ 8)
+
+/-- The function at entry `e` and its certificate. -/
+def dfAt (fs : List BFun) (Ls : List DFun) (e : Nat) : Option (BFun × DFun) :=
+  (find (fs.map (·.entry)) e).bind fun k =>
+    match fs[k]?, Ls[k]? with
+    | some f, some L => some (f, L)
+    | _, _ => none
+
+/-- The functions that the instruction at `a` calls (entry addresses). -/
+def callsAt (mul : Nat) (c : Code) (a : Nat) : List Nat :=
+  match decode mul c a with
+  | some i => (trans i a).flatMap fun t => t.2.2
+  | none => []
+
+/-- The obligations of the calls of `f`: at every call of a function `g` of the certificate,
+    every disjunct of the invariant at the call (with the ranges) entails each fact of
+    `g`'s precondition. The callee starts with the caller's registers. -/
+def callObs (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) (f : BFun) (L : DFun) :
+    List (List Lin × Lin) :=
+  f.nodes.flatMap fun a => (callsAt mul c a).flatMap fun g =>
+    match dfAt fs Ls g with
+    | some (_, Lg) => (invsAt f L a).flatMap fun I =>
+        Lg.pre.map fun p => (I ++ rangesN (nVars L.slots.length), p)
+    | none => []
+
 /-- The check of the loop certificates of a function. -/
 def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :=
   closed mul c f.jumps f.entry f.nodes && nodupB f.nodes &&
@@ -1049,14 +1085,18 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   L.alt.all (·.all (·.all (wfLin L.slots.length))) &&
   L.loops.all (fun lc => lc.pot.all fun p => wfSv L.slots.length p.sv) &&
   checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L &&
-  f.jumps.all (jumpOkF abi mul c f L) && interiorOk mul c f
+  f.jumps.all (jumpOkF abi mul c f L) && interiorOk mul c f &&
+  -- a precondition only in a function without jumps bounded by the invariant (`JT.vr`): then
+  -- the steps follow the transitions without any use of the invariant (`ThumbData.steps_good`)
+  (L.pre.all wfPre && (L.pre.isEmpty || f.jumps.all fun t => t.vr.isNone))
 
 /-- The check of the loop certificates of all functions (aligned with the functions);
     `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`
     assumes that no store through a register other than SP, and no call, writes the
     function's frame, and the function must not put an address of its frame in a register. -/
 def checkData (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
-  fs.length == Ls.length && (fs.zip Ls).all fun p => checkDFun mul abi c p.1 p.2
+  fs.length == Ls.length && (fs.zip Ls).all (fun p => checkDFun mul abi c p.1 p.2) &&
+  (fs.zip Ls).all fun p => checkObs (callObs mul c fs Ls p.1 p.2) p.2.callProofs
 
 /-! ### The calling convention, checked on the code (`ThumbConv`)
 

@@ -1511,8 +1511,12 @@ def apply_post(Zd, M, ex, closed=False):
 
 
 class Ctx:
-    def __init__(self, an, name, abi, frame=False, lit_any=False):
+    def __init__(self, an, name, abi, frame=False, lit_any=False, pre=None):
         self.an, self.name, self.abi = an, name, abi
+        # the precondition of the function (`ThumbDataCore.DFun.pre`): bounds lo <= r <= hi of
+        # registers r0-r7 at its entry, proved at every call of the program (`ipet.certify`)
+        self.pre = {r: (lo, hi) for r, (lo, hi) in (pre or {}).items() if lo > 0 or hi < U - 1}
+        self.pre_lins = pre_lins(self.pre)
         mem = an.img.mem
         self.get = lambda a: (int.from_bytes(mem[a:a + 2], "little") if 0 <= a and a + 2 <= len(mem) else None)
         (self.entry, self.blocks, self.succ, self.back, self.loops, self.headers,
@@ -1585,6 +1589,31 @@ class Ctx:
                 imms |= {U - w[2] - 1, U - w[2], U - w[2] + 1}
         thr = {t for t in imms if 0 <= t < U} | {U - 1}
         self.thresholds = sorted(thr | {-t for t in thr})
+
+
+def pre_lins(pre):
+    """The facts of a precondition {r: (lo, hi)}, in the order of the certificate."""
+    out = []
+    for r in sorted(pre):
+        lo_, hi_ = pre[r]
+        if hi_ < U - 1:
+            out.append(lin([(1, r)], -hi_))
+        if lo_ > 0:
+            out.append(lin([(-1, r)], lo_))
+    return out
+
+
+def entry_zone(ctx):
+    """The zone at the entry: any values, within the precondition."""
+    Zd = ctx.zones
+    M = Zd.top()
+    for r, (lo_, hi_) in getattr(ctx, "pre", {}).items():
+        M = Zd.add_edge(M, r, Zd.Z, hi_)
+        if M is not None:
+            M = Zd.add_edge(M, Zd.Z, r, -lo_)
+        if M is None:
+            raise ValueError("empty precondition")
+    return M
 
 
 def sp_offsets(ctx):
@@ -1760,7 +1789,7 @@ def hull(parts):
 def analyse(ctx, kind):
     Zd = ctx.zones
     state = {a: None for a in ctx.nodes}
-    state[ctx.entry] = Zd.top()
+    state[ctx.entry] = entry_zone(ctx)
     heads = {h for h, _b, _n in ctx.iloops}
     order = {a: k for k, a in enumerate(ctx.nodes)}
     if getattr(ctx, "windows", None) is None:
@@ -1811,7 +1840,7 @@ def analyse(ctx, kind):
                     work.append(n)
     for _ in range(3):
         new = {a: None for a in ctx.nodes}
-        new[ctx.entry] = Zd.top()
+        new[ctx.entry] = entry_zone(ctx)
         ctx.disj = {}
         for a in ctx.nodes:
             if state[a] is None or a in inner:
@@ -1937,7 +1966,7 @@ def synth(ctx, kind, state, h, body, cache):
             if not stable or any(c[a] <= -INF for a in body):
                 continue
             if h == ctx.entry:
-                entry_terms.append(bound_of(Zd, Zd.top(), phi))
+                entry_terms.append(bound_of(Zd, entry_zone(ctx), phi))
             N = max(0, max([c[h] + t for t in entry_terms], default=0))
             if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
                 cphi = {(v if v < 10 else 20 + (v - 10)): k for v, k in phi.items()}
@@ -2102,7 +2131,7 @@ def synth_transport(ctx, kind, state, h, body, lin, sgn, cache=None):
         if not stable or any(c[a] <= -INF for a in body):
             continue
         if h == ctx.entry:
-            entry_terms.append(bound_of(Zd, Zd.top(), {lin[h]: sgn}))
+            entry_terms.append(bound_of(Zd, entry_zone(ctx), {lin[h]: sgn}))
         N = max(0, max([c[h] + t for t in entry_terms], default=0))
         if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
             best = (N, [padd(({_cv(lin[a]): sgn}, 0), pconst(c[a])) for a in body], D)
@@ -2317,10 +2346,10 @@ def zone_constraints(Zd, M, keep):
     return out
 
 
-def relevant(ctx, loops):
-    """Analysis variables that the potentials and the loop tests need, closed under the
-    copies that define them."""
-    R = set()
+def relevant(ctx, loops, extra=()):
+    """Analysis variables that the potentials and the loop tests need (and `extra`), closed
+    under the copies that define them."""
+    R = set(extra)
     for lc in loops:
         for p in lc.pot:
             R |= {v if v < 20 else 10 + (v - 20) for v in p[0]}
@@ -2408,16 +2437,22 @@ def inv_jumps_unproved(ctx, inv):
     return bad
 
 
-def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
+def certify_loops(an, name, abi=False, prefer_source=True, frame=False, pre=None, need_inv=False):
     """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
     N)] of the certified loops, [(header, reason)] of the others). If a loop is left
     uncertified, the function is analysed again with the literal loads and the shifts giving
     any value in the producer's own analysis (the constants of the literal pool can make the linear
     programs fail numerically); the certificate that certifies more loops is kept. The
-    checker's obligations use the exact effects in both."""
+    checker's obligations use the exact effects in both. `pre` ({register: (lo, hi)}): the
+    precondition of the function, assumed at its entry (`ThumbDataCore.DFun.pre`; ignored in a
+    function with jumps bounded by the invariant, which the checker refuses with one);
+    `need_inv`: the invariants are given even without a loop, with `r0`-`r3` kept (the
+    function calls functions that may get a precondition). The fields then hold, under
+    `_calls`, the ranges of `r0`-`r3` at each call (`[address, callee address, {r: [lo,
+    hi]}]`, from the analysis; to be removed before the certificate is written)."""
     _meter_reset()
     key = None
-    if name.startswith("__aeabi_") and name in an.img.funcs:
+    if name.startswith("__aeabi_") and name in an.img.funcs and not pre and not need_inv:
         # the run-time routines are the same code in every binary: an empty result is
         # reused (keyed by the code, its alignment and the options; addresses relocated)
         start, size = an.img.funcs[name]
@@ -2429,10 +2464,10 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     deadline = FUNC_WORK if FUNC_WORK > 0 else None
     _DEADLINE = deadline
     try:
-        res = _certify_loops_budget(an, name, abi, prefer_source, frame, False, deadline)
+        res = _certify_loops_budget(an, name, abi, prefer_source, frame, False, deadline, pre, need_inv)
         if res[2] and any(w == "no potential found" for _h, w in res[2]) and \
                 (deadline is None or _work() < deadline):
-            alt = _certify_loops_budget(an, name, abi, prefer_source, frame, True, deadline)
+            alt = _certify_loops_budget(an, name, abi, prefer_source, frame, True, deadline, pre, need_inv)
             if len(alt[1]) > len(res[1]):
                 res = alt
     finally:
@@ -2442,11 +2477,11 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     return res
 
 
-def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline):
+def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline, pre=None, need_inv=False):
     """`_certify_loops`; when the budget is spent during the analysis, no loop is certified
     (the offsets of SP are still given)."""
     try:
-        return _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline)
+        return _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline, pre, need_inv)
     except BudgetSpent:
         global _DEADLINE
         saved, _DEADLINE = _DEADLINE, None
@@ -2463,9 +2498,9 @@ def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline
 _RUNTIME_EMPTY = {}
 
 
-def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
+def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, pre=None, need_inv=False):
     try:
-        ctx = Ctx(an, name, abi, frame, lit_any)
+        ctx = Ctx(an, name, abi, frame, lit_any, pre)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return {}, [], [(None, str(e))]
     # the offsets of SP are given for every function, with loops or not: the checker uses them
@@ -2476,7 +2511,9 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
     injumps = any(len(jt) > 3 and jt[3] is not None for jt in ctx.jumps.values())
     if injumps:
         sp_only = dict(sp_only, unproved_jumps=sorted(ctx.jumps))
-    if not ctx.iloops and not injumps:
+        # the checker allows no precondition in a function with such jumps (`checkDFun`)
+        ctx.pre, ctx.pre_lins = {}, []
+    if not ctx.iloops and not injumps and not need_inv:
         return sp_only, [], []
     kind = kinds_of(ctx)
     if CONG:        # the congruences do not depend on the zones: one analysis, with them
@@ -2545,16 +2582,16 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
             continue
         loops.append(Loop(h, body, D, N, pots))
         info.append((h, eff_n, Nsrc))
-    if not loops and not injumps:
+    if not loops and not injumps and not need_inv:
         return sp_only, [], why
     if full is None and injumps:
         full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
-    inv = full if full is not None else invariants(relevant(ctx, loops))
+    inv = full if full is not None else invariants(relevant(ctx, loops, range(4) if need_inv else ()))
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:
         why.append((h, "an obligation of its potential could not be proved"))
     info = [x for x in info if any(lc.header == x[0] for lc in loops)]
-    if not loops and not injumps:
+    if not loops and not injumps and not need_inv:
         return sp_only, [], why
     fields = dict(
         kinds=[kind.get(a, "none") for a in ctx.nodes],
@@ -2566,6 +2603,17 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
         frame=ctx.frame,
         cong=[[[v, e, r] for v, (e, r) in sorted((ctx.cong or {}).get(a, {}).items())] for a in ctx.nodes],
         proofs=proofs)
+    if ctx.pre_lins:
+        fields["pre"] = [js_lin(g) for g in ctx.pre_lins]
+    if need_inv:
+        calls = []
+        for a in ctx.nodes:
+            i = ctx.insn[a]
+            if i.kind == "call" and i.target is not None:
+                calls.append([a, i.target, None if state[a] is None else
+                              {r: list(ctx.zones.lohi(state[a], r)) for r in range(4)}])
+        fields["_calls"] = calls
+        fields["_nodes"] = list(ctx.nodes)
     if any(inv.alt.get(a) for a in ctx.nodes):
         fields["alt"] = [[[js_lin(g) for g in d] for d in inv.alt.get(a, [])] for a in ctx.nodes]
         fields["pick"] = picks_of(ctx, inv, kind)
@@ -2599,7 +2647,7 @@ def prove_all(ctx, kind, inv, loops):
         proofs = []
         entry_goals = list(inv.get(ctx.entry, [])) + [
             goal_lin(-row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)) for lc in cur]
-        pr = Prover(rng, nv, entry_goals)
+        pr = Prover(list(ctx.pre_lins) + rng, nv, entry_goals)
         for k, g in enumerate(inv.get(ctx.entry, [])):
             cert = pr.prove(g)
             if cert is None:

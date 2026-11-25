@@ -2551,6 +2551,32 @@ memory, a counter stepped by 7 to an equality, `SXTH`), a `bl` used as a long br
 `classify_loops.py` sets the assumptions of the run for jumps bounded by the loop analysis.
 Paper III (larger programs), cycles README, CLAUDE.md.
 
+Second part (Claude Opus 5.5, 2026-11-25): bounds that depend on the call. Lean: a loop
+certificate may give a precondition (`DFun.pre`, facts on `r0`-`r7`, `wfPre`), assumed at the
+entry (`entryPrem`, premises before the ranges) and proved at every call from each disjunct
+of the caller's invariant (`callObs`, `callsAt`, `callProofs`, in `checkData`); `DRun` now
+takes the caller's state, so that a callee's run starts with the caller's registers;
+`drun_mrun`, `data_sound` and `data_sound_conv` hold for runs that start in the
+precondition, the callees' preconditions being proved at the calls (`call_pre`, by the
+invariant at the call step, `inv_prefix`). The proof that every step follows the graph
+(`steps_good`) uses the invariant only at jumps bounded by it, so the checker refuses a
+precondition in a function with such a jump; this removes a circularity in `ThumbConv`
+(the callees' preservation of `r4`-`r7` is needed before the caller's invariant), and
+`drunL_drun` keeps its form. Example `exCtx_*` (a certificate made by the producer: `g`
+loops up to `r0`, its caller passes 10; 68 cycles from `r0 = 10`; refused without the call
+proofs or the precondition). `#print axioms`: the three standard ones. `CheckerMain` reads
+`pre` and `call_proofs` and reports the functions with a precondition. Producer:
+`binloops.certify_loops(pre=, need_inv=)` (entry zone within the precondition, ranges of
+`r0`-`r3` at the calls), `ipet.context_certificates` (callers first, level by level; hull of
+the call ranges, each fact kept only if every call proves it), `run_cycles.py --contexts`.
+Tests `test_binloops.py Contexts` (accepted; four mutations rejected); all cycle tests,
+`test_effect.py`, `test_thumb.py`, the certificate mutations and the traceability check
+pass. Results: kernels 260 -> 263 loops, larger programs 1,247 -> 1,249, a few bounds lower,
+nothing lost; the larger programs take 46% longer, so the option is off by default. Paper III
+(definitions of data runs and loop certificates, `thm:machine-loops`, `thm:machine-conv`,
+`tab:lean3`, a paragraph of the evaluation), `formalization.yaml`, certificate format, guide
+parts 5 and 7, cycles README, CLAUDE.md.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

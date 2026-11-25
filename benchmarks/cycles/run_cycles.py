@@ -207,7 +207,7 @@ def main_blockers(an, certified, why, root="main"):
 
 
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
-            frame=False, cflags=(), tag="", gcc=None, rtlib=None, func_jobs=1):
+            frame=False, cflags=(), tag="", gcc=None, rtlib=None, func_jobs=1, contexts=False):
     import subprocess
     t_all = time.monotonic()
     unit = kernel
@@ -259,7 +259,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
         # (Lean Cycles.program_sound); without a checker they are compared with the runs only
         lstats = {}
         doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats, frame=frame,
-                                      jobs=func_jobs)
+                                      jobs=func_jobs, contexts=contexts)
         cf = pathlib.Path(certdir) / f"{kernel.name}.cycles.json"
         cf.write_text(json.dumps(doc) + "\n")
         certified = dict(ib)
@@ -408,6 +408,10 @@ def main():
     ap.add_argument("--frame", action="store_true",
                     help="with --certify-loops: for functions that take no address of their frame, assume "
                          "that stores through other registers and calls do not write it")
+    ap.add_argument("--contexts", action="store_true",
+                    help="with --certify-loops: give the functions with loops a precondition on r0-r3 from "
+                         "their calls, proved at every call by the checker (their bounds then hold for the "
+                         "calls of the program)")
     ap.add_argument("--cflag", action="append", default=[],
                     help="an extra compiler flag for the Cortex-M0 build (e.g. -fomit-frame-pointer)")
     ap.add_argument("--tag", default="",
@@ -446,7 +450,7 @@ def main():
     rtlib = None if not a.rtlib else (a.link_image, compiler_rt(a.cache, a.clang) if a.rtlib == "compiler-rt" else None)
     args = lambda k: (k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify,  # noqa: E731
                       a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc, rtlib,
-                      a.func_jobs)
+                      a.func_jobs, a.contexts)
     if a.jobs > 1:
         import concurrent.futures
         size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731

@@ -134,25 +134,28 @@ def headSp : List DStep → Nat
   | x :: _ => x.σ.sp
   | [] => 0
 
-/-- The function at entry `e` and its certificate. -/
-def dfAt (fs : List BFun) (Ls : List DFun) (e : Nat) : Option (BFun × DFun) :=
-  (find (fs.map (·.entry)) e).bind fun k =>
-    match fs[k]?, Ls[k]? with
-    | some f, some L => some (f, L)
-    | _, _ => none
-
 /-- Runs of the data semantics of the function at entry `e`, of cost `total`, with calls
-    nested less than `d` deep. Only the rows left as trusted by the certificate are
-    assumed. -/
+    nested less than `d` deep, started with the registers `r0`-`r7` of `σc` (the state of
+    the caller at the call): a callee's run starts with the registers of the caller at the
+    call. Only the rows left as trusted by the certificate are assumed. -/
 def DRun (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) :
-    Nat → Nat → Int → Prop
-  | 0, _, _ => False
-  | d + 1, e, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧ DChain abi L.frame c (headSp s) (some e) s ∧
-      XChain c s ∧
+    Nat → Nat → MState → Int → Prop
+  | 0, _, _, _ => False
+  | d + 1, e, σc, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧
+      DChain abi L.frame c (headSp s) (some e) s ∧ XChain c s ∧
+      (∀ y ∈ s.head?, ∀ i < 8, y.σ.r i = σc.r i) ∧
       (∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
-        CallsWith (DRun mul abi c fs Ls d) x.st.calls x.st.x) ∧
+        CallsWith (fun g k => DRun mul abi c fs Ls d g x.σ k) x.st.calls x.st.x) ∧
       (∀ r ∈ L.trusted, (s.map fun x => coefPair r.coef x.st.a x.st.next).sum ≤ r.rhs) ∧
       total = (s.map fun x => (x.st.w : Int) + x.st.x).sum
+
+/-- The precondition `pre` holds for the registers `r0`-`r7` of `σ`. -/
+def PreOk (pre : List Lin) (σ : MState) : Prop :=
+  holds pre (fun _ => 0) (fun v => if v < 8 then (σ.r v : Int) else 0)
+
+/-- The precondition of the function at entry `e` (none if `e` has no certificate). -/
+def PreAt (fs : List BFun) (Ls : List DFun) (e : Nat) (σ : MState) : Prop :=
+  ∀ f L, dfAt fs Ls e = some (f, L) → PreOk L.pre σ
 
 /-! ### Evaluation of the constraints -/
 
@@ -711,6 +714,25 @@ theorem holds_append (A B : List Lin) (ρ s : Env) : holds (A ++ B) ρ s ↔ hol
   exact ⟨fun h => ⟨fun e he => h e (Or.inl he), fun e he => h e (Or.inr he)⟩,
     fun h e he => he.elim (h.1 e) (h.2 e)⟩
 
+theorem pre_eval {g : Lin} (hg : wfPre g = true) (ρ ρ' s s' : Env) (h : ∀ v < 8, s v = s' v) :
+    g.eval ρ s = g.eval ρ' s' := by
+  simp only [wfPre, Bool.and_eq_true, List.isEmpty_iff, decide_eq_true_eq] at hg
+  simp only [Lin.eval, hg.1, Checker.dot]
+  rw [dot_congr_nz g.sv s s' (fun v hv _ => h v (by omega))]
+
+/-- A precondition holds in every environment that gives `r0`-`r7` their values. -/
+theorem preOk_holds {pre : List Lin} (hw : ∀ g ∈ pre, wfPre g = true) {σ : MState} {s : Env}
+    (hs : ∀ v < 8, s v = (σ.r v : Int)) (ρ : Env) : PreOk pre σ ↔ holds pre ρ s := by
+  have hR : ∀ v < 8, s v = (fun v => if v < 8 then (σ.r v : Int) else 0) v := fun v hv => by
+    simp only [if_pos hv]; exact hs v hv
+  constructor
+  · intro h e he
+    rw [pre_eval (hw e he) ρ (fun _ => 0) s (fun v => if v < 8 then (σ.r v : Int) else 0) hR]
+    exact h e he
+  · intro h e he
+    rw [← pre_eval (hw e he) ρ (fun _ => 0) s (fun v => if v < 8 then (σ.r v : Int) else 0) hR]
+    exact h e he
+
 /-! ### The checks -/
 
 theorem checkObs_mem : ∀ (obs : List (List Lin × Lin)) (ps : List (Nat × List Nat)),
@@ -735,7 +757,7 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     checkObs (obligations mul abi c f L) L.proofs = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩, _⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩, _⟩, _⟩, _⟩ := h
   exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
 
 theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
@@ -743,7 +765,7 @@ theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     ∀ l ∈ L.alt, ∀ I ∈ l, ∀ g ∈ I, wfLin L.slots.length g = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, ha⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
   exact ha
 
 theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
@@ -751,9 +773,20 @@ theorem checkDFun_cong {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     congAt f L f.entry = [] ∧ (∀ l ∈ L.cong, ∀ x ∈ l, wfCong L.slots.length x = true) ∧
     ∀ a ∈ f.nodes, congOk mul abi c f L a = true := by
   simp only [checkDFun, Bool.and_eq_true] at h
-  have h' := h.1.1.2
+  have h' := h.1.1.1.2
   simp only [congChecks, Bool.and_eq_true, List.all_eq_true, List.isEmpty_iff] at h'
   exact ⟨h'.1.1, h'.1.2, h'.2⟩
+
+theorem checkDFun_preAll {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
+    (h : checkDFun mul abi c f L = true) :
+    (∀ g ∈ L.pre, wfPre g = true) ∧ (L.pre = [] ∨ ∀ t ∈ f.jumps, t.vr = none) := by
+  simp only [checkDFun, Bool.and_eq_true, List.all_eq_true, Bool.or_eq_true, List.isEmpty_iff,
+    Option.isNone_iff_eq_none] at h
+  exact h.2
+
+theorem checkDFun_pre {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
+    (h : checkDFun mul abi c f L = true) : ∀ g ∈ L.pre, wfPre g = true :=
+  (checkDFun_preAll h).1
 
 /-! ### Congruences -/
 
@@ -1518,7 +1551,8 @@ theorem loopRow_coef (f : BFun) (lc : LoopCert) (hd : nodupB f.nodes = true) (a 
 theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) (s : List DStep)
     (hch : DChain abi L.frame c (headSp s) (some f.entry) s)
-    (hok : ∀ y ∈ s, DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) :
+    (hok : ∀ y ∈ s, DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls)
+    (hpre : ∀ y ∈ s.head?, PreOk L.pre y.σ) :
     ∀ lc ∈ L.loops, (s.map fun y => coefPair (loopRow f lc).coef y.st.a y.st.next).sum ≤ (loopRow f lc).rhs := by
   obtain ⟨hcl, hnd, _, _, hke, hspe, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
   cases s with
@@ -1530,7 +1564,10 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have hSP0 : x.σ.sp < U := hws.1
     set S := L.slots.length
     have he : f.entry ∈ f.nodes := (closed_spec mul c f.jumps f.entry f.nodes hcl).1
-    have env0 := rangesN_holds x.σ x.σ 0 0 x.σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)
+    have env0 : holds (entryPrem L) (fun _ => 0) (envT x.σ x.σ 0 0 x.σ.sp L.slots) :=
+      (holds_append _ _ _ _).mpr ⟨(preOk_holds (checkDFun_pre hc) (fun v hv => by simp [envT, envOf, hv, show v < 10 by omega]) _).mp
+        (hpre x (by simp)), rangesN_holds x.σ x.σ 0 0 x.σ.sp L.slots hwf hwf hws hws (by simp [U])
+        (by simp [U]) (fun _ => 0)⟩
     have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
       fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
@@ -1543,7 +1580,7 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
           simp only [aOf, U] at *
           omega
         · cases hd
-      · have hin : (rangesN (nVars S), g) ∈ obligations mul abi c f L := by
+      · have hin : (entryPrem L, g) ∈ obligations mul abi c f L := by
           simp only [obligations, List.mem_append, List.mem_map]
           left; left; exact ⟨g, hg, rfl⟩
         obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
@@ -1554,7 +1591,7 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         cases hx
     obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t x f.entry 0 0 hch he hok hinv
     intro lc hlc
-    have hin : (rangesN (nVars S), goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0)) ∈
+    have hin : (entryPrem L, goalLin (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0)) ∈
         obligations mul abi c f L := by
       simp only [obligations, List.mem_append, List.mem_map]
       left; right; exact ⟨lc, hlc, rfl⟩
@@ -1600,7 +1637,7 @@ theorem dfAt_spec {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
         obtain ⟨rfl, rfl⟩ := h
         refine ⟨by simp [fnAt, hk, hf], ?_, ?_⟩
         · simp only [checkData, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hD
-          exact hD.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
+          exact hD.1.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
         · have := find_get _ e k hk
           simp [hf] at this
           exact this
@@ -1617,7 +1654,8 @@ theorem checkDFun_jumps {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun
     (h : checkDFun mul abi c f L = true) :
     (∀ t ∈ f.jumps, jumpOkF abi mul c f L t = true) ∧ interiorOk mul c f = true := by
   simp only [checkDFun, Bool.and_eq_true, List.all_eq_true] at h
-  exact ⟨h.1.2, h.2⟩
+  exact ⟨h.1.1.2, h.1.2⟩
+
 
 theorem getElem?_append_some {α : Type} : ∀ (l l' : List α) (j : Nat) (x : α),
     l[j]? = some x → (l ++ l')[j]? = some x
@@ -1995,11 +2033,14 @@ theorem dchain_getS {abi frame : Bool} {c : Code} {SP0 : Nat} :
 
 /-- The invariant holds at the entry of a function, from the ranges alone. -/
 theorem inv_entry {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
-    (hc : checkDFun mul abi c f L = true) (σ : MState) (hwf : wfState σ) (hws : wfStack σ) :
+    (hc : checkDFun mul abi c f L = true) (σ : MState) (hwf : wfState σ) (hws : wfStack σ)
+    (hpre : PreOk L.pre σ) :
     Inv f L σ.sp f.entry σ 0 0 := by
   obtain ⟨_, _, _, _, hke, hspe, _, hwinv, _, hobs⟩ := checkDFun_spec hc
   set S := L.slots.length
-  have env0 := rangesN_holds σ σ 0 0 σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)
+  have env0 : holds (entryPrem L) (fun _ => 0) (envT σ σ 0 0 σ.sp L.slots) :=
+    (holds_append _ _ _ _).mpr ⟨(preOk_holds (checkDFun_pre hc) (fun v hv => by simp [envT, envOf, hv, show v < 10 by omega]) _).mp hpre,
+      rangesN_holds σ σ 0 0 σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)⟩
   have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
       envT σ σ 0 0 σ.sp L.slots v = envOf σ 0 0 σ.sp L.slots v :=
     fun v hv => envT_state σ σ 0 0 σ.sp L.slots v hv
@@ -2012,7 +2053,7 @@ theorem inv_entry {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       simp only [aOf, U] at *
       omega
     · cases hd
-  · have hin : (rangesN (nVars S), g) ∈ obligations mul abi c f L := by
+  · have hin : (entryPrem L, g) ∈ obligations mul abi c f L := by
       simp only [obligations, List.mem_append, List.mem_map]
       left; left; exact ⟨g, hg, rfl⟩
     obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
@@ -2027,7 +2068,7 @@ theorem inv_entry {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
 theorem inv_prefix {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) (s : List DStep)
     (hch : DChain abi L.frame c (headSp s) (some f.entry) s)
-    (hwf : ∀ x ∈ s, wfState x.σ ∧ wfStack x.σ) :
+    (hwf : ∀ x ∈ s, wfState x.σ ∧ wfStack x.σ) (hpre : ∀ x ∈ s.head?, PreOk L.pre x.σ) :
     ∀ (k : Nat) (y : DStep), s[k]? = some y → (∀ k' < k, ∀ z, s[k']? = some z → Good mul c f z) →
       ∃ fa fb, Inv f L (headSp s) y.st.a y.σ fa fb := by
   intro k
@@ -2042,7 +2083,7 @@ theorem inv_prefix {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       have hw := hwf x (by simp)
       refine ⟨0, 0, ?_⟩
       rw [hch.1]
-      exact inv_entry hc x.σ hw.1 hw.2
+      exact inv_entry hc x.σ hw.1 hw.2 (hpre x (by simp))
   | succ k ih =>
     intro y hy hg
     obtain ⟨z, hz⟩ : ∃ z, s[k]? = some z := by
@@ -2244,7 +2285,8 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     (hi : decode mul c x.st.a = some i) (hstop : i.kind = .stop) (add : Bool) (m : Nat)
     (hpw : pcWrite c x.st.a = some (add, m))
     (hgood : ∀ k' < k, ∀ y, s[k']? = some y → Good mul c f y)
-    (hinv : ∀ k' ≤ k, ∀ y, s[k']? = some y → ∃ fa fb, Inv f L SP0 y.st.a y.σ fa fb) :
+    (hinv : (∃ t ∈ f.jumps, t.vr ≠ none) →
+      ∀ k' ≤ k, ∀ y, s[k']? = some y → ∃ fa fb, Inv f L SP0 y.st.a y.σ fa fb) :
     ∃ t ∈ f.jumps, t.pos = x.st.a ∧ pcDestV x.st.a add (x.σ.r m) ∈ t.tgts ∧
       jumpTr f.jumps x.st.a = t.tgts.map fun q => (some q, 3, []) := by
   obtain ⟨hcl, _⟩ := checkDFun_spec hc
@@ -2266,7 +2308,8 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     rw [← htp] at hpw ⊢
     by_cases hvr : t.vr.isSome
     · rw [if_pos hvr] at hok
-      exact jump_good_inv hint s hch hX k x hx t ht p hp add m hpw htp.symm hok hgood hinv
+      exact jump_good_inv hint s hch hX k x hx t ht p hp add m hpw htp.symm hok hgood
+        (hinv ⟨t, ht, by simpa [Option.isSome_iff_ne_none] using hvr⟩)
     · rw [if_neg hvr] at hok
       exact jump_good_rng hint s hch hX k x hx t ht p hp add m hpw htp.symm hok hgood
   have hixn : t.ix = none := by simpa using hix
@@ -2370,6 +2413,12 @@ theorem steps_good {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hok : ∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
     ∀ (k : Nat) (x : DStep), s[k]? = some x → Good mul c f x := by
   obtain ⟨hcl, _⟩ := checkDFun_spec hc
+  -- the invariants are used only at a jump bounded by them, and then the precondition is empty
+  have hpre : (∃ t ∈ f.jumps, t.vr ≠ none) → ∀ x ∈ s.head?, PreOk L.pre x.σ := by
+    intro ⟨t, ht, hvr⟩ x _
+    rcases (checkDFun_preAll hc).2 with h0 | hnone
+    · simp [PreOk, h0, holds]
+    · exact absurd (hnone t ht) hvr
   obtain ⟨hent, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
   intro k
   induction k using Nat.strong_induction_on with
@@ -2393,7 +2442,7 @@ theorem steps_good {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     · exact ⟨x.j, hw, hws, i, hi, getElem?_append_some _ _ _ _ hj, hcond⟩
     · obtain ⟨t, _, _, hmem, hjtr⟩ := jump_good hc s hch hX k x hx ha i hi hstop add m hpw
         (fun k' hk' y hy => ih k' hk' y hy)
-        (fun k' hk' y hy => inv_prefix hc s hch (fun z hz => ⟨(hok z hz).1, (hok z hz).2.1⟩) k' y hy
+        (fun hv k' hk' y hy => inv_prefix hc s hch (fun z hz => ⟨(hok z hz).1, (hok z hz).2.1⟩) (hpre hv) k' y hy
           (fun k'' hk'' z hz => ih k'' (by omega) z hz))
       obtain ⟨q, hq⟩ := List.mem_iff_getElem?.mp hmem
       have htr : trans i x.st.a = [] := by simp [trans, hstop]
@@ -2454,19 +2503,116 @@ theorem headSp_congr (s s' : List DStep) (h : s'.map (·.σ) = s.map (·.σ)) : 
     | nil => simp at h
     | cons y t' => simp only [List.map_cons, List.cons.injEq] at h; simp [headSp, h.1]
 
-/-- Every run of the data semantics is a run of `Thumb.MRun`: the rows of the certified
-    loops hold on it. -/
+theorem callsWith_mono' (R1 R2 : Nat → Int → Prop) :
+    ∀ (cs : List Nat), (∀ g ∈ cs, ∀ c, R1 g c → R2 g c) → ∀ (x : Int), CallsWith R1 cs x → CallsWith R2 cs x
+  | [], _, _, hx => hx
+  | g :: gs, h, x, ⟨c0, hc, hr⟩ =>
+      ⟨c0, h g (by simp) c0 hc, callsWith_mono' R1 R2 gs (fun g' hg' => h g' (by simp [hg'])) (x - c0) hr⟩
+
+theorem checkData_calls {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List DFun}
+    (hD : checkData mul abi c fs Ls = true) {e : Nat} {f : BFun} {L : DFun}
+    (h : dfAt fs Ls e = some (f, L)) : checkObs (callObs mul c fs Ls f L) L.callProofs = true := by
+  simp only [dfAt] at h
+  cases hk : find (fs.map (·.entry)) e with
+  | none => simp [hk] at h
+  | some k =>
+    simp only [hk, Option.bind_some] at h
+    cases hf : fs[k]? with
+    | none => simp [hf] at h
+    | some f' =>
+      cases hl : Ls[k]? with
+      | none => simp [hf, hl] at h
+      | some L' =>
+        simp [hf, hl] at h
+        obtain ⟨rfl, rfl⟩ := h
+        simp only [checkData, Bool.and_eq_true, List.all_eq_true] at hD
+        exact hD.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
+
+/-- The precondition depends on `r0`-`r7` only. -/
+theorem preOk_congr {pre : List Lin} {σ σ' : MState} (h : ∀ i < 8, σ'.r i = σ.r i) :
+    PreOk pre σ' ↔ PreOk pre σ := by
+  have : (fun v => if v < 8 then (σ'.r v : Int) else 0) = (fun v => if v < 8 then (σ.r v : Int) else 0) := by
+    funext v; split
+    · rename_i hv; rw [h v hv]
+    · rfl
+  simp only [PreOk, this]
+
+/-- The functions that a step of a data run calls are those of the instruction (`callsAt`). -/
+theorem dokm_calls {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
+    {calls : List Nat} (h : DOkM mul c a j σ next w calls) : ∀ g ∈ calls, g ∈ callsAt mul c a := by
+  intro g hg
+  obtain ⟨_, _, i, hi, hcase⟩ := h
+  rcases hcase with ⟨hj, _⟩ | ⟨_, _, _, _, _, _, hc⟩
+  · simp only [callsAt, hi, List.mem_flatMap]
+    exact ⟨_, List.mem_of_getElem? hj, hg⟩
+  · rw [hc] at hg; cases hg
+
+/-- At a call of a step of a data run, the callee's precondition holds (from the invariant of
+    the caller at the call and the obligations of `callObs`). -/
+theorem call_pre {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List DFun}
+    (hD : checkData mul abi c fs Ls = true) {f : BFun} {L : DFun} (hc : checkDFun mul abi c f L = true)
+    (hcalls : checkObs (callObs mul c fs Ls f L) L.callProofs = true)
+    {SP0 : Nat} {x : DStep} {fa fb : Nat} (hinv : Inv f L SP0 x.st.a x.σ fa fb) (ha : x.st.a ∈ f.nodes)
+    {g : Nat} (hg : g ∈ callsAt mul c x.st.a) : PreAt fs Ls g x.σ := by
+  intro fg Lg hdg
+  obtain ⟨_, hcg, _⟩ := dfAt_spec hD hdg
+  obtain ⟨hwf, hws, hfa, hfb, _, _, ⟨I, hI, hholds⟩, _⟩ := hinv
+  obtain ⟨_, _, _, _, _, _, _, hwinv, _, _⟩ := checkDFun_spec hc
+  have hwI := invsAt_wf f L hwinv (checkDFun_alt hc) x.st.a I hI
+  set S := L.slots.length
+  set env := envT x.σ x.σ fa fb SP0 L.slots
+  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+      env v = envOf x.σ fa fb SP0 L.slots v :=
+    fun v hv => envT_state x.σ x.σ fa fb SP0 L.slots v hv
+  have hIenv : holds I (fun _ => 0) env := by
+    intro e he
+    rw [lin_congr S e (hwI e he) _ (fun _ => 0) _ _ hstate]
+    exact hholds e he
+  have hprem : holds (I ++ rangesN (nVars S)) (fun _ => 0) env :=
+    (holds_append _ _ _ _).mpr ⟨hIenv, rangesN_holds x.σ x.σ fa fb SP0 L.slots hwf hwf hws hws hfa hfb _⟩
+  have hpre : holds Lg.pre (fun _ => 0) env := by
+    intro p hp
+    have hin : (I ++ rangesN (nVars S), p) ∈ callObs mul c fs Ls f L := by
+      simp only [callObs, List.mem_flatMap]
+      refine ⟨x.st.a, ha, g, hg, ?_⟩
+      rw [hdg]
+      simp only [List.mem_flatMap, List.mem_map]
+      exact ⟨I, hI, p, hp, rfl⟩
+    obtain ⟨q, hq⟩ := checkObs_mem _ _ hcalls _ hin
+    exact entails1_sound hq hprem
+  exact (preOk_holds (checkDFun_pre hcg) (fun v hv => by simp [env, envT, envOf, hv, show v < 10 by omega]) _).mpr hpre
+
+theorem head_congr (s s' : List DStep) (h : s'.map (·.σ) = s.map (·.σ)) :
+    ∀ y ∈ s'.head?, ∃ x ∈ s.head?, y.σ = x.σ := by
+  intro y hy
+  cases s with
+  | nil => cases s' with
+    | nil => simp at hy
+    | cons _ _ => simp at h
+  | cons x t => cases s' with
+    | nil => simp at hy
+    | cons y' t' =>
+      simp only [List.map_cons, List.cons.injEq] at h
+      simp only [List.head?_cons, Option.mem_def, Option.some.injEq] at hy
+      subst hy
+      exact ⟨x, by simp, h.1⟩
+
+/-- Every run of the data semantics whose entry satisfies the function's precondition is a run
+    of `Thumb.MRun`: the rows of the certified loops hold on it. By induction on the depth of
+    calls: at each call, the callee's precondition holds (`call_pre`). -/
 theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List DFun}
     (hD : checkData mul abi c fs Ls = true) :
-    ∀ d e tot, DRun mul abi c fs Ls d e tot → MRun mul c fs d e tot := by
+    ∀ d e σc tot, DRun mul abi c fs Ls d e σc tot → PreAt fs Ls e σc → MRun mul c fs d e tot := by
   intro d
   induction d with
-  | zero => intro e tot h; simp [DRun] at h
+  | zero => intro e σc tot h; simp [DRun] at h
   | succ d ih =>
-    intro e tot h
-    obtain ⟨f, L, s, hdf, hch, hX, hsteps, htr, htot⟩ := h
+    intro e σc tot h hP
+    obtain ⟨f, L, s, hdf, hch, hX, hhead, hsteps, htr, htot⟩ := h
     obtain ⟨hfn, hc, hentry⟩ := dfAt_spec hD hdf
     obtain ⟨_, _, hrows, _⟩ := checkDFun_spec hc
+    have hpre : ∀ y ∈ s.head?, PreOk L.pre y.σ :=
+      fun y hy => (preOk_congr (hhead y hy)).mpr (hP f L hdf)
     have hch' : DChain abi L.frame c (headSp s) (some f.entry) s := by rw [hentry]; exact hch
     have hgood := steps_good hc s hch' hX (fun x hx => (hsteps x hx).1)
     obtain ⟨s', h1, h2, hok'⟩ := reindex s (fun x hx => by
@@ -2474,6 +2620,11 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
       exact hgood k x hk)
     have hch2 : DChain abi L.frame c (headSp s') (some f.entry) s' := by
       rw [headSp_congr s s' h2]; exact dchain_congr abi L.frame c _ s s' _ h1 h2 hch'
+    have hpre' : ∀ y ∈ s'.head?, PreOk L.pre y.σ := by
+      intro y hy
+      obtain ⟨x, hx, hxy⟩ := head_congr s s' h2 y hy
+      rw [hxy]; exact hpre x hx
+    have hcalls := checkData_calls hD hdf
     refine ⟨f, s.map (·.st), hfn, dchain_mchain abi L.frame c _ s _ hch, ?_, ?_, ?_⟩
     · intro st hst
       obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hst
@@ -2481,14 +2632,20 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
       obtain ⟨y, hy, hyx⟩ := List.mem_map.mp hst'
       obtain ⟨_, _, i, hi, hj, _⟩ := hok' y hy
       rw [hyx] at hi hj
-      exact ⟨step_of hi (List.mem_of_getElem? hj), callsWith_mono _ _ (ih) _ _ (hsteps x hx).2⟩
+      obtain ⟨k, hk⟩ := List.mem_iff_getElem?.mp hx
+      obtain ⟨fa, fb, hinv⟩ := inv_prefix hc s hch' (fun z hz => ⟨(hsteps z hz).1.1, (hsteps z hz).1.2.1⟩)
+        hpre k x hk (fun k' _ z hz => hgood k' z hz)
+      have ha : x.st.a ∈ f.nodes := (hgood k x hk).1
+      refine ⟨step_of hi (List.mem_of_getElem? hj), ?_⟩
+      exact callsWith_mono' _ _ _ (fun g hg k' hr => ih g x.σ k' hr
+        (call_pre hD hc hcalls hinv ha (dokm_calls (hsteps x hx).1 g hg))) _ (hsteps x hx).2
     · intro r hr
       rw [hrows] at hr
       rw [List.map_map]
       rcases List.mem_append.mp hr with hr | hr
       · exact htr r hr
       · obtain ⟨lc, hlc, rfl⟩ := List.mem_map.mp hr
-        have := chain_rows hc s' hch2 hok' lc hlc
+        have := chain_rows hc s' hch2 hok' hpre' lc hlc
         have hmap : (s.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) =
             (s'.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) := by
           have e1 : (s.map fun x => coefPair (loopRow f lc).coef x.st.a x.st.next) =
@@ -2501,16 +2658,39 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
         simpa [Function.comp_def, hmap] using this
     · rw [htot, List.map_map]; rfl
 
+/-- Without preconditions in the certificate, every state satisfies them. -/
+theorem preAt_nil (fs : List BFun) (Ls : List DFun) (e : Nat) (σ : MState)
+    (h : Ls.all (fun L => L.pre.isEmpty) = true) : PreAt fs Ls e σ := by
+  intro f L hdf
+  have hL : L ∈ Ls := by
+    simp only [dfAt] at hdf
+    cases hk : find (fs.map (·.entry)) e with
+    | none => simp [hk] at hdf
+    | some k =>
+      simp only [hk, Option.bind_some] at hdf
+      cases hf : fs[k]? with
+      | none => simp [hf] at hdf
+      | some f' =>
+        cases hl : Ls[k]? with
+        | none => simp [hf, hl] at hdf
+        | some L' =>
+          simp [hf, hl] at hdf
+          rw [← hdf.2]; exact List.mem_of_getElem? hl
+  have := List.all_eq_true.mp h L hL
+  simp only [List.isEmpty_iff] at this
+  simp [PreOk, this, holds]
+
 /-- **Soundness on machine code, loop bounds included**: if `checkBinary` and `checkData`
     accept, every run of the data semantics of the function at entry `e` (the `i`-th of
-    the program) costs at most its certified bound. Only the rows left in `trusted` are
-    assumed. -/
+    the program) that starts with registers satisfying its precondition (none for a function
+    whose certificate gives none) costs at most its certified bound. Only the rows left in
+    `trusted` are assumed. -/
 theorem data_sound (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Cs : List Cert)
     (Ls : List DFun) (h : checkBinary mul c fs Cs true = true) (hD : checkData mul abi c fs Ls = true)
-    (d e i : Nat) (tot : Int) (hrun : DRun mul abi c fs Ls d e tot)
-    (hfind : find (fs.map (·.entry)) e = some i) :
+    (d e i : Nat) (σc : MState) (tot : Int) (hrun : DRun mul abi c fs Ls d e σc tot)
+    (hpre : PreAt fs Ls e σc) (hfind : find (fs.map (·.entry)) e = some i) :
     tot ≤ ((Cs.map Cert.bound).getD i 0 : Nat) :=
-  binary_sound mul c fs Cs true h d e i tot (drun_mrun hD d e tot hrun) hfind
+  binary_sound mul c fs Cs true h d e i tot (drun_mrun hD d e σc tot hrun hpre) hfind
 
 /-! ### An example: the counting loop of `Thumb.exCode`, its bound proved on the code
 
@@ -2620,7 +2800,7 @@ def exProofs : List (Nat × List Nat) :=
     (1, [])]
 
 
-def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], []⟩
+def exDFun : DFun := ⟨exKinds, exInv, [exLoop], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], [], [], []⟩
 
 def exFunD0 : BFun := ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A], [], []⟩
 
@@ -2634,13 +2814,13 @@ theorem exBinaryD_checks : checkBinary 32 exCode [exFunD] [exCert] true = true :
 /-- A bound of 9 iterations is refused. -/
 theorem exData_tight :
     checkData 32 false exCode [{ exFunD0 with rows := [loopRow exFunD0 { exLoop with bound := 9 }] }]
-      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], []⟩] = false := by decide
+      [⟨exKinds, exInv, [{ exLoop with bound := 9 }], [], exProofs, [some 0, none, none, none, none, none], [], false, [], [], [], [], []⟩] = false := by decide
 
 /-- Every run of the data semantics of the example costs at most 68 cycles, with no
     trusted row. -/
-theorem exData_sound (d : Nat) (tot : Int) (h : DRun 32 false exCode [exFunD] [exDFun] d 0x100 tot) :
+theorem exData_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exCode [exFunD] [exDFun] d 0x100 σc tot) :
     tot ≤ 68 :=
-  data_sound 32 false exCode [exFunD] [exCert] [exDFun] exBinaryD_checks exData_checks d 0x100 0 tot h
+  data_sound 32 false exCode [exFunD] [exCert] [exDFun] exBinaryD_checks exData_checks d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide))
     (by decide)
 
 end
@@ -2797,12 +2977,15 @@ theorem exRun_cost : ((exRunC.map toD).map fun x => (x.st.w : Int) + x.st.x).sum
 
 /-- **The hypotheses are satisfiable, and the bound is attained**: the counting loop has a
     run of the data semantics of exactly 68 cycles, the bound of `exData_sound`. -/
-theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 68 := by
-  refine ⟨exFunD, exDFun, exRunC.map toD, rfl, ?_, ?_, ?_, ?_, exRun_cost.symm⟩
+theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 (mkS (regs0 0) f0) 68 := by
+  refine ⟨exFunD, exDFun, exRunC.map toD, rfl, ?_, ?_, fun y hy i _ => ?_, ?_, ?_, exRun_cost.symm⟩
   · exact chainB_sound false exDFun.frame exCode _ (some 0x100) exRunC exRun_chain
   · exact xchain_none exCode _ (fun x hx => by
       obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
       exact List.all_eq_true.mp exRun_noX y hy |> fun h => by simpa [toD] using h)
+  · simp only [exRunC, cstep, List.cons_append, List.map_cons, List.head?_cons, Option.mem_def,
+      Option.some.injEq] at hy
+    rw [← hy]; rfl
   · intro x hx
     obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hx
     refine ⟨dOkB_sound 32 exCode y (List.all_eq_true.mp exRun_steps y hy), ?_⟩
@@ -2902,7 +3085,7 @@ def exStepFun : BFun := { exStepFun0 with rows := [loopRow exStepFun0 exStepLoop
 def exStepCert : Cert := ⟨4, [208, 24, 20, 16, 12, 0], [5], 52⟩
 
 def exStepDFun : DFun :=
-  ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong, [], []⟩
+  ⟨exStepKinds, exStepInv, [exStepLoop], [], exStepProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exStepCong, [], [], [], []⟩
 
 theorem exStep_binary : checkBinary 32 exStepCode [exStepFun] [exStepCert] true = true := by decide
 
@@ -2914,10 +3097,10 @@ theorem exStep_needs_cong :
 
 /-- Every run of the data semantics of the stepped loop costs at most 52 cycles, with no
     trusted row. -/
-theorem exStep_sound (d : Nat) (tot : Int)
-    (h : DRun 32 false exStepCode [exStepFun] [exStepDFun] d 0x100 tot) : tot ≤ 52 :=
+theorem exStep_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 false exStepCode [exStepFun] [exStepDFun] d 0x100 σc tot) : tot ≤ 52 :=
   data_sound 32 false exStepCode [exStepFun] [exStepCert] [exStepDFun] exStep_binary exStep_checks
-    d 0x100 0 tot h (by decide)
+    d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 end
 
@@ -3099,7 +3282,7 @@ def exWrapFun0 : BFun := ⟨256, [256, 258, 260, 262, 264, 266], [], []⟩
 def exWrapFun : BFun := { exWrapFun0 with rows := [loopRow exWrapFun0 exWrapLoop] }
 
 def exWrapDFun : DFun :=
-  ⟨exWrapKinds, exWrapInv, [exWrapLoop], [], exWrapProofs, [some 0, some 0, some 0, some 0, some 0, some 0], [], false, exWrapCong, exWrapAlt, exWrapPick⟩
+  ⟨exWrapKinds, exWrapInv, [exWrapLoop], [], exWrapProofs, [some 0, some 0, some 0, some 0, some 0, some 0], [], false, exWrapCong, exWrapAlt, exWrapPick, [], []⟩
 
 def exWrapCert : Cert := ⟨1, [63, 8, 7, 6, 5, 3, 0], [6], 63⟩
 
@@ -3112,10 +3295,10 @@ theorem exWrap_needs_alt :
   decide
 
 /-- Every run of the data semantics of the example costs at most 63 cycles. -/
-theorem exWrap_sound (d : Nat) (tot : Int)
-    (h : DRun 32 false exWrapCode [exWrapFun] [exWrapDFun] d 0x100 tot) : tot ≤ 63 :=
+theorem exWrap_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 false exWrapCode [exWrapFun] [exWrapDFun] d 0x100 σc tot) : tot ≤ 63 :=
   data_sound 32 false exWrapCode [exWrapFun] [exWrapCert] [exWrapDFun] exWrap_binary exWrap_checks
-    d 0x100 0 tot h (by decide)
+    d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 end
 
@@ -3241,7 +3424,7 @@ def exZeroFun0 : BFun := ⟨256, [256, 258, 260, 262, 264], [], []⟩
 def exZeroFun : BFun := { exZeroFun0 with rows := [loopRow exZeroFun0 exZeroLoop] }
 
 def exZeroDFun : DFun :=
-  ⟨exZeroKinds, exZeroInv, [exZeroLoop], [], exZeroProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exZeroCong, exZeroAlt, exZeroPick⟩
+  ⟨exZeroKinds, exZeroInv, [exZeroLoop], [], exZeroProofs, [some 0, some 0, some 0, some 0, some 0], [], false, exZeroCong, exZeroAlt, exZeroPick, [], []⟩
 
 def exZeroCert : Cert := ⟨1, [19, 18, 5, 4, 3, 0], [1], 19⟩
 
@@ -3254,10 +3437,10 @@ theorem exZero_needs_cong :
   decide
 
 /-- Every run of the data semantics of the example costs at most 19 cycles. -/
-theorem exZero_sound (d : Nat) (tot : Int)
-    (h : DRun 32 false exZeroCode [exZeroFun] [exZeroDFun] d 0x100 tot) : tot ≤ 19 :=
+theorem exZero_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 false exZeroCode [exZeroFun] [exZeroDFun] d 0x100 σc tot) : tot ≤ 19 :=
   data_sound 32 false exZeroCode [exZeroFun] [exZeroCert] [exZeroDFun] exZero_binary exZero_checks
-    d 0x100 0 tot h (by decide)
+    d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 end
 
@@ -3292,9 +3475,9 @@ theorem exSw_target_missing :
   decide
 
 /-- Every run of the data semantics of the switch costs at most 12 cycles. -/
-theorem exSw_sound (d : Nat) (tot : Int) (h : DRun 32 false exSwCode [exSwFun] [exSwD] d 0x100 tot) :
+theorem exSw_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exSwCode [exSwFun] [exSwD] d 0x100 σc tot) :
     tot ≤ 12 :=
-  data_sound 32 false exSwCode [exSwFun] [exSwCert] [exSwD] exSw_checks exSw_data d 0x100 0 tot h (by decide)
+  data_sound 32 false exSwCode [exSwFun] [exSwCert] [exSwD] exSw_checks exSw_data d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 /-- The same switch with the range check as `BLS` over a branch to the default case (Clang's
     form when the default case is out of reach of a conditional branch): `cmp r0, #2;
@@ -3317,9 +3500,9 @@ theorem exLs_target_missing :
     checkData 32 false exLsCode [{ exLsFun with jumps := [⟨0x100, 0x10C, [0x112, 0x116], none, none⟩] }] [exSwD] = false := by
   decide
 
-theorem exLs_sound (d : Nat) (tot : Int) (h : DRun 32 false exLsCode [exLsFun] [exSwD] d 0x100 tot) :
+theorem exLs_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exLsCode [exLsFun] [exSwD] d 0x100 σc tot) :
     tot ≤ 14 :=
-  data_sound 32 false exLsCode [exLsFun] [exLsCert] [exSwD] exLs_checks exLs_data d 0x100 0 tot h (by decide)
+  data_sound 32 false exLsCode [exLsFun] [exLsCert] [exSwD] exLs_checks exLs_data d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 /-! #### A switch without `CMP`
 
@@ -3349,9 +3532,9 @@ theorem exMask_needs_ix :
       [exSwD] = false := by decide
 
 /-- Every data run of the switch without `CMP` costs at most 12 cycles. -/
-theorem exMask_sound (d : Nat) (tot : Int) (h : DRun 32 false exMaskCode [exMaskFun] [exSwD] d 0x100 tot) :
+theorem exMask_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exMaskCode [exMaskFun] [exSwD] d 0x100 σc tot) :
     tot ≤ 12 :=
-  data_sound 32 false exMaskCode [exMaskFun] [exSwCert] [exSwD] exMask_checks exMask_data d 0x100 0 tot h (by decide)
+  data_sound 32 false exMaskCode [exMaskFun] [exSwCert] [exSwD] exMask_checks exMask_data d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 /-! #### A switch bounded by the invariant
 
@@ -3455,9 +3638,97 @@ theorem exPath_wide :
   decide
 
 /-- Every data run of the switch bounded by the invariant costs at most 17 cycles. -/
-theorem exPath_sound (d : Nat) (tot : Int) (h : DRun 32 false exPathCode [exPathFun] [exPathD] d 0x100 tot) :
+theorem exPath_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exPathCode [exPathFun] [exPathD] d 0x100 σc tot) :
     tot ≤ 17 :=
-  data_sound 32 false exPathCode [exPathFun] [exPathCert] [exPathD] exPath_checks exPath_data d 0x100 0 tot h
+  data_sound 32 false exPathCode [exPathFun] [exPathCert] [exPathD] exPath_checks exPath_data d 0x100 0 σc tot h (preAt_nil _ _ _ _ (by decide))
     (by decide)
+
+
+/-! ### An example with a precondition: a bound that depends on the call
+
+`f`: `push {lr}; movs r0, #10; bl g; pop {pc}`; `g`: `movs r1, #0; L: cmp r1, r0; bge out;
+adds r1, #1; b L; out: bx lr`, a loop up to its argument. Alone, `g`'s loop is bounded only by
+`2^32 - 1` iterations; its precondition `r0 = 10`, proved at the call from the invariant of `f`
+(`callObs`), bounds it by 10: `g` costs at most 68 cycles in the runs that start in its
+precondition, `f` at most 80 in every run. The certificate is made by
+`benchmarks/cycles/binloops.py` (`ipet.certify` with `contexts`; test `test_binloops.py
+Contexts`). Without the proofs at the call, or without the precondition, it is rejected. -/
+
+def exCtxCode : Code := ⟨256, #[0xb500, 0x200a, 0xf000, 0xf80c, 0xbd00, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2100, 0x4281, 0xda01, 0x3101, 0xe7fb, 0x4770]⟩
+
+def exCtxGF0 : BFun := ⟨288, [288, 290, 292, 294, 296, 298], [], []⟩
+def exCtxGLoops : List LoopCert := [⟨290, [290, 292, 294, 296], 1, 10, [⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 11⟩]⟩]
+def exCtxGF : BFun := { exCtxGF0 with rows := exCtxGLoops.map (loopRow exCtxGF0) }
+def exCtxGC : Cert := ⟨1, [68, 7, 6, 5, 4, 3, 0], [6], 68⟩
+def exCtxGD : DFun :=
+  { kinds := [.none, .none, .sub, .sub, .add, .sub],
+    inv := [[⟨[1], [], -10⟩, ⟨[-1], [], 10⟩], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 1], [], -10⟩], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 1], [], -10⟩, ⟨[0, 1, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, -1, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 1], [], -9⟩, ⟨[0, 1, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -9⟩, ⟨[0, -1, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 1], [], -10⟩, ⟨[0, -1], [], 1⟩, ⟨[0, 1, 0, 0, 0, 0, 0, 0, -1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -9⟩, ⟨[0, -1, 0, 0, 0, 0, 0, 0, 1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 1], [], -10⟩, ⟨[0, -1], [], 10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩]],
+    loops := exCtxGLoops, trusted := [],
+    proofs := [(1, [1]), (1, [0, 1]), (1, []), (1, [0, 0, 1]), (1, [0, 0, 0, 1]), (1, []), (1, []), (1, [0, 4294967285, 0, 0, 0, 1]), (1, [0, 10, 0, 0, 1]), (1, [0, 4294967286]), (1, []), (1, [1, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 1]), (1, []), (1, [1]), (1, [1]), (1, [0, 1]), (1, [0, 0, 1]), (1, []), (1, [0, 0, 1]), (1, []), (1, [1]), (1, [0, 1]), (1, []), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 1]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 1]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1]), (1, [0, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]), (1, [0, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0, 1]), (1, [0, 0, 1, 0, 0, 0, 1, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 1, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [0, 0, 1]), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [0, 0, 0, 0, 1]), (1, []), (1, []), (1, []), (1, []), (1, [0, 2147483643, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2147483643]), (1, [0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 5]), (1, [0, 4294967291, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4294967291, 1]), (1, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]), (1, [0, 2147483648, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483648]), (1, [0, 2147483643, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2147483643, 1]), (1, []), (1, []), (1, []), (1, []), (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [2, 0, 0, 0, 2]), (1, []), (1, []), (1, [2, 0, 0, 0, 2]), (1, [1]), (1, [0, 1]), (1, [0, 0, 1]), (1, []), (1, [])],
+    spOff := [some (0), some (0), some (0), some (0), some (0), some (0)], slots := [], frame := false,
+    cong := [[], [], [], [], [(9, 32, 1)], []],
+    alt := [],
+    pick := [],
+    pre := [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩],
+    callProofs := [] }
+
+def exCtxFF0 : BFun := ⟨256, [256, 258, 260, 264], [], []⟩
+def exCtxFLoops : List LoopCert := []
+def exCtxFF : BFun := { exCtxFF0 with rows := exCtxFLoops.map (loopRow exCtxFF0) }
+def exCtxFC : Cert := ⟨1, [80, 78, 77, 5, 0], [], 80⟩
+def exCtxFD : DFun :=
+  { kinds := [.none, .none, .none, .none],
+    inv := [[], [], [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩], []],
+    loops := exCtxFLoops, trusted := [],
+    proofs := [(1, []), (1, []), (1, [0, 390451573]), (1, []), (1, []), (1, [2])],
+    spOff := [some (0), some (-4), some (-4), some (-4)], slots := [], frame := false,
+    cong := [[], [], [(0, 32, 10)], []],
+    alt := [],
+    pick := [],
+    pre := [],
+    callProofs := [(1, [1]), (1, [0, 1])] }
+
+theorem exCtx_binary :
+    checkBinary 32 exCtxCode [exCtxGF, exCtxFF] [exCtxGC, exCtxFC] true = true := by decide
+
+theorem exCtx_data : checkData 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] = true := by decide
+
+theorem exCtx_needs_call :
+    checkData 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGD, { exCtxFD with callProofs := [] }] = false := by
+  decide
+
+theorem exCtx_needs_pre :
+    checkData 32 true exCtxCode [exCtxGF, exCtxFF] [{ exCtxGD with pre := [] }, exCtxFD] = false := by
+  decide
+
+/-- Every data run of `f` costs at most 80 cycles. -/
+theorem exCtx_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] d 0x100 σc tot) : tot ≤ 80 := by
+  have hpre : PreAt [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] 0x100 σc := by
+    intro f L hd
+    have e : dfAt [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] 0x100 = some (exCtxFF, exCtxFD) := rfl
+    rw [e] at hd
+    simp only [Option.some.injEq, Prod.mk.injEq] at hd
+    obtain ⟨rfl, rfl⟩ := hd
+    intro g hg
+    simp [exCtxFD] at hg
+  exact data_sound 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGC, exCtxFC] [exCtxGD, exCtxFD] exCtx_binary
+    exCtx_data d 0x100 1 σc tot h hpre (by decide)
+
+/-- Every data run of `g` that starts with `r0 = 10` costs at most 68 cycles. -/
+theorem exCtx_g_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] d 0x120 σc tot) (h10 : σc.r 0 = 10) :
+    tot ≤ 68 := by
+  have hpre : PreAt [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] 0x120 σc := by
+    intro f L hd
+    have e : dfAt [exCtxGF, exCtxFF] [exCtxGD, exCtxFD] 0x120 = some (exCtxGF, exCtxGD) := rfl
+    rw [e] at hd
+    simp only [Option.some.injEq, Prod.mk.injEq] at hd
+    obtain ⟨rfl, rfl⟩ := hd
+    intro g hg
+    simp only [exCtxGD, List.mem_cons, List.not_mem_nil, or_false] at hg
+    rcases hg with rfl | rfl <;> simp [Lin.eval, Checker.dot, h10]
+  exact data_sound 32 true exCtxCode [exCtxGF, exCtxFF] [exCtxGC, exCtxFC] [exCtxGD, exCtxFD] exCtx_binary
+    exCtx_data d 0x120 0 σc tot h hpre (by decide)
 
 end ImperativeOptimization.Thumb

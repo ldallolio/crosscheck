@@ -272,6 +272,37 @@ is a run of 5.5, and the cycle bound applies. Nothing about the loop is trusted 
 The Lean example `exData_sound` states it for this code: every data run costs at most 68
 cycles, with no trusted row.
 
+### Bounds that depend on the call: preconditions
+
+Change the example so that the loop counts up to its **argument**: `g` is
+`movs r1, #0; L: cmp r1, r0; bge out; adds r1, #1; b L; out: bx lr`, and its only caller `f`
+does `movs r0, #10; bl g`. Alone, `g` knows nothing about `r0`, so the best potential gives
+`2³² − 1` iterations: a bound, but a useless one. Yet every run of `g` in this program starts
+with `r0 = 10`.
+
+The certificate can say so. `g`'s certificate gets a **precondition** (Lean `DFun.pre`):
+linear facts on `r0`–`r7` at its entry, here `r0 ≤ 10` and `r0 ≥ 10`. The checker then does two
+things:
+
+1. at `g`'s entry, the obligations may use the precondition as premises (with the ranges), so
+   the invariant `r0 = 10` holds there and the loop gets the bound 10;
+2. at every call of `g` (here `bl g` in `f`), each disjunct of `f`'s invariant at the call must
+   imply each fact of `g`'s precondition, by a Farkas certificate (`callObs`): `f`'s invariant
+   at the `bl` says `r0 = 10` (after `movs r0, #10`), which proves both facts.
+
+The semantics makes the link: a callee's run starts with the caller's registers at the call
+(`DRun` takes the caller's state). The theorem then reads: every run of a function that
+starts in its precondition costs at most its bound (`data_sound`, hypothesis `PreAt`). For
+`main` the precondition is empty, so its bound holds for every run; for `g` it holds for the
+runs that start with `r0 = 10`, that is for every call that the program makes
+(`exCtx_g_sound`: at most 68 cycles). One restriction: a function whose jump through a table
+is bounded by the invariant (third form of `prop:jump-table`) gets no precondition, because
+the proof that every step follows the graph uses the invariant from the entry on.
+
+The producer (`run_cycles.py --contexts`, `ipet.context_certificates`) certifies the callers
+first, takes for each callee with loops the hull of the ranges of `r0`–`r3` at its calls, and
+keeps a fact only if every call proves it.
+
 ### Stack slots, and two assumptions
 
 At `-O1`, a counter that must survive a call is often kept in the stack frame

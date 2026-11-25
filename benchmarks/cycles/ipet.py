@@ -258,22 +258,23 @@ def code_top(img):
 _LOOP_AN = None  # the analysis inherited by the workers of `loop_certificates`
 
 
-def _loop_job(name, abi, frame):
+def _loop_job(name, abi, frame, pre=None, need_inv=False):
     import time
     import binloops
     before = set(binloops._RUNTIME_EMPTY)
     t0 = time.process_time()
     try:
-        res = ("ok", binloops.certify_loops(_LOOP_AN, name, abi, frame=frame))
+        res = ("ok", binloops.certify_loops(_LOOP_AN, name, abi, frame=frame, pre=pre, need_inv=need_inv))
     except Exception as e:  # noqa: BLE001  re-raised by the caller, as in a serial run
         res = ("raise", e)
     new = {k: v for k, v in binloops._RUNTIME_EMPTY.items() if k not in before}
     return name, res + (time.process_time() - t0, dict(binloops.METER)), new
 
 
-def loop_certificates(an, names, abi, frame, jobs):
+def loop_certificates(an, names, abi, frame, jobs, args=None):
     """`binloops.certify_loops` of every function of `names`, computed by `jobs` forked
-    processes. Each result depends only on the function and `an` (the budgets are counted in
+    processes (`args`: {name: (precondition, need_inv)}). Each result depends only on the
+    function, its arguments and `an` (the budgets are counted in
     work units per function, `binloops.FUNC_WORK`, `LP_WORK`), so the certificate is the one
     of a serial run. An exception is returned, to be raised where the serial run would
     raise it."""
@@ -281,12 +282,20 @@ def loop_certificates(an, names, abi, frame, jobs):
     import concurrent.futures
     import multiprocessing
     global _LOOP_AN
+    args = args or {}
+    if jobs <= 1:
+        global_an = _LOOP_AN
+        _LOOP_AN = an
+        try:
+            return {n: _loop_job(n, abi, frame, *args.get(n, (None, False)))[1] for n in names}
+        finally:
+            _LOOP_AN = global_an
     _LOOP_AN = an
     out = {}
     try:
         ctx = multiprocessing.get_context("fork")
         with concurrent.futures.ProcessPoolExecutor(jobs, mp_context=ctx) as pool:
-            futs = [pool.submit(_loop_job, n, abi, frame) for n in names]
+            futs = [pool.submit(_loop_job, n, abi, frame, *args.get(n, (None, False))) for n in names]
             for f in concurrent.futures.as_completed(futs):
                 name, res, new = f.result()
                 out[name] = res
@@ -296,7 +305,158 @@ def loop_certificates(an, names, abi, frame, jobs):
     return out
 
 
-def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False, jobs=1):
+def _call_graph(an, roots, names):
+    """The functions reached from `roots` whose graph is built, and their callees."""
+    seen, todo, names_ok, graph = set(roots), list(roots), [], {}
+    while todo:
+        n = todo.pop()
+        try:
+            _e, blocks, _ = an.cfg(n)
+        except wcet.Unbounded:
+            continue
+        names_ok.append(n)
+        graph[n] = []
+        for il in blocks.values():
+            for i in il:
+                if i.kind == "call" and i.target in names:
+                    g = names[i.target]
+                    if g not in graph[n]:
+                        graph[n].append(g)
+                    if g not in seen:
+                        seen.add(g)
+                        todo.append(g)
+    return names_ok, graph
+
+
+def _from_js(g):
+    return ({v: k for v, k in g["sv"]}, g["c"])
+
+
+def _site_disjuncts(fields, a):
+    """The disjuncts of the invariant at `a` (`ThumbDataCore.invsAt`), from the fields."""
+    k = fields["_nodes"].index(a)
+    alt = fields.get("alt") or []
+    return [fields["inv"][k]] + (alt[k] if k < len(alt) else [])
+
+
+def _site_proofs(fields, a, facts):
+    """Farkas proofs of `facts` from each disjunct of the invariant at the call at `a` with
+    the ranges (`ThumbDataCore.callObs`), in the checker's order; None if one fails."""
+    import binloops
+    nv = binloops.nvars(len(fields.get("slots", [])))
+    rng = binloops.ranges_n(nv)
+    out = []
+    for I in _site_disjuncts(fields, a):
+        prem = [_from_js(g) for g in I] + rng
+        pr = binloops.Prover(prem, nv, facts)
+        for p in facts:
+            cert = pr.prove(p)
+            if cert is None:
+                return None
+            out.append(binloops.js_proof(cert))
+    return out
+
+
+def context_certificates(an, names, graph, abi, frame, jobs, addr_of):
+    """The loop certificates of `names`, callers first, each function that has loops given
+    a precondition: the hull of the ranges of `r0`-`r3` at its calls, each fact kept only if
+    the invariant of every caller proves it at every call (`_site_proofs`). The levels of the
+    call graph are computed one after the other, the functions of a level in parallel. A
+    function on a cycle of calls, a run-time routine or a function with a caller that gives
+    no invariant gets none. Returns ({name: result of `_loop_job`}, {name: precondition})."""
+    import binloops
+    callers = {g: [f for f in names if g in graph.get(f, [])] for g in names}
+    loopy = {}
+    for g in names:
+        try:
+            loopy[g] = bool(binloops.structure(an, g)[5])
+        except Exception:  # noqa: BLE001
+            loopy[g] = False
+    cand = {g for g in names if loopy[g] and callers[g] and not g.startswith("__aeabi")}
+    need = {f for f in names if any(g in cand for g in graph.get(f, []))}
+    # levels: a function after all its callers (Kahn); those on cycles of calls last, without
+    # precondition
+    indeg = {g: len([f for f in callers[g] if f != g]) for g in names}
+    level = [g for g in names if indeg[g] == 0]
+    done, levels = set(), []
+    while level:
+        levels.append(sorted(level))
+        done |= set(level)
+        nxt = []
+        for f in level:
+            for g in graph.get(f, []):
+                if g in indeg and g not in done:
+                    indeg[g] -= 1
+                    if indeg[g] == 0 and g not in nxt:
+                        nxt.append(g)
+        level = nxt
+    rest = sorted(set(names) - done)
+    if rest:
+        levels.append(rest)
+    cand -= set(rest)
+    results, pres = {}, {}
+    for lv in levels:
+        args = {}
+        for g in lv:
+            pre = None
+            if g in cand:
+                pre = _precondition(g, callers[g], results, addr_of)
+            pres[g] = pre
+            args[g] = (pre, g in need)
+        results.update(loop_certificates(an, lv, abi, frame, jobs, args))
+    return results, pres
+
+
+def _precondition(g, callers, results, addr_of):
+    """The precondition of `g` from the results of its callers (see `context_certificates`)."""
+    import binloops
+    U = binloops.U
+    ga = addr_of[g]
+    sites = []
+    for f in callers:
+        res = results.get(f)
+        if res is None or res[0] != "ok":
+            return None
+        fields = res[1][0]
+        if "inv" not in fields or "_calls" not in fields:
+            return None
+        sites += [(fields, a, rng) for a, t, rng in fields["_calls"] if t == ga]
+    reach = [rng for _f, _a, rng in sites if rng is not None]
+    if not reach:
+        return None
+    pre = {}
+    for r in range(4):
+        lo = max(0, min(rng[r][0] for rng in reach))
+        hi = min(U - 1, max(rng[r][1] for rng in reach))
+        # each fact kept only if every call proves it from the invariant there
+        proved = lambda bnd: all(_site_proofs(fields, a, binloops.pre_lins({r: bnd})) is not None  # noqa: E731
+                                 for fields, a, _rng in sites)
+        lo = lo if lo > 0 and proved((lo, U - 1)) else 0
+        hi = hi if hi < U - 1 and proved((0, hi)) else U - 1
+        if lo > 0 or hi < U - 1:
+            pre[r] = (lo, hi)
+    return pre or None
+
+
+def call_proofs(fields, in_cert, pre_of, names):
+    """The proofs of the obligations of the calls of a function (`ThumbDataCore.callObs`, in
+    its order): at each call (address order) of a function of the certificate with a
+    precondition, each disjunct of the invariant, each fact."""
+    import binloops
+    out = []
+    for a, t, _rng in fields.get("_calls", []):
+        g = names.get(t)
+        if g is None or g not in in_cert or not pre_of.get(g):
+            continue
+        ps = _site_proofs(fields, a, binloops.pre_lins(pre_of[g]))
+        if ps is None:
+            raise NoCertificate(f"the precondition of {g} is not proved at the call at {a:#x}")
+        out += ps
+    return out
+
+
+def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False, jobs=1,
+            contexts=False):
     """A certificate on the machine code for the functions reachable from `roots` (callees
     first); returns (JSON, {function: bound}, {function: reason}). With `loops`, the loop
     bounds are also certified on the machine code where `binloops.py` finds a certificate
@@ -305,30 +465,26 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
     assumed not to write it); `stats` (a dict) then
     receives per function the certified loops, the reasons for the others and the CPU
     seconds of their analysis. `jobs` > 1:
-    the loop certificates of the functions are computed in parallel (`loop_certificates`)."""
+    the loop certificates of the functions are computed in parallel (`loop_certificates`).
+    `contexts` (with `loops`): functions with loops get a precondition on their arguments
+    from their calls (`context_certificates`), proved at every call by the checker; their
+    bounds then hold for the calls of the program."""
     img = an.img
     base = getattr(img, "base", 0)
     addr_of = {n: a for n, (a, _) in img.funcs.items()}
     names = {a: n for n, a in addr_of.items()}
     funcs, bounds, why, active = [], {}, {}, set()
     pre = {}
-    if loops and jobs > 1:
+    pre_of = {}
+    if loops and (jobs > 1 or contexts):
         # the functions whose loops a serial run certifies: those reached from `roots`
         # whose graph is built
-        seen, todo, names_ok = set(roots), list(roots), []
-        while todo:
-            n = todo.pop()
-            try:
-                _e, blocks, _ = an.cfg(n)
-            except wcet.Unbounded:
-                continue
-            names_ok.append(n)
-            for il in blocks.values():
-                for i in il:
-                    if i.kind == "call" and i.target in names and names[i.target] not in seen:
-                        seen.add(names[i.target])
-                        todo.append(names[i.target])
-        pre = loop_certificates(an, names_ok, abi, frame, jobs)
+        names_ok, graph = _call_graph(an, roots, names)
+        if contexts:
+            pre, pre_of = context_certificates(an, names_ok, graph, abi, frame, jobs, addr_of)
+        else:
+            pre = loop_certificates(an, names_ok, abi, frame, jobs)
+    cert_fields = {}
 
     def visit(name):
         if name in bounds or name in why:
@@ -364,8 +520,10 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
                 if stats is not None:
                     stats[name] = dict(certified=info, other=lwhy, seconds=secs, meter=meter)
             fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base, cl)
-            fn.update(fields)
+            private = {k: v for k, v in fields.items() if k.startswith("_")}
+            fn.update({k: v for k, v in fields.items() if not k.startswith("_")})
             funcs.append(fn)
+            cert_fields[name] = (fn, dict(fields, **private))
             bounds[name] = B
         except (wcet.Unbounded, NoCertificate) as e:
             why[name] = str(e)
@@ -374,6 +532,15 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
 
     for r in roots:
         visit(r)
+    if pre_of:
+        # the proofs of the callees' preconditions at the calls, once the functions of the
+        # certificate are known (a callee without a certificate has no obligation)
+        in_cert = set(cert_fields)
+        for name, (fn, fields) in cert_fields.items():
+            if "_calls" in fields:
+                cps = call_proofs(fields, in_cert, pre_of, names)
+                if cps:
+                    fn["call_proofs"] = cps
     top = code_top(img)
     halfwords = list(struct.unpack_from(f"<{top // 2}H", img.mem, 0)) if top else []
     doc = {"format": "crosscheck-binary-cycles", "version": 2 if loops else 1,

@@ -361,6 +361,16 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   the instruction's invariant and the ranges `[0, 2^32 − 1]` of the `20 + 2S` variables
   (`10`-`17`: registers written with any value, `18`, `19`: fresh ghosts, then the
   tracked words before and after).
+- `"pre"` (optional, default none; since 2026-11-25): the precondition of the function,
+  constraints like `"inv"` on `r0`-`r7` only (Lean `DFun.pre`, `wfPre`), produced by
+  `run_cycles.py --contexts`. The obligations of the entry have it as premises before the
+  ranges (`entryPrem`); refused in a function with a jump listed with `"bound"`.
+  `"call_proofs"`: Farkas certificates of the obligations of the calls (`callObs`): for
+  every instruction (order of `nodes`) that calls a function of the certificate with a
+  precondition, for every disjunct of the invariant there, for every constraint of the
+  callee's precondition, in this order; premises the disjunct then the ranges. A function
+  with a precondition is bounded for the runs that start in it, that is for the calls of
+  the program (the program line counts these functions).
 - Accepted (the second line per function, `ACCEPTED f: loop bounds of the machine code`,
   and the program line): every run of the data semantics (`ThumbData.DRun`: effects of the
   instructions on `r0`-`r7` and the flags, `Thumb.effect`; a branch taken iff its
@@ -369,7 +379,9 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   (compared with `m0.py` by `test_effect.py`), the code and that it is not written during a
   run (a load from the literal pool, `LDR rt, [pc, #i]`, gives the word of the code at its
   address when both halfwords are in `"code"`, any value otherwise), the trusted rows, and
-  the assumption on callees if `"abi"` is true. Exact effects (since 2026-11-19, besides
+  the assumption on callees if `"abi"` is true. A callee's run starts with the caller's
+  registers at the call, and the bound of a function with a precondition holds for the runs
+  that start in it (`ThumbData.data_sound`, `PreAt`). Exact effects (since 2026-11-19, besides
   `ADDS`/`SUBS`/`MOVS`/`CMP`/`CMN`/`MOV`/`ADD` of low registers): `LSLS` by a constant
   (`rm·2^s` when it does not overflow, any value when `rm·2^s ≥ 2^32`), `NEGS`, `MVNS`, the
   literal load, the write-back of `STM`/`LDM` (base + 4 per register; `STM` keeps its list;

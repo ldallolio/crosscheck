@@ -57,7 +57,8 @@ with the verified decoder and runs `Thumb.checkBinary` (theorem `Thumb.binary_so
 run of the machine code, in the semantics of `Thumb`, on which the rows hold, costs at most
 the bound). Version 2 of the format may add, per function, loop certificates on the
 machine code (`"loops"`, `"kinds"`, `"inv"` with optional further disjuncts `"alt"` and their
-targets `"pick"`, `"proofs"`, and `"abi"` for the program): the
+targets `"pick"`, `"proofs"`, a precondition on `r0`-`r7` `"pre"` with the proofs of the
+obligations of the calls `"call_proofs"`, and `"abi"` for the program): the
 checker then also runs `Thumb.checkData` (theorem `ThumbData.data_sound`: the rows of the
 certified loops hold on every run of the data semantics, so only the rows left in `"rows"`
 are trusted). The rows of the certified loops are generated here by `Thumb.loopRow`, and
@@ -581,7 +582,9 @@ def parseBFun (f : Json) : Except String
               if j < 0 ∨ d < 0 ∨ s < 0 ∨ t < 0 then throw "a target must be [j, m, d, s, t], j, d, s, t >= 0"
               else pure (j.toNat, m, d.toNat, s.toNat, t.toNat)
             | _ => throw "a target must be [transition, wrap, fact, source disjunct, target disjunct]"
-        | .error _ => throw "the targets of an instruction must be an array")⟩
+        | .error _ => throw "the targets of an instruction must be an array"),
+     ← optArr f "pre" parseDLin,
+     ← optArr f "call_proofs" parseProof⟩
   pure (nameOf f "name", F, C, D)
 
 def parseBinaryFile (j : Json) :
@@ -614,13 +617,14 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
       | some G =>
         let ok := ImperativeOptimization.Cycles.checkFn bounds G C
         IO.println s!"{if ok then "ACCEPTED" else "REJECTED"} {name}: at most {C.bound} cycles ({F.nodes.length} instructions, {G.edges.length} edges, {G.rows.length} rows)"
-      if !D.loops.isEmpty || !D.inv.isEmpty then
+      if !D.loops.isEmpty || !D.inv.isEmpty || !D.pre.isEmpty then
         let okD := ImperativeOptimization.Thumb.checkDFun mul abi code F D
-        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked, {(D.cong.map List.length).foldl (· + ·) 0} congruences{if D.frame then ", frame written only through SP (assumed)" else ""})"
+        IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked, {(D.cong.map List.length).foldl (· + ·) 0} congruences{if D.frame then ", frame written only through SP (assumed)" else ""}{if D.pre.isEmpty then "" else s!", a precondition of {D.pre.length} facts on r0-r7, proved at every call: its bounds hold for the calls of the program"})"
     let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
     let nTrust := (Ls.map (·.trusted.length)).foldl (· + ·) 0
     let nJump : Nat := (fs.map (·.jumps.length)).foldl (· + ·) 0
-    if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty) || nJump > 0 then
+    let nPre := (Ls.filter fun D => !D.pre.isEmpty).length
+    if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty || !D.pre.isEmpty) || nJump > 0 then
       -- the decision of the verified `checkBinary`, jumps through tables allowed (theorem
       -- `ThumbData.data_sound`: the data semantics follows their targets)
       let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1)) true
@@ -634,7 +638,8 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
         else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
         else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
       let jumps := if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else ""
-      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
+      let pres := if nPre > 0 then s!"; {nPre} function(s) with a precondition on their arguments, proved at every call (their bounds hold for runs that start in it)" else ""
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}{pres}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
       if !(okP && okD) then status := 1
     else
       -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
