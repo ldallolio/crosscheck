@@ -323,11 +323,16 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                                            meter=v.get("meter"))
                                   for fn, v in (cert_info.get("loops") or {}).items()},
                     loops_checked_certified=len(cbodies),
-                    # linear programs stopped by the wall-clock safety limit of HiGHS
-                    # (binloops.LP_SAFETY_SECONDS): the only results that may differ on
-                    # another machine (the other limits count work, not time)
+                    # linear programs stopped by the CPU-time limit (binloops.LP_SAFETY_CPU) or
+                    # by HiGHS's wall-clock backstop (LP_WALL_SECONDS): the only limits that
+                    # count time, not work; and the CPU seconds of the slowest successful
+                    # solve (a machine LP_SAFETY_CPU / lp_ok_max_cpu times slower would stop it)
                     lp_safety={fn: v["meter"]["lp_safety"] for fn, v in (cert_info.get("loops") or {}).items()
                                if (v.get("meter") or {}).get("lp_safety")},
+                    lp_wall={fn: v["meter"]["lp_wall"] for fn, v in (cert_info.get("loops") or {}).items()
+                             if (v.get("meter") or {}).get("lp_wall")},
+                    lp_ok_max_cpu=max([(v.get("meter") or {}).get("lp_ok_max_cpu", 0.0)
+                                       for v in (cert_info.get("loops") or {}).values()], default=0.0),
                     certified_main_observed_ratio=(certified["main"] / mach.cyc) if certified.get("main") and ret is not None and mach.cyc else None)))
 
 
@@ -430,9 +435,13 @@ def main():
                      f"{r['loops_certified'] + r['loops_not_certified']}" if a.certify_loops else ""),
                   file=sys.stderr)
         if r.get("lp_safety"):
-            print(f"{'':16s} warning: {sum(r['lp_safety'].values())} linear programs stopped by the "
-                  f"wall-clock safety limit in {', '.join(sorted(r['lp_safety']))}: their loops may be "
-                  f"certified differently on another machine", file=sys.stderr)
+            import binloops
+            print(f"{'':16s} note: {sum(r['lp_safety'].values())} linear programs stopped after "
+                  f"{binloops.LP_SAFETY_CPU:g} CPU seconds in {', '.join(sorted(r['lp_safety']))}", file=sys.stderr)
+        if r.get("lp_wall"):
+            print(f"{'':16s} warning: {sum(r['lp_wall'].values())} linear programs stopped by the "
+                  f"wall-clock backstop of HiGHS in {', '.join(sorted(r['lp_wall']))}: their loops may "
+                  f"be certified differently on another machine or under another load", file=sys.stderr)
         for v in r["violations"]:
             print("   VIOLATION " + v, file=sys.stderr)
         print(f"{'':16s} stack: bounded={r['stack_bounded']} main_bound={r['stack_main_bound']} "
@@ -456,6 +465,8 @@ def main():
         tot.update(certified=len(cf), certified_main=sum("main" in r["certified_functions"] for r in ok),
                    certificates_rejected=sum(r["certificates_accepted"] is False for r in ok),
                    lp_safety=sum(sum((r.get("lp_safety") or {}).values()) for r in ok),
+                   lp_wall=sum(sum((r.get("lp_wall") or {}).values()) for r in ok),
+                   lp_ok_max_cpu=max([r.get("lp_ok_max_cpu") or 0.0 for r in ok], default=0.0),
                    certified_compared=sum(r["certified_compared"] for r in ok),
                    certified_below_schema=sum(1 for _, v, s in cf if s is not None and v < s),
                    certified_equal_schema=sum(1 for _, v, s in cf if s is not None and v == s),

@@ -441,10 +441,10 @@ Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the cha
 
 Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
 in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
-and which receives no cycle bound. 28 of the linear
-programs of 14 functions (in `anagram`, `cjpeg_transupp`, `epic`, `gsm_dec`, `h264_dec`,
-`huff_enc`, `mpeg2`, `susan`) reach the 60 s safety limit of "Deterministic limits"; two runs,
-one on an overloaded machine, gave the same 25 certificates. No certificate is rejected and no
+and which receives no cycle bound. 29 of the linear
+programs of 15 functions (in `anagram`, `cjpeg_transupp`, `epic`, `gsm_dec`, `h264_dec`,
+`huff_enc`, `mpeg2`, `susan`) are stopped after 60 CPU seconds ("Deterministic limits");
+three runs, one on an overloaded machine, gave the same 25 certificates. No certificate is rejected and no
 emulated run exceeds a cycle or stack bound. `lift` (`main`: 1,157,990 cycles certified,
 883,716 observed) and `statemate` are bounded entirely. In the others, `main` stays
 unbounded because some function on its call paths has a loop bounded neither by the source
@@ -637,18 +637,9 @@ same), and `epic_internal_filter` was cut at different points. The limits now co
 - a linear program stops after `min(60,000, 3·10^9 / size)` iterations (`lp_maxiter`): the
   largest successful solves of these runs needed 53,912 iterations and 2.5·10^9 iterations
   × size;
-- a wall-clock limit of 60 s per linear program remains (`LP_SAFETY_SECONDS`) for solves
-  that the iteration limit does not bound in time: HiGHS's dual simplex and interior point
-  ran at 1 to 750 iterations per second on 30 of the 112,441 solves of these runs, logged
-  with `CROSSCHECK_LP_LOG=FILE`. A solve that reaches it is counted (`lp_safety` in the
-  results, per function) and `run_cycles.py` prints a warning: those functions' loops may
-  be certified differently on another machine. It is reached under load: in the final
-  runs of the figures (two kernel runs at a time on the 40-core machine), by 6 solves in
-  `ludcmp_test`, `minver_mmul`, `fft_bit_reduct` and `fft_float2fract` (none in the runs
-  made one at a time), and on the laptop by 6 solves of the GCC runs, in
-  `jfdctint_jpeg_fdct_islow` and `filterbank_core`; every figure was the same as before
-  (Clang 143 / 200 / 260 and 146 / 204 / 261 kernel loops, 261 with each library; GCC 40 / 66
-  / 75 kernel loops, 110 / 110 / 112 functions).
+- a limit in time remains, since the time of an iteration varies a thousandfold, but in CPU
+  seconds, not wall-clock seconds: 60 CPU seconds per linear program (`LP_SAFETY_CPU`,
+  since 2026-11-25; see below).
 
 The work of every function is recorded in the results (`loops_detail`: `meter`, `seconds`).
 Checks: the 29 kernels (compiler-rt, `--abi --frame`) give byte-identical certificates on a
@@ -657,6 +648,46 @@ Checks: the 29 kernels (compiler-rt, `--abi --frame`) give byte-identical certif
 Intel Core i5-3360M laptop and on an Intel Xeon Silver 4410T; `compare_runs.py --check`
 against the run with time limits: 261 kernel loops certified before and after, no bound
 higher or lower.
+
+### The time limit of a linear program, in CPU seconds (2026-11-25)
+
+The 60 s limit of HiGHS (`time_limit`) counted wall-clock time, so whether a solve reached
+it depended on the load (in the kernels, it was reached only under load). The 547 linear programs of a run of the larger programs that took
+more than 2 s were saved (`CROSSCHECK_LP_DUMP=DIR`) and solved again alone, with the same
+iteration limits and a limit of 300 s:
+
+- the iteration limit does not bound the time: the same method ran at 30,000 iterations
+  per second on some and 40 on others, and HiGHS failed on some with an error after 66 to
+  485 s (given 600 s) without counting iterations (scipy's `linprog` then reports none), on programs of
+  2,000 to 20,000 rows with constants near 2^32; `linprog` also gives the interior point
+  the simplex's iteration limit, thousands of iterations where it needs fewer than 100;
+- none of the solves that took more than 60 s succeeds within 300 s (nor 10 of them,
+  the slowest, within 600 s): all end at an iteration limit, in a numerical failure, or in
+  time; of the 20,029 solves of that run,
+  the 585 that succeed take at most 20 s, and 97% of the time spent on linear programs
+  went to solves that fail.
+
+`binloops.highs_lp` now calls HiGHS itself (scipy's copy, `scipy.optimize._highspy`): the
+same model and options as `linprog`, hence the same answers (`test_binloops.py
+LinearPrograms`: statuses, iteration counts and solutions bit for bit on 240 programs), and
+HiGHS's simplex and interior-point callbacks stop a solve after `LP_SAFETY_CPU` = 60 CPU
+seconds of the process. A stopped solve is charged its full iteration limit in the work
+meter, as if HiGHS had reached it, so that the budget of the function does not depend on
+where it stopped. HiGHS's own wall-clock limit stays as a backstop at 600 s for phases
+without callbacks (`lp_wall`, with a warning; never reached). The results give, per
+function, the solves stopped (`lp_safety`) and the CPU seconds of the slowest successful
+solve (`lp_ok_max_cpu`): a machine `LP_SAFETY_CPU / lp_ok_max_cpu` times slower would stop it.
+
+With the CPU limit, the 8 configurations of the figures (the 7 kernel runs and the larger
+programs) give byte-identical certificates to those of the wall-clock limit: 254 of 254.
+The CPU limit stops 0 to 3 solves per kernel configuration (in `ludcmp_test`, `minver_mmul`,
+`fft_bit_reduct`, `fft_float2fract`, now on an idle machine too) and 29 in the larger
+programs; the backstop is never reached; the slowest successful solve takes 5.7 CPU
+seconds in the kernels (`ludcmp_test`) and 19.7 in the larger programs
+(`h264_dec_decode_one_macroblock`), a margin of 10 and 3 for a slower machine. CPU time
+still depends somewhat on the load (two hardware threads share a core), much less than
+wall-clock time. `ludcmp` gives the same certificate, with its stopped solve, on the
+laptop and on the 40-core machine.
 
 ## OTAWA on the same binaries
 
@@ -870,6 +901,10 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-25, time limit in CPU seconds.** HiGHS called directly (`highs_lp`), stopped
+  after 60 CPU seconds by its callbacks instead of 60 s of wall-clock time; a stopped solve
+  is charged its iteration limit ("The time limit of a linear program, in CPU seconds");
+  all 254 certificates of the figures byte-identical.
 - **2026-11-25, deterministic limits.** Work units instead of seconds for the search of a
   function and for each linear program ("Deterministic limits"); kernel figures unchanged.
 - **2026-11-24, analysis time.** Exact speed-ups of the loop analysis, `--func-jobs`, the

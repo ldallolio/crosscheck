@@ -40,11 +40,21 @@ BIG = 1 << 20       # constants above this are left out of a coarse linear progr
 # nonzeros)) iterations (`maxiter`); the largest successful solves of the kernels and
 # TACLeBench's larger programs needed 53,912 iterations and 2.5e9 iterations x size (the
 # dual simplex can also stall: 358,832 iterations in 60 s on 34 rows in binarysearch).
-# LP_SAFETY_SECONDS: a wall-clock limit for what the iteration limit does not bound
-# (counted in the meter, `lp_safety`: the only limit that depends on the machine).
+# The time of an iteration varies a thousandfold (large programs with constants near 2^32:
+# HiGHS also fails on some after minutes without counting iterations), so a limit in time
+# remains, in CPU seconds of the process (`highs_lp`: HiGHS's simplex and interior-point
+# callbacks), not in wall-clock seconds, which depend on the load much more. LP_SAFETY_CPU
+# is counted in the meter (`lp_safety`) and a stopped solve is charged its full iteration
+# limit, as if HiGHS had reached it. A certificate can still differ on another machine
+# through a solve that ends before the limit on one machine and not on the other: none of
+# the 585 successful solves (of 20,029) of TACLeBench's larger programs takes more than
+# 20 s, none of the solves that took more than 60 s succeeds within 300 s (2026-11-25);
+# `lp_ok_max_cpu` (the slowest successful solve) gives the margin of a run. LP_WALL_SECONDS: HiGHS's own wall-clock limit, for phases without callbacks
+# (`lp_wall`; never reached in that calibration).
 LP_WORK = 3_000_000_000
 LP_MAX_ITERS = 60_000
-LP_SAFETY_SECONDS = 60.0
+LP_SAFETY_CPU = 60.0
+LP_WALL_SECONDS = 600.0
 # Per function (both analyses of `certify_loops`), in work units (`_work`, about one
 # microsecond each on the machine where they were calibrated): past FUNC_WORK the analysis
 # of the function stops (`BudgetSpent`: no loop certified) or, during the linear programs,
@@ -72,7 +82,7 @@ def _meter_reset():
     METER.clear()
     METER.update(ticks=0, lp_solves=0, lp_iters=0, lp_max_iters=0, lp_limited=0,
                  lp_seconds=0.0, lp_max_seconds=0.0, provers=0, lp_work=0, lp_max_work=0,
-                 lp_limited_work=0, lp_limited_size=0, lp_safety=0)
+                 lp_limited_work=0, lp_limited_size=0, lp_safety=0, lp_wall=0, lp_ok_max_cpu=0.0)
 
 
 _meter_reset()
@@ -99,40 +109,128 @@ def _work():
             + m["lp_work"] // LP_WORK_PER_UNIT)
 
 
-def lp_options(size, **opts):
-    """HiGHS options of a linear program of `size` (rows + columns + nonzeros)."""
-    return dict({"maxiter": lp_maxiter(size), "time_limit": LP_SAFETY_SECONDS}, **opts)
-
-
 def lp_maxiter(size):
     return max(1, min(LP_MAX_ITERS, LP_WORK // max(1, size)))
 
 
 LP_LOG = os.environ.get("CROSSCHECK_LP_LOG")   # a file: one JSON line per solve (calibration)
+# a directory: the linear programs of `synth_lp` whose solve took more than
+# CROSSCHECK_LP_DUMP_SECONDS (default 5), as .npz files (calibration)
+LP_DUMP = os.environ.get("CROSSCHECK_LP_DUMP")
+LP_DUMP_SECONDS = float(os.environ.get("CROSSCHECK_LP_DUMP_SECONDS", "5"))
+
+
+def _dump_lp(t0, res, meth, opts, cost, A, b, Aeq, beq, bounds):
+    import hashlib
+    import numpy as np
+    dt = time.monotonic() - t0
+    if dt < LP_DUMP_SECONDS:
+        return
+    lo = np.array([-np.inf if x[0] is None else x[0] for x in bounds], dtype=float)
+    hi = np.array([np.inf if x[1] is None else x[1] for x in bounds], dtype=float)
+    parts = dict(cost=cost, b=b, beq=beq, lo=lo, hi=hi,
+                 A_data=A.data, A_indices=A.indices, A_indptr=A.indptr, A_shape=np.array(A.shape),
+                 E_data=Aeq.data, E_indices=Aeq.indices, E_indptr=Aeq.indptr, E_shape=np.array(Aeq.shape))
+    h = hashlib.sha256(b"".join(np.ascontiguousarray(v).tobytes() for v in parts.values())).hexdigest()[:16]
+    os.makedirs(LP_DUMP, exist_ok=True)
+    np.savez_compressed(os.path.join(LP_DUMP, f"{h}.{meth}{'-nopre' if opts else ''}.npz"), **parts,
+                        meta=np.array([meth, repr(opts), str(res.status), str(getattr(res, "nit", 0)),
+                                       f"{dt:.3f}"]))
+
+
+def highs_lp(c, A_ub, b_ub, A_eq, b_eq, bounds, solver=None, presolve=True, maxiter=None):
+    """min c.x subject to A_ub x <= b_ub, A_eq x = b_eq and `bounds` (pairs, None = none),
+    solved by HiGHS (scipy's copy) as `scipy.optimize.linprog(method="highs"|"highs-ds"|
+    "highs-ipm")` solves it: the same model and options, so the same answers, with
+    `maxiter` as both iteration limits; besides, stopped after LP_SAFETY_CPU CPU seconds
+    (`interrupted`). The fields that are used of linprog's result: `status` (0 optimal,
+    1 a limit, 2 infeasible, 3 unbounded, 4 other), `x`, `nit` (simplex iterations, else
+    interior-point ones; 0 when HiGHS fails with an error), `cpu`."""
+    import types
+    import numpy as np
+    import scipy.optimize._highspy._core as hc
+    from scipy.sparse import csc_array, issparse, vstack
+    mats = [M for M in (A_ub, A_eq) if M is not None]
+    A = csc_array(vstack(mats) if any(issparse(M) for M in mats) else np.vstack(mats), dtype=float)
+    c = np.asarray(c, dtype=float)
+    n = len(c)
+    nub = 0 if A_ub is None else A_ub.shape[0]
+    b_ub = np.zeros(0) if A_ub is None else np.asarray(b_ub, dtype=float)
+    b_eq = np.zeros(0) if A_eq is None else np.asarray(b_eq, dtype=float)
+    lp = hc.HighsLp()
+    lp.num_col_ = lp.a_matrix_.num_col_ = n
+    lp.num_row_ = lp.a_matrix_.num_row_ = A.shape[0]
+    lp.a_matrix_.format_ = hc.MatrixFormat.kColwise
+    lp.col_cost_ = c
+    lp.col_lower_ = np.array([-np.inf if b[0] is None else b[0] for b in bounds], dtype=float)
+    lp.col_upper_ = np.array([np.inf if b[1] is None else b[1] for b in bounds], dtype=float)
+    lp.row_lower_ = np.concatenate((np.full(nub, -np.inf), b_eq))
+    lp.row_upper_ = np.concatenate((b_ub, b_eq))
+    lp.a_matrix_.start_, lp.a_matrix_.index_, lp.a_matrix_.value_ = A.indptr, A.indices, A.data
+    h = hc._Highs()
+    o = hc.HighsOptions()
+    o.presolve = "on" if presolve else "off"
+    if solver is not None:
+        o.solver = solver
+    o.time_limit = LP_WALL_SECONDS
+    o.output_flag = o.log_to_console = False
+    o.simplex_strategy = 1      # dual (linprog's choice)
+    if maxiter is not None:
+        o.simplex_iteration_limit = o.ipm_iteration_limit = maxiter
+    out = types.SimpleNamespace(status=4, x=None, nit=0, interrupted=False, wall=False, cpu=0.0)
+    if h.passOptions(o) == hc.HighsStatus.kError or h.passModel(lp) == hc.HighsStatus.kError:
+        return out
+    t0 = time.process_time()
+    stop = [False]
+
+    def interrupt(_kind, _msg, _out, data_in, _user):
+        if time.process_time() - t0 > LP_SAFETY_CPU:
+            stop[0] = data_in.user_interrupt = True
+
+    h.setCallback(interrupt, None)
+    h.startCallback(hc.cb.HighsCallbackType.kCallbackSimplexInterrupt)
+    h.startCallback(hc.cb.HighsCallbackType.kCallbackIpmInterrupt)
+    run = h.run()
+    out.cpu = time.process_time() - t0
+    ms = h.getModelStatus()
+    M = hc.HighsModelStatus
+    out.interrupted = stop[0] and ms == M.kInterrupt
+    out.wall = ms == M.kTimeLimit
+    if run == hc.HighsStatus.kError:
+        return out
+    info = h.getInfo()
+    out.nit = info.simplex_iteration_count or info.ipm_iteration_count
+    out.status = {M.kOptimal: 0, M.kTimeLimit: 1, M.kIterationLimit: 1, M.kInterrupt: 1,
+                  M.kInfeasible: 2, M.kModelError: 2, M.kUnbounded: 3}.get(ms, 4)
+    if out.status == 0:
+        out.x = np.array(h.getSolution().col_value)
+    return out
 
 
 def _meter_lp(res, t0, size=0, shape=None, method=None):
     dt = time.monotonic() - t0
+    # a solve stopped in time is charged as if it had reached its iteration limit
+    nit = lp_maxiter(size) if res.interrupted else int(res.nit or 0)
     if LP_LOG:
         import json
-        line = json.dumps(dict(method=method, shape=shape, size=size, nit=int(getattr(res, "nit", 0) or 0),
+        line = json.dumps(dict(method=method, shape=shape, size=size, nit=nit, cpu=round(res.cpu, 4),
                                status=int(res.status), seconds=round(dt, 4), maxiter=lp_maxiter(size)))
         fd = os.open(LP_LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
         try:
             os.write(fd, (line + "\n").encode())
         finally:
             os.close(fd)
-    nit = int(getattr(res, "nit", 0) or 0)
     METER["lp_solves"] += 1
     METER["lp_iters"] += nit
     METER["lp_work"] += nit * size
     if res.status == 0:
         METER["lp_max_iters"] = max(METER["lp_max_iters"], nit)
         METER["lp_max_work"] = max(METER["lp_max_work"], nit * size)
+        METER["lp_ok_max_cpu"] = max(METER["lp_ok_max_cpu"], round(res.cpu, 3))
     elif res.status == 1:   # a limit (iterations or, `lp_safety`, time) reached
         METER["lp_limited"] += 1
-        if nit < lp_maxiter(size):
-            METER["lp_safety"] += 1
+        METER["lp_safety"] += res.interrupted
+        METER["lp_wall"] += res.wall
         METER["lp_limited_work"] += nit * size
         METER["lp_limited_size"] = max(METER["lp_limited_size"], size)
     METER["lp_seconds"] += dt
@@ -1026,8 +1124,6 @@ class Prover:
 
     def _lp(self, g):
         import numpy as np
-        from scipy.optimize import linprog
-        ipet.memo_highs_options()
         prem = self.prem
         # premises on the variables of the goal and of the non-range premises only
         keep = [i for i, p in enumerate(prem) if set(p[0]) <= set(self.ix) - {ZERO}]
@@ -1052,9 +1148,8 @@ class Prover:
         for margin in (max(1.0, 1e-6 * big), 0.0):
             t0 = time.monotonic()
             size = lp_size(A_ub, A_eq)
-            res = linprog(np.r_[np.ones(P), 0.0], A_ub=A_ub, b_ub=[-margin], A_eq=A_eq,
-                          b_eq=np.zeros(len(vars_)), bounds=[(0, None)] * P + [(1, None)], method="highs",
-                          options=lp_options(size))
+            res = highs_lp(np.r_[np.ones(P), 0.0], A_ub, [-margin], A_eq, np.zeros(len(vars_)),
+                           [(0, None)] * P + [(1, None)], maxiter=lp_maxiter(size))
             _meter_lp(res, t0, size, [A_ub.shape[0], A_eq.shape[0], P + 1], "prover")
             if res.status != 0:
                 continue
@@ -2016,8 +2111,6 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     out. A potential found this way satisfies the exact obligations too (they have more
     premises, and the value written is one of the values allowed); `prove_all` checks it."""
     import numpy as np
-    from scipy.optimize import linprog
-    ipet.memo_highs_options()
     from scipy.sparse import coo_matrix
     B = set(body)
     S = len(ctx.slots)
@@ -2165,9 +2258,11 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         try:
             t0 = time.monotonic()
             size = lp_size(A, Aeq)
-            res = linprog(cost, A_ub=A, b_ub=b, A_eq=Aeq, b_eq=beq, bounds=bounds, method=meth,
-                          options=lp_options(size, **opts))
+            res = highs_lp(cost, A, b, Aeq, beq, bounds, "simplex" if meth == "highs-ds" else "ipm",
+                           opts.get("presolve", True), lp_maxiter(size))
             _meter_lp(res, t0, size, [A.shape[0], Aeq.shape[0], A.shape[1]], meth + ("-nopre" if opts else "") + ("-split" if split else ""))
+            if LP_DUMP:
+                _dump_lp(t0, res, meth, opts, cost, A, b, Aeq, beq, bounds)
         except ValueError:
             continue
         if res.status == 0:

@@ -2503,6 +2503,24 @@ certified, 452 stack bounds, 1,227 of 2,070 loops); two runs of these gave the s
 certificates. Paper III (deterministic limits, larger programs, QEMU, Clang 23), cycles
 README, guide part 5, CLAUDE.md, the plugin workflow.
 
+148. "Thanks for the cleanup, proceed with the next step for crosscheck then"
+
+What the AI did for 148 (Claude Opus 5.5, 2026-11-25): the remaining machine-dependent limit,
+HiGHS's 60 s wall-clock limit per linear program. The 547 programs of a run of the larger
+programs that took more than 2 s were saved (`CROSSCHECK_LP_DUMP`) and solved again alone:
+the time of an iteration varies a thousandfold, HiGHS fails on some after 66 to 485 s without
+counting iterations, and none of those that took more than 60 s succeeds within 300 s, while
+the slowest of the 585 successful solves of the run takes 20 s. `binloops.highs_lp` calls
+HiGHS (scipy's copy) with `linprog`'s model and options, so the same answers (test on 240
+programs: statuses, iteration counts and solutions bit for bit), and stops a solve after 60
+CPU seconds through HiGHS's simplex and interior-point callbacks; a stopped solve is charged
+its full iteration limit in the work meter; the wall-clock limit stays as a backstop at 600 s
+(`lp_wall`); the results give the slowest successful solve (`lp_ok_max_cpu`). Checks: the 8
+configurations of the figures give byte-identical certificates (254 of 254), the backstop is
+never reached, the slowest successful solve takes 5.7 CPU s in the kernels and 19.7 in the
+larger programs; `ludcmp` gives the same certificate on the laptop and the 40-core machine.
+Paper III (the limit), cycles README, CLAUDE.md, `test_binloops.py` (`LinearPrograms`).
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

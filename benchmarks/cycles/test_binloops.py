@@ -465,6 +465,58 @@ class WrapToZero(unittest.TestCase):
         self.assertEqual(check(d)[0], 1, "congruences removed")
 
 
+class LinearPrograms(unittest.TestCase):
+    """`binloops.highs_lp` gives linprog's answers, and its CPU-time limit stops a solve
+    that is then charged its full iteration limit."""
+
+    def programs(self):
+        import numpy as np
+        from scipy.sparse import random as sprandom
+        rnd = np.random.default_rng(3)
+        for k in range(40):
+            m, me, n = int(rnd.integers(1, 30)), int(rnd.integers(0, 6)), int(rnd.integers(2, 40))
+            A = sprandom(m, n, density=0.3, random_state=k, format="csr") * 10 - \
+                sprandom(m, n, density=0.2, random_state=k + 100, format="csr") * 10
+            E = sprandom(me, n, density=0.4, random_state=k + 200, format="csr")
+            b = rnd.uniform(-5, 20, m)
+            beq = E @ rnd.uniform(0, 3, n)
+            c = rnd.uniform(-1, 2, n)
+            bounds = [(0, None) if j % 3 else (None if j % 2 else -4, 7) for j in range(n)]
+            yield c, A, b, E, beq, bounds
+
+    def test_same_answers_as_linprog(self):
+        import numpy as np
+        from scipy.optimize import linprog
+        statuses = set()
+        for c, A, b, E, beq, bounds in self.programs():
+            for meth, solver in (("highs-ds", "simplex"), ("highs-ipm", "ipm"), ("highs", None)):
+                for presolve in (True, False):
+                    ref = linprog(c, A_ub=A, b_ub=b, A_eq=E, b_eq=beq, bounds=bounds, method=meth,
+                                  options={"presolve": presolve, "maxiter": 500})
+                    got = binloops.highs_lp(c, A, b, E, beq, bounds, solver, presolve, 500)
+                    statuses.add(ref.status)
+                    self.assertEqual((ref.status, ref.nit), (got.status, got.nit), meth)
+                    if ref.status == 0:
+                        self.assertTrue(np.array_equal(ref.x, got.x), meth)
+        self.assertTrue({0, 2} <= statuses, statuses)     # optimal and infeasible ones
+
+    def test_cpu_limit(self):
+        c, A, b, E, beq, bounds = next(iter(self.programs()))
+        saved = binloops.LP_SAFETY_CPU
+        binloops.LP_SAFETY_CPU = -1.0       # every callback stops the solve
+        try:
+            res = binloops.highs_lp(c, A, b, E, beq, bounds, "simplex", False, 500)
+        finally:
+            binloops.LP_SAFETY_CPU = saved
+        self.assertEqual((res.status, res.interrupted, res.x), (1, True, None))
+        binloops._meter_reset()
+        size = binloops.lp_size(A, E)
+        binloops._meter_lp(res, 0.0, size)
+        m = binloops.METER
+        self.assertEqual((m["lp_safety"], m["lp_limited"], m["lp_iters"]), (1, 1, binloops.lp_maxiter(size)))
+        binloops._meter_reset()
+
+
 class Checker(unittest.TestCase):
     def setUp(self):
         if not pathlib.Path(CHECKER).exists():

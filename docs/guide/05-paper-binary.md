@@ -337,8 +337,15 @@ when every function keeps the convention, and otherwise names the functions that
    `countnegative`, the loop counter lives in a register at some instructions and in a stack
    word at others, so no single expression `±x` decreases all along the loop. The solution
    is rational; it is rounded, scaled to integers (the scale becomes `D`) and proved again
-   exactly. The solver (HiGHS) gets at most 5 s per program: the first runs without a limit
-   hung for hours on one badly scaled program (constants up to 2³²).
+   exactly. The solver (HiGHS) has limits: the first runs without one hung for hours on one
+   badly scaled program (constants up to 2³²). The limits count work, not time, so that a
+   binary gets the same certificate on every machine: a number of iterations that shrinks
+   with the size of the program, and a budget per function in units of work. One limit in
+   time remains, because an iteration can take a thousand times longer on one program than
+   on another: 60 seconds of *CPU* time per program (not wall-clock time, which depends on
+   how busy the machine is). The programs it stops never succeed even when given 300 s,
+   and the slowest program that succeeds takes 20 s, so in practice it does not change
+   what gets certified.
 6. **Farkas certificates** for every obligation: shortest paths in the difference graph, a
    negative cycle for contradictory cases, a linear program otherwise.
 7. Anything that cannot be proved is **dropped** (an invariant constraint, or a loop, whose
