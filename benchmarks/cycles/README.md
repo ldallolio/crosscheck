@@ -114,9 +114,9 @@ python3 benchmarks/cycles/run_cycles.py --gcc armgcc:local --tag=.gcc --check --
 | binary loops compared | 65 | 45 |
 | violations | 0 | 0 |
 | `main`: bound / observed | 1.31-2.51 | 1.24-2.46 |
-| functions with a certified cycle bound (none / `--abi` / both) | 110 / 110 / 112 | 116 / 116 / 121 |
+| functions with a certified cycle bound (none / `--abi` / both) | 110 / 110 / 112 | 118 / 118 / 123 |
 | `main`: certified / observed (both assumptions) | 1.12-1.90 | 1.00-1.90 |
-| kernel loops certified on the code (none / `--abi` / both) | 40 / 66 / 75 of 215 | 143 / 200 / 260 of 403 |
+| kernel loops certified on the code (none / `--abi` / both) | 40 / 66 / 75 of 215 | 156 / 213 / 273 of 403 |
 | loops of the division routines certified | 29 of 29 | 116 of 116 |
 
 GCC inlines less at `-O1`, so many more calls are compared with the runs (73 instead of 11);
@@ -250,26 +250,29 @@ that still grow are forgotten, so that the analysis terminates.
 
 | | no assumption | `--abi` | `--abi --frame` |
 |---|---:|---:|---:|
-| kernel loops certified (of 403) | 143 | 200 | 260 |
-| ... built with `-fomit-frame-pointer` | 146 | 204 | 261 |
+| kernel loops certified (of 403) | 156 | 213 | 273 |
+| ... built with `-fomit-frame-pointer` | 159 | 217 | 274 |
 | ... certified bound below the source bound | 84 | 116 | 153 |
-| ... no source bound | 59 | 84 | 107 |
+| ... no source bound | 72 | 97 | 120 |
 | loops of the division routines certified (of 116) | 116 | 116 | 116 |
-| functions with a certified cycle bound | 116 | 116 | 121 |
+| functions with a certified cycle bound | 118 | 118 | 123 |
 | loop rows still trusted in these bounds | 41 | 35 | 17 |
 | ... built with `-fomit-frame-pointer` | 39 | 34 | 16 |
 | run time with `--jobs 4` | 5 min | 8 min | 16 min |
 
 Every certificate is accepted, and no back-edge count of the emulated runs exceeds a
-certified bound. With both assumptions 376 of the 524 loops of the binaries are certified,
-and 160 of the 174 functions with loops have no trusted row left. A certified bound is
+certified bound. With both assumptions 389 of the 524 loops of the binaries are certified,
+and 162 of the 176 functions with loops have no trusted row left. A certified bound is
 never above the source bound (the producer keeps the source row then); those below it are
 often below by one, since the binary counts back edges. `--frame` is refused in 26 of the
 265 functions the producer analyses (25 without frame pointers): those that put another
 address of their frame in a register, mostly to pass a local array to a callee. Functions
 certified that the source bounds alone do not bound: `fac_fac`, `fir2dim_pin_down`,
 `md5_R_RandomInit`, `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`,
-`sha_fread`, and with both assumptions `bitcount_init`, `bitcount_init3`, `bitcount_init4`.
+`sha_fread`, `bitcount_btbl_bitcnt`, `bitcount_ntbl_bitcnt` (logarithmic potentials), and with
+both assumptions `bitcount_init`, `bitcount_init3`, `bitcount_init4`. (Figures of this table
+updated on 2026-11-25, after the logarithmic potentials; the rows of the time and of the loops
+left below are those of 2026-11-21.)
 
 ### The loops left (with both assumptions)
 
@@ -406,8 +409,9 @@ commented out at the pinned revision. `cjpeg_transupp` reads
 `i == 8`), so its expected checksum holds for x86's layout of the globals only: on the
 Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the changes of
 "Analysis time" and "Deterministic limits") all 25 programs finish: 1,293 s for the 25 on a
-40-core machine (`--jobs 10 --func-jobs 4`), `mpeg2` 692 s and `susan` 634 s alone
-(`--func-jobs 8`); before, `ammunition` did not finish within an hour, and `mpeg2` and
+40-core machine (`--jobs 10 --func-jobs 4`; 1,417 s with the logarithmic potentials of
+2026-11-25, `mpeg2` the longest), `mpeg2` 692 s and `susan` 634 s alone (`--func-jobs 8`,
+before them); before, `ammunition` did not finish within an hour, and `mpeg2` and
 `susan` took 2,981 s and 3,560 s on the author's machine, one program at a time.
 
 | program | functions | certified | loops certified on the code | stack bounds | `main` certified |
@@ -416,7 +420,7 @@ Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the cha
 | adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
 | ammunition | 74 | 44 | 638 of 1,135 | 57 | no |
 | anagram | 26 | 13 | 29 of 51 | 20 | no |
-| audiobeam | 36 | 28 | 20 of 43 | 36 | no |
+| audiobeam | 36 | 28 | 21 of 43 | 36 | no |
 | cjpeg_transupp | 11 | 4 | 63 of 87 | 11 | no |
 | cjpeg_wrbmp | 8 | 3 | 16 of 17 | 5 | no |
 | dijkstra | 8 | 4 | 12 of 16 | 8 | no |
@@ -437,7 +441,7 @@ Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the cha
 | rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
 | susan | 41 | 20 | 38 of 83 | 31 | no |
-| **25 programs** | **513** | **344** | **1,247 of 2,070** | **452** | **2** |
+| **25 programs** | **513** | **344** | **1,248 of 2,070** | **452** | **2** |
 
 Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
 in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
@@ -784,6 +788,60 @@ the frame where `--frame` is refused (`ludcmp_test`), or are in recursive functi
 without loops, levels computed one after the other), and their slowest successful linear
 program takes 49 CPU seconds, near the 60-second limit; so the option stays off by default and
 the figures of the papers are without it.
+
+### Loops that halve: exact shifts right and logarithmic potentials (2026-11-25)
+
+The checker's effects (trusted, compared with `m0.py` by `test_effect.py`: 297,244 executions,
+no difference) now give `LSRS` and `ASRS` (immediate) their exact value, `floor(x / 2^s)`
+(with the sign bits for `ASRS`), as a fresh variable with two linear facts, and the flags N
+and Z of the value written after `LSLS`, `LSRS`, `ASRS` and `MOVS #i` (kind `nz`). A loop
+certificate may be logarithmic (`"log": true`): its potential is `floor(log2 psi)` for the
+affine `psi` given, checked by linear goals (Lean `potGoals_sound`, Paper III
+`lem:log-descent`). `while (x >>= 8)` (`lsrs r0, r0, #8; bne`) gets `psi = r0` at the header
+and `256 r0` after the shift, scale 8, bound 31: 3 back edges. The producer tries
+`synth_shift` (a register shifted right in place once per iteration) when no affine
+potential is found within the source bound, and `synth_lp(log=...)` (the linear program with
+the goals of `potGoals`, only for loops with a shift right and no affine potential at all;
+HiGHS fails numerically on the bit counts, hence the template). Four choices keep the work and
+the results in check: the linear programs of affine potentials see the shifts right and the
+flags `nz` as any value, as before (`Ctx.leff`; what they find is proved with the exact
+effects); the kind `nz` is used only after a shift right and only where a branch reads it
+(`kinds_of`; after `LSLS` and `MOVS` it multiplied the linear programs of
+`mpeg2_dpframe_estimate` by seven, and elsewhere it perturbed HiGHS on an unrelated loop of
+`countnegative`); the template and the logarithmic linear programs are tried only for loops
+without an affine potential, the template only when a branch reads the flags of the shift or
+compares its register (`_tests`); and an obligation that the prover fails to prove is tried
+again with the facts of the shifts right replaced by `0 <= 0` (`_shr_fact`: the multipliers
+keep their indices, so the proof is one of the full obligation; without it a loop of
+`mpeg2_dpframe_estimate` was lost). Tests: `test_binloops.py LogPotentials` (accepted;
+rejected with a shift by 4, a shift left, `asrs #32`, a lower bound, a higher scale, the
+potential read as affine, a header potential lowered by 1); Lean `exLog_*`.
+
+Results, against the runs of 2026-11-25 above (`compare_runs.py --check`):
+
+| configuration | kernel loops certified | functions with a certified cycle bound |
+|---|---:|---:|
+| no assumption | 143 → 156 | 116 → 118 |
+| `--abi` | 200 → 213 | 116 → 118 |
+| `--abi --frame` | 260 → 273 | 121 → 123 |
+| `-fomit-frame-pointer`, none / `--abi` / both | 146 / 204 / 261 → 159 / 217 / 274 | |
+| compiler-rt, `--abi --frame` | 261 → 274 | 187 → 189 |
+
+In every configuration the same 13 loops are added and none is lost or gets a higher bound
+(one bound of `ludcmp_init` is lower without frame pointers): the two table-driven bit
+counts of `bitcount` (`x >>= 8`, `x >>= 4`; logarithmic, bounds 4 and 8 back edges, so
+`bitcount_btbl_bitcnt` and `bitcount_ntbl_bitcnt` get certified cycle bounds), the loop of
+`sqrtf` that shifts its probe bit right (logarithmic, bound 31, in `cosf`, `cubic`, `isqrt`,
+`quicksort`), and seven loops of `sha` (`sha_final`, `sha_glibc_memset`) whose count is a
+length shifted right (`lsrs r5, r2, #5`), certified with affine potentials and bounds near
+2^32 (the zones do not keep the interval of a shift: with it the producer tried many more
+linear programs). Every certificate is accepted, no emulated run exceeds a bound. Work of the
+producer (`lp_work`, `--abi --frame`): +22 %; time of the run 241 → 243 s on the 40-core
+machine. The larger programs (compiler-rt, `--abi --frame`): 1,247 → 1,248 loops (`sqrtf`
+in `audiobeam`), none lost, no bound higher, every certificate accepted, 344 certified
+functions as before; work +14 %, time 1,293 → 1,417 s (17 more linear programs stopped after
+60 CPU seconds, 49 in all; the slowest successful solve 13.3 CPU s). Not certified yet: binary search (`(lo + hi) >> 1`; a potential `hi - lo + 1`
+halving, which HiGHS does not find), bit reversal (a counter shifted left up to a limit).
 
 ## OTAWA on the same binaries
 

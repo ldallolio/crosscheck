@@ -491,11 +491,14 @@ def parseKind (j : Json) : Except String ImperativeOptimization.Thumb.FKind :=
   | .ok "none" => pure .none
   | .ok "add" => pure .add
   | .ok "sub" => pure .sub
-  | _ => throw "a kind must be \"none\", \"add\" or \"sub\""
+  | .ok "nz" => pure .nz
+  | _ => throw "a kind must be \"none\", \"add\", \"sub\" or \"nz\""
 
 def parseLoop (j : Json) : Except String ImperativeOptimization.Thumb.LoopCert := do
   pure ⟨← getNat j "header", ← natList (← field j "body") "body", ← getNat j "scale", ← getNat j "bound",
-    ← parseArr j "pot" parseDPExp⟩
+    ← parseArr j "pot" parseDPExp, match j.getObjValAs? Bool "log" with
+      | .ok b => b
+      | .error _ => false⟩
 
 /-- A Farkas certificate `[mu, [[premise, multiplier], ...]]`. -/
 def parseProof (j : Json) : Except String (Nat × List Nat) := do
@@ -693,6 +696,12 @@ def runEffect (j : Json) : Except String (List String) := do
           (ImperativeOptimization.Thumb.srcVal rf y))
       | .sub x y => showF (ImperativeOptimization.Thumb.flagsSub (ImperativeOptimization.Thumb.srcVal rf x)
           (ImperativeOptimization.Thumb.srcVal rf y))
+      -- N and Z of the value written, C and V any
+      | .nz => match ImperativeOptimization.Thumb.opOf e with
+        | some p => match ImperativeOptimization.Thumb.valOf rf p.2 with
+          | some x => bit (decide (2147483648 ≤ x)) ++ bit (decide (x = 0)) ++ "??"
+          | none => "any"
+        | none => "any"
     let f0 : ImperativeOptimization.Thumb.Flags :=
       ⟨fl.getD 0 0 == 1, fl.getD 1 0 == 1, fl.getD 2 0 == 1, fl.getD 3 0 == 1⟩
     let conds := String.join ((List.range 14).map fun cc => bit (ImperativeOptimization.Thumb.condHolds cc f0))

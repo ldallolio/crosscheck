@@ -308,10 +308,15 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   loops, whose rows the checker generates (`Thumb.loopRow`) and appends to the trusted
   ones, in that order (the IPET certificate's `mult` follows that order):
   `{"header": h, "body": [addresses], "scale": D, "bound": N, "pot": [affine expressions,
-  in the order of body]}`; the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body} N·x(u→h) ≤ N`
+  in the order of body], "log": true}` (`"log"` optional, default false: the potential of an
+  instruction is then `⌊log₂ Ψ⌋` for the affine `Ψ` given, `0` below `1`; scale and bound at
+  most 64; Lean `potGoals`: the descent `k + Φ(next) − Φ(here) ≤ 0` is checked as
+  `2^k·Ψ(next) ≤ Ψ(here)` and `Ψ(next) ≥ 1` for `k > 0`, `Ψ(next) ≤ Ψ(here)` for `k = 0`,
+  `Ψ(next) ≤ 2^(1−k) − 1` for `k < 0`, one proof per goal, in this order); the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body} N·x(u→h) ≤ N`
   if the entry is in the body, `≤ 0` otherwise (at most N/D back edges per entry).
 - `"kinds"`: per instruction (order of `nodes`) the operation that set the flags,
-  `"none"`, `"add"` or `"sub"`; `"inv"`: per instruction a list of constraints
+  `"none"`, `"add"`, `"sub"` or `"nz"` (N and Z of the value in `8`, after `LSLS`, `LSRS`,
+  `ASRS` or `MOVS` with an immediate; `9` is then 0); `"inv"`: per instruction a list of constraints
   `{"sv": [[variable, coefficient], ...], "c": c}` meaning `Σ coefficient·x + c ≤ 0`;
   variables `0`-`7` are `r0`-`r7`, `8` and `9` the operands of the operation that set the
   flags. Potentials have the same form (an affine expression `Σ coefficient·x + c`).

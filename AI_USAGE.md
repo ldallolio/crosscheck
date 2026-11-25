@@ -2577,6 +2577,46 @@ nothing lost; the larger programs take 46% longer, so the option is off by defau
 `tab:lean3`, a paragraph of the evaluation), `formalization.yaml`, certificate format, guide
 parts 5 and 7, cycles README, CLAUDE.md.
 
+151. "Go on without the hardware for now"
+
+What the AI did for 151 (Claude Opus 5.5, 2026-11-25): logarithmic potentials on the machine
+code (step 3 of the plan). Lean, trusted specification: `LSRS` and `ASRS` (immediate) get exact
+values (`Val.shr`, `shrVal`: `floor(x / 2^s)`, the sign bits shifted in for `ASRS`); the value
+written enters the obligations as a fresh variable with the two facts
+`2^s x' <= a + m (2^s - 1) 2^32 <= 2^s x' + 2^s - 1` (`wrapPrem`, `shr_bounds`), `m` the sign
+for `ASRS` (`mcasesV`); after `LSLS`, `LSRS`, `ASRS` and `MOVS #i` the flags N and Z are those
+of the value written, C and V any (`FEff.nz`, kind `FKind.nz`, facts `nzFacts`,
+`nzFacts_true`); a return gets no wrap premises (`wrapPremAt`: there is no state after it).
+Certificates: a loop may be logarithmic (`LoopCert.log`): its potential is
+`floor(log2 Psi)` for an affine `Psi`, and the checker checks linear goals that imply the
+descent (`potGoals`, `potGoals_sound`: `2^k Psi' <= Psi` and `Psi' >= 1` back to the header,
+`Psi' <= Psi` elsewhere, `Psi' < 2^(1-k)` on entry); scale and bound at most 64.
+`step_ok`, `chain_ok` and `chain_rows` carry the potential through `potTr`; `data_sound` keeps
+its statement. Example `exLog_*` (a certificate of the producer for `while (x >>= 8)`:
+3 back edges, 21 cycles; refused read as affine, or with a shift by 4). `test_effect.py`
+compares the new values and the N, Z flags with `m0.py` on every encoding (C and V not
+compared where Lean leaves them any): 297,244 executions, no difference. `#print axioms`:
+the three standard ones. Producer: the mirror of the effects, the zone transfer of a shift
+right (an interval, and the ghost equal to the value written), `synth_shift` (a register
+shifted right in place once per iteration: `Psi = r 2^(s j)`) and `synth_lp(log=(D, N))`
+(the linear program with the goals of `potGoals`; HiGHS fails numerically on some of them,
+hence the template first), both only for loops without an affine potential; the affine
+linear programs keep the coarse effects (`Ctx.leff`); the kind `nz` only after a shift right
+and where a branch reads it; a failed proof retried without the facts of the shifts right
+(`_shr_fact`). These four restrictions came from measurements: the first full run doubled
+the producer's work and lost 50 loops of the larger programs to the work budget, and the
+`nz` kind after `LSLS` and `MOVS` multiplied the linear programs of `mpeg2_dpframe_estimate`
+by seven. Tests
+`test_binloops.py LogPotentials` (accepted; seven mutations rejected). Results
+(`compare_runs.py --check` against the runs of the day): the 7 kernel configurations each
+gain the same 13 loops (two bit counts of `bitcount` and `sqrtf` in four kernels by
+logarithmic potentials, seven loops of `sha` by the exact shifts with affine potentials and
+bounds near 2^32), none lost, no bound higher; 116 -> 118 and 121 -> 123 certified
+functions; the larger programs 1,247 -> 1,248 loops, none lost; the producer's work +22 % on
+the kernels and +14 % on the larger programs (1,293 -> 1,417 s). Paper III (data runs,
+loop certificates, `lem:log-descent`, `lem:cond-facts`, the producer), `formalization.yaml`,
+certificate format, guide parts 5 and 7, cycles README, CLAUDE.md, Lean counts.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

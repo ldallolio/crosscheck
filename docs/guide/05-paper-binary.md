@@ -303,6 +303,32 @@ The producer (`run_cycles.py --contexts`, `ipet.context_certificates`) certifies
 first, takes for each callee with loops the hull of the ranges of `r0`–`r3` at its calls, and
 keeps a fact only if every call proves it.
 
+### Loops that halve: logarithmic potentials
+
+`bitcount` counts the bits of `x` a byte at a time: `while (x >>= 8)`, compiled as
+`L: lsrs r0, r0, #8; bne L`. Each turn divides `r0` by 256, so a 32-bit `x` makes the loop go
+back at most 3 times. No affine potential sees this: `r0` decreases by at least 1 per turn, so
+the best affine bound is `2³² − 1`.
+
+Two things were needed. First, the effect of `LSRS` (and `ASRS`) is now exact: the new value
+`x'` enters the obligations as a fresh variable with two linear facts, `256·x' ≤ x ≤ 256·x' +
+255`, and after the shift the flags N and Z are those of `x'` (kind `nz`), so `bne` says
+`x' ≥ 1`. Second, a loop may carry a **logarithmic potential**: `Φ = ⌊log₂ Ψ⌋` for an affine
+`Ψ`, here `Ψ = r0` at the header and `Ψ = 256·r0` after the shift. The checker never computes a
+logarithm: it checks linear goals that imply the descent (`lem:log-descent`, Lean
+`potGoals_sound`):
+
+- going back to the header (coefficient `k = D = 8`): `2⁸·Ψ(next) ≤ Ψ(here)` and `Ψ(next) ≥ 1`;
+- elsewhere in the loop (`k = 0`): `Ψ(next) ≤ Ψ(here)`;
+- entering it (`k = −N`, `N = 31`): `Ψ(next) ≤ 2³² − 1`.
+
+The row is then `8·(back edges) ≤ 31`: 3 back edges. Example `exLog_sound` (21 cycles);
+`exLog_needs_log` shows that the same numbers read as an affine potential are refused.
+
+The producer tries this when no affine potential is found: for a register shifted right in
+place once per turn it writes `Ψ` directly; otherwise it runs the linear program of the
+affine case with these goals for a fixed scale.
+
 ### Stack slots, and two assumptions
 
 At `-O1`, a counter that must survive a call is often kept in the stack frame

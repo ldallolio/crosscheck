@@ -389,6 +389,52 @@ class ExactEffects(unittest.TestCase):
             self.assertEqual(check(d)[0], 0 if ok else 1, (name, k, hex(h)))
 
 
+# f at 0x100: L: lsrs r0,r0,#8; bne L; bx lr -- `while (x >>= 8)`, as in bitcount's table counts:
+# at most 3 transitions back to the header for a 32-bit x, but no affine potential: certified
+# with the potential floor(log2 psi), psi = r0 at the header, 256 r0 after the shift (Lean
+# `potGoals`), from the exact effect of LSRS (r0 = floor(r0 / 2^8)) and its flags (Z)
+LOGLOOP = {0x100: [0x0A00, 0xD1FD, 0x4770]}
+
+
+def log_doc():
+    an = test_ipet.analysis(LOGLOOP, {"f": (0x100, 6)}, range(0x100, 0x104, 2), 10)
+    st = {}
+    doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    return doc, bounds, st
+
+
+class LogPotentials(unittest.TestCase):
+    """A loop that shifts its counter right until zero gets a logarithmic potential; the
+    checker rejects it when the shift is smaller, the shift goes left, the scale or the bound
+    are changed, or the potential is read as affine."""
+
+    def test_producer(self):
+        doc, _, st = log_doc()
+        lc = doc["programs"][0]["functions"][0]["loops"][0]
+        self.assertTrue(lc.get("log"))
+        self.assertEqual((lc["scale"], lc["bound"]), (8, 31))
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x100, 4)])
+        self.assertEqual(doc["programs"][0]["functions"][0]["rows"], [])
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = log_doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        lp = lambda d: d["programs"][0]["functions"][0]["loops"][0]  # noqa: E731
+        for k, h in ((0, 0x0900),       # lsrs r0,r0,#4: halved 4 times per iteration only
+                     (0, 0x0200),       # lsls r0,r0,#8: grows
+                     (0, 0x1000)):      # asrs r0,r0,#0 (by 32): r0 = 0 or 2^32 - 1, never back
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + k] = h
+            self.assertEqual(check(d)[0], 1, hex(h))
+        for change in (lambda d: lp(d).update(bound=30), lambda d: lp(d).update(scale=9),
+                       lambda d: lp(d).pop("log"), lambda d: lp(d)["pot"][0].update(c=-1)):
+            d = copy.deepcopy(doc)
+            change(d)
+            self.assertEqual(check(d)[0], 1)
+
+
 class Disjunctions(unittest.TestCase):
     """A counter that exits on its wrap-around: the invariant between the subtraction and the
     branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate

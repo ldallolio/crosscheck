@@ -165,7 +165,7 @@ def main():
                     b = a
                     while b in Bs and ctx.eff[b][1] == "keep": b -= 2
                     fl = ctx.eff[b][1] if b in Bs else "outside"
-                    if fl in ("any", "outside"): descs.append("flags-" + (mn(ctx, b) if b in Bs else "outside")); continue
+                    if fl in ("any", "outside", "nz"): descs.append("flags-" + (mn(ctx, b) if b in Bs else "outside")); continue
                     ops = []
                     for s in fl[1:]:
                         ops.append(("imm", s[1]) if s[0] == "imm" else (opclass(origin(ctx, body, h, b, ("r", s[1]), P)), s[1]))

@@ -114,6 +114,10 @@ def val_p(P, v):
     if v[0] == "shl":
         x = src_p(P, v[1])
         return None if x is None else (x * 2 ** v[2]) % U
+    if v[0] == "shr":
+        import binloops
+        x = src_p(P, v[1])
+        return None if x is None else binloops.shr_val(v[3], v[2], x) % U
     x, y = src_p(P, v[1]), src_p(P, v[2])
     if x is None or y is None:
         return None

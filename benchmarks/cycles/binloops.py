@@ -31,6 +31,7 @@ import wcet
 
 CONG = True
 DISJ = True          # disjunctive invariants at a possible wrap-around (`window_transfer`)
+LOG_POT = True       # logarithmic potentials (`synth_lp(log=...)`)
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
 # Limits that do not depend on the machine, so that a binary gets the same certificate on
@@ -289,8 +290,9 @@ def lowlist(h):
 
 
 def effect(abi, get, a):
-    """(dst, fl): dst = [(register, value)], value = ("add"|"sub", src, src) or "any";
-    fl = "keep" | "any" | ("add"|"sub", src, src). As Lean `Thumb.effect`."""
+    """(dst, fl): dst = [(register, value)], value = ("add"|"sub", src, src), ("shl", src, k),
+    ("shr", src, k, arithmetic) or "any"; fl = "keep" | "any" | "nz" (N and Z of the value
+    written) | ("add"|"sub", src, src). As Lean `Thumb.effect`."""
     h = get(a)
     if h is None:
         return [], "any"
@@ -300,9 +302,11 @@ def effect(abi, get, a):
     if top5 == 0:
         # LSLS rd, rm, #s: (rm * 2^s) mod 2^32 (s = 0 is MOVS rd, rm)
         s = (h >> 6) % 32
-        return [(rd, ("add", reg(rn), imm(0)) if s == 0 else ("shl", reg(rn), s))], "any"
+        return [(rd, ("add", reg(rn), imm(0)) if s == 0 else ("shl", reg(rn), s))], "nz"
     if top5 <= 2:
-        return [(rd, "any")], "any"
+        # LSRS, ASRS rd, rm, #s (s = 0: a shift by 32)
+        s = (h >> 6) % 32
+        return [(rd, ("shr", reg(rn), s or 32, top5 == 2))], "nz"
     if top5 == 3:
         m, o = (h >> 6) % 8, (h >> 9) % 4
         op = "add" if o in (0, 2) else "sub"
@@ -311,7 +315,7 @@ def effect(abi, get, a):
     if top5 <= 7:
         r, k, o = (h >> 8) % 8, h % 256, top5 % 4
         if o == 0:
-            return [(r, ("add", imm(k), imm(0)))], "any"
+            return [(r, ("add", imm(k), imm(0)))], "nz"
         if o == 1:
             return [], ("sub", reg(r), imm(k))
         op = "add" if o == 2 else "sub"
@@ -415,6 +419,11 @@ def add_facts(c):
             9: [[sumc(1, -U)]]}.get(c, [[]])
 
 
+def nz_facts(c):
+    """Lean `nzFacts`: N and Z of the value in ghost 8."""
+    return {0: [[lin([(1, 8)], 0)]], 1: [[lin([(-1, 8)], 1)]], 4: [[hi(8)]], 5: [[lo(8)]]}.get(c, [[]])
+
+
 def cond_facts(kind, cc, taken, m=(1, 1)):
     """The facts of a condition, as a disjunction of conjunctions (Lean `condFactsM`). With
     `m = (md, ms)`, powers of two such that the ghost operands are congruent modulo `md` and
@@ -424,6 +433,8 @@ def cond_facts(kind, cc, taken, m=(1, 1)):
     c = cc if taken else cc ^ 1
     if kind == "none":
         return [[]]
+    if kind == "nz":
+        return nz_facts(c)
     facts = add_facts(c) if kind != "sub" else sub_facts(c)
     return [[tighten_s(tighten(f, md), ms) for f in D] for D in facts]
 
@@ -568,12 +579,19 @@ def src_e(s):
 
 
 def val_srcs(v):
-    """The operands of a written value (the shift amount of `shl` is not one)."""
-    return v[1:2] if v[0] == "shl" else v[1:]
+    """The operands of a written value (the shift amount of a shift is not one)."""
+    return v[1:2] if v[0] in ("shl", "shr") else v[1:]
+
+
+def shr_val(ar, k, x):
+    """Lean `shrVal`."""
+    return (x + (2 ** k - 1) * U) // 2 ** k if ar and x >= 2 ** 31 else x // 2 ** k
 
 
 def val_e(v, m, i):
     if v == "any":
+        return pv(10 + i)
+    if v[0] == "shr":
         return pv(10 + i)
     op, a, b = v
     if op == "shl":
@@ -594,6 +612,9 @@ def post_e(eff, m, i):
         return pv(i)
     if fl == "any":
         return pv(i + 10)
+    if fl == "nz":
+        o = op_of(eff)
+        return val_e(o[1], m, o[0]) if i == 8 and o is not None else pconst(0)
     return src_e(fl[1] if i == 8 else fl[2])
 
 
@@ -755,6 +776,16 @@ def wrap_prem(eff, m):
     o = op_of(eff)
     if o is None:
         return []
+    if o[1][0] == "shr":
+        # 2^k x <= a + m (2^k - 1) U <= 2^k x + 2^k - 1; arithmetic: the sign of a by m
+        _op, a, k, ar = o[1]
+        M = 2 ** k
+        x = padd(src_e(a), pconst(m * (M - 1) * U))
+        y = psmul(M, pv(10 + o[0]))
+        out = [padd(y, psmul(-1, x)), padd(padd(x, psmul(-1, y)), pconst(-(M - 1)))]
+        if ar:
+            out.append(padd(src_e(a), pconst(-2147483647)) if m == 0 else padd(psmul(-1, src_e(a)), pconst(2147483648)))
+        return out
     if o[1][0] == "shl" and m != 0:
         # overflow: a * 2^b >= 2^32
         x = psmul(1 << o[1][2], src_e(o[1][1]))
@@ -764,7 +795,17 @@ def wrap_prem(eff, m):
 
 
 def mcases(eff):
-    return [0, 1, -1] if op_of(eff) is not None else [0]
+    o = op_of(eff)
+    if o is None:
+        return [0]
+    if o[1][0] == "shr":
+        return [0, 1] if o[1][3] else [0]
+    return [0, 1, -1]
+
+
+def wrap_prem_at(eff, m, nxt):
+    """Lean `wrapPremAt`: none on a return."""
+    return wrap_prem(eff, m) if nxt is not None else []
 
 
 def nvars(S):
@@ -776,8 +817,10 @@ def ranges_n(n):
 
 
 class Loop:
-    def __init__(self, header, body, scale, bound, pot):
+    def __init__(self, header, body, scale, bound, pot, log=False):
         self.header, self.body, self.scale, self.bound, self.pot = header, body, scale, bound, pot
+        # a logarithmic potential: floor(log2) of the affine expressions `pot` (Lean `LoopCert.log`)
+        self.log = log
 
     def pot_at(self, a):
         if a is None or a not in self.body:
@@ -788,6 +831,17 @@ class Loop:
         if nxt != self.header:
             return 0
         return self.scale if a in self.body else -self.bound
+
+
+def pot_goals(lc, k, p, q):
+    """Lean `potGoals`: the goals of the descent `k + phi(next) - phi(here) <= 0`."""
+    if not lc.log:
+        return [goal_lin(k, p, q)]
+    if k > 0:
+        return [goal_lin(0, psmul(2 ** k, p), q), goal_lin(1, pconst(0), p)]
+    if k == 0:
+        return [goal_lin(0, p, q)]
+    return [goal_lin(1 - 2 ** (1 - k), p, pconst(0))]
 
 
 def row_rhs(entry, lc):
@@ -855,15 +909,15 @@ def obligations_of(ctx, a, inv, kinds, loops):
     out = []
     rng = ranges_n(nvars(len(ctx.slots)))
     for _j, nxt, m, _d, D, _si, I, t in obligation_cases(ctx, a, inv, kinds):
-        prem = D + wrap_prem(eff, m) + I + rng
+        prem = D + wrap_prem_at(eff, m, nxt) + I + rng
         sigma = (lambda m: lambda v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v))(m)
         goals = []
         if nxt is not None:
             ds = disjuncts(inv, nxt)
             T = ds[t] if t < len(ds) else ds[0]
             goals += [(subst(g, sigma), ("inv", nxt, t if t < len(ds) else 0, k)) for k, g in enumerate(T)]
-        goals += [(goal_lin(lc.coef(a, nxt), subst(lc.pot_at(nxt), sigma), lc.pot_at(a)), ("loop", li))
-                  for li, lc in enumerate(loops)]
+        goals += [(g, ("loop", li)) for li, lc in enumerate(loops)
+                  for g in pot_goals(lc, lc.coef(a, nxt), subst(lc.pot_at(nxt), sigma), lc.pot_at(a))]
         out.append((prem, goals))
     return out
 
@@ -1410,6 +1464,12 @@ def post_exprs(ctx, a, M):
             out[r] = ("shift", r, 0)
         elif v == "any":
             out[r] = "any"
+        elif v[0] == "shr":
+            # a constant when the register holds one, else any value (an interval made the
+            # producer try many more linear programs, for no loop more)
+            _op, x, k, ar = v
+            l, hh = Zd.lohi(M, x[1]) if x[0] == "reg" else (x[1], x[1])
+            out[r] = ("shift", Z, l >> k) if l == hh and not (ar and hh >= 2 ** 31) else "any"
         else:
             op, x, y = v
             if op == "shl":
@@ -1444,6 +1504,16 @@ def post_exprs(ctx, a, M):
             out[gv] = ("shift", gv, 0)
         elif fl == "any":
             out[gv] = "any"
+        elif fl == "nz":
+            # ghost 8: the value written (equal to its register after: key "eq"), ghost 9: 0
+            o = op_of(eff)
+            if gv == 9 or o is None:
+                out[gv] = ("shift", Z, 0)
+            elif out.get(o[0], "any") != "any":
+                out[gv] = out[o[0]]
+            else:
+                out[gv] = "any"
+                out.setdefault("eq", []).append((8, o[0]))
         else:
             sv = fl[idx]
             out[gv] = ("shift", sv[1], 0) if sv[0] == "reg" else ("shift", Z, sv[1])
@@ -1473,6 +1543,9 @@ def apply_post(Zd, M, ex, closed=False):
     N = Zd.top()
     ex = dict(ex)
     rng = ex.pop("rng", None)
+    eqs = ex.pop("eq", None)
+    if eqs:
+        rng = dict(rng or {})
     ex[Z] = ("shift", Z, 0)
     fast = not rng and closed and all(
         e == "any" or (M[e[1]][Z] + e[2] <= U - 1 and M[Z][e[1]] - e[2] <= 0)
@@ -1491,6 +1564,10 @@ def apply_post(Zd, M, ex, closed=False):
         if ex.get(x, "any") == "any":
             N[x][Z] = min(N[x][Z], h)
             N[Z][x] = min(N[Z][x], -l)
+    for x, y in eqs or ():
+        if ex.get(x, "any") == "any" and ex.get(y, "any") == "any":
+            N[x][y] = min(N[x][y], 0)
+            N[y][x] = min(N[y][x], 0)
     if not fast:
         return Zd.close(N)
     anyv = [x for x in range(n) if x != Z and ex.get(x, "any") == "any"]
@@ -1541,6 +1618,14 @@ class Ctx:
                 elif any(v != "any" and v[0] == "shl" for _r, v in self.eff[a][0]):
                     self.aeff[a] = ([(r, "any" if v != "any" and v[0] == "shl" else v)
                                      for r, v in self.eff[a][0]], self.eff[a][1])
+        # the effects of the linear programs of affine potentials: shifts right any value, the
+        # flags N, Z of a value any (as before 2026-11-25; smaller programs, and a potential
+        # found with fewer premises is proved again with the exact ones)
+        self.leff = {}
+        for a in self.nodes:
+            d, fl = self.aeff[a]
+            self.leff[a] = ([(r, "any" if v != "any" and v[0] == "shr" else v) for r, v in d],
+                            "any" if fl == "nz" else fl)
         self.st = {a: stack_effect(abi, self.get, a) for a in self.nodes}
         self.cc = {a: (self.get(a) >> 8) % 16 for a in self.nodes}
         self.out = {a: ipet.trans(self.insn[a], self.jumps) for a in self.nodes}
@@ -1577,7 +1662,7 @@ class Ctx:
                         if x[0] == "imm":
                             imms |= {x[1], x[1] - 1, x[1] + 1}
             fl = self.eff[a][1]
-            if fl not in ("keep", "any"):
+            if fl not in ("keep", "any", "nz"):
                 for x in fl[1:]:
                     if x[0] == "imm":
                         imms |= {x[1], x[1] - 1, x[1] + 1}
@@ -1643,6 +1728,11 @@ def sp_offsets(ctx):
             for a, d in known.items()}
 
 
+def _shr_op(eff):
+    o = op_of(eff)
+    return o is not None and o[1][0] == "shr"
+
+
 def kinds_of(ctx):
     kind = {ctx.entry: "none"}
     changed = True
@@ -1652,7 +1742,10 @@ def kinds_of(ctx):
             if a not in kind:
                 continue
             fl = ctx.eff[a][1]
-            k = kind[a] if fl == "keep" else ("none" if fl == "any" else fl[0])
+            # the kind "nz" only after a shift right (the loops of logarithmic potentials): after
+            # LSLS and MOVS it multiplied the linear programs of mpeg2 by seven
+            k = kind[a] if fl == "keep" else ("none" if fl == "any" else
+                                              ("nz" if _shr_op(ctx.eff[a]) else "none") if fl == "nz" else fl[0])
             for n, _w, _c in ctx.out[a]:
                 if n is None:
                     continue
@@ -1660,6 +1753,26 @@ def kinds_of(ctx):
                 if n not in kind or new != kind[n]:
                     kind[n] = new
                     changed = True
+    # the kind "nz" only where a conditional branch reads those flags (elsewhere "none", which
+    # the checker always allows): the other invariants then stay as they were without it
+    preds = {}
+    for a in ctx.nodes:
+        for n, _w, _c in ctx.out[a]:
+            if n is not None:
+                preds.setdefault(n, []).append(a)
+    useful = set()
+    work = [a for a in kind if kind[a] == "nz" and ctx.insn[a].kind == "cond"]
+    while work:
+        n = work.pop()
+        if n in useful:
+            continue
+        useful.add(n)
+        for p in preds.get(n, []):
+            if ctx.eff[p][1] == "keep" and kind.get(p) == "nz":
+                work.append(p)
+    for a in kind:
+        if kind[a] == "nz" and a not in useful:
+            kind[a] = "none"
     return kind
 
 
@@ -1682,6 +1795,7 @@ def transfer(ctx, kind, a, M):
             ex = post_exprs(ctx, a, Mf)
             if nxt is not None and kind.get(nxt, "none") == "none":
                 ex[8] = ex[9] = "any"
+                ex.pop("eq", None)
             post = apply_post(Zd, Mf, ex, closed=cl)
             res.append((j, Mf, ex, post))
     return res
@@ -2138,7 +2252,7 @@ def synth_transport(ctx, kind, state, h, body, lin, sgn, cache=None):
     return best
 
 
-def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
+def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
     """A potential per instruction of the loop, each with its own linear part, found by one
     linear program over the checker's own obligations (the potentials and the Farkas
     multipliers are the unknowns: Colon & Sipma 2001, Podelski & Rybalchenko 2004, and
@@ -2151,7 +2265,12 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     HiGHS fail numerically; in this mode a register given such a constant is treated as
     written with any value, and the invariant constraints with such constants are left
     out. A potential found this way satisfies the exact obligations too (they have more
-    premises, and the value written is one of the values allowed); `prove_all` checks it."""
+    premises, and the value written is one of the values allowed); `prove_all` checks it.
+
+    `log` = (D, N): a logarithmic potential (Lean `potGoals`): affine `psi` per instruction
+    with `2^D psi(header) <= psi` on the transitions back to the header, `psi(header) >= 1`
+    there, `psi` not increasing elsewhere in the loop, `psi(header) <= 2^(N+1) - 1` on
+    entry; candidates [(N', [psi], D, True)], N' from the bound on `psi` at the header."""
     import numpy as np
     from scipy.sparse import coo_matrix
     B = set(body)
@@ -2211,7 +2330,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         split_rows.append((lo_row, -gc[1]))
 
     for a in ctx.nodes:
-        i, eff, st = ctx.insn[a], ctx.aeff[a], ctx.st[a]
+        i, eff, st = ctx.insn[a], (ctx.aeff if log is not None else ctx.leff)[a], ctx.st[a]
         ka = kind.get(a, "none")
         for j, (nxt, _w, _cs) in enumerate(ipet.trans(i, ctx.jumps)):
             if a not in B and nxt not in B:
@@ -2219,7 +2338,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
             facts = cond_facts(ka, ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
             for m in mcases(eff):
                 sig = {v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v) for v in V}
-                ias, wp = disjuncts(inv, a), wrap_prem(eff, m)
+                ias, wp = disjuncts(inv, a), wrap_prem_at(eff, m, nxt)
                 if coarse:
                     wp = [g for g in wp if g[0] or abs(g[1]) <= BIG]
                     sig = {v: (pv(10 + v) if v < 8 and not e[0] and abs(e[1]) > BIG else e) for v, e in sig.items()}
@@ -2228,6 +2347,10 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
                     prem = D + wp + ia + rng
                     if box_contradiction(prem):
                         continue        # a case that cannot happen: no constraint
+                    if log is not None:
+                        for gd, gcc, gk in _log_goals(log, col, V, sig, h, B, a, nxt):
+                            add_oblig(prem, gd, (gcc, gk))
+                        continue
                     gd, gcc, gk = {}, {}, 0
                     if nxt == h:
                         if a in B:
@@ -2257,7 +2380,10 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         gd = {}
         for v in V:
             gd.setdefault(v, {})[col[("p", h, v)]] = 1
-        add_oblig(list(rng), gd, ({col[("c", h)]: 1, NB: -1}, 0))
+        if log is None:
+            add_oblig(list(rng), gd, ({col[("c", h)]: 1, NB: -1}, 0))
+        else:
+            add_oblig(list(ctx.pre_lins) + list(rng), gd, ({col[("c", h)]: 1}, 1 - 2 ** (log[1] + 1)))
     n = len(col)
 
     def mat(rows):
@@ -2275,7 +2401,9 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     bounds = [(None, None)] * n
     for key, k in col.items():
         if key == "N":
-            bounds[k] = (0, None)
+            bounds[k] = (0, None) if log is None else (0, 0)
+        elif key[0] == "p" and log is not None:
+            bounds[k] = (-(2 ** (log[0] + 4)), 2 ** (log[0] + 4))
         elif key[0] == "p":
             # with `fixed` = (linear parts, sign): those, the constants only are unknowns
             bounds[k] = (-16, 16) if fixed is None else \
@@ -2285,13 +2413,13 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         else:
             bounds[k] = (0, None)
     cost = np.zeros(n)
-    cost[NB] = 1.0
+    cost[NB] = 1.0 if log is None else 0.0
     sols = []
     # the constants reach 2^32: either method may fail; HiGHS's presolve, too, declares
     # feasible programs of this kind infeasible (the interior point without it is tried last)
     for meth, opts, split in (("highs-ds", {}, False), ("highs-ipm", {}, False),
                               ("highs-ipm", {"presolve": False}, False),
-                              ("highs-ds", {}, True), ("highs-ipm", {}, True)):
+                              ("highs-ds", {}, True), ("highs-ipm", {}, True))[:2 if log is not None else 5]:
         if (opts or split) and sols:
             break
         if split and not split_rows:
@@ -2310,6 +2438,8 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
         if res.status == 0:
             sols.append(res.x)
     out = []
+    if log is not None:
+        return _log_candidates(ctx, h, body, V, col, sols, log)
     for x, limit in ((x, limit) for x in sols for limit in (1, 4, 16, 64)):
         fr = {key: Fraction(float(x[k])).limit_denominator(limit) for key, k in col.items()
               if key == "N" or key[0] in ("p", "c")}
@@ -2323,6 +2453,164 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
             out.append((N, pots, L))
     # the tightest bound first (a coarse rounding may be proved with a much larger bound)
     return sorted(out, key=lambda t: Fraction(t[0], t[2]))
+
+
+def _log_goals(log, col, V, sig, h, B, a, nxt):
+    """The goals of a transition for a logarithmic potential, as rows of `synth_lp`:
+    [(gd, gcc, gk)] (Lean `potGoals` with the loop's coefficient: D back to the header,
+    -N on entry, 0 elsewhere)."""
+    D, N = log
+
+    def part(gd, gcc, node, F):
+        for v in V:
+            pc = col[("p", node, v)]
+            dv, cv = sig[v] if F > 0 and node == nxt else ({v: 1}, 0)
+            for u, k in dv.items():
+                gd.setdefault(u, {})
+                gd[u][pc] = gd[u].get(pc, 0) + F * k
+            if cv:
+                gcc[pc] = gcc.get(pc, 0) + F * cv
+        cc_ = col[("c", node)]
+        gcc[cc_] = gcc.get(cc_, 0) + F
+
+    out = []
+    if nxt == h and a in B:
+        gd, gcc = {}, {}
+        part(gd, gcc, nxt, 2 ** D)
+        part(gd, gcc, a, -1)
+        out.append((gd, gcc, 0))
+        gd, gcc = {}, {}
+        # 1 - psi(next) <= 0: the post-expression with coefficient -1
+        for v in V:
+            pc = col[("p", nxt, v)]
+            dv, cv = sig[v]
+            for u, k in dv.items():
+                gd.setdefault(u, {})
+                gd[u][pc] = gd[u].get(pc, 0) - k
+            if cv:
+                gcc[pc] = gcc.get(pc, 0) - cv
+        gcc[col[("c", nxt)]] = -1
+        out.append((gd, gcc, 1))
+    elif nxt == h:
+        gd, gcc = {}, {}
+        part(gd, gcc, nxt, 1)
+        out.append((gd, gcc, 1 - 2 ** (N + 1)))
+    else:
+        gd, gcc = {}, {}
+        if nxt in B:
+            part(gd, gcc, nxt, 1)
+        if a in B:
+            part(gd, gcc, a, -1)
+        out.append((gd, gcc, 0))
+    return out
+
+
+def _log_candidates(ctx, h, body, V, col, sols, log):
+    """Integer logarithmic potentials from the solutions of `synth_lp`, with the bound `N`
+    from the range of `psi` at the header (its zone), and the bound of the program."""
+    D, N = log
+    out = []
+    Mh = ctx.state_h.get(h) if hasattr(ctx, "state_h") else None
+    for x, limit in ((x, limit) for x in sols for limit in (1, 4)):
+        fr = {key: Fraction(float(x[k])).limit_denominator(limit) for key, k in col.items()
+              if key[0] in ("p", "c")}
+        L = math.lcm(*[f.denominator for key, f in fr.items()] + [1])
+        pots = []
+        for a in body:
+            d = {v: int(fr[("p", a, v)] * L) for v in V if fr[("p", a, v)] != 0}
+            pots.append((d, int(fr[("c", a)] * L)))
+        b = (L - 1).bit_length()
+        Ns = [N + b]
+        if Mh is not None:
+            ph = pots[body.index(h)]
+            ub = ph[1]
+            for v, k in ph[0].items():
+                lo_, hi_ = ctx.zones.lohi(Mh, v if v < 10 else 10 + (v - 20))
+                ub += k * (hi_ if k > 0 else lo_)
+            if ub >= 1:
+                Ns.insert(0, ub.bit_length() - 1)
+        for Nt in Ns:
+            if Nt <= 64 and (Nt, pots, D, True) not in out:
+                out.append((Nt, pots, D, True))
+    return sorted(out, key=lambda t: Fraction(t[0], t[2]))
+
+
+def synth_shift(ctx, h, body):
+    """A logarithmic potential for a register shifted right in place once per iteration
+    (`lsrs rd, rd, #k`, written nowhere else in the loop): psi = rd * 2^(k s), s the number
+    of shifts since the header (HiGHS fails numerically on some of these linear programs).
+    Candidates [(N, [psi], k, True)] for `prove_all`."""
+    B = set(body)
+    shifts = {}
+    for a in body:
+        for r, v in ctx.eff[a][0]:
+            if v != "any" and v[0] == "shr" and v[1] == ("reg", r) and v[2] < 32:
+                shifts.setdefault(r, []).append((a, v[2]))
+    out = []
+    for d, sh in sorted(shifts.items()):
+        if len(sh) != 1:
+            continue
+        sa, k = sh[0]
+        if any(r == d for a in body if a != sa for r, _v in ctx.eff[a][0]):
+            continue
+        if not _tests(ctx, body, sa, d):
+            continue
+        s = {h: 0}
+        work, ok = [h], True
+        while work and ok:
+            a = work.pop()
+            for n, _w, _c in ctx.out[a]:
+                if n not in B or n == h:
+                    continue
+                t = s[a] + (1 if a == sa else 0)
+                if n not in s:
+                    s[n] = t
+                    work.append(n)
+                elif s[n] != t:
+                    ok = False
+        if not ok or len(s) != len(body) or max(s.values()) != 1:
+            continue
+        pots = [({d: 2 ** (k * s[a])}, 0) for a in body]
+        Ns = [31]
+        Mh = getattr(ctx, "state_h", {}).get(h)
+        if Mh is not None:
+            ub = ctx.zones.lohi(Mh, d)[1]
+            if 1 <= ub and ub.bit_length() - 1 < 31:
+                Ns.insert(0, ub.bit_length() - 1)
+        out += [(N, pots, k, True) for N in Ns]
+    return out
+
+
+def _tests(ctx, body, sa, d):
+    """A branch of the loop reads the flags of the shift at `sa` (through instructions that
+    keep them), or compares the register `d`: else no logarithmic potential is tried (each
+    candidate costs a proof of every obligation of the function)."""
+    B = set(body)
+    a, seen = sa, set()
+    while a in B and a not in seen:
+        seen.add(a)
+        nxt = [n for n, _w, _c in ctx.out[a]]
+        if ctx.insn[a].kind == "cond":
+            return True
+        if len(nxt) != 1 or (a != sa and ctx.eff[a][1] != "keep"):
+            break
+        a = nxt[0]
+    for a in body:
+        fl = ctx.eff[a][1]
+        if isinstance(fl, tuple) and ("reg", d) in fl[1:] and not ctx.eff[a][0]:
+            return True
+    return False
+
+
+def log_scales(ctx, body):
+    """The scales tried for a logarithmic potential: the amounts of the shifts right of the
+    loop (none for a loop without a shift right: the linear programs are costly)."""
+    ks = set()
+    for a in body:
+        for _r, v in ctx.eff[a][0]:
+            if v != "any" and v[0] == "shr" and v[2] < 32:
+                ks.add(v[2])
+    return sorted(ks, reverse=True)
 
 
 # ----------------------------------------------------------------------------------------
@@ -2356,7 +2644,11 @@ def relevant(ctx, loops, extra=()):
     for _h, body, _N in ctx.iloops:
         for a in body:
             fl = ctx.eff[a][1]
-            if fl not in ("keep", "any"):
+            if fl == "nz":
+                o = op_of(ctx.eff[a])
+                if o is not None:
+                    R.add(o[0])
+            elif fl not in ("keep", "any"):
                 R |= {x[1] for x in fl[1:] if x[0] == "reg"}
     R |= set(range(10, 10 + len(ctx.slots)))
     changed = True
@@ -2519,6 +2811,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
     if CONG:        # the congruences do not depend on the zones: one analysis, with them
         ctx.cong = congruences(ctx)
     state = analyse(ctx, kind)
+    ctx.state_h = state
     cache = {a: (transfer(ctx, kind, a, state[a]) if state[a] is not None else []) for a in ctx.nodes}
 
     def invariants(R):
@@ -2560,27 +2853,39 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
                             if st_ is not None:
                                 yield st_
                             yield from synth_lp(ctx, kind, full, h, body, False, fixed=(lin, sgn))
+            def logs(h=h, body=body):
+                # logarithmic potentials (shifts right, halving ranges): when no affine one
+                # is found within the source bound
+                if not LOG_POT:
+                    return
+                if s is not None:
+                    return      # only when no affine potential is found
+                yield from synth_shift(ctx, h, body)
+                for D in log_scales(ctx, body):
+                    yield from synth_lp(ctx, kind, full, h, body, False, log=(D, 31))
             cands = itertools.chain(
                 (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
-                transported())
-            for N, pots, D in cands:
+                transported(), logs())
+            for cand in cands:
+                N, pots, D = cand[:3]
+                lg = len(cand) > 3 and cand[3]
                 if deadline is not None and _work() >= deadline:
                     late = True
                     break
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
                     continue
-                if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots)])[0]:
-                    s, eff_n = (N, pots, D), -(-N // D)
+                if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots, lg)])[0]:
+                    s, eff_n = (N, pots, D, lg), -(-N // D)
                     if Nsrc is None or eff_n <= Nsrc:
                         break       # else look on for a bound within the source bound
         if s is None:
             why.append((h, "no potential found" + (" (work budget of the function spent)" if late else "")))
             continue
-        N, pots, D = s
+        N, pots, D = s[:3]
         if prefer_source and Nsrc is not None and eff_n > Nsrc:
             why.append((h, f"certified bound {eff_n} above the source bound {Nsrc}"))
             continue
-        loops.append(Loop(h, body, D, N, pots))
+        loops.append(Loop(h, body, D, N, pots, len(s) > 3 and s[3]))
         info.append((h, eff_n, Nsrc))
     if not loops and not injumps and not need_inv:
         return sp_only, [], why
@@ -2597,7 +2902,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         kinds=[kind.get(a, "none") for a in ctx.nodes],
         inv=[[js_lin(g) for g in inv.get(a, [])] for a in ctx.nodes],
         loops=[dict(header=lc.header, body=lc.body, scale=lc.scale, bound=lc.bound,
-                    pot=[js_lin(p) for p in lc.pot]) for lc in loops],
+                    pot=[js_lin(p) for p in lc.pot], **({"log": True} if lc.log else {})) for lc in loops],
         sp=[ctx.sp.get(a) for a in ctx.nodes],
         slots=ctx.slots,
         frame=ctx.frame,
@@ -2633,6 +2938,12 @@ def js_proof(cert):
     return [mu, [[i, x] for i, x in enumerate(lam) if x]]
 
 
+def _shr_fact(q):
+    """A fact of a shift right (`wrapPrem`): a value after it (variables 10-17) with a
+    coefficient 2^s, s >= 1."""
+    return any(10 <= v < 18 and abs(k) >= 2 for v, k in q[0].items())
+
+
 def prove_all(ctx, kind, inv, loops):
     """Proves every obligation, dropping what fails; returns (loops, inv, proofs in the
     checker's order, [(index, header)] of the dropped loops)."""
@@ -2646,7 +2957,7 @@ def prove_all(ctx, kind, inv, loops):
         failed_inv, failed_loop = set(), set()
         proofs = []
         entry_goals = list(inv.get(ctx.entry, [])) + [
-            goal_lin(-row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)) for lc in cur]
+            g for lc in cur for g in pot_goals(lc, -row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0))]
         pr = Prover(list(ctx.pre_lins) + rng, nv, entry_goals)
         for k, g in enumerate(inv.get(ctx.entry, [])):
             cert = pr.prove(g)
@@ -2654,15 +2965,25 @@ def prove_all(ctx, kind, inv, loops):
                 failed_inv.add((ctx.entry, 0, k))
             proofs.append(cert)
         for li, lc in enumerate(cur):
-            cert = pr.prove(goal_lin(-row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)))
-            if cert is None:
-                failed_loop.add(li)
-            proofs.append(cert)
+            for g in pot_goals(lc, -row_rhs(ctx.entry, lc), lc.pot_at(ctx.entry), pconst(0)):
+                cert = pr.prove(g)
+                if cert is None:
+                    failed_loop.add(li)
+                proofs.append(cert)
         for a in ctx.nodes:
             for prem, goals in obligations_of(ctx, a, inv, kind, cur):
                 pr = Prover(prem, nv, [g for g, _t in goals])
+                pr0 = None
                 for g, tag in goals:
                     cert = pr.prove(g)
+                    if cert is None and any(_shr_fact(q) for q in prem):
+                        # again without the facts of a shift right (`0 <= 0` in their place,
+                        # so that the multipliers keep their indices): with them the linear
+                        # program of the prover may fail where it succeeded before
+                        if pr0 is None:
+                            pr0 = Prover([({}, 0) if _shr_fact(q) else q for q in prem], nv,
+                                         [g for g, _t in goals])
+                        cert = pr0.prove(g)
                     if cert is None:
                         if tag[0] == "inv":
                             failed_inv.add((tag[1], tag[2], tag[3]))

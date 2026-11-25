@@ -11,7 +11,8 @@ For every 16-bit halfword (followed by 0xF800, a BL second half) and several ran
 (small register values, so that loads and stores stay in memory, and random words), the
 instruction is executed by `m0.py`; every register that Lean says is kept must be kept,
 every value Lean computes must be the one written, and the flags must be kept or equal to
-those Lean computes, unless Lean says "any". Instructions that `decode` classifies as
+those Lean computes, unless Lean says "any" (or "?" for C and V after the instructions that
+set only N and Z from their result). Instructions that `decode` classifies as
 `stop` are skipped (the check refuses them). The fourteen conditions are compared on the
 flags of every state. Also with the assumption on callees (`abi`).
 """
@@ -159,7 +160,8 @@ def main():
             if fl == "keep":
                 ok &= tuple(pf) == tuple(f)
             elif fl != "any":
-                ok &= tuple(int(x) for x in fl) == tuple(int(x) for x in pf)
+                # "?": a flag that Lean leaves any (N and Z only, `FEff.nz`)
+                ok &= all(x == "?" or int(x) == int(y) for x, y in zip(fl, pf))
             if i.op == "bl" and any(x != "?" for x in regs[:4]):
                 ok = False
             if not ok:
