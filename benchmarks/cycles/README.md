@@ -36,7 +36,8 @@ For each TACLeBench kernel (the single-file unit of `benchmarks/tacle/run_tacle.
    `N × (longest iteration) + (longest exit path)`, inner loops first, a call the callee's
    bound, a conditional branch the taken case (3 cycles).
 4. **Check by execution** (`m0.Machine`, an interpreter of the instruction set written for
-   this purpose): the kernel's `main` must return 0 (TACLeBench programs check their own
+   this purpose, with a core in C for long runs, `m0core.c`, compared with QEMU by
+   `run_qemu.py`): the kernel's `main` must return 0 (TACLeBench programs check their own
    result, which also checks the interpreter); every call of a function with a bound must
    take at most that many cycles, and every binary loop's back edges per entry at most its
    matched bound. `--check` fails otherwise. Run-time helpers without code (`__aeabi_*`
@@ -235,7 +236,7 @@ iterations, the zone split at an addition or subtraction that may wrap around an
 after the next branch (trace partitioning, Mauborgne & Rival, ESOP 2005); potentials
 `±r_i` or `±(r_i − r_j)` plus per-instruction constants with scale 1, 2, 4 or 8, else a
 potential per instruction from one linear program over the obligations (`synth_lp`:
-Colón–Sipma, Alias et al.; HiGHS, at most `LP_SECONDS` per program; retried without
+Colón–Sipma, Alias et al.; HiGHS, limited in iterations, `lp_maxiter`; retried without
 presolve, with split constants, and with linear parts that follow a header variable,
 `transport`, whose constants come first from longest paths); Farkas multipliers from
 shortest paths, negative cycles, contradictions of one-variable bounds, the LP, or exact
@@ -403,17 +404,17 @@ hour each (`--category`; the source analysis with `CROSSCHECK_TACLE_TIMEOUT=5400
 commented out at the pinned revision. `cjpeg_transupp` reads
 `cjpeg_transupp_input5_2[65..71]` of an array of 65 (its "lower right corner" loop runs with
 `i == 8`), so its expected checksum holds for x86's layout of the globals only: on the
-Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Rerun on 2026-11-24 (two programs at
-a time): `ammunition`, which did not finish within the hour before, now takes 2,038 s;
-`mpeg2` and `susan` (2,981 s and 3,560 s in the previous run, one at a time) exceed the hour;
-`mpeg2` analysed by the code before the changes of that day, alongside the new code and both
-under a profiler, exceeds 80 minutes as well. Their rows are left out.
+Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the changes of
+"Analysis time" and "Deterministic limits") all 25 programs finish: 1,338 s for the 25 on a
+40-core machine (`--jobs 10 --func-jobs 4`), `mpeg2` 692 s and `susan` 634 s alone
+(`--func-jobs 8`); before, `ammunition` did not finish within an hour, and `mpeg2` and
+`susan` took 2,981 s and 3,560 s on the author's machine, one program at a time.
 
 | program | functions | certified | loops certified on the code | stack bounds | `main` certified |
 |---|---:|---:|---:|---:|:-:|
 | adpcm_dec | 17 | 13 | 23 of 28 | 17 | no |
 | adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
-| ammunition | 74 | 44 | 100 of 1,135 | 57 | no |
+| ammunition | 74 | 44 | 635 of 1,135 | 57 | no |
 | anagram | 26 | 13 | 29 of 51 | 20 | no |
 | audiobeam | 36 | 28 | 20 of 43 | 36 | no |
 | cjpeg_transupp | 11 | 4 | 57 of 87 | 11 | no |
@@ -428,15 +429,22 @@ under a profiler, exceeds 80 minutes as well. Their rows are left out.
 | huff_dec | 11 | 7 | 14 of 32 | 11 | no |
 | huff_enc | 18 | 9 | 14 of 38 | 12 | no |
 | lift | 16 | 16 | 20 of 20 | 16 | yes |
+| mpeg2 | 17 | 8 | 40 of 62 | 12 | no |
 | ndes | 8 | 4 | 12 of 20 | 4 | no |
 | petrinet | 4 | 2 | 10 of 10 | 2 | no |
 | powerwindow | 51 | 49 | 70 of 78 | 51 | no |
 | rijndael_dec | 13 | 8 | 11 of 18 | 9 | no |
 | rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
-| **23 programs** | **455** | **316** | **614 of 1,925** | **409** | **2** |
+| susan | 41 | 20 | 38 of 83 | 31 | no |
+| **25 programs** | **513** | **344** | **1,227 of 2,070** | **452** | **2** |
 
-Functions and loops include those of compiler-rt. No certificate is rejected and no
+Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
+in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
+and which receives no cycle bound. 28 of the linear
+programs of 14 functions (in `anagram`, `cjpeg_transupp`, `epic`, `gsm_dec`, `h264_dec`,
+`huff_enc`, `mpeg2`, `susan`) reach the 60 s safety limit of "Deterministic limits"; two runs,
+one on an overloaded machine, gave the same 25 certificates. No certificate is rejected and no
 emulated run exceeds a cycle or stack bound. `lift` (`main`: 1,157,990 cycles certified,
 883,716 observed) and `statemate` are bounded entirely. In the others, `main` stays
 unbounded because some function on its call paths has a loop bounded neither by the source
@@ -459,7 +467,7 @@ table whose index is bounded only by a loop or by constants set on several paths
 pointers. The
 calling convention is checked in these functions too (Lean `convAll` along the targets;
 before 2026-11-24 it stayed assumed there): with the new checker the certificates of the
-23 programs report it as established on the code of every function. Tests: `test_jumptable.py` (a switch
+25 programs report it as established on the code of every function. Tests: `test_jumptable.py` (a switch
 in both forms certified and accepted; a dropped target, a moved window, a widened range
 check and a branch into the window rejected, the last shown on `m0.py` to leave the
 function; the convention established with a jump, and not established when a case reached
@@ -469,10 +477,11 @@ jump destinations, against `m0.py` on more than 1,000 states).
 **Robustness.** On these programs the producer met two problems the kernels never showed:
 a recursion limit (the depth-first searches of `wcet.py` were recursive; now iterative) and
 analyses that run for hours on large functions. The loop certifier now has a budget per
-function, 600 CPU seconds (`CROSSCHECK_LOOP_SECONDS`): past it the function's analysis stops
-and its loops stay uncertified, which is sound since the producer is untrusted; on the 29
-kernels it loses no loop (`compare_runs.py`: 257 kernel loops certified before and after,
-with and without compiler-rt; the largest function, `pm_kernel`, needs about 400 s). An
+function (600 CPU seconds when these programs were first run; in work units since
+2026-11-25, see "Deterministic limits"): past it the function's analysis stops and its loops
+stay uncertified, which is sound since the producer is untrusted; on the 29 kernels it loses
+no loop (`compare_runs.py`: 257 kernel loops certified before and after, with and without
+compiler-rt). An
 exception in one program is reported as its error, and `--check` fails on it, instead of
 stopping the run.
 
@@ -543,6 +552,111 @@ programs compiled by Clang the checker accepts the certificates: `switch (i)` in
 certified 126 cycles, 117 observed; a switch on constants set on several paths, 49 and 45.
 Tests: `test_jumptable.py` (both programs accepted; a widened or missing bound, a dropped
 target, a path that breaks the invariant, a removed congruence rejected).
+
+## Analysis time, the interpreter in C, QEMU and Clang 23 (2026-11-24)
+
+**Where the time went.** Profiles (cProfile) of `huff_dec`, `pm` and `mpeg2`: the loop
+analysis on the machine code (`binloops.py`) and the emulated run (`m0.Machine`, about
+0.3 to 0.5 million instructions per second in Python; `mpeg2` runs 294 million cycles, `pm`
+296 million: about 660 of `mpeg2`'s 1,557 profiled seconds were the run and its checks).
+Changes, none of which changes a certificate:
+
+- `synth_transport` recomputed the transfer of every instruction of the function at each
+  of its calls (252 in `huff_dec`, 321 of 926 profiled seconds); it now reuses the
+  transfers of `certify_loops` and computes only those of the body and of the edges into
+  the header, the only ones it uses; `synth` and `synth_transport` compute once, for the four
+  scales `D`, what does not depend on them;
+- the closures of zones (`Zones.close`, `add_edge`) and the shortest paths of the Farkas
+  proofs (`Prover`) visit only the finite entries of the pivot row (the same updates in the
+  same order), `apply_post`, `join` and `leq` with fewer dictionary look-ups;
+- scipy validates each HiGHS option at every `linprog` call with a new options manager;
+  a successful check is remembered (`ipet.memo_highs_options`, what HiGHS receives is
+  unchanged);
+- `--func-jobs N`: the loops of the functions of a program are certified by `N` forked
+  processes (`ipet.loop_certificates`); each function keeps its own budget, so the
+  certificate is that of a serial run (`--jobs` still runs programs in parallel);
+- the interpreter in C (`m0core.c`, below).
+
+On the 29 kernels (compiler-rt, `--abi --frame`, `--jobs 8`, on a 40-core machine), the
+certificates are byte-identical to those of the code before these changes, which are also
+identical to the runs on the author's machine reported above; the wall time of the run goes
+from 472 s to 351 s with the analysis changes and to 239 s with the interpreter in C. The
+slowest function, `pm_kernel` (244 CPU seconds), now sets the time of the run.
+
+**The interpreter in C.** `m0core.c` executes the instructions as `Machine.execute` does,
+from the table that `m0.decode` makes of the code (assuming, as the certificates do for the
+literal pool, that the code is not written during a run), and makes the observations of
+`run_cycles.py` (`m0.Watch`: the cycles of each call, the stack of each activation, the back
+edges of each loop against its bounds). Anything it does not execute exactly as m0.py
+(functions without code, accesses outside the memory, instructions that read or write the
+PC through `ADD`/`MOV`/`BX`, unknown instructions) is handed back to m0.py for that
+instruction. m0.py builds it with the C compiler (`cc`) into `.build/` when needed;
+`CROSSCHECK_M0_CORE=python` disables it. Untrusted, like the interpreter: it checks the
+bounds against runs; soundness rests on the Lean checker. Checks: `test_m0core.py` (CI)
+compares one instruction by `Machine._step`, by `Machine.execute` alone and by the core, on
+a sample of encodings from random states (`--all`: every 16-bit encoding, 131,072 cases, the
+same), a program with a loop, a call and bounds exceeded on purpose (the same observations
+and messages), the cycle limit, and the first 10^6 cycles of the kernels; the kernel run
+gives the same JSON with and without the core (times apart). The emulated runs of the 29
+kernels take 2 s instead of 215 s; `md5`, 9.3 million instructions, 0.23 s instead of 26 s.
+
+**QEMU.** `run_qemu.py OBJ...` gives the image of m0.py (from address 0x400, after a vector
+table and a stub that calls `main` and exits through semihosting) to QEMU 8.2
+(`qemu-system-arm -M mps2-an385`, one instruction per translation block, `-d exec,nochain`)
+and compares the result and the number of executions of every instruction address with the
+interpreter. QEMU's micro:bit board is the only Cortex-M0 one and has 16 KiB of RAM; the
+AN385 board has a Cortex-M3, which executes the ARMv6-M instructions of this code with the
+same architectural semantics: this checks the instruction semantics and the control flow of
+m0.py, not its cycle table. On the 54 objects of the kernels and larger programs linked with
+compiler-rt: 50 the same (up to 199.5 million instructions, `mpeg2`), 4 not run (they call
+`__aeabi_memcpy4`, `__aeabi_ldivmod` or `fabs`, which have no code in the object).
+
+**Clang 23.** The 29 kernels compiled by Clang 23.1.6 (`--clang`, compiler-rt rebuilt by
+it, the source still analysed by the plugin on Clang 18): 187 of 267 functions certified,
+`main` in 10 kernels, as with Clang 18; 258 of the 396 loops of the kernels' own code
+certified on the machine code (261 of 408 with Clang 18: Clang 23 emits other loops in
+`minver`, 23 of 35 → 16 of 28, and `bsort`, 8 of 11 → 11 of 11); every certificate accepted,
+no emulated run above a bound; stack bounds equal to the observed stack in 59 of 75 calls
+(28 of 74).
+
+## Deterministic limits (2026-11-25)
+
+The producer stopped a linear program after 5 s of wall-clock time and the search of a
+function after 600 CPU seconds, so that the certificates depended on the machine and on
+its load: on TACLeBench's larger programs, the same code certified 100 loops of
+`ammunition` on one machine and 635 on a faster one (all in `ammunition_arithm_test`, which
+reached the budget; the cycle certificate, which does not contain that function, was the
+same), and `epic_internal_filter` was cut at different points. The limits now count work:
+
+- each function's search has a budget of `FUNC_WORK` = 600 million units
+  (`CROSSCHECK_LOOP_WORK`, 0 = none), `binloops._work`: 715 per visit of a worklist, 655 per
+  Farkas prover, 20,124 per linear program and one per 361 iterations × size of the linear
+  programs (rows + columns + nonzeros); the weights are a least-squares fit of the CPU
+  seconds of the 1,651 functions of the kernels and the larger programs (one unit is about a
+  microsecond on the machine of the fit; median error 19% on the functions above 20 s);
+- a linear program stops after `min(60,000, 3·10^9 / size)` iterations (`lp_maxiter`): the
+  largest successful solves of these runs needed 53,912 iterations and 2.5·10^9 iterations
+  × size;
+- a wall-clock limit of 60 s per linear program remains (`LP_SAFETY_SECONDS`) for solves
+  that the iteration limit does not bound in time: HiGHS's dual simplex and interior point
+  ran at 1 to 750 iterations per second on 30 of the 112,441 solves of these runs, logged
+  with `CROSSCHECK_LP_LOG=FILE`. A solve that reaches it is counted (`lp_safety` in the
+  results, per function) and `run_cycles.py` prints a warning: those functions' loops may
+  be certified differently on another machine. It is reached under load: in the final
+  runs of the figures (two kernel runs at a time on the 40-core machine), by 6 solves in
+  `ludcmp_test`, `minver_mmul`, `fft_bit_reduct` and `fft_float2fract` (none in the runs
+  made one at a time), and on the laptop by 6 solves of the GCC runs, in
+  `jfdctint_jpeg_fdct_islow` and `filterbank_core`; every figure was the same as before
+  (Clang 143 / 200 / 260 and 146 / 204 / 261 kernel loops, 261 with each library; GCC 40 / 66
+  / 75 kernel loops, 110 / 110 / 112 functions).
+
+The work of every function is recorded in the results (`loops_detail`: `meter`, `seconds`).
+Checks: the 29 kernels (compiler-rt, `--abi --frame`) give byte-identical certificates on a
+40-core machine idle and overloaded (load average 41, `--jobs 29`), and the six slowest
+(`pm`, `quicksort`, `ludcmp`, `binarysearch`, `fft`, `bitcount`) the same certificates on an
+Intel Core i5-3360M laptop and on an Intel Xeon Silver 4410T; `compare_runs.py --check`
+against the run with time limits: 261 kernel loops certified before and after, no bound
+higher or lower.
 
 ## OTAWA on the same binaries
 
@@ -756,6 +870,11 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-25, deterministic limits.** Work units instead of seconds for the search of a
+  function and for each linear program ("Deterministic limits"); kernel figures unchanged.
+- **2026-11-24, analysis time.** Exact speed-ups of the loop analysis, `--func-jobs`, the
+  interpreter in C, the QEMU comparison ("Analysis time, the interpreter in C, QEMU and
+  Clang 23"); kernel certificates byte-identical.
 - **2026-11-24, stack pointer restored from the frame pointer.** `stack.py` follows
   registers known on every path (`mov sp, r` from the frame pointer). Stack bounds 148 /
   244 / 244 → 151 / 256 / 247, entry functions 11 / 22 / 22 → 12 / 26 / 23; no violation.

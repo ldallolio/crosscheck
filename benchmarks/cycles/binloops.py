@@ -19,6 +19,7 @@ whose row then stays trusted). The definitions mirrored from Lean (`effect`,
 """
 import itertools
 import math
+import operator
 import os
 import time
 from fractions import Fraction
@@ -31,22 +32,116 @@ CONG = True
 DISJ = True          # disjunctive invariants at a possible wrap-around (`window_transfer`)
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
-LP_SECONDS = 5.0     # per solve: HiGHS can stall on these badly scaled programs
-# per function, in CPU seconds of the process (both analyses): past it the analysis of the
-# function stops (`BudgetSpent`: no loop certified) or, during the linear programs, the
-# remaining loops get none. The producer is untrusted: the budget can only leave loops
-# uncertified. 600 s loses no loop of the 29 kernels (the largest function, pm_kernel, needs
-# about 400 s); environment variable CROSSCHECK_LOOP_SECONDS, 0 = no budget.
-FUNC_SECONDS = float(os.environ.get("CROSSCHECK_LOOP_SECONDS", "600"))
-_DEADLINE = None     # the deadline of the function being certified (checked by `_tick`)
+# Limits that do not depend on the machine, so that a binary gets the same certificate on
+# every machine and under any load (they replaced, on 2026-11-25, a wall-clock limit of 5 s
+# per linear program and a budget of 600 CPU seconds per function). The producer is
+# untrusted: a limit can only leave loops uncertified.
+# Per linear program: HiGHS stops after min(LP_MAX_ITERS, LP_WORK // (rows + columns +
+# nonzeros)) iterations (`maxiter`); the largest successful solves of the kernels and
+# TACLeBench's larger programs needed 53,912 iterations and 2.5e9 iterations x size (the
+# dual simplex can also stall: 358,832 iterations in 60 s on 34 rows in binarysearch).
+# LP_SAFETY_SECONDS: a wall-clock limit for what the iteration limit does not bound
+# (counted in the meter, `lp_safety`: the only limit that depends on the machine).
+LP_WORK = 3_000_000_000
+LP_MAX_ITERS = 60_000
+LP_SAFETY_SECONDS = 60.0
+# Per function (both analyses of `certify_loops`), in work units (`_work`, about one
+# microsecond each on the machine where they were calibrated): past FUNC_WORK the analysis
+# of the function stops (`BudgetSpent`: no loop certified) or, during the linear programs,
+# the remaining loops get none. 600e6 units correspond to the former 600 CPU seconds;
+# environment variable CROSSCHECK_LOOP_WORK, 0 = no budget.
+FUNC_WORK = int(os.environ.get("CROSSCHECK_LOOP_WORK", "600000000"))
+W_TICK, W_PROVER, W_SOLVE, LP_WORK_PER_UNIT = 715, 655, 20124, 361
+_DEADLINE = None     # the work limit of the function being certified (checked by `_tick`)
 
 
 class BudgetSpent(Exception):
-    """The time budget of the function is spent (its analysis is abandoned)."""
+    """The work budget of the function is spent (its analysis is abandoned)."""
+
+
+# The work of the analysis of the function being certified (`certify_loops`), in units that
+# do not depend on the machine: visits of the worklists (`ticks`), linear programs solved
+# by HiGHS and their iterations times their size, Farkas provers built. Recorded per
+# function (`METER` after `certify_loops`); `_work` weighs them (a least-squares fit of the
+# CPU seconds of the 1,651 functions of the kernels and larger programs: median error 19%
+# on those above 20 s).
+METER = {}
+
+
+def _meter_reset():
+    METER.clear()
+    METER.update(ticks=0, lp_solves=0, lp_iters=0, lp_max_iters=0, lp_limited=0,
+                 lp_seconds=0.0, lp_max_seconds=0.0, provers=0, lp_work=0, lp_max_work=0,
+                 lp_limited_work=0, lp_limited_size=0, lp_safety=0)
+
+
+_meter_reset()
+
+
+def lp_size(*mats):
+    """Rows + columns + nonzeros of the constraint matrices of a linear program."""
+    rows = nnz = cols = 0
+    for A in mats:
+        if A is None:
+            continue
+        shp = A.shape
+        rows += shp[0]
+        cols = max(cols, shp[1])
+        nnz += A.nnz if hasattr(A, "nnz") else int((A != 0).sum())
+    return rows + cols + nnz
+
+
+def _work():
+    """The work units spent on the function being certified (integers: the same on every
+    machine)."""
+    m = METER
+    return (W_TICK * m["ticks"] + W_PROVER * m["provers"] + W_SOLVE * m["lp_solves"]
+            + m["lp_work"] // LP_WORK_PER_UNIT)
+
+
+def lp_options(size, **opts):
+    """HiGHS options of a linear program of `size` (rows + columns + nonzeros)."""
+    return dict({"maxiter": lp_maxiter(size), "time_limit": LP_SAFETY_SECONDS}, **opts)
+
+
+def lp_maxiter(size):
+    return max(1, min(LP_MAX_ITERS, LP_WORK // max(1, size)))
+
+
+LP_LOG = os.environ.get("CROSSCHECK_LP_LOG")   # a file: one JSON line per solve (calibration)
+
+
+def _meter_lp(res, t0, size=0, shape=None, method=None):
+    dt = time.monotonic() - t0
+    if LP_LOG:
+        import json
+        line = json.dumps(dict(method=method, shape=shape, size=size, nit=int(getattr(res, "nit", 0) or 0),
+                               status=int(res.status), seconds=round(dt, 4), maxiter=lp_maxiter(size)))
+        fd = os.open(LP_LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            os.write(fd, (line + "\n").encode())
+        finally:
+            os.close(fd)
+    nit = int(getattr(res, "nit", 0) or 0)
+    METER["lp_solves"] += 1
+    METER["lp_iters"] += nit
+    METER["lp_work"] += nit * size
+    if res.status == 0:
+        METER["lp_max_iters"] = max(METER["lp_max_iters"], nit)
+        METER["lp_max_work"] = max(METER["lp_max_work"], nit * size)
+    elif res.status == 1:   # a limit (iterations or, `lp_safety`, time) reached
+        METER["lp_limited"] += 1
+        if nit < lp_maxiter(size):
+            METER["lp_safety"] += 1
+        METER["lp_limited_work"] += nit * size
+        METER["lp_limited_size"] = max(METER["lp_limited_size"], size)
+    METER["lp_seconds"] += dt
+    METER["lp_max_seconds"] = max(METER["lp_max_seconds"], dt)
 
 
 def _tick():
-    if _DEADLINE is not None and time.process_time() >= _DEADLINE:
+    METER["ticks"] += 1
+    if _DEADLINE is not None and _work() >= _DEADLINE:
         raise BudgetSpent()
 HARD_VISITS = 200    # visits of a loop head after which growing bounds are dropped (forget)
 
@@ -59,7 +154,11 @@ def structure(an, name):
         _p, back, loops, headers, _par, bound = an.loop_structure(name, entry, blocks, succ)
         return entry, blocks, succ, back, loops, headers, dict(bound)
     except wcet.Unbounded:
-        free = wcet.Analysis(an.img, {}, {None: 0})
+        # the loops without source bounds (one such analysis kept per `an`, so that its
+        # loop structures are remembered: `Analysis.loop_structure`)
+        free = an.__dict__.get("_free_analysis")
+        if free is None:
+            free = an._free_analysis = wcet.Analysis(an.img, {}, {None: 0})
         _p, back, loops, headers, _par, _b = free.loop_structure(name, entry, blocks, succ)
         src = {h: None for h in headers}
         return entry, blocks, succ, back, loops, headers, src
@@ -751,6 +850,7 @@ class Prover:
     in the other premises or in the goals, a linear program otherwise."""
 
     def __init__(self, prem, nv, goals=()):
+        METER["provers"] += 1
         self.prem, self.nv = prem, nv
         nr = len(prem) - 2 * nv
         # virtual premises: a premise on the sum of two variables (both coefficients 1 or
@@ -801,15 +901,21 @@ class Prover:
                 via[b][a] = ("e", idx)
         for k in range(n):
             dk = dist[k]
+            # the columns where row k is finite: within this round a finite entry of row k
+            # can only decrease and an infinite one stays infinite, so this visits the same
+            # updates, in the same order, as testing `dk[j] < INF` for every j
+            fin = [j for j in range(n) if dk[j] < INF]
+            vk = ("k", k)
             for i in range(n):
                 dik = dist[i][k]
                 if dik >= INF:
                     continue
-                di = dist[i]
-                for j in range(n):
-                    if dk[j] < INF and dik + dk[j] < di[j]:
-                        di[j] = dik + dk[j]
-                        via[i][j] = ("k", k)
+                di, vi = dist[i], via[i]
+                for j in fin:
+                    x = dik + dk[j]
+                    if x < di[j]:
+                        di[j] = x
+                        vi[j] = vk
         self.dist, self.via = dist, via
         self.neg = any(dist[x][x] < 0 for x in range(n))
         self.rng = {}
@@ -921,6 +1027,7 @@ class Prover:
     def _lp(self, g):
         import numpy as np
         from scipy.optimize import linprog
+        ipet.memo_highs_options()
         prem = self.prem
         # premises on the variables of the goal and of the non-range premises only
         keep = [i for i, p in enumerate(prem) if set(p[0]) <= set(self.ix) - {ZERO}]
@@ -943,8 +1050,12 @@ class Prover:
         A_ub[0, P] = g[1]
         big = max([abs(prem[i][1]) for i in keep] + [abs(g[1]), 1])
         for margin in (max(1.0, 1e-6 * big), 0.0):
+            t0 = time.monotonic()
+            size = lp_size(A_ub, A_eq)
             res = linprog(np.r_[np.ones(P), 0.0], A_ub=A_ub, b_ub=[-margin], A_eq=A_eq,
-                          b_eq=np.zeros(len(vars_)), bounds=[(0, None)] * P + [(1, None)], method="highs")
+                          b_eq=np.zeros(len(vars_)), bounds=[(0, None)] * P + [(1, None)], method="highs",
+                          options=lp_options(size))
+            _meter_lp(res, t0, size, [A_ub.shape[0], A_eq.shape[0], P + 1], "prover")
             if res.status != 0:
                 continue
             for limit in (1, 100, 10 ** 4, 10 ** 6):
@@ -1026,14 +1137,18 @@ class Zones:
         n = self.n
         for k in range(n):
             Mk = M[k]
+            # a finite entry of row k only decreases in this round, an infinite one stays:
+            # the same updates as testing `Mk[j] < INF` for every j
+            fin = [j for j in range(n) if Mk[j] < INF]
             for i in range(n):
                 mik = M[i][k]
                 if mik >= INF:
                     continue
                 Mi = M[i]
-                for j in range(n):
-                    if Mk[j] < INF and mik + Mk[j] < Mi[j]:
-                        Mi[j] = mik + Mk[j]
+                for j in fin:
+                    x = mik + Mk[j]
+                    if x < Mi[j]:
+                        Mi[j] = x
         if any(M[x][x] < 0 for x in range(n)):
             return None
         return M
@@ -1052,16 +1167,17 @@ class Zones:
             return None
         col = [M[i][a] for i in range(n)]
         Mb = M[b][:]
+        fin = [(j, Mb[j]) for j in range(n) if Mb[j] < INF]
         for i in range(n):
             ia = col[i]
             if ia >= INF:
                 continue
             base = ia + w
             Mi = M[i]
-            for j in range(n):
-                bj = Mb[j]
-                if bj < INF and base + bj < Mi[j]:
-                    Mi[j] = base + bj
+            for j, bj in fin:
+                x = base + bj
+                if x < Mi[j]:
+                    Mi[j] = x
         return M
 
     def checked(self, fast, slow_input):
@@ -1082,7 +1198,7 @@ def join(A, B):
         return copy(B) if B is not None else None
     if B is None:
         return copy(A)
-    return [[max(a, b) for a, b in zip(ra, rb)] for ra, rb in zip(A, B)]
+    return [list(map(max, ra, rb)) for ra, rb in zip(A, B)]
 
 
 def leq(A, B):
@@ -1090,7 +1206,8 @@ def leq(A, B):
         return True
     if B is None:
         return False
-    return all(a <= b for ra, rb in zip(A, B) for a, b in zip(ra, rb))
+    le = operator.le
+    return all(all(map(le, ra, rb)) for ra, rb in zip(A, B))
 
 
 def widen(old, new, thresholds):
@@ -1252,19 +1369,16 @@ def apply_post(Zd, M, ex, closed=False):
     fast = not rng and closed and all(
         e == "any" or (M[e[1]][Z] + e[2] <= U - 1 and M[Z][e[1]] - e[2] <= 0)
         for x, e in ((x, ex.get(x, "any")) for x in range(n)) if x != Z)
-    for x in range(n):
-        ex_x = ex.get(x, "any")
-        if ex_x == "any":
-            continue
-        _, wx, cx = ex_x
-        for y in range(n):
-            ex_y = ex.get(y, "any")
-            if ex_y == "any" or x == y:
-                continue
-            _, wy, cy = ex_y
-            b = M[wx][wy]
-            if b < INF:
-                N[x][y] = min(N[x][y], b + cx - cy)
+    known = [(x, e[1], e[2]) for x in range(n) for e in (ex.get(x, "any"),) if e != "any"]
+    for x, wx, cx in known:
+        Nx, Mw = N[x], M[wx]
+        for y, wy, cy in known:
+            if x != y:
+                b = Mw[wy]
+                if b < INF:
+                    v = b + cx - cy
+                    if v < Nx[y]:
+                        Nx[y] = v
     for x, (l, h) in (rng or {}).items():
         if ex.get(x, "any") == "any":
             N[x][Z] = min(N[x][Z], h)
@@ -1659,43 +1773,48 @@ def synth(ctx, kind, state, h, body, cache):
                     for phi in ({r: 1, q: -1}, {r: -1, q: 1}):
                         if phi not in cands:
                             cands.append(phi)
+    # the instructions whose transitions are used: those of the body and those with an
+    # edge to the header (the others contribute nothing below)
+    rel = [a for a in ctx.nodes if state[a] is not None
+           and (a in B or any(n == h for n, _w, _c in ctx.out[a]))]
     best = None
     for phi in cands:
-        for D in (1, 2, 4, 8):
-            cmin = {a: -INF for a in body}
-            edges = []
-            entry_terms = []
-            ok = True
-            for a in ctx.nodes:
-                if state[a] is None:
-                    continue
-                for j, Mf, ex, post in cache[a]:
-                    n = ctx.out[a][j][0]
-                    if a in B:
-                        if n is not None and n in B:
-                            dl = delta_phi(Zd, phi, ex, Mf)
-                            if dl >= INF // 2:
-                                ok = False
-                                break
-                            edges.append((a, n, (D if n == h else 0) + dl))
-                        else:
-                            mb = bound_of(Zd, Mf, {v: -k for v, k in phi.items()})
-                            if mb >= INF // 2:
-                                ok = False
-                                break
-                            cmin[a] = max(cmin[a], mb)
-                    elif n == h:
-                        if post is None:
-                            continue
-                        mb = bound_of(Zd, post, phi)
+        # what does not depend on the scale D: computed once for the four scales
+        cmin = {a: -INF for a in body}
+        pre_edges = []
+        entry0 = []
+        ok = True
+        for a in rel:
+            for j, Mf, ex, post in cache[a]:
+                n = ctx.out[a][j][0]
+                if a in B:
+                    if n is not None and n in B:
+                        dl = delta_phi(Zd, phi, ex, Mf)
+                        if dl >= INF // 2:
+                            ok = False
+                            break
+                        pre_edges.append((a, n, dl))
+                    else:
+                        mb = bound_of(Zd, Mf, {v: -k for v, k in phi.items()})
                         if mb >= INF // 2:
                             ok = False
                             break
-                        entry_terms.append(mb)
-                if not ok:
-                    break
+                        cmin[a] = max(cmin[a], mb)
+                elif n == h:
+                    if post is None:
+                        continue
+                    mb = bound_of(Zd, post, phi)
+                    if mb >= INF // 2:
+                        ok = False
+                        break
+                    entry0.append(mb)
             if not ok:
                 break
+        if not ok:
+            continue
+        for D in (1, 2, 4, 8):
+            edges = [(a, n, (D if n == h else 0) + dl) for a, n, dl in pre_edges]
+            entry_terms = list(entry0)
             c = dict(cmin)
             stable = False
             for _ in range(len(body) + 2):
@@ -1804,11 +1923,13 @@ def transport(ctx, state, h, body, r):
     return lin if len(lin) == len(Bs) else None
 
 
-def synth_transport(ctx, kind, state, h, body, lin, sgn):
+def synth_transport(ctx, kind, state, h, body, lin, sgn, cache=None):
     """The constants of the potentials `sgn · lin[a] + c_a` by longest paths, as in `synth`,
     with the transitions of the instructions of a window taken from each of their disjuncts
     (the hull loses the relation between the counter and its copy): (N, [potentials], D)
-    or None. Used when the linear program fails on the constants (they may be near 2^32)."""
+    or None. Used when the linear program fails on the constants (they may be near 2^32).
+    `cache`: the transfers of the instructions from `state` (`certify_loops`), reused; only
+    the instructions of the body and those with an edge to the header are needed."""
     Zd = ctx.zones
     B = set(body)
     disj = getattr(ctx, "disj", {})
@@ -1825,37 +1946,41 @@ def synth_transport(ctx, kind, state, h, body, lin, sgn):
     for a in ctx.nodes:
         if state[a] is None:
             continue
-        zones = [Zn for _t, Zn in disj[a]] if a in B and a in disj else [state[a]]
-        for Za in zones:
-            steps += [(a, j, Mf, ex, post) for j, Mf, ex, post in transfer(ctx, kind, a, Za)]
-    best = None
-    for D in (1, 2, 4, 8):
-        cmin = {a: -INF for a in body}
-        edges, entry_terms, ok = [], [], True
-        for a, j, Mf, ex, post in steps:
-            n = ctx.out[a][j][0]
-            if a in B:
-                if n is not None and n in B:
-                    dl = sup_diff(Mf, ex, lin[n], lin[a])
-                    if dl >= INF:
-                        ok = False
-                        break
-                    edges.append((a, n, (D if n == h else 0) + dl))
-                else:
-                    mb = bound_of(Zd, Mf, {lin[a]: -sgn})
-                    if mb >= INF // 2:
-                        ok = False
-                        break
-                    cmin[a] = max(cmin[a], mb)
-            elif n == h and post is not None:
-                mb = bound_of(Zd, post, {lin[h]: sgn})
+        if a not in B and not any(n == h for n, _w, _c in ctx.out[a]):
+            continue    # its steps are not used below
+        if a in B and a in disj:
+            for Za in [Zn for _t, Zn in disj[a]]:
+                steps += [(a, j, Mf, ex, post) for j, Mf, ex, post in transfer(ctx, kind, a, Za)]
+        else:
+            tr = cache[a] if cache is not None else transfer(ctx, kind, a, state[a])
+            steps += [(a, j, Mf, ex, post) for j, Mf, ex, post in tr]
+    # what does not depend on the scale D: computed once for the four scales
+    cmin = {a: -INF for a in body}
+    pre_edges, entry0 = [], []
+    for a, j, Mf, ex, post in steps:
+        n = ctx.out[a][j][0]
+        if a in B:
+            if n is not None and n in B:
+                dl = sup_diff(Mf, ex, lin[n], lin[a])
+                if dl >= INF:
+                    return None
+                pre_edges.append((a, n, dl))
+            else:
+                mb = bound_of(Zd, Mf, {lin[a]: -sgn})
                 if mb >= INF // 2:
-                    ok = False
-                    break
-                entry_terms.append(mb)
-        if not ok:
-            return None
-        c = dict(cmin)
+                    return None
+                cmin[a] = max(cmin[a], mb)
+        elif n == h and post is not None:
+            mb = bound_of(Zd, post, {lin[h]: sgn})
+            if mb >= INF // 2:
+                return None
+            entry0.append(mb)
+    best = None
+    cmin0 = cmin
+    for D in (1, 2, 4, 8):
+        edges = [(a, n, (D if n == h else 0) + dl) for a, n, dl in pre_edges]
+        entry_terms = list(entry0)
+        c = dict(cmin0)
         stable = False
         for _ in range(len(body) + 2):
             changed = False
@@ -1892,6 +2017,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
     premises, and the value written is one of the values allowed); `prove_all` checks it."""
     import numpy as np
     from scipy.optimize import linprog
+    ipet.memo_highs_options()
     from scipy.sparse import coo_matrix
     B = set(body)
     S = len(ctx.slots)
@@ -2037,8 +2163,11 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None):
             continue
         A, b = (Asp, bsp) if split else (Aub, bub)
         try:
+            t0 = time.monotonic()
+            size = lp_size(A, Aeq)
             res = linprog(cost, A_ub=A, b_ub=b, A_eq=Aeq, b_eq=beq, bounds=bounds, method=meth,
-                          options=dict({"time_limit": LP_SECONDS}, **opts))
+                          options=lp_options(size, **opts))
+            _meter_lp(res, t0, size, [A.shape[0], Aeq.shape[0], A.shape[1]], meth + ("-nopre" if opts else "") + ("-split" if split else ""))
         except ValueError:
             continue
         if res.status == 0:
@@ -2124,7 +2253,7 @@ def inv_jumps(an, name, cands, abi=False, frame=False):
         ctx.cong = congruences(ctx) if CONG else {}
         state = analyse(ctx, kind)
     except BudgetSpent:
-        return None, "time budget spent in the analysis of its index"
+        return None, "work budget spent in the analysis of its index"
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return None, f"no analysis of its index ({e})"
     entry, size = an.img.funcs[name]
@@ -2178,6 +2307,7 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
     any value in the producer's own analysis (the constants of the literal pool can make the linear
     programs fail numerically); the certificate that certifies more loops is kept. The
     checker's obligations use the exact effects in both."""
+    _meter_reset()
     key = None
     if name.startswith("__aeabi_") and name in an.img.funcs:
         # the run-time routines are the same code in every binary: an empty result is
@@ -2188,12 +2318,12 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False):
             fields, why = _RUNTIME_EMPTY[key]
             return dict(fields), [], [(None if h is None else h + start, w) for h, w in why]
     global _DEADLINE
-    deadline = time.process_time() + FUNC_SECONDS if FUNC_SECONDS > 0 else None
+    deadline = FUNC_WORK if FUNC_WORK > 0 else None
     _DEADLINE = deadline
     try:
         res = _certify_loops_budget(an, name, abi, prefer_source, frame, False, deadline)
         if res[2] and any(w == "no potential found" for _h, w in res[2]) and \
-                (deadline is None or time.process_time() < deadline):
+                (deadline is None or _work() < deadline):
             alt = _certify_loops_budget(an, name, abi, prefer_source, frame, True, deadline)
             if len(alt[1]) > len(res[1]):
                 res = alt
@@ -2219,7 +2349,7 @@ def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline
         finally:
             _DEADLINE = saved
         return ({"sp": [ctx.sp.get(a) for a in ctx.nodes]}, [],
-                [(h, "no potential found (time budget of the function spent)") for h, _b, _n in ctx.iloops])
+                [(h, "no potential found (work budget of the function spent)") for h, _b, _n in ctx.iloops])
 
 
 _RUNTIME_EMPTY = {}
@@ -2266,7 +2396,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
     for h, body, Nsrc in ctx.iloops:
         s = synth(ctx, kind, state, h, body, cache)
         eff_n = -(-s[0] // s[2]) if s is not None else None
-        late = deadline is not None and time.process_time() >= deadline
+        late = deadline is not None and _work() >= deadline
         if LP and not late and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
                 full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
@@ -2281,7 +2411,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
                     if lin is not None:
                         for sgn in (1, -1):
                             # longest paths first: they also choose the scale D
-                            st_ = synth_transport(ctx, kind, state, h, body, lin, sgn)
+                            st_ = synth_transport(ctx, kind, state, h, body, lin, sgn, cache)
                             if st_ is not None:
                                 yield st_
                             yield from synth_lp(ctx, kind, full, h, body, False, fixed=(lin, sgn))
@@ -2289,7 +2419,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
                 (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
                 transported())
             for N, pots, D in cands:
-                if deadline is not None and time.process_time() >= deadline:
+                if deadline is not None and _work() >= deadline:
                     late = True
                     break
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
@@ -2299,7 +2429,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None):
                     if Nsrc is None or eff_n <= Nsrc:
                         break       # else look on for a bound within the source bound
         if s is None:
-            why.append((h, "no potential found" + (" (time budget of the function spent)" if late else "")))
+            why.append((h, "no potential found" + (" (work budget of the function spent)" if late else "")))
             continue
         N, pots, D = s
         if prefer_source and Nsrc is not None and eff_n > Nsrc:

@@ -117,6 +117,7 @@ jobs:
           python3 benchmarks/cycles/test_binloops.py
           python3 benchmarks/cycles/test_jumptable.py
           python3 benchmarks/cycles/test_stack.py
+          python3 benchmarks/cycles/test_m0core.py
           python3 benchmarks/cycles/run_cycles.py --clang=/usr/lib/llvm-18/bin/clang \
             --objdump=/usr/lib/llvm-18/bin/llvm-objdump --check --json=cycles.json \
             --certify=cycle-certificates --certify-loops

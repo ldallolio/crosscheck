@@ -170,8 +170,9 @@ def loop_ends(functions, offset=0, ends=None):
 
 
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
-            frame=False, cflags=(), tag="", gcc=None, rtlib=None):
+            frame=False, cflags=(), tag="", gcc=None, rtlib=None, func_jobs=1):
     import subprocess
+    t_all = time.monotonic()
     unit = kernel
     if kernel.name in SOURCE_FIXES:
         unit = run_tacle.Unit(kernel.name, sorted(kernel.glob("*.c")), [kernel],
@@ -220,7 +221,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
         # IPET cycle certificates (ipet.py), checked by the verified checker if given
         # (Lean Cycles.program_sound); without a checker they are compared with the runs only
         lstats = {}
-        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats, frame=frame)
+        doc, ib, iwhy = ipet.certify(an, sorted(img.funcs), loops=loops, abi=abi, stats=lstats, frame=frame,
+                                      jobs=func_jobs)
         cf = pathlib.Path(certdir) / f"{kernel.name}.cycles.json"
         cf.write_text(json.dumps(doc) + "\n")
         certified = dict(ib)
@@ -240,70 +242,41 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
             continue
         for (h, _lines, N, body) in ls:
             bodies[h] = (body, N, fn)
-    count, worst_loop = {}, {}
     # loops whose bound is certified on the machine code (binloops.py): checked against the runs too
-    cbodies, ccount = {}, {}
+    cbodies = {}
+    sbodies = {}    # function -> {header: body} of the binary's loops (binloops.structure)
     for fn, st in (cert_info.get("loops") or {}).items():
         for (h, N, _src) in st["certified"]:
             ctx_loops = an.loops.get(fn, [])
             body = next((b for (hh, _l, _n, b) in ctx_loops if hh == h), None)
             if body is None:
-                import binloops
-                try:
-                    c = binloops.Ctx(an, fn, abi)
-                    body = set(next(b for (hh, b, _n) in c.iloops if hh == h))
-                except Exception:   # noqa: BLE001
-                    body = None
+                # the loops of a function without a static bound (the bodies of
+                # binloops.Ctx.iloops, from the same structure, computed once per function)
+                if fn not in sbodies:
+                    import binloops
+                    try:
+                        _e, blocks, _s, _b, loops, headers, _n = binloops.structure(an, fn)
+                        sbodies[fn] = {hh: {i.addr for b in loops[hh] for i in blocks[b]}
+                                       for hh in headers}
+                    except Exception:   # noqa: BLE001
+                        sbodies[fn] = {}
+                body = sbodies[fn].get(h)
             if body is not None:
                 cbodies[h] = (body, N, fn)
-    stack, observed = [], {}
-    viol = []
     mach = m0.Machine(img)
-    # Stack: for each activation, the stack pointer at its entry and the lowest value seen
-    # until it returns (its callees included).
-    frames, sobserved = [], {}
-
-    def hook(i, before, nxt):
-        sp = mach.r[13]
-        if frames and sp < frames[-1][1]:
-            frames[-1][1] = sp
-        if i is not None and i.kind == "call":
-            stack.append((entry.get(i.target), mach.cyc, i.addr + 4))
-            frames.append([sp, sp])
-        elif stack and nxt == stack[-1][2] and (i is None or i.kind == "ret"):
-            fn, start, _ = stack.pop()
-            at_entry, low = frames.pop()
-            if frames and low < frames[-1][1]:
-                frames[-1][1] = low
-            if fn is not None:
-                observed[fn] = max(observed.get(fn, 0), mach.cyc - start)
-                sobserved[fn] = max(sobserved.get(fn, 0), at_entry - low)
-        if nxt in bodies and i is not None:
-            body, N, fn = bodies[nxt]
-            if i.addr in body:
-                count[nxt] = count.get(nxt, 0) + 1
-                if count[nxt] > N:
-                    viol.append(f"loop {nxt:#x} of {fn}: {count[nxt]} back edges > bound {N}")
-                worst_loop[nxt] = max(worst_loop.get(nxt, 0), count[nxt])
-            else:
-                count[nxt] = 0
-        if nxt in cbodies and i is not None:
-            body, N, fn = cbodies[nxt]
-            if i.addr in body:
-                ccount[nxt] = ccount.get(nxt, 0) + 1
-                if ccount[nxt] > N:
-                    viol.append(f"loop {nxt:#x} of {fn}: {ccount[nxt]} back edges > certified bound {N}")
-            else:
-                ccount[nxt] = 0
-
-    mach.on_insn = hook
+    # the observations of the run (m0.Watch; by the C core of m0.py when it is built): the
+    # cycles of the longest call of each function; for each activation, the stack pointer
+    # at its entry and the lowest value seen until it returns (its callees included); the
+    # back edges of each loop, against its bound and its certified bound
+    watch = m0.Watch(entry, bodies, cbodies, img.stack_top)
     t0 = time.monotonic()
-    frames.append([img.stack_top, img.stack_top])
     try:
-        ret = mach.call("main", max_cycles=2 * 10**9)
+        ret = mach.call("main", max_cycles=2 * 10**9, watch=watch)
         run_error = None
     except m0.Stop as e:
         ret, run_error = None, str(e)
+    observed, sobserved, frames = watch.observed, watch.sobserved, watch.frames
+    worst_loop, viol = watch.worst_loop, watch.viol
     observed["main"] = mach.cyc
     sobserved["main"] = frames[0][0] - min(f[1] for f in frames)
     sviol = [f"{fn}: observed {s} bytes of stack > bound {sbound[fn]}"
@@ -334,6 +307,7 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                 stack_violations=sviol,
                 stack_why={n: sa.why[n] for n in sa.why if n in sown},
                 seconds=round(time.monotonic() - t0, 1),
+                analysis_seconds=round(time.monotonic() - t_all, 1),
                 **({} if not certdir else dict(
                     certified_functions={n: v for n, v in certified.items() if n not in runtime},
                     certificates_accepted=cert_info["accepted"],
@@ -344,9 +318,16 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                     loops_certified=sum(len(v["certified"]) for v in (cert_info.get("loops") or {}).values()),
                     loops_not_certified=sum(len(v["other"]) for v in (cert_info.get("loops") or {}).values()),
                     loops_detail={fn: dict(certified=[[h, N, src] for h, N, src in v["certified"]],
-                                           other=[[h, w] for h, w in v["other"]])
+                                           other=[[h, w] for h, w in v["other"]],
+                                           seconds=round(v.get("seconds", 0.0), 1),
+                                           meter=v.get("meter"))
                                   for fn, v in (cert_info.get("loops") or {}).items()},
                     loops_checked_certified=len(cbodies),
+                    # linear programs stopped by the wall-clock safety limit of HiGHS
+                    # (binloops.LP_SAFETY_SECONDS): the only results that may differ on
+                    # another machine (the other limits count work, not time)
+                    lp_safety={fn: v["meter"]["lp_safety"] for fn, v in (cert_info.get("loops") or {}).items()
+                               if (v.get("meter") or {}).get("lp_safety")},
                     certified_main_observed_ratio=(certified["main"] / mach.cyc) if certified.get("main") and ret is not None and mach.cyc else None)))
 
 
@@ -402,6 +383,9 @@ def main():
     ap.add_argument("--jobs", type=int, default=1,
                     help="kernels analysed in parallel (processes; the largest objects first, "
                          "results printed in the usual order)")
+    ap.add_argument("--func-jobs", type=int, default=1,
+                    help="with --certify-loops: the functions of a program whose loops are "
+                         "certified in parallel (processes; same certificates as one)")
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
     src = run_tacle.fetch(pathlib.Path(a.cache), run_tacle.REV)
@@ -417,7 +401,8 @@ def main():
     rt = runtime_bounds(a.tool, work, a.extra_arg)
     rtlib = None if not a.rtlib else (a.link_image, compiler_rt(a.cache, a.clang) if a.rtlib == "compiler-rt" else None)
     args = lambda k: (k, work, a.tool, a.clang, a.objdump, a.extra_arg, rt, a.certify,  # noqa: E731
-                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc, rtlib)
+                      a.checker, a.certify_loops, a.abi, a.frame, a.cflag, a.tag, a.gcc, rtlib,
+                      a.func_jobs)
     if a.jobs > 1:
         import concurrent.futures
         size = lambda k: sum(f.stat().st_size for f in k.glob("*.c"))  # noqa: E731
@@ -444,6 +429,10 @@ def main():
                   + (f", loops certified on the code: {r['loops_certified']} of "
                      f"{r['loops_certified'] + r['loops_not_certified']}" if a.certify_loops else ""),
                   file=sys.stderr)
+        if r.get("lp_safety"):
+            print(f"{'':16s} warning: {sum(r['lp_safety'].values())} linear programs stopped by the "
+                  f"wall-clock safety limit in {', '.join(sorted(r['lp_safety']))}: their loops may be "
+                  f"certified differently on another machine", file=sys.stderr)
         for v in r["violations"]:
             print("   VIOLATION " + v, file=sys.stderr)
         print(f"{'':16s} stack: bounded={r['stack_bounded']} main_bound={r['stack_main_bound']} "
@@ -466,6 +455,7 @@ def main():
         cf = [(n, v, r["bounded_functions"].get(n)) for r in ok for n, v in r["certified_functions"].items()]
         tot.update(certified=len(cf), certified_main=sum("main" in r["certified_functions"] for r in ok),
                    certificates_rejected=sum(r["certificates_accepted"] is False for r in ok),
+                   lp_safety=sum(sum((r.get("lp_safety") or {}).values()) for r in ok),
                    certified_compared=sum(r["certified_compared"] for r in ok),
                    certified_below_schema=sum(1 for _, v, s in cf if s is not None and v < s),
                    certified_equal_schema=sum(1 for _, v, s in cf if s is not None and v == s),

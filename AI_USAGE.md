@@ -2436,6 +2436,73 @@ programs: 316 of 455 functions certified, 409 stack bounds, 614 of 1,925 loops. 
 (abstract, stack paragraph, `tab:steps`, larger programs), cycles README, guide parts 5 and
 9, slides, CLAUDE.md, the plugin workflow.
 
+146. "What should be doing now ?", then "You can sometimes access additional resources
+remotely by using the `ssh micro` command, you can try running there. Be careful not to
+write a lot of files, the disk space is very limited : write them under the
+/local00/home/ldallolio/ folder. You will try a clang 23 and qemu. I am very worried about
+the analysis time too, please improve it", then "I think that we should optimize expensive
+code (maybe m0.py or other parts) using compiled C, Cython or Rust code instead of
+interpreted python, in particular to improve time for cases such as mpeg2, what do you
+think about this ?", then "One more question : should we use renode, qemu deterministic mode
+or Arm Virtual Hardware (AVH / Arm FVP), Unicorn Engine, and hardware-accurate simulators
+like SimulAVR/GHDL (for RTL), Verilator or others ?", then "yes, go ahead"
+
+What the AI did for 146 (Claude Opus 5.5, 2026-11-24/25): ran the tools on a 40-core
+machine (conda environment and repository copied; HEAD and the new code side by side,
+separate caches). Profiles (cProfile, py-spy) of `huff_dec`, `pm`, `mpeg2`, `ammunition`.
+Changes that leave every certificate unchanged (the 29 kernels byte-identical to HEAD):
+`synth_transport` reuses the transfers of `certify_loops` and computes only those of the body
+and of the edges into the header; `synth` and `synth_transport` compute once for the four
+scales what does not depend on them; zone closure, incremental closure and the Prover's
+shortest paths visit only the finite entries of the pivot row; `apply_post`, `join`, `leq`
+with fewer look-ups; scipy's per-call validation of HiGHS options remembered;
+`wcet.loop_structure` remembered per graph content (with its exception and its record of
+`loops`) and a set for the back edges; certified loop bodies from `binloops.structure` once
+per function instead of a `Ctx` per loop (this was what kept `ammunition` running for an
+hour once its functions were certified in parallel); `--func-jobs N` (`ipet.loop_certificates`,
+forked processes, the same certificates). Interpreter: `m0.py`'s loop body as `_step` (the
+reference), handlers for the frequent operations (`m0.FAST`, copies of `execute`'s branches),
+and a core in C (`m0core.c`, ctypes, built on demand, `CROSSCHECK_M0_CORE`): it executes
+m0.py's decoded table and makes run_cycles.py's observations (`m0.Watch`: cycles per call,
+stack per activation, back edges against both bounds), handing back to m0.py anything it does
+not execute exactly (functions without code, accesses outside memory, PC through ADD/MOV/BX).
+Tests: `test_m0core.py` (CI): every 16-bit encoding from two random states by `_step`, by
+`execute` alone and by the core, 131,072 cases, the same; a program with a loop, a call and
+bounds exceeded on purpose; the cycle limit; the kernels' first 10^6 cycles; the kernel run
+gives the same JSON with and without the core; the old and new m0.py the same on 50 programs
+(result, cycles, registers, memory, executions per address). A bug of the AI's (a variable of
+the cycle table overwritten by `bx`) was found by that comparison and fixed. `run_qemu.py`:
+m0.py's image on QEMU 8.2 (`mps2-an385`, Cortex-M3, ARMv6-M instructions with the same
+semantics; one instruction per block): the same result and executions of every address on
+the 50 objects QEMU can run (up to 199.5 million instructions); a first difference came from
+the AI's harness, which wrote the image after the interpreter had modified it. Clang 23.1.6:
+187 functions certified as with Clang 18, 258 of 396 kernel loops (261 of 408). On the
+simulators asked about: recommended Verilator on Arm's Cortex-M0 DesignStart RTL for the
+cycle table (licence to be read by the author), QEMU for semantics, an Arm FVP as a second
+functional reference, the board for silicon; Renode, QEMU's icount, Unicorn and SimulAVR/GHDL
+add no evidence here. Times: kernel suite 472 -> 228 s; emulated runs 215 -> 2 s; `mpeg2`
+692 s, `susan` 634 s (over an hour before); the 25 larger programs 1,338 s.
+
+147. "check if the programs are still runnin on smicro, just to be sure", then "After that,
+proceed with the next step towards making crosscheck an industrial grade software"
+
+What the AI did for 147 (Claude Opus 5.5, 2026-11-25): the run was held by `ammunition`
+(fixed as in 146). Next step chosen: certificates that do not depend on the machine. The 5 s
+wall-clock limit per linear program and the 600 CPU-second budget per function made the
+results depend on speed and load (`ammunition`: 100 loops certified on one machine, 635 on
+another). A work meter (`binloops.METER`: worklist visits, provers, solves, iterations x size;
+per function in the results); weights by least squares on 1,651 functions (`_work`, budget
+`FUNC_WORK` = 600 million units, `CROSSCHECK_LOOP_WORK`); HiGHS limited to min(60,000, 3e9 /
+size) iterations (`lp_maxiter`), calibrated on a log of 112,441 solves (`CROSSCHECK_LP_LOG`);
+a 60 s wall-clock safety limit remains for solves at 1 to 750 iterations per second, counted
+(`lp_safety`) and reported by run_cycles.py as the only machine-dependent results. Checks: the
+kernels byte-identical idle and overloaded, and on two processors (i5-3360M, Xeon Silver
+4410T); every figure of the papers rerun (eight Clang kernel runs, libgcc, three GCC runs, the
+25 larger programs): unchanged except the larger programs, now all 25 (344 of 513 functions
+certified, 452 stack bounds, 1,227 of 2,070 loops); two runs of these gave the same 25
+certificates. Paper III (deterministic limits, larger programs, QEMU, Clang 23), cycles
+README, guide part 5, CLAUDE.md, the plugin workflow.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

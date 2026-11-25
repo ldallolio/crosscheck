@@ -164,6 +164,116 @@ def cycles(i, taken=True):
     return 1
 
 
+# --- the most frequent instructions, without the dispatch of `Machine.execute` ----------
+# Each handler is the branch of `execute` for its operation, unchanged (`call` uses it in
+# place of `execute`; the others, and those that read the PC, go through `execute`).
+
+def _mem_access(kind):
+    def h(m, a, reg):
+        t, n, x = a
+        ad = ((m.r[n] + m.r[x]) if reg else (m.r[n] + x)) & 0xFFFFFFFF
+        m.access(kind, t, ad)
+    return h
+
+
+def _f_addc(sub, imm, two):
+    def h(m, a):
+        r = m.r
+        if two:     # rd = rd op imm8
+            x, y, d = r[a[0]], a[1], a[0]
+        else:
+            d, x = a[0], r[a[1]]
+            y = a[2] if imm else r[a[2]]
+        r[d] = m.addc(x, ~y & 0xFFFFFFFF, 1) if sub else m.addc(x, y, 0)
+    return h
+
+
+def _f_lsli(m, a):
+    d, x, imm = a
+    v = m.r[x]
+    if imm:
+        m.c = (v >> (32 - imm)) & 1
+        v = (v << imm) & 0xFFFFFFFF
+    m.r[d] = m.nz(v)
+
+
+def _f_lsri(m, a):
+    d, x, imm = a
+    imm = imm or 32
+    v = m.r[x]
+    m.c = (v >> (imm - 1)) & 1
+    m.r[d] = m.nz(v >> imm if imm < 32 else 0)
+
+
+def _f_movi(m, a):
+    m.r[a[0]] = m.nz(a[1])
+
+
+def _f_cmpi(m, a):
+    m.addc(m.r[a[0]], ~a[1] & 0xFFFFFFFF, 1)
+
+
+def _f_cmp(m, a):
+    m.addc(m.r[a[0]], ~m.r[a[1]] & 0xFFFFFFFF, 1)
+
+
+def _f_logic(op):
+    def h(m, a):
+        r = m.r
+        d, x = a
+        u, v = r[d], r[x]
+        if op == "and" or op == "tst":
+            w = u & v
+        elif op == "eor":
+            w = u ^ v
+        elif op == "orr":
+            w = u | v
+        elif op == "bic":
+            w = u & ~v & 0xFFFFFFFF
+        elif op == "mvn":
+            w = ~v & 0xFFFFFFFF
+        else:   # mul
+            w = (u * v) & 0xFFFFFFFF
+        w = m.nz(w)
+        if op != "tst":
+            r[d] = w
+    return h
+
+
+def _f_addspi(m, a):
+    m.r[a[0]] = m.r[13] + a[1]
+
+
+def _f_ldrsp(m, a):
+    m.r[a[0]] = m.rd32(m.r[13] + a[1])
+
+
+def _f_strsp(m, a):
+    m.wr32(m.r[13] + a[1], m.r[a[0]])
+
+
+def _f_uxtb(m, a):
+    m.r[a[0]] = m.r[a[1]] & 0xFF
+
+
+def _f_uxth(m, a):
+    m.r[a[0]] = m.r[a[1]] & 0xFFFF
+
+
+FAST = {"lsli": _f_lsli, "lsri": _f_lsri, "movi": _f_movi, "cmpi": _f_cmpi, "cmp": _f_cmp,
+        "addr": _f_addc(False, False, False), "subr": _f_addc(True, False, False),
+        "addi3": _f_addc(False, True, False), "subi3": _f_addc(True, True, False),
+        "addi8": _f_addc(False, True, True), "subi8": _f_addc(True, True, True),
+        "addspi": _f_addspi, "ldrsp": _f_ldrsp, "strsp": _f_strsp,
+        "uxtb": _f_uxtb, "uxth": _f_uxth}
+for _op in ("and", "eor", "orr", "bic", "mvn", "tst", "mul"):
+    FAST[_op] = _f_logic(_op)
+for _k in ("str", "strh", "strb", "ldr", "ldrh", "ldrb", "ldrsh", "ldrsb"):
+    FAST[_k + "i"] = (lambda h: lambda m, a: h(m, a, False))(_mem_access(_k))
+    FAST[_k + "r"] = (lambda h: lambda m, a: h(m, a, True))(_mem_access(_k))
+del _op, _k
+
+
 # --- ELF loading --------------------------------------------------------------------------
 
 class Image:
@@ -181,7 +291,8 @@ def load(path, base=0, ram=1 << 22):
     the code and the constant tables that follow it, as `ld -r` with a run-time library
     places them), then `ram` bytes of stack. Undefined functions get stub addresses (calls
     to them stop the interpreter)."""
-    data = open(path, "rb").read()
+    with open(path, "rb") as f:
+        data = f.read()
     if struct.unpack_from("<H", data, 0x10)[0] == 2:
         return _load_exec(data)
     (e_shoff,) = struct.unpack_from("<I", data, 0x20)
@@ -450,6 +561,7 @@ class Machine:
         self.n = self.z = self.c = self.v = 0
         self.cyc = 0
         self.cache = {}
+        self.timed = {}
         self.on_insn = None   # callback(insn, cycles_before)
 
     def rd32(self, a):
@@ -475,70 +587,101 @@ class Machine:
         return [z, not z, cc, not cc, n, not n, v, not v, cc and not z, not cc or z,
                 n == v, n != v, not z and n == v, z or n != v][c]
 
-    def call(self, fn, args=(), max_cycles=10**10):
+    def call(self, fn, args=(), max_cycles=10**10, watch=None):
+        """Runs `fn` until it returns; its result (r0). `watch` (a `Watch`): the observations
+        of the run, made by the C core (`m0core.c`) when it is available and `on_insn` is
+        not set, else by `Watch.step` as an `on_insn` callback."""
         r = self.r
         for k, a in enumerate(args):
             r[k] = a
         r[13] = self.img.stack_top
         r[14] = self.HALT | 1
         pc = self.img.funcs[fn][0]
-        mem = self.mem
+        if watch is not None and self.on_insn is None:
+            lib = core()
+            if lib is not None:
+                return _run_core(self, lib, pc, max_cycles, watch)
+            self.on_insn = watch.bind(self)
+            try:
+                return self._loop(pc, max_cycles)
+            finally:
+                self.on_insn = None
+        if watch is not None:
+            raise ValueError("a Watch and an on_insn callback together")
+        return self._loop(pc, max_cycles)
+
+    def _loop(self, pc, max_cycles):
         while pc != self.HALT:
-            if pc in self.img.undefined:
-                name = self.img.undefined[pc]
-                if not helper(name, r, mem):
-                    raise Stop(f"call to the undefined function {name}")
-                if self.on_insn:
-                    self.on_insn(None, self.cyc, r[14] & ~1)
-                pc = r[14] & ~1
-                continue
+            pc = self._step(pc, max_cycles)
+        return self.r[0]
+
+    def _step(self, pc, max_cycles):
+        """Executes the instruction at `pc` (or the function without code at `pc`), counts
+        its cycles, calls `on_insn`; the next PC."""
+        r, mem, on_insn = self.r, self.mem, self.on_insn
+        undefined = self.img.undefined
+        if pc in undefined:
+            name = undefined[pc]
+            if not helper(name, r, mem):
+                raise Stop(f"call to the undefined function {name}")
+            if on_insn:
+                on_insn(None, self.cyc, r[14] & ~1)
+            return r[14] & ~1
+        # pc -> (instruction, cycles if taken, cycles if not), decoded once
+        tm = self.timed.get(pc)
+        if tm is None:
             i = self.cache.get(pc)
             if i is None:
                 i = self.cache[pc] = decode(mem, pc)
-            before = self.cyc
-            nxt = pc + i.size
-            op, a = i.op, i.a
-            taken = True
-            if op == "bcond":
-                taken = bool(self.cond(a[0]))
-                if taken:
-                    nxt = i.target
-            elif op == "b":
+            tm = self.timed[pc] = (i, cycles(i, True), cycles(i, False))
+        i = tm[0]
+        before = self.cyc
+        nxt = pc + i.size
+        op, a = i.op, i.a
+        taken = True
+        if op == "bcond":
+            taken = bool(self.cond(a[0]))
+            if taken:
                 nxt = i.target
-            elif op == "bl":
-                r[14] = (pc + 4) | 1
-                nxt = i.target
-            elif op == "bx" or op == "blx":
-                t = r[a[0]]
-                if op == "blx":
-                    r[14] = (pc + 2) | 1
-                nxt = t & ~1
-            elif op == "push":
-                regs = a[0]
-                sp = r[13] - 4 * len(regs)
-                for k, reg in enumerate(regs):
-                    self.wr32(sp + 4 * k, r[reg])
-                r[13] = sp
-            elif op == "pop":
-                sp = r[13]
-                for k, reg in enumerate(a[0]):
-                    val = self.rd32(sp + 4 * k)
-                    if reg == 15:
-                        nxt = val & ~1
-                    else:
-                        r[reg] = val
-                r[13] = sp + 4 * len(a[0])
+        elif op == "b":
+            nxt = i.target
+        elif op == "bl":
+            r[14] = (pc + 4) | 1
+            nxt = i.target
+        elif op == "bx" or op == "blx":
+            t = r[a[0]]
+            if op == "blx":
+                r[14] = (pc + 2) | 1
+            nxt = t & ~1
+        elif op == "push":
+            regs = a[0]
+            sp = r[13] - 4 * len(regs)
+            for k, reg in enumerate(regs):
+                self.wr32(sp + 4 * k, r[reg])
+            r[13] = sp
+        elif op == "pop":
+            sp = r[13]
+            for k, reg in enumerate(a[0]):
+                val = self.rd32(sp + 4 * k)
+                if reg == 15:
+                    nxt = val & ~1
+                else:
+                    r[reg] = val
+            r[13] = sp + 4 * len(a[0])
+        else:
+            h = FAST.get(op)
+            if h is not None:
+                h(self, a)
             else:
                 self.execute(i, pc)
                 if (op in ("addhi", "movhi")) and a[0] == 15:
                     nxt = r[15] & ~1
-            self.cyc += cycles(i, taken)
-            if self.on_insn:
-                self.on_insn(i, before, nxt)
-            if self.cyc > max_cycles:
-                raise Stop("cycle limit")
-            pc = nxt
-        return r[0]
+        self.cyc += tm[1] if taken else tm[2]
+        if on_insn:
+            on_insn(i, before, nxt)
+        if self.cyc > max_cycles:
+            raise Stop("cycle limit")
+        return nxt
 
     def execute(self, i, pc):
         r, op, a = self.r, i.op, i.a
@@ -723,3 +866,331 @@ class Machine:
             r[t] = sx(mem[ad], 8) & 0xFFFFFFFF
         else:
             raise Stop(f"unknown access {kind}")
+
+
+# --- the observations of a run, and the C core ---------------------------------------------
+
+class Watch:
+    """What run_cycles.py observes during a run: the cycles of the longest call of each
+    function (`observed`), the bytes of stack of its deepest activation (`sobserved`), and
+    the back edges of each loop against its bound (`worst_loop`, `viol`); `frames`: the
+    stack pointer at the entry of each activation in progress and the lowest one seen since
+    (the first is the run's). `entry`: {address: function}; `bodies`, `cbodies`: {header:
+    (body, bound, function)} (bounds of the schema, certified bounds)."""
+
+    def __init__(self, entry, bodies, cbodies, stack_top):
+        self.entry, self.bodies, self.cbodies = entry, bodies, cbodies
+        self.observed, self.sobserved, self.worst_loop = {}, {}, {}
+        self.viol = []
+        self.frames = [[stack_top, stack_top]]
+        self.stack, self.count, self.ccount = [], {}, {}
+
+    def bind(self, mach):
+        """The `on_insn` callback of `mach` that makes the observations (`step`)."""
+        return lambda i, before, nxt: self.step(mach, i, nxt)
+
+    def step(self, mach, i, nxt):
+        frames, stack = self.frames, self.stack
+        sp = mach.r[13]
+        if frames and sp < frames[-1][1]:
+            frames[-1][1] = sp
+        if i is not None and i.kind == "call":
+            stack.append((self.entry.get(i.target), mach.cyc, i.addr + 4))
+            frames.append([sp, sp])
+        elif stack and nxt == stack[-1][2] and (i is None or i.kind == "ret"):
+            fn, start, _ = stack.pop()
+            at_entry, low = frames.pop()
+            if frames and low < frames[-1][1]:
+                frames[-1][1] = low
+            if fn is not None:
+                self.observed[fn] = max(self.observed.get(fn, 0), mach.cyc - start)
+                self.sobserved[fn] = max(self.sobserved.get(fn, 0), at_entry - low)
+        if i is None:
+            return
+        for loops, count, what in ((self.bodies, self.count, "bound"),
+                                   (self.cbodies, self.ccount, "certified bound")):
+            if nxt in loops:
+                body, N, fn = loops[nxt]
+                if i.addr in body:
+                    count[nxt] = count.get(nxt, 0) + 1
+                    if count[nxt] > N:
+                        self.viol.append(f"loop {nxt:#x} of {fn}: {count[nxt]} back edges > {what} {N}")
+                    if loops is self.bodies:
+                        self.worst_loop[nxt] = max(self.worst_loop.get(nxt, 0), count[nxt])
+                else:
+                    count[nxt] = 0
+
+
+_CORE = []      # [the library or None], loaded once
+
+
+def core():
+    """The C core (`m0core.c`, built with the C compiler `$CC` or `cc` into `.build/` when
+    needed), or None. `CROSSCHECK_M0_CORE=python` disables it; `=c` requires it."""
+    if _CORE:
+        return _CORE[0]
+    import ctypes
+    import hashlib
+    import os
+    import pathlib
+    import subprocess
+    import tempfile
+    mode = os.environ.get("CROSSCHECK_M0_CORE", "auto")
+    lib = None
+    if mode != "python":
+        here = pathlib.Path(__file__).resolve().parent
+        src = here / "m0core.c"
+        try:
+            tag = hashlib.sha256(src.read_bytes()).hexdigest()[:12]
+            so = here / ".build" / f"m0core-{tag}.so"
+            if not so.exists():
+                so.parent.mkdir(exist_ok=True)
+                fd, tmp = tempfile.mkstemp(suffix=".so", dir=so.parent)
+                os.close(fd)
+                try:
+                    subprocess.run([os.environ.get("CC", "cc"), "-O2", "-shared", "-fPIC", str(src),
+                                    "-o", tmp], check=True, capture_output=True)
+                    os.replace(tmp, so)     # atomic: processes building it at once
+                finally:
+                    if os.path.exists(tmp):
+                        os.unlink(tmp)
+            lib = ctypes.CDLL(str(so))
+            _declare(lib)
+        except (OSError, subprocess.CalledProcessError):
+            if mode == "c":
+                raise
+            lib = None
+    _CORE.append(lib)
+    return lib
+
+
+def _declare(lib):
+    import ctypes as C
+    P = C.POINTER
+
+    class M0(C.Structure):
+        _fields_ = [("r", C.c_uint32 * 16), ("n", C.c_uint32), ("z", C.c_uint32), ("c", C.c_uint32),
+                    ("v", C.c_uint32), ("cyc", C.c_uint64), ("max_cycles", C.c_uint64),
+                    ("pc", C.c_uint32), ("mem", P(C.c_uint8)), ("mem_len", C.c_uint64),
+                    ("lo", C.c_uint32), ("hi", C.c_uint32),
+                    ("op", P(C.c_uint8)), ("kind", P(C.c_uint8)), ("size", P(C.c_uint8)),
+                    ("cond", P(C.c_uint8)), ("a0", P(C.c_int32)), ("a1", P(C.c_int32)),
+                    ("a2", P(C.c_int32)), ("target", P(C.c_uint32)), ("cyt", P(C.c_uint32)),
+                    ("cyn", P(C.c_uint32)), ("regs", P(C.c_uint16))]
+
+    class Mon(C.Structure):
+        _fields_ = [("fn_of", P(C.c_int32)), ("nfn", C.c_int32),
+                    ("obs", P(C.c_uint64)), ("obs_seen", P(C.c_uint8)),
+                    ("sobs", P(C.c_int64)), ("sobs_seen", P(C.c_uint8)),
+                    ("ncs", C.c_int64), ("ccap", C.c_int64),
+                    ("cs_fn", P(C.c_int32)), ("cs_start", P(C.c_uint64)), ("cs_ret", P(C.c_uint32)),
+                    ("nfr", C.c_int64), ("fcap", C.c_int64),
+                    ("fr_at", P(C.c_uint32)), ("fr_low", P(C.c_uint32)),
+                    ("hdr", P(C.c_int32) * 2), ("body_off", P(C.c_int64) * 2),
+                    ("body_addr", P(C.c_uint32) * 2), ("bound", P(C.c_int64) * 2),
+                    ("count", P(C.c_uint64) * 2), ("worst", P(C.c_uint64) * 2),
+                    ("worst_seen", P(C.c_uint8) * 2),
+                    ("nviol", C.c_int64), ("vcap", C.c_int64),
+                    ("viol_set", P(C.c_int32)), ("viol_loop", P(C.c_int32)),
+                    ("viol_count", P(C.c_uint64)), ("failed", C.c_int)]
+
+    lib.M0, lib.Mon = M0, Mon
+    lib.m0_run.argtypes = [P(M0), P(Mon)]
+    lib.m0_run.restype = C.c_int
+    lib.mon_step.argtypes = [P(M0), P(Mon), C.c_int, C.c_int, C.c_uint32, C.c_uint32, C.c_uint32]
+    lib.mon_step.restype = None
+    lib.mon_push_frame.argtypes = [P(Mon), C.c_uint32, C.c_uint32]
+    lib.mon_push_frame.restype = C.c_int
+    lib.mon_free.argtypes = [P(Mon)]
+    lib.mon_free.restype = None
+    names = C.c_char_p * 80
+    table = names.in_dll(lib, "m0_op_names")
+    lib.ops = {}
+    for k in range(80):
+        if table[k] is None:
+            break
+        lib.ops[table[k].decode()] = k
+
+
+_KIND = {"call": 1, "ret": 2}
+
+
+def _table(lib, mach, lo, hi):
+    """The decoded code of [lo, hi) as the arrays of `M0` (m0.decode, m0.cycles)."""
+    import ctypes as C
+    n = (hi - lo) // 2
+    op, kind, size, cnd = (C.c_uint8 * n)(), (C.c_uint8 * n)(), (C.c_uint8 * n)(), (C.c_uint8 * n)()
+    a0, a1, a2 = (C.c_int32 * n)(), (C.c_int32 * n)(), (C.c_int32 * n)()
+    target, cyt, cyn, regs = (C.c_uint32 * n)(), (C.c_uint32 * n)(), (C.c_uint32 * n)(), (C.c_uint16 * n)()
+    ops = lib.ops
+    mem = mach.mem
+    for x in range(n):
+        addr = lo + 2 * x
+        i = mach.cache.get(addr)
+        if i is None:
+            i = mach.cache[addr] = decode(mem, addr)
+        o = ops.get(i.op, 0)
+        a = i.a
+        if i.op in ("push", "pop"):
+            regs[x] = sum(1 << q for q in a[0])
+        elif i.op in ("stm", "ldm"):
+            a0[x], regs[x] = a[0], sum(1 << q for q in a[1])
+        elif i.op == "bcond":
+            cnd[x] = a[0]
+        else:
+            vals = list(a) + [0, 0, 0]
+            if not all(isinstance(v, int) and -2**31 <= v < 2**31 for v in vals[:3]):
+                o = 0
+            else:
+                a0[x], a1[x], a2[x] = vals[:3]
+        op[x], kind[x], size[x] = o, _KIND.get(i.kind, 0), i.size
+        target[x] = (i.target or 0) & 0xFFFFFFFF
+        cyt[x], cyn[x] = cycles(i, True), cycles(i, False)
+    return dict(op=op, kind=kind, size=size, cond=cnd, a0=a0, a1=a1, a2=a2, target=target,
+                cyt=cyt, cyn=cyn, regs=regs)
+
+
+def _monitor(lib, watch, lo, hi):
+    """The `Mon` of `watch` (its arrays kept in the returned list)."""
+    import ctypes as C
+    keep = []
+    n = (hi - lo) // 2
+    names = sorted(set(watch.entry.values()))
+    fid = {f: k for k, f in enumerate(names)}
+    fn_of = (C.c_int32 * n)(*([-1] * n))
+    for a, f in watch.entry.items():
+        if lo <= a < hi and not (a - lo) % 2:
+            fn_of[(a - lo) // 2] = fid[f]
+    nf = max(1, len(names))
+    w = lib.Mon()
+    P = C.POINTER
+    w.fn_of, w.nfn = C.cast(fn_of, P(C.c_int32)), len(names)
+    obs, obs_seen = (C.c_uint64 * nf)(), (C.c_uint8 * nf)()
+    sobs, sobs_seen = (C.c_int64 * nf)(), (C.c_uint8 * nf)()
+    w.obs, w.obs_seen = C.cast(obs, P(C.c_uint64)), C.cast(obs_seen, P(C.c_uint8))
+    w.sobs, w.sobs_seen = C.cast(sobs, P(C.c_int64)), C.cast(sobs_seen, P(C.c_uint8))
+    keep += [fn_of, obs, obs_seen, sobs, sobs_seen]
+    heads = []
+    for s, loops in enumerate((watch.bodies, watch.cbodies)):
+        hs = sorted(loops)
+        heads.append(hs)
+        hdr = (C.c_int32 * n)(*([-1] * n))
+        offs, addrs = [0], []
+        for k, h in enumerate(hs):
+            if not (lo <= h < hi) or (h - lo) % 2:
+                raise ValueError(f"loop header {h:#x} outside the code")
+            hdr[(h - lo) // 2] = k
+            body = sorted(set(loops[h][0]))
+            addrs += body
+            offs.append(len(addrs))
+        m = max(1, len(hs))
+        boff = (C.c_int64 * len(offs))(*offs)
+        baddr = (C.c_uint32 * max(1, len(addrs)))(*addrs)
+        bound = (C.c_int64 * m)(*[loops[h][1] for h in hs])
+        count, worst, wseen = (C.c_uint64 * m)(), (C.c_uint64 * m)(), (C.c_uint8 * m)()
+        w.hdr[s], w.body_off[s] = C.cast(hdr, P(C.c_int32)), C.cast(boff, P(C.c_int64))
+        w.body_addr[s], w.bound[s] = C.cast(baddr, P(C.c_uint32)), C.cast(bound, P(C.c_int64))
+        w.count[s], w.worst[s] = C.cast(count, P(C.c_uint64)), C.cast(worst, P(C.c_uint64))
+        w.worst_seen[s] = C.cast(wseen, P(C.c_uint8))
+        keep += [hdr, boff, baddr, bound, count, worst, wseen]
+    for at, low in watch.frames:
+        if not lib.mon_push_frame(C.byref(w), at, low):
+            raise MemoryError("m0core: frames")
+    return w, keep, names, heads
+
+
+def _run_core(mach, lib, pc, max_cycles, watch):
+    """`Machine.call` by the C core, with the observations of `watch`; the instructions the
+    core leaves to m0.py are executed by `Machine._step`."""
+    import ctypes as C
+    img = mach.img
+    lo = min([img.base] + [a for a, _ in img.funcs.values()]) & ~1
+    hi = max([img.ro_top] + [a + s for a, s in img.funcs.values()])
+    hi += hi & 1
+    if any(not (lo <= h < hi) for h in list(watch.bodies) + list(watch.cbodies)):
+        raise ValueError("loop header outside the code")
+    t = getattr(mach, "_core_table", None)
+    if t is None or t[0] != (lo, hi):
+        t = mach._core_table = ((lo, hi), _table(lib, mach, lo, hi))
+    tab = t[1]
+    st = lib.M0()
+    for k in range(16):
+        st.r[k] = mach.r[k] & 0xFFFFFFFF
+    st.n, st.z, st.c, st.v = mach.n, mach.z, mach.c, mach.v
+    st.cyc, st.max_cycles, st.pc = mach.cyc, max_cycles, pc
+    buf = (C.c_uint8 * len(mach.mem)).from_buffer(mach.mem)
+    st.mem, st.mem_len = C.cast(buf, C.POINTER(C.c_uint8)), len(mach.mem)
+    st.lo, st.hi = lo, hi
+    ftype = dict(lib.M0._fields_)
+    for f, arr in tab.items():
+        setattr(st, f, C.cast(arr, ftype[f]))
+    w, keep, names, heads = _monitor(lib, watch, lo, hi)
+    pst, pw = C.byref(st), C.byref(w)
+
+    def to_py():
+        mach.r[:] = list(st.r)
+        mach.n, mach.z, mach.c, mach.v, mach.cyc = st.n, st.z, st.c, st.v, st.cyc
+
+    def to_c():
+        for k in range(16):
+            st.r[k] = mach.r[k] & 0xFFFFFFFF
+        st.n, st.z, st.c, st.v, st.cyc = int(mach.n), int(mach.z), int(mach.c), int(mach.v), mach.cyc
+
+    def observe(i, _before, nxt):
+        to_c()
+        if i is None:
+            lib.mon_step(pst, pw, 0, 0, 0, 0, nxt & 0xFFFFFFFF)
+        else:
+            lib.mon_step(pst, pw, 1, _KIND.get(i.kind, 0), i.addr, (i.target or 0) & 0xFFFFFFFF,
+                         nxt & 0xFFFFFFFF)
+        if w.failed:
+            raise MemoryError("m0core: observations")
+
+    try:
+        while True:
+            status = lib.m0_run(pst, pw)
+            if w.failed:
+                raise MemoryError("m0core: observations")
+            if status == 0:         # HALT
+                to_py()
+                break
+            if status == 2:         # cycle limit, after the instruction (as `_step`)
+                to_py()
+                raise Stop("cycle limit")
+            # an instruction left to m0.py
+            to_py()
+            mach.on_insn = observe
+            try:
+                nxt = mach._step(st.pc, max_cycles)
+            finally:
+                mach.on_insn = None
+            to_c()
+            st.pc = nxt & 0xFFFFFFFF
+            if st.pc == Machine.HALT:
+                break
+        return mach.r[0]
+    finally:
+        _collect(watch, w, names, heads)
+        lib.mon_free(pw)
+        del pst
+        st.mem = None
+        del buf
+
+
+def _collect(watch, w, names, heads):
+    """The observations of the core into `watch`."""
+    for k, f in enumerate(names):
+        if w.obs_seen[k]:
+            watch.observed[f] = max(watch.observed.get(f, 0), w.obs[k])
+        if w.sobs_seen[k]:
+            watch.sobserved[f] = max(watch.sobserved.get(f, 0), w.sobs[k])
+    for k, h in enumerate(heads[0]):
+        if w.worst_seen[0][k]:
+            watch.worst_loop[h] = max(watch.worst_loop.get(h, 0), w.worst[0][k])
+    for j in range(w.nviol):
+        s, k, c = w.viol_set[j], w.viol_loop[j], w.viol_count[j]
+        h = heads[s][k]
+        _body, N, fn = (watch.bodies, watch.cbodies)[s][h]
+        what = "bound" if s == 0 else "certified bound"
+        watch.viol.append(f"loop {h:#x} of {fn}: {c} back edges > {what} {N}")
+    watch.frames = [[w.fr_at[k], w.fr_low[k]] for k in range(w.nfr)]

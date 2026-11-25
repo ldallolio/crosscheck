@@ -83,3 +83,6 @@ references/
 benchmarks/cycles/.work/
 paper/arxiv/
 .vscode/
+
+# the C core of the Cortex-M0 interpreter, built by m0.py
+benchmarks/cycles/.build/

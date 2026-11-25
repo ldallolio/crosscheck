@@ -38,6 +38,16 @@ counting possible without a micro-architectural model.
   cycles with the same table, and the kernels check their own results.
 - `test_m0.py` compares the cycle table row by row with the manual (87 rows), and the
   interpreter with the C semantics.
+- `m0core.c`: the same interpreter in C, for long runs (`mpeg2` executes about 200 million
+  instructions: about ten minutes in Python, a second or two in C). It is not a second
+  definition of the instructions: `m0.py` still decodes the code, and any instruction the C
+  core does not handle exactly as `m0.py` does goes back to `m0.py`. `test_m0core.py` runs
+  every 16-bit encoding through both and compares.
+- `run_qemu.py`: an outside check of the interpreter. The same memory image runs on QEMU
+  (a Cortex-M3 board, which executes these instructions in the same way) and on `m0.py`;
+  the result and the number of times each instruction address runs must be equal. They are,
+  on the 50 programs QEMU can run. This checks what the instructions do, not how many cycles
+  they take: QEMU does not model the timing.
 
 ## 5.3 First step: cycles by the timing schema (`wcet.py`)
 
@@ -528,7 +538,7 @@ altered certificates are refused.
 |---|---|
 | The analysis of the binary, the graph, the computation of the bound | **checked** (Lean) |
 | The loop bounds (rows) of certified loops | **checked** (Lean), on the data semantics |
-| The decoder, cycle table, effects, flags, conditions, stack effects | trusted specification; compared with our interpreter, not with hardware |
+| The decoder, cycle table, effects, flags, conditions, stack effects | trusted specification; compared with our interpreter (itself compared with QEMU, without timing), not with hardware |
 | That the code in the certificate is the binary's | trusted (a copy of the bytes) |
 | `abi`, `frame` when used | stated assumptions |
 | Rows of loops not certified on the code | trusted (from the source, through debug lines) |

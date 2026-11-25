@@ -37,10 +37,42 @@ class NoCertificate(Exception):
     pass
 
 
+def memo_highs_options():
+    """scipy's `linprog(method="highs")` validates each option of every call with a new
+    `HighsOptionsManager` (a large share of the time of the small programs solved here);
+    the answer depends only on the option and its value, so a successful check is
+    remembered. What HiGHS receives is unchanged. Idempotent; does nothing if scipy's
+    internals differ."""
+    try:
+        from scipy.optimize._highspy import _highs_wrapper as hw
+    except ImportError:
+        return
+    orig = getattr(hw, "check_option", None)
+    if orig is None or getattr(orig, "memo", None) is not None:
+        return
+    memo = {}
+
+    def check_option(inst, option, value):
+        try:
+            key = (option, type(value), value)
+            hit = memo.get(key)
+        except TypeError:   # an unhashable value: not remembered
+            return orig(inst, option, value)
+        if hit is None:
+            hit = orig(inst, option, value)
+            if hit[0] == 0:
+                memo[key] = hit
+        return hit
+
+    check_option.memo = memo
+    hw.check_option = check_option
+
+
 def lp_multipliers(nodes, edges, rows, entry, exit_, weights):
     """Multipliers of the rows from the IPET linear program (floats; None if unbounded)."""
     import numpy as np
     from scipy.optimize import linprog
+    memo_highs_options()
     n, m = len(nodes), len(edges)
     idx = {v: k for k, v in enumerate(nodes)}
     A_eq = np.zeros((n, m))
@@ -223,19 +255,80 @@ def code_top(img):
     return min(top + (top % 2), len(img.mem) - (len(img.mem) % 2))
 
 
-def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False):
+_LOOP_AN = None  # the analysis inherited by the workers of `loop_certificates`
+
+
+def _loop_job(name, abi, frame):
+    import time
+    import binloops
+    before = set(binloops._RUNTIME_EMPTY)
+    t0 = time.process_time()
+    try:
+        res = ("ok", binloops.certify_loops(_LOOP_AN, name, abi, frame=frame))
+    except Exception as e:  # noqa: BLE001  re-raised by the caller, as in a serial run
+        res = ("raise", e)
+    new = {k: v for k, v in binloops._RUNTIME_EMPTY.items() if k not in before}
+    return name, res + (time.process_time() - t0, dict(binloops.METER)), new
+
+
+def loop_certificates(an, names, abi, frame, jobs):
+    """`binloops.certify_loops` of every function of `names`, computed by `jobs` forked
+    processes. Each result depends only on the function and `an` (the budgets are counted in
+    work units per function, `binloops.FUNC_WORK`, `LP_WORK`), so the certificate is the one
+    of a serial run. An exception is returned, to be raised where the serial run would
+    raise it."""
+    import binloops
+    import concurrent.futures
+    import multiprocessing
+    global _LOOP_AN
+    _LOOP_AN = an
+    out = {}
+    try:
+        ctx = multiprocessing.get_context("fork")
+        with concurrent.futures.ProcessPoolExecutor(jobs, mp_context=ctx) as pool:
+            futs = [pool.submit(_loop_job, n, abi, frame) for n in names]
+            for f in concurrent.futures.as_completed(futs):
+                name, res, new = f.result()
+                out[name] = res
+                binloops._RUNTIME_EMPTY.update(new)
+    finally:
+        _LOOP_AN = None
+    return out
+
+
+def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False, jobs=1):
     """A certificate on the machine code for the functions reachable from `roots` (callees
     first); returns (JSON, {function: bound}, {function: reason}). With `loops`, the loop
     bounds are also certified on the machine code where `binloops.py` finds a certificate
     (format version 2; `abi`: callees assumed to preserve r4-r7 and SP; `frame`: for the
     functions that take no address of their frame, stores through other registers and calls
     assumed not to write it); `stats` (a dict) then
-    receives per function the certified loops and the reasons for the others."""
+    receives per function the certified loops, the reasons for the others and the CPU
+    seconds of their analysis. `jobs` > 1:
+    the loop certificates of the functions are computed in parallel (`loop_certificates`)."""
     img = an.img
     base = getattr(img, "base", 0)
     addr_of = {n: a for n, (a, _) in img.funcs.items()}
     names = {a: n for n, a in addr_of.items()}
     funcs, bounds, why, active = [], {}, {}, set()
+    pre = {}
+    if loops and jobs > 1:
+        # the functions whose loops a serial run certifies: those reached from `roots`
+        # whose graph is built
+        seen, todo, names_ok = set(roots), list(roots), []
+        while todo:
+            n = todo.pop()
+            try:
+                _e, blocks, _ = an.cfg(n)
+            except wcet.Unbounded:
+                continue
+            names_ok.append(n)
+            for il in blocks.values():
+                for i in il:
+                    if i.kind == "call" and i.target in names and names[i.target] not in seen:
+                        seen.add(names[i.target])
+                        todo.append(names[i.target])
+        pre = loop_certificates(an, names_ok, abi, frame, jobs)
 
     def visit(name):
         if name in bounds or name in why:
@@ -253,13 +346,23 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
             fields, cl = {}, ()
             if loops:
                 import binloops
-                fields, info, lwhy = binloops.certify_loops(an, name, abi, frame=frame)
+                if name in pre:
+                    kind, res, secs, meter = pre.pop(name)
+                    if kind == "raise":
+                        raise res
+                    fields, info, lwhy = res
+                else:
+                    import time
+                    t0 = time.process_time()
+                    fields, info, lwhy = binloops.certify_loops(an, name, abi, frame=frame)
+                    secs = time.process_time() - t0
+                    meter = dict(binloops.METER)
                 if fields.get("unproved_jumps"):
                     raise NoCertificate("the invariants of the certificate do not bound the index of the "
                                         f"jump at {min(fields['unproved_jumps']):#x}")
                 cl = [(l["header"], l["body"], l["scale"], l["bound"]) for l in fields.get("loops", [])]
                 if stats is not None:
-                    stats[name] = dict(certified=info, other=lwhy)
+                    stats[name] = dict(certified=info, other=lwhy, seconds=secs, meter=meter)
             fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base, cl)
             fn.update(fields)
             funcs.append(fn)

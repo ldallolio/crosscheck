@@ -75,6 +75,9 @@ def line_table(objdump, obj, src_name, base=0):
     return table
 
 
+_ABSENT = object()      # no record of the function in `Analysis.loops`
+
+
 class Unbounded(Exception):
     pass
 
@@ -316,7 +319,30 @@ class Analysis:
     def loop_structure(self, name, entry, blocks, succ):
         """Natural loops of a reducible graph, matched with source loops: (pred, back edges,
         loop bodies by header, headers innermost first, parent loop, bound by header).
-        Records `self.loops[name]`; raises Unbounded if a loop has no bound."""
+        Records `self.loops[name]`; raises Unbounded if a loop has no bound. Remembered per
+        function for the same graph (its blocks, their instructions' addresses and its
+        edges; `cfg` builds a new graph at each call): the same result, exception and record
+        of `self.loops[name]` (the callers only read the result)."""
+        key = (entry, tuple((b, tuple(i.addr for i in il)) for b, il in blocks.items()),
+               tuple((b, tuple(x)) for b, x in succ.items()))
+        memo = self.__dict__.setdefault("_ls_memo", {})
+        hit = memo.get(name)
+        if hit is None or hit[0] != key:
+            before = self.loops.get(name, _ABSENT)
+            try:
+                res, err = self._loop_structure(name, entry, blocks, succ), None
+            except Unbounded as e:
+                res, err = None, e
+            rec = self.loops.get(name, _ABSENT)
+            hit = memo[name] = (key, res, err, None if rec is before else list(rec))
+        _key, res, err, rec = hit
+        if rec is not None:
+            self.loops[name] = list(rec)
+        if err is not None:
+            raise Unbounded(str(err))
+        return res
+
+    def _loop_structure(self, name, entry, blocks, succ):
         nodes = list(blocks)
         pred = {b: [] for b in nodes}
         for b in nodes:
@@ -337,7 +363,8 @@ class Analysis:
                     dom[b], changed = new, True
         back = [(u, h) for u in nodes for h in succ[u] if h in dom[u]]
         # reducible: the graph without back edges is acyclic
-        fwd = {b: [s for s in succ[b] if (b, s) not in back] for b in nodes}
+        back_set = set(back)
+        fwd = {b: [s for s in succ[b] if (b, s) not in back_set] for b in nodes}
         if not acyclic(entry, fwd):
             raise Unbounded("irreducible control flow")
         loops = {}
