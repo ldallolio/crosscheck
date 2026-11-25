@@ -405,7 +405,7 @@ commented out at the pinned revision. `cjpeg_transupp` reads
 `cjpeg_transupp_input5_2[65..71]` of an array of 65 (its "lower right corner" loop runs with
 `i == 8`), so its expected checksum holds for x86's layout of the globals only: on the
 Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the changes of
-"Analysis time" and "Deterministic limits") all 25 programs finish: 1,338 s for the 25 on a
+"Analysis time" and "Deterministic limits") all 25 programs finish: 1,293 s for the 25 on a
 40-core machine (`--jobs 10 --func-jobs 4`), `mpeg2` 692 s and `susan` 634 s alone
 (`--func-jobs 8`); before, `ammunition` did not finish within an hour, and `mpeg2` and
 `susan` took 2,981 s and 3,560 s on the author's machine, one program at a time.
@@ -414,10 +414,10 @@ Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the cha
 |---|---:|---:|---:|---:|:-:|
 | adpcm_dec | 17 | 13 | 23 of 28 | 17 | no |
 | adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
-| ammunition | 74 | 44 | 635 of 1,135 | 57 | no |
+| ammunition | 74 | 44 | 638 of 1,135 | 57 | no |
 | anagram | 26 | 13 | 29 of 51 | 20 | no |
 | audiobeam | 36 | 28 | 20 of 43 | 36 | no |
-| cjpeg_transupp | 11 | 4 | 57 of 87 | 11 | no |
+| cjpeg_transupp | 11 | 4 | 63 of 87 | 11 | no |
 | cjpeg_wrbmp | 8 | 3 | 16 of 17 | 5 | no |
 | dijkstra | 8 | 4 | 12 of 16 | 8 | no |
 | epic | 9 | 1 | 15 of 67 | 9 | no |
@@ -425,31 +425,29 @@ Cortex-M0 it returns 1 (`EXPECTED_FAILURE`, as `fft`). Since 2026-11-25 (the cha
 | g723_enc | 18 | 16 | 26 of 32 | 18 | no |
 | gsm_dec | 24 | 17 | 27 of 48 | 24 | no |
 | gsm_enc | 36 | 28 | 57 of 79 | 36 | no |
-| h264_dec | 5 | 2 | 13 of 17 | 5 | no |
+| h264_dec | 5 | 2 | 15 of 17 | 5 | no |
 | huff_dec | 11 | 7 | 14 of 32 | 11 | no |
-| huff_enc | 18 | 9 | 14 of 38 | 12 | no |
+| huff_enc | 18 | 9 | 15 of 38 | 12 | no |
 | lift | 16 | 16 | 20 of 20 | 16 | yes |
-| mpeg2 | 17 | 8 | 40 of 62 | 12 | no |
+| mpeg2 | 17 | 8 | 41 of 62 | 12 | no |
 | ndes | 8 | 4 | 12 of 20 | 4 | no |
 | petrinet | 4 | 2 | 10 of 10 | 2 | no |
-| powerwindow | 51 | 49 | 70 of 78 | 51 | no |
+| powerwindow | 51 | 49 | 77 of 78 | 51 | no |
 | rijndael_dec | 13 | 8 | 11 of 18 | 9 | no |
 | rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
 | susan | 41 | 20 | 38 of 83 | 31 | no |
-| **25 programs** | **513** | **344** | **1,227 of 2,070** | **452** | **2** |
+| **25 programs** | **513** | **344** | **1,247 of 2,070** | **452** | **2** |
 
 Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
 in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
-and which receives no cycle bound. 29 of the linear
-programs of 15 functions (in `anagram`, `cjpeg_transupp`, `epic`, `gsm_dec`, `h264_dec`,
+and which receives no cycle bound. 32 of the linear
+programs of 14 functions (in `anagram`, `cjpeg_transupp`, `epic`, `gsm_dec`, `h264_dec`,
 `huff_enc`, `mpeg2`, `susan`) are stopped after 60 CPU seconds ("Deterministic limits");
-three runs, one on an overloaded machine, gave the same 25 certificates. No certificate is rejected and no
+a second run stopped 31 and gave the same 25 certificates, byte for byte. No certificate is rejected and no
 emulated run exceeds a cycle or stack bound. `lift` (`main`: 1,157,990 cycles certified,
-883,716 observed) and `statemate` are bounded entirely. In the others, `main` stays
-unbounded because some function on its call paths has a loop bounded neither by the source
-analysis nor on the machine code, a call of a routine without code (`__aeabi_memcpy4`, for
-struct copies, in `ndes` and `cjpeg_wrbmp`) or a recursion (`huff_enc`).
+883,716 observed) and `statemate` are bounded entirely. What keeps `main` uncertified in the
+others is listed by the run ("What keeps `main` uncertified", below).
 
 **Jumps through tables.** A `switch` compiled to a table (`cmp rI, #n; bhi default;` ...
 `add pc, rm` or `mov pc, rm`) was an indirect jump, refused. `jumptable.py` now finds the
@@ -689,6 +687,62 @@ still depends somewhat on the load (two hardware threads share a core), much les
 wall-clock time. `ludcmp` gives the same certificate, with its stopped solve, on the
 laptop and on the 40-core machine.
 
+### Creeping widening: only the growing variables are forgotten (2026-11-25)
+
+When the closure keeps tightening a widened zone again, the analysis of a loop head creeps
+up and is stopped after `HARD_VISITS` = 200 widenings by `forget_growing`. It dropped the
+whole row and column of every growing entry; when a pointer grows, its entry on the row of
+the zero node grows too, so the upper bound of every variable was dropped, including that
+of a counter whose range was stable. In `powerwindow_main`, 13 byte-copy loops
+(`ldr r2, =977; ...; subs r2, #1; bne`) follow one another: the first was certified, the
+seven whose heads the analysis visited more than 200 times while the copy pointers crept
+up were not (`r2` in `[0, 2^32 - 1]` at their heads instead of `[1, 977]`). Now the
+variables that cover the growing entries are chosen one at a time, the one in the most
+growing entries first (never the zero node), and all their constraints are dropped; the
+others keep theirs. The result is still closed, and each call that changes anything drops
+a finite entry of the previous zone, so the iteration still stops (`test_binloops.py
+ForgetGrowing`).
+
+Run on the 8 configurations of the figures, `compare_runs.py --check` against the
+committed runs: the 7 kernel configurations unchanged (143, 200, 260, 261, 146, 204, 261
+loops); the larger programs 1,227 → 1,247 loops, no loop lost, one bound lower (a loop of
+`h264_dec_decode_one_macroblock`, 2^32 − 1 → 1): `powerwindow` 7, `cjpeg_transupp` 6,
+`ammunition` 3, `h264_dec` 2, `huff_enc` 1, `mpeg2` 1. The certified functions (344) and
+entry functions (2) are the same.
+
+### What keeps `main` uncertified (2026-11-25)
+
+`run_cycles.py` records, for each program whose `main` has no certified cycle bound, the
+functions reachable from it by calls that have no certificate for a reason of their own
+(not only because a callee has none), with that reason (`main_blockers` in the JSON,
+printed as `main blocked by ...`; a call of a routine without code, or of an address that
+starts no function, under its name or address). For the 23 larger programs without a
+certified `main` (run above): in 22, some function has a loop bounded neither by the
+source analysis nor on the code (one such function in 9 programs, up to 11 in `ammunition`
+and 10 in `susan`; the first such loop of each function is reported); besides, routines without code (`__aeabi_ldivmod` and `__aeabi_uldivmod`
+in `ammunition`, `__aeabi_memcpy4` in `cjpeg_wrbmp` and `ndes`, `fabs` in `susan`),
+irreducible control flow (`mpeg2_field_ME`, `susan_get_image`), a jump out of the function
+(`mpeg2_frame_ME`), a linear program that HiGHS reports unbounded (`mpeg2_dist1`), and in
+`petrinet_main`, its only obstacle, a `bl` to an address inside the function itself. LLVM uses `bl` as a long
+branch in Thumb-1 functions beyond the reach of `b` (2 KB): the 25 programs have 15 such
+branches (`petrinet_main` 6, `mpeg2_field_ME` 7, `rijndael_dec_decrypt` and
+`rijndael_enc_encrypt` 1 each). The checker's `decode` treats every `bl` as a call that
+returns to the next instruction, so these functions are refused.
+
+The `__aeabi_memcpy4` calls of `ndes` copy local arrays from constant tables, 65 to 2,304
+bytes: the length is a constant at every call, but the loop of a `memcpy` is bounded by
+its argument, which needs bounds that depend on the call. Of the 7 programs blocked by one
+function, the loops left (read on the code, or as grouped by `classify_loops.py`):
+`powerwindow_main`, its outer loop `while (powerwindow_main_inputcyclecounter <
+powerwindow_input_length)` on a global counter that `powerwindow_init` sets to 0 before
+the call (the source analysis gives calling contexts for arguments only); `adpcm_dec`'s
+`main` and `adpcm_enc_init`, series that end when an integer division returns 0;
+`dijkstra_find`, two loops over data in memory and a counter whose initial value is loaded
+from the literal pool; `h264_dec_decode_one_macroblock`, a counter
+stepped by 7 up to 28 with an exit on equality (a congruence modulo 7; the checker's are
+modulo powers of two) and a shifted counter; `gsm_dec_RPE_Decoding`, counters through
+`SXTH`; `g723_enc_main`, a counter whose initial value is loaded from the literal pool.
+
 ## OTAWA on the same binaries
 
 `run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)
@@ -901,6 +955,9 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-25, creeping widening.** `forget_growing` drops the constraints of the growing
+  variables only ("Creeping widening"): larger programs 1,227 → 1,247 certified loops; kernel
+  figures unchanged.
 - **2026-11-25, time limit in CPU seconds.** HiGHS called directly (`highs_lp`), stopped
   after 60 CPU seconds by its callbacks instead of 60 s of wall-clock time; a stopped solve
   is charged its iteration limit ("The time limit of a linear program, in CPU seconds");

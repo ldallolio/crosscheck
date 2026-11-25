@@ -517,6 +517,31 @@ class LinearPrograms(unittest.TestCase):
         binloops._meter_reset()
 
 
+class ForgetGrowing(unittest.TestCase):
+    """`forget_growing` (after HARD_VISITS widenings of a head): only the variables that
+    cover the growing entries lose their constraints; the bounds of a stable counter stay
+    (until 2026-11-25 a growing entry on the zero node's row dropped every upper bound, and
+    7 copy loops of `powerwindow_main` were left uncertified)."""
+
+    def test_pointer_forgotten_counter_kept(self):
+        Zd = binloops.Zones(0)
+        old = Zd.top()
+        Z = Zd.Z
+        # r2 in [1, 977]; r0 in [0, 1000], r0 - r2 <= 1000
+        old[2][Z], old[Z][2] = 977, -1
+        old[0][Z], old[0][2] = 1000, 1000
+        old = Zd.close(old)
+        new = [row[:] for row in old]
+        new[0][Z] += 1          # the pointer creeps up
+        new[0][2] += 1
+        out = binloops.forget_growing(old, new)
+        self.assertEqual(Zd.lohi(out, 2), (1, 977))
+        self.assertEqual(out[0][Z], binloops.INF)
+        self.assertEqual(out[0][2], binloops.INF)
+        self.assertEqual(Zd.close([row[:] for row in out]), out)    # still closed
+        self.assertTrue(all(out[i][j] >= old[i][j] for i in range(Zd.n) for j in range(Zd.n)))
+
+
 class Checker(unittest.TestCase):
     def setUp(self):
         if not pathlib.Path(CHECKER).exists():

@@ -17,6 +17,7 @@ whose row then stays trusted). The definitions mirrored from Lean (`effect`,
 `condFacts`, `postE`, the obligations and their order) must stay identical to
 `ThumbDataCore.lean`: the checker recomputes the obligations and compares.
 """
+import collections
 import itertools
 import math
 import operator
@@ -1317,22 +1318,34 @@ def widen(old, new, thresholds):
 
 
 def forget_growing(old, new):
-    """`new` (closed, above `old`) with, for every entry above `old`, the upper bounds of
-    its first variable (row) and the lower bounds of its second (column) dropped: still
-    closed, and each call that changes anything drops a finite entry of `old`, so
-    widening followed by closure, which may creep up forever (a closure tightens the
-    widened entries again), stops."""
+    """`new` (closed, above `old`; its last index the zero node) with every constraint on
+    a set of variables that covers the entries above `old` dropped, the variables chosen
+    one at a time, the one in the most uncovered entries first (never the zero node): a
+    pointer that creeps up keeps no relation, while a counter whose range is stable keeps
+    its bounds. Still closed (constraints of a closed zone without those of some
+    variables), and each call that changes anything drops a finite entry of `old` (every
+    growing entry is finite in `old`), so widening followed by closure, which may creep up
+    forever (a closure tightens the widened entries again), stops. (Until 2026-11-25 the
+    whole row and column of every growing entry were dropped: with a growing entry on the
+    zero node's row or column, the bounds of every variable.)"""
     n = len(new)
+    Z = n - 1
     grow = [(i, j) for i in range(n) for j in range(n) if new[i][j] > old[i][j]]
     if not grow:
         return new
+    drop = set()
+    while True:
+        left = [(i, j) for i, j in grow if i not in drop and j not in drop]
+        if not left:
+            break
+        count = collections.Counter(v for e in left for v in e if v != Z)
+        drop.add(max(count, key=lambda v: (count[v], -v)))
     out = copy(new)
-    for i, j in grow:
+    for v in drop:
         for k in range(n):
-            if k != i:
-                out[i][k] = INF
-            if k != j:
-                out[k][j] = INF
+            if k != v:
+                out[v][k] = INF
+                out[k][v] = INF
     return out
 
 

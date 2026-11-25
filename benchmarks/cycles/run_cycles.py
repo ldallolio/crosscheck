@@ -169,6 +169,43 @@ def loop_ends(functions, offset=0, ends=None):
     return ends
 
 
+def main_blockers(an, certified, why, root="main"):
+    """What keeps `root` without a certified cycle bound: the functions reachable from it by
+    calls that have no certificate for a reason of their own (a loop without a bound, an
+    indirect jump, a recursion, ...), not only because a callee has none, with that reason;
+    a call of a routine without code is listed under its name. {} if `root` is certified."""
+    if root not in an.img.funcs or root in certified:
+        return {}
+    addr = {a: n for n, (a, _) in an.img.funcs.items()}
+    out, seen, todo = {}, {root}, [root]
+    while todo:
+        n = todo.pop()
+        callees = []
+        try:
+            _e, blocks, _ = an.cfg(n)
+            for il in blocks.values():
+                for i in il:
+                    if i.kind == "call" and i.target is not None:
+                        callees.append(i.target)
+        except wcet.Unbounded:
+            pass
+        for t in callees:
+            if t in an.img.undefined:
+                out.setdefault(f"{an.img.undefined[t]} (no code)", "called, no code in the binary")
+            elif t not in addr:
+                out.setdefault(f"{t:#x} (called from {n})", "call to an address that starts no function")
+            elif addr[t] not in certified:
+                if addr[t] not in seen:
+                    seen.add(addr[t])
+                    todo.append(addr[t])
+        w = why.get(n, "?")
+        callee_only = w.startswith("call to ") and ("which has no certificate" in w or
+                                                    "which is not bounded" in w or "(no code)" in w)
+        if not callee_only:
+            out[n] = w
+    return out
+
+
 def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker=None, loops=False, abi=False,
             frame=False, cflags=(), tag="", gcc=None, rtlib=None, func_jobs=1):
     import subprocess
@@ -314,6 +351,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
                     certificate_checker_output=cert_info["checker_output"],
                     not_certified={n: cert_info["why"].get(n, "?") for n in own
                                    if own[n] is not None and n not in certified},
+                    # what keeps `main` uncertified (functions with a reason of their own)
+                    main_blockers=main_blockers(an, certified, cert_info["why"]),
                     certified_compared=sum(1 for fn in compared if certified.get(fn) is not None),
                     loops_certified=sum(len(v["certified"]) for v in (cert_info.get("loops") or {}).values()),
                     loops_not_certified=sum(len(v["other"]) for v in (cert_info.get("loops") or {}).values()),
@@ -434,6 +473,8 @@ def main():
                   + (f", loops certified on the code: {r['loops_certified']} of "
                      f"{r['loops_certified'] + r['loops_not_certified']}" if a.certify_loops else ""),
                   file=sys.stderr)
+            for n, w in sorted(r.get("main_blockers", {}).items()):
+                print(f"{'':16s} main blocked by {n}: {w}", file=sys.stderr)
         if r.get("lp_safety"):
             import binloops
             print(f"{'':16s} note: {sum(r['lp_safety'].values())} linear programs stopped after "

@@ -2521,6 +2521,36 @@ never reached, the slowest successful solve takes 5.7 CPU s in the kernels and 1
 larger programs; `ludcmp` gives the same certificate on the laptop and the 40-core machine.
 Paper III (the limit), cycles README, CLAUDE.md, `test_binloops.py` (`LinearPrograms`).
 
+149. "Please tell me what we should do to make the benchmark scores improve even further and make crosscheck industrial grade"
+
+What the AI did for 149 (Claude Opus 5.5, 2026-11-25): a plan, from the figures of the READMEs:
+certify the entry functions of the larger programs (list what blocks each `main`), bounds on
+the machine code that depend on the calls (preconditions on the arguments, proved at the
+calls), logarithmic potentials and congruences on the code, amortised nests in the cycle
+certificates, runs on a board, other processors, generated code, qualification evidence,
+speed and packaging.
+
+150. "I activated the vpn so you can also connect to the smicro. Let's proceed with your order but I would like to keep the speed and packaging under control, since it affects you ability to run tests and get results quickly. I want to redistribute crosscheck in the main repositories (deb, rpm, conda forge, choco, brew, conda forge, docker, snap, flatpack and so on) in the future and maybe propose it for integration in some open source compilers so it should have less dependencies and more compiled code."
+
+What the AI did for 150 (Claude Opus 5.5, 2026-11-25), first part: `run_cycles.py` lists what
+keeps `main` uncertified (`main_blockers`: the functions reached by calls that have no
+certificate for a reason of their own). On the larger programs, 7 programs are blocked by one
+function; in `powerwindow_main` 7 of 13 identical byte-copy loops were not certified: their heads
+were visited more than 200 times while the copy pointers crept up, and `forget_growing` then
+dropped the whole row and column of every growing entry, with an entry on the zero node's row
+the bound of every variable, the stable counter's included. `forget_growing` now drops every
+constraint of a set of variables that covers the growing entries (most frequent first, never
+the zero node): still closed, and the iteration still stops (each call drops a finite entry of
+the previous zone); test `ForgetGrowing`. Checks: the 7 kernel configurations unchanged; the
+larger programs 1,227 -> 1,247 certified loops, none lost, one bound lower, certificates
+accepted; a second run gave byte-identical certificates. Read on the code, what blocks the 7
+programs (a global counter set by another function, series ending on a division, data in
+memory, a counter stepped by 7 to an equality, `SXTH`), a `bl` used as a long branch inside
+`petrinet_main` (15 such branches in 4 programs, refused by the checker's decoder), and the
+`memcpy` calls of `ndes` (constant lengths, so bounds that depend on the call are needed).
+`classify_loops.py` sets the assumptions of the run for jumps bounded by the loop analysis.
+Paper III (larger programs), cycles README, CLAUDE.md.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

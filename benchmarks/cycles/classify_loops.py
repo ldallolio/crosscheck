@@ -151,6 +151,7 @@ def main():
     cat = collections.Counter(); ex = collections.defaultdict(list); reasons = collections.Counter()
     for k in d["kernels"]:
         img = m0.load(str(W / f"{k['kernel']}.m0.o")); an = wcet.Analysis(img, {}, {None: 5})
+        an.jt_opts = (True, True)   # jumps bounded by the loop analysis, as in the run (--abi --frame)
         for fn, v in k.get("loops_detail", {}).items():
             if fn.startswith("__aeabi") or not v["other"]: continue
             ctx = B.Ctx(an, fn, True, True); P = preds(ctx); kind = B.kinds_of(ctx); ctx.cong = B.congruences(ctx); st = B.analyse(ctx, kind)
