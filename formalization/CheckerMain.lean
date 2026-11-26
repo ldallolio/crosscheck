@@ -541,7 +541,11 @@ def parseJT (j : Json) : Except String ImperativeOptimization.Thumb.JT := do
       | [d, lo, hi] => pure (some (d, lo, hi))
       | _ => throw "bound: [register, lower bound, upper bound]"
     | .error _ => pure none
-  pure ⟨← getNat j "start", ← getNat j "pos", ← natList (← field j "targets") "targets", ix, vr⟩
+  -- `"far": true`: the `BL` at `pos` is a branch inside the function, not a call
+  let far := match j.getObjValAs? Bool "far" with
+    | .ok b => b
+    | .error _ => false
+  pure ⟨← getNat j "start", ← getNat j "pos", ← natList (← field j "targets") "targets", ix, vr, far⟩
 
 /-- A function: entry, instruction addresses, trusted rows, certificate (potentials per
     address in the order of `nodes`, then the exit), and its loop certificate (empty if
@@ -631,7 +635,10 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
         IO.println s!"{if okD then "ACCEPTED" else "REJECTED"} {name}: loop bounds of the machine code, {D.loops.length} rows certified, {D.trusted.length} trusted ({D.proofs.length} obligations, {D.slots.length} words of the frame tracked, {(D.cong.map List.length).foldl (· + ·) 0} congruences{if D.frame then ", frame written only through SP (assumed)" else ""}{if D.pre.isEmpty then "" else s!", a precondition of {D.pre.length} facts on r0-r7, proved at every call: its bounds hold for the calls of the program"})"
     let nCert := (Ls.map (·.loops.length)).foldl (· + ·) 0
     let nTrust := (Ls.map (·.trusted.length)).foldl (· + ·) 0
-    let nJump : Nat := (fs.map (·.jumps.length)).foldl (· + ·) 0
+    let nJump : Nat := (fs.map (fun f => (f.jumps.filter (!·.far)).length)).foldl (· + ·) 0
+    -- far branches (`JT.far`): a `BL` inside a function, a branch, not a call
+    let nFar : Nat := (fs.map (fun f => (f.jumps.filter (·.far)).length)).foldl (· + ·) 0
+    let fars := if nFar > 0 then s!"; {nFar} far branches (a BL inside its function), the link register read only at the entry" else ""
     let nPre := (Ls.filter fun D => !D.pre.isEmpty).length
     if Ls.any (fun D => !D.loops.isEmpty || !D.inv.isEmpty || !D.pre.isEmpty) || nJump > 0 then
       -- the decision of the verified `checkBinary`, jumps through tables allowed (theorem
@@ -646,14 +653,14 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
       let callees := if !abi then "no assumption on callees"
         else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
         else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
-      let jumps := if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else ""
+      let jumps := (if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else "") ++ fars
       let pres := if nPre > 0 then s!"; {nPre} function(s) with a precondition on their arguments, proved at every call (their bounds hold for runs that start in it)" else ""
       IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}{pres}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
       if !(okP && okD) then status := 1
     else
       -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
       let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
-      IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; the decoder, the timing table and the loop rows are trusted)"
+      IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles{fars}; the decoder, the timing table and the loop rows are trusted)"
       if !okP then status := 1
   return status
 

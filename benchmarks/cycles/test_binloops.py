@@ -539,6 +539,53 @@ class BinarySearch(unittest.TestCase):
         self.assertEqual(check(d)[0], 1, "subs")
 
 
+# A loop closed by a far branch: push {r4, lr}; movs r4, #3; L: subs r4, r4, #1; beq out; bl L
+# (Clang's long branch where `B` cannot reach; here within reach, as a small test); out: pop
+# {r4, pc}. The `BL` is a jump to its target inside the function, listed as such (`"far":
+# true`, Lean `JT.far`), not a call; its effect in the data semantics is that of a call (r0-r3
+# any; r4-r7 kept with `abi`), hence the counter in r4.
+FARLOOP = {0x100: [0xB510, 0x2403, 0x1E64, 0xD001, 0xF7FF, 0xFFFC, 0xBD10]}
+
+
+def far_doc():
+    an = test_ipet.analysis(FARLOOP, {"f": (0x100, 14)}, range(0x104, 0x10C, 2), 3)
+    st = {}
+    doc, bounds, why = ipet.certify(an, ["f"], mul=32, loops=True, stats=st, abi=True)
+    return doc, bounds, why, st
+
+
+class FarBranches(unittest.TestCase):
+    """A `BL` to an address inside its function is a branch: the function gets a cycle bound
+    and its loop a certified bound; the checker rejects the certificate without the far
+    branch listed (a call of no function), or when the link register, which the far branch
+    writes, is read after the entry (`BX LR`, `MOV r0, LR`)."""
+
+    def test_producer(self):
+        doc, bounds, why, st = far_doc()
+        self.assertEqual(why, {})
+        fn = doc["programs"][0]["functions"][0]
+        self.assertEqual(fn["jumps"], [dict(start=0x108, pos=0x108, targets=[], far=True)])
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x104, 2)])
+        # push {r4, lr} 3 + movs 1 + 2 x (subs 1 + beq 1 + bl 4) + subs 1 + beq taken 3
+        # + pop {r4, pc} 6
+        self.assertEqual(bounds["f"], 3 + 1 + 2 * 6 + 1 + 3 + 6)
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = far_doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        fn = lambda d: d["programs"][0]["functions"][0]  # noqa: E731
+        d = copy.deepcopy(doc)
+        del fn(d)["jumps"]
+        self.assertEqual(check(d)[0], 1, "not listed")
+        for k, h in ((6, 0x4770),      # the return as bx lr: would return after the bl
+                     (2, 0x4670)):     # mov r0, lr in the loop
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + k] = h
+            self.assertEqual(check(d)[0], 1, hex(h))
+
+
 class Disjunctions(unittest.TestCase):
     """A counter that exits on its wrap-around: the invariant between the subtraction and the
     branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate

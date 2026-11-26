@@ -120,6 +120,29 @@ def potentials(nodes, edges, exit_, slack):
     return pot
 
 
+def reads_lr(h):
+    """Lean `Thumb.readsLr`: the halfword may read the link register (`BX LR`, `PUSH` with
+    `LR`, `ADD`/`CMP`/`MOV` of high registers with `r14` as an operand)."""
+    if h >> 9 == 0b1011010 and (h >> 8) & 1:
+        return True
+    if h >> 10 == 0b010001:
+        opc = (h >> 8) & 3
+        return (h >> 3) & 15 == 14 or (opc in (0, 1) and ((h >> 7) & 1) * 8 + (h & 7) == 14)
+    return False
+
+
+def far_ok(an, entry, nodes, pairs):
+    """Lean `Thumb.farOk`, for a function with far branches: the link register, which they
+    write, is read only by an instruction at the entry, and no transition goes to the entry;
+    raises NoCertificate otherwise."""
+    mem = an.img.mem
+    for a in nodes:
+        if a != entry and reads_lr(int.from_bytes(mem[a:a + 2], "little")):
+            raise NoCertificate(f"far branches, and the link register is read at {a:#x}")
+    if any(n == entry for _a, n in pairs):
+        raise NoCertificate("far branches, and a transition goes back to the entry")
+
+
 def trans(i, jumps=None):
     """The successors of an instruction, as Lean `Thumb.transJ`: (next or None, cycles,
     callees); `jumps`: the function's jumps through tables, {address: (start, targets)}."""
@@ -235,7 +258,10 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
     B, D, mult, pot = best
     fn = dict(name=name, entry=entry + base, nodes=[a + base for a in nodes], rows=mrows,
               certificate=dict(scale=D, pot=[pot[v] for v in allnodes], mult=mult, bound=B))
-    if jumps:
+    fars = sorted(a for a in getattr(an, "fars", {}).get(name, ()) if a in idx)
+    if fars:
+        far_ok(an, entry, nodes, pairs)
+    if jumps or fars:
         fn["jumps"] = []
         for p, jt in sorted(jumps.items()):
             st, ts, ix = jt[0], jt[1], jt[2]
@@ -248,6 +274,8 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
             if vr is not None:
                 j["bound"] = list(vr)
             fn["jumps"].append(j)
+        # far branches (Lean `JT.far`): a `BL` inside the function, no window
+        fn["jumps"] += [dict(start=p + base, pos=p + base, targets=[], far=True) for p in fars]
     return fn, B
 
 

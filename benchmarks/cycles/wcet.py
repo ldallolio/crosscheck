@@ -136,6 +136,7 @@ class Analysis:
         self.loops = {}      # function -> [(header, matched line, bound)]
         self.why = {}
         self.jumps = {}      # function -> {address of a jump through a table: (start, targets, ix[, vr])}
+        self.fars = {}       # function -> {address of a BL that is a far branch (m0.far_branch)}
         # jumps whose index is bounded by the invariant (`jumptable.inv_candidates`): their
         # targets come from the loop analysis of the function's graph, which needs them;
         # `cfg` iterates until they are stable (`_resolve_jumps`). `jt_opts`: the
@@ -212,7 +213,9 @@ class Analysis:
             a = todo.pop()
             if a in insns:
                 continue
-            i = m0.decode(mem, a)
+            i = m0.far_branch(m0.decode(mem, a), entry, size)
+            if i.kind == "jump" and i.op == "bl":
+                self.fars.setdefault(name, set()).add(a)
             insns[a] = i
             if i.kind == "indirect":
                 # a jump through a table, if its window is recognised (jumptable.py)

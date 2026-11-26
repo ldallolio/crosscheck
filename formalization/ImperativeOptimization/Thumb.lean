@@ -267,9 +267,15 @@ theorem step_of {mul : Nat} {c : Code} {J : List JT} {a : Nat} {i : Insn} {n : O
     {cs : List Nat} (h : decode mul c a = some i) (hm : (n, w, cs) ∈ transJ J i a) : Step mul c J a n w cs := by
   simp [Step, h, hm]
 
+/-- Without far branches, `transF` is `trans`. -/
+theorem transF_of (J : List JT) (i : Insn) (a : Nat) (h : farAt J a = false) : transF J i a = trans i a := by
+  unfold transF; split <;> simp [h]
+
+theorem transF_nil (i : Insn) (a : Nat) : transF [] i a = trans i a := transF_of [] i a (by simp [farAt])
+
 /-- Without jumps (the checks of `checkBinary` without `jt`), `transJ` is `trans`. -/
 theorem transJ_nil (i : Insn) (a : Nat) : transJ [] i a = trans i a := by
-  simp [transJ, jumpTr]
+  simp [transJ, jumpTr, transF_nil]
 
 /-! ### An example: a counting loop in machine code
 

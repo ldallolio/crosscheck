@@ -104,7 +104,7 @@ class StackAnalysis:
         while todo:
             a = todo.pop()
             d, regs = state[a]
-            i = m0.decode(mem, a)
+            i = m0.far_branch(m0.decode(mem, a), within[0], within[1] - within[0])
             jt = None
             if i.kind == "indirect":
                 import jumptable

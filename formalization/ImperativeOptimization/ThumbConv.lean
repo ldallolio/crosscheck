@@ -89,7 +89,7 @@ def DRunL (mul : Nat) (c : Code) (fs : List BFun) (Ls : List DFun) :
   | d + 1, e, σi, σo, total => ∃ f L x t, dfAt fs Ls e = some (f, L) ∧ x.σ = σi ∧
       DChainL (DRunL mul c fs Ls d) L.frame c σi.sp (saveN c e) (some e) (x :: t) σo ∧
       XChain c (x :: t) ∧
-      (∀ y ∈ x :: t, DOkM mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) ∧
+      (∀ y ∈ x :: t, DOkM mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) ∧
       (∀ r ∈ L.trusted, ((x :: t).map fun y => coefPair r.coef y.st.a y.st.next).sum ≤ r.rhs) ∧
       total = ((x :: t).map fun y => (y.st.w : Int) + y.st.x).sum
 
@@ -126,10 +126,11 @@ theorem stackEffect_narrow {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : 
   unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [if_neg hw, if_neg hw]
 
 /-- A step allowed at a 32-bit instruction is a call of one function. -/
-theorem wide_call {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
-    {calls : List Nat} {h : Nat} (hok : DOkM mul c a j σ next w calls) (hc : c.get a = some h)
-    (hw : isWide h) : ∃ t, calls = [t] := by
+theorem wide_call {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
+    {calls : List Nat} {h : Nat} (hok : DOkM mul c J a j σ next w calls) (hc : c.get a = some h)
+    (hw : isWide h) (hJ : farAt J a = false) : ∃ t, calls = [t] := by
   obtain ⟨_, _, i, hi, hcase⟩ := hok
+  rw [transF_of J i a hJ] at hcase
   unfold isWide at hw
   rcases hcase with ⟨htr, _⟩ | ⟨_, add, m, hpw, _⟩
   swap
@@ -155,14 +156,36 @@ theorem wide_call {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Optio
     · cases hi; simp [trans, stopI] at htr
 
 /-- The calls of a step: none or one. -/
-theorem calls_cases {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
-    {calls : List Nat} (hok : DOkM mul c a j σ next w calls) : calls = [] ∨ ∃ t, calls = [t] := by
+theorem trans_calls (i : Insn) (a : Nat) (p : Option Nat × Nat × List Nat) (hp : p ∈ trans i a) :
+    p.2.2 = [] ∨ ∃ t, p.2.2 = [t] := by
+  unfold trans at hp
+  split at hp <;> simp at hp <;> (try rcases hp with rfl | rfl) <;> simp
+
+theorem transF_calls (J : List JT) (i : Insn) (a : Nat) (p : Option Nat × Nat × List Nat)
+    (hp : p ∈ transF J i a) : p.2.2 = [] ∨ ∃ t, p.2.2 = [t] := by
+  unfold transF at hp
+  split at hp
+  · split at hp
+    · simp at hp; subst hp; simp
+    · exact trans_calls i a p hp
+  · exact trans_calls i a p hp
+
+theorem calls_cases {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
+    {calls : List Nat} (hok : DOkM mul c J a j σ next w calls) : calls = [] ∨ ∃ t, calls = [t] := by
   obtain ⟨_, _, i, _, hcase⟩ := hok
   rcases hcase with ⟨htr, _⟩ | ⟨_, _, _, _, _, _, hc⟩
-  swap
+  · exact transF_calls J i a _ (List.mem_of_getElem? htr)
   · exact Or.inl hc
-  cases hk : i.kind <;> simp [trans, hk] at htr <;>
-    (try (rcases j with _ | _ | j <;> simp at htr)) <;> (try (obtain ⟨_, _, rfl⟩ := htr)) <;> simp_all
+
+/-- A function whose calling convention is checked has no far branch. -/
+theorem convOk_nofar {mul : Nat} {c : Code} {f : BFun} {L : DFun} (h : convOk mul c f L = true)
+    (a : Nat) : farAt f.jumps a = false := by
+  unfold convOk at h
+  simp only [Bool.and_eq_true, Bool.not_eq_true', List.any_eq_false] at h
+  unfold farAt
+  simp only [List.any_eq_false, Bool.and_eq_true, beq_iff_eq, not_and]
+  intro t ht hf
+  exact absurd hf (h.1.1 t ht)
 
 /-! ### From the linked semantics to the semantics with the assumption -/
 
@@ -182,7 +205,8 @@ theorem stackEffect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : is
 theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
     {SP0 n mul : Nat} {x : DStep} {σ' : MState}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo)
-    (hs : StepL R frame c SP0 n x σ') (hok : DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
+    {J : List JT} (hs : StepL R frame c SP0 n x σ') (hok : DOkM mul c J x.st.a x.j x.σ x.st.next x.st.w x.st.calls)
+    (hJ : farAt J x.st.a = false) :
     EffOk (effect true c x.st.a) x.σ σ' ∧ StackOk frame SP0 (stackEffect true c x.st.a) x.σ σ' := by
   obtain ⟨he, hst, _, _, _, hlink⟩ := hs
   cases hc : c.get x.st.a with
@@ -193,7 +217,7 @@ theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Boo
     rw [e1, e2]; exact ⟨he, hst⟩
   | some h =>
     by_cases hw : isWide h
-    · obtain ⟨g, hg⟩ := wide_call hok hc hw
+    · obtain ⟨g, hg⟩ := wide_call hok hc hw hJ
       obtain ⟨σo, hRo, hr, hsp⟩ := hlink g hg
       obtain ⟨hpr, hspr⟩ := hR _ _ _ _ hRo
       rw [effect_wide hc hw, stackEffect_wide hc hw true]
@@ -218,18 +242,19 @@ theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Boo
 
 /-- A chain of the linked semantics is a chain with the assumption on callees. -/
 theorem chainL_chain {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
-    {SP0 n mul : Nat} (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) :
+    {SP0 n mul : Nat} {J : List JT} (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) :
     ∀ (s : List DStep) (a : Nat) (σf : MState), DChainL R frame c SP0 n (some a) s σf →
-      (∀ y ∈ s, DOkM mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ s, DOkM mul c J y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ s, farAt J y.st.a = false) →
       DChain true frame c SP0 (some a) s
-  | [], _, _, h, _ => by simp [DChainL] at h
-  | [x], a, σf, h, _ => by
+  | [], _, _, h, _, _ => by simp [DChainL] at h
+  | [x], a, σf, h, _, _ => by
     obtain ⟨hxa, hn, _⟩ := h
     refine ⟨hxa, by simp, ?_⟩
     rw [hn]; trivial
-  | x :: y :: t, a, σf, h, hok => by
+  | x :: y :: t, a, σf, h, hok, hfar => by
     obtain ⟨hxa, hs, hrest⟩ := h
-    have hstep := stepL_step hR hs (hok x (by simp))
+    have hstep := stepL_step hR hs (hok x (by simp)) (hfar x (by simp))
     refine ⟨hxa, ?_, ?_⟩
     · intro z hz
       simp at hz
@@ -240,6 +265,7 @@ theorem chainL_chain {R : Nat → MState → MState → Int → Prop} {frame : B
       | some b =>
         rw [hn] at hrest
         exact chainL_chain hR (y :: t) b σf hrest (fun z hz => hok z (List.mem_cons_of_mem _ hz))
+          (fun z hz => hfar z (List.mem_cons_of_mem _ hz))
 
 /-! ### Register lists -/
 
@@ -426,12 +452,12 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U)
     (hJ : ConvInv c f L σi a x.σ) (hxa : x.st.a = a)
     (hs : StepL R L.frame c σi.sp (saveN c f.entry) x σ')
-    (hokM : DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hg : Good mul c f x)
+    (hokM : DOkM mul c f.jumps x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hg : Good mul c f x)
     (hn : x.st.next = some b) :
     ConvInv c f L σi b σ' := by
   obtain ⟨hcl, _, _, hnodes, _, _, hslok, _⟩ := checkDFun_spec hcd
   obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
-  obtain ⟨heff, hst⟩ := stepL_step hR hs hokM
+  obtain ⟨heff, hst⟩ := stepL_step hR hs hokM (convOk_nofar hcv _)
   obtain ⟨_, _, hpp, hsafe, _, _⟩ := hs
   obtain ⟨_, _, _, _, i, hdec, htr, _⟩ := hg
   rw [hxa] at hdec htr heff hst hpp hsafe
@@ -456,7 +482,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     rw [if_pos (by simp [hk])] at hc2
     simp only [Bool.and_eq_true, List.isEmpty_iff] at hc2
     have hm2 : (some b, x.st.w, x.st.calls) ∈ trans i a := by
-      simpa [transJ, hc2.1] using hmem
+      simpa [transJ, hc2.1, transF_of _ _ _ (convOk_nofar hcv a)] using hmem
     exact trans_ret hk hm2
   rw [if_neg (by simpa using hnr)] at hcase
   simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hcase
@@ -470,7 +496,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     have hpe : c.get f.entry = some h := hae ▸ hget
     obtain ⟨hl, hnn⟩ := save_push hpe hph
     have hx0 : x.σ.sp = σi.sp := by
-      have := hsp 0 (hae ▸ hcv'.1)
+      have := hsp 0 (hae ▸ hcv'.1.2)
       rw [this]; simp only [aOf, U] at *; omega
     refine ⟨hb, hspb, ?_, ?_⟩
     · intro k hk4 hk8 _
@@ -575,11 +601,11 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U)
     (hJ : ConvInv c f L σi a x.σ) (hxa : x.st.a = a)
     (hs : StepL R L.frame c σi.sp (saveN c f.entry) x σf)
-    (hokM : DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hg : Good mul c f x)
+    (hokM : DOkM mul c f.jumps x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hg : Good mul c f x)
     (hn : x.st.next = none) :
     Preserves σi σf := by
   obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
-  obtain ⟨heff, hst⟩ := stepL_step hR hs hokM
+  obtain ⟨heff, hst⟩ := stepL_step hR hs hokM (convOk_nofar hcv _)
   obtain ⟨_, _, hpp, _, _, _⟩ := hs
   obtain ⟨_, _, _, _, i, hdec, htr, _⟩ := hg
   rw [hxa] at hdec htr heff hst hpp
@@ -588,7 +614,7 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
   have hmem : (none, x.st.w, x.st.calls) ∈ trans i a := by
     simp only [transJ, List.mem_append] at hmemJ
     rcases hmemJ with h | h
-    · exact h
+    · rwa [transF_of _ _ _ (convOk_nofar hcv a)] at h
     · exfalso
       unfold jumpTr at h
       split at h <;> simp at h
@@ -671,7 +697,7 @@ theorem conv_chain {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo) (hSP0 : σi.sp < U) :
     ∀ (x : DStep) (t : List DStep) (a : Nat),
       DChainL R L.frame c σi.sp (saveN c f.entry) (some a) (x :: t) σf →
-      (∀ y ∈ x :: t, DOkM mul c y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
+      (∀ y ∈ x :: t, DOkM mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
       (∀ y ∈ x :: t, Good mul c f y) →
       ConvInv c f L σi a x.σ → Preserves σi σf
   | x, [], a, h, hok, hg, hJ => by
@@ -748,7 +774,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
       fun g σ σo k h => (ih g σ σo k h).2
     obtain ⟨_, hcd, hentry⟩ := dfAt_spec hD hdf
     have hcv := dfAt_conv hC hdf
-    have hchT := chainL_chain hR (x :: t) e σo hch hokM
+    have hchT := chainL_chain hR (x :: t) e σo hch hokM (fun _ _ => convOk_nofar hcv _)
     have hgood : ∀ y ∈ x :: t, Good mul c f y := by
       have hg := steps_good hcd (x :: t) (by rw [hentry]; simpa [headSp, hxσ] using hchT) hX hokM
       intro y hy
@@ -775,7 +801,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
         simp only [convOk, Bool.and_eq_true, beq_iff_eq] at hcv'
         refine ⟨(closed_spec mul c f.jumps f.entry f.nodes hcl).1, ?_, ?_, ?_⟩
         · intro d hd
-          rw [hcv'.1] at hd; cases hd
+          rw [hcv'.1.2] at hd; cases hd
           rw [hxσ]; simp only [aOf, U] at *; omega
         · intro k _ _ _; rw [hxσ]
         · intro hne; exact absurd rfl hne

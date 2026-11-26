@@ -95,10 +95,10 @@ def StackOk (frame : Bool) (SP0 : Nat) (s : StackE) (σ σ' : MState) : Prop :=
 /-- The step of the machine: the instruction at `a`, in state `σ`, takes its `j`-th
     transition (to `next`, with `w` cycles, calling `calls`); `ADD PC, rm` and `MOV PC, rm`
     (`m < 8`) go to the address computed from `rm` (`pcDestV`, bit 0 cleared), in 3 cycles. -/
-def DOkM (mul : Nat) (c : Code) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
+def DOkM (mul : Nat) (c : Code) (J : List JT) (a j : Nat) (σ : MState) (next : Option Nat) (w : Nat)
     (calls : List Nat) : Prop :=
   wfState σ ∧ wfStack σ ∧ ∃ i, decode mul c a = some i ∧
-    (((trans i a)[j]? = some (next, w, calls) ∧
+    (((transF J i a)[j]? = some (next, w, calls) ∧
       (∀ t, i.kind = .cond t → condHolds (ccOf c a) σ.f = (j == 0))) ∨
      (i.kind = .stop ∧ ∃ add m, pcWrite c a = some (add, m) ∧
        next = some (pcDestV a add (σ.r m)) ∧ w = 3 ∧ calls = []))
@@ -155,7 +155,7 @@ def DRun (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) :
   | d + 1, e, σc, total => ∃ f L s, dfAt fs Ls e = some (f, L) ∧
       DChain abi L.frame c (headSp s) (some e) s ∧ XChain c s ∧
       (∀ y ∈ s.head?, ∀ i < 8, y.σ.r i = σc.r i) ∧
-      (∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
+      (∀ x ∈ s, DOkM mul c f.jumps x.st.a x.j x.σ x.st.next x.st.w x.st.calls ∧
         CallsWith (fun g k => DRun mul abi c fs Ls d g x.σ k) x.st.calls x.st.x) ∧
       (∀ r ∈ L.trusted, (s.map fun x => coefPair r.coef x.st.a x.st.next).sum ≤ r.rhs) ∧
       total = (s.map fun x => (x.st.w : Int) + x.st.x).sum
@@ -2572,12 +2572,14 @@ theorem back_walk {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     exact wpath_pred c t hwb hev i (by omega)
 
 theorem jumpTr_some {J : List JT} {a : Nat} (h : jumpTr J a ≠ []) :
-    ∃ t ∈ J, t.pos = a ∧ jumpTr J a = t.tgts.map fun q => (some q, 3, []) := by
+    ∃ t ∈ J, t.pos = a ∧ jumpTr J a = t.tgts.map (fun q => (some q, 3, [])) ∧ t.far = false := by
   unfold jumpTr at h ⊢
-  cases hf : J.find? (fun t => t.pos == a) with
+  cases hf : J.find? (fun t => !t.far && t.pos == a) with
   | none => rw [hf] at h; simp at h
   | some t =>
-    exact ⟨t, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf, by simp⟩
+    have hp := List.find?_some hf
+    simp only [Bool.and_eq_true, Bool.not_eq_true', beq_iff_eq] at hp
+    exact ⟨t, List.mem_of_find?_eq_some hf, hp.2, by simp, hp.1⟩
 
 theorem ls_true (v n : Nat) (hv : v < U) (hn : n < U) (h : condHolds 9 (flagsSub v n) = true) :
     v ≤ n := by
@@ -2606,13 +2608,13 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     rcases hns with h | h
     · exact absurd hstop h
     · exact h
-  obtain ⟨t, ht, htp, hjtr⟩ := jumpTr_some hjt
+  obtain ⟨t, ht, htp, hjtr, hfar⟩ := jumpTr_some hjt
   refine ⟨t, ht, htp, ?_, hjtr⟩
   by_cases hix : t.ix.isSome
   · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hix
     have hok := hjk t ht
     unfold jumpOkF at hok
-    rw [if_pos hix] at hok
+    rw [if_neg (by simp [hfar]), if_pos hix] at hok
     rw [← htp] at hpw ⊢
     by_cases hvr : t.vr.isSome
     · rw [if_pos hvr] at hok
@@ -2624,7 +2626,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
   obtain ⟨_, hj2, _⟩ := interiorOk_spec hint t ht hixn
   have hok := hjk t ht
   unfold jumpOkF at hok
-  rw [if_neg hix] at hok
+  rw [if_neg (by simp [hfar]), if_neg hix] at hok
   unfold jumpOk at hok
   rw [← htp] at hpw
   rw [hpw] at hok
@@ -2667,7 +2669,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
         rw [hcc] at hch1
         have hj10 : j1 = 0 := by
           rw [hb] at hj1
-          simp only [transJ, hj2, trans, List.append_nil] at hj1
+          simp only [transJ, transF, hj2, trans, List.append_nil] at hj1
           rcases j1 with _ | _ | j1
           · rfl
           · simp only [List.getElem?_cons_succ, List.getElem?_cons_zero, Option.some.injEq,
@@ -2684,7 +2686,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
         rw [hcc] at hch1
         have hj1ne : j1 ≠ 0 := by
           intro h0; subst h0
-          simp only [transJ, trans] at hj1
+          simp only [transJ, transF, trans] at hj1
           simp only [List.cons_append, List.getElem?_cons_zero, Option.some.injEq, Prod.mk.injEq] at hj1
           rw [hn12, hc4, hwb4] at hj1
           exact htb (Option.some.inj hj1.1)
@@ -2718,7 +2720,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
 theorem steps_good {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) (s : List DStep)
     (hch : DChain abi L.frame c (headSp s) (some f.entry) s) (hX : XChain c s)
-    (hok : ∀ x ∈ s, DOkM mul c x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
+    (hok : ∀ x ∈ s, DOkM mul c f.jumps x.st.a x.j x.σ x.st.next x.st.w x.st.calls) :
     ∀ (k : Nat) (x : DStep), s[k]? = some x → Good mul c f x := by
   obtain ⟨hcl, _⟩ := checkDFun_spec hc
   -- the invariants are used only at a jump bounded by them, and then the precondition is empty
@@ -2753,7 +2755,7 @@ theorem steps_good {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         (fun hv k' hk' y hy => inv_prefix hc s hch (fun z hz => ⟨(hok z hz).1, (hok z hz).2.1⟩) (hpre hv) k' y hy
           (fun k'' hk'' z hz => ih k'' (by omega) z hz))
       obtain ⟨q, hq⟩ := List.mem_iff_getElem?.mp hmem
-      have htr : trans i x.st.a = [] := by simp [trans, hstop]
+      have htr : transF f.jumps i x.st.a = [] := by simp [transF, trans, hstop]
       refine ⟨q, hw, hws, i, hi, ?_, fun tt htt => by rw [hstop] at htt; cases htt⟩
       rw [transJ, htr, List.nil_append, hjtr, hnext, hw3, hcalls]
       simp [hq]
@@ -2846,13 +2848,19 @@ theorem preOk_congr {pre : List Lin} {σ σ' : MState} (h : ∀ i < 8, σ'.r i =
   simp only [PreOk, this]
 
 /-- The functions that a step of a data run calls are those of the instruction (`callsAt`). -/
-theorem dokm_calls {mul : Nat} {c : Code} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
-    {calls : List Nat} (h : DOkM mul c a j σ next w calls) : ∀ g ∈ calls, g ∈ callsAt mul c a := by
+theorem dokm_calls {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
+    {calls : List Nat} (h : DOkM mul c J a j σ next w calls) : ∀ g ∈ calls, g ∈ callsAt mul c a := by
   intro g hg
   obtain ⟨_, _, i, hi, hcase⟩ := h
   rcases hcase with ⟨hj, _⟩ | ⟨_, _, _, _, _, _, hc⟩
   · simp only [callsAt, hi, List.mem_flatMap]
-    exact ⟨_, List.mem_of_getElem? hj, hg⟩
+    have hm := List.mem_of_getElem? hj
+    unfold transF at hm
+    split at hm
+    · split at hm
+      · simp at hm; rw [hm.2.2] at hg; cases hg
+      · exact ⟨_, hm, hg⟩
+    · exact ⟨_, hm, hg⟩
   · rw [hc] at hg; cases hg
 
 /-- At a call of a step of a data run, the callee's precondition holds (from the invariant of
@@ -3246,14 +3254,14 @@ def dOkB (mul : Nat) (c : Code) (x : CStep) : Bool :=
   | none => false
 
 theorem dOkB_sound (mul : Nat) (c : Code) (x : CStep) (h : dOkB mul c x = true) :
-    DOkM mul c (toD x).st.a (toD x).j (toD x).σ (toD x).st.next (toD x).st.w (toD x).st.calls := by
+    DOkM mul c [] (toD x).st.a (toD x).j (toD x).σ (toD x).st.next (toD x).st.w (toD x).st.calls := by
   simp only [dOkB, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
   obtain ⟨hw, hd⟩ := h
   refine ⟨fun i hi => by simpa [toD, mkS] using hw i hi, ⟨by simp [toD, mkS, U], fun _ => by simp [toD, mkS, U]⟩, ?_⟩
   split at hd
   · rename_i i hi
     simp only [Bool.and_eq_true, beq_iff_eq] at hd
-    refine ⟨i, by simpa [toD] using hi, Or.inl ⟨by simpa [toD] using hd.1, fun t ht => ?_⟩⟩
+    refine ⟨i, by simpa [toD] using hi, Or.inl ⟨by simpa [toD, transF_nil] using hd.1, fun t ht => ?_⟩⟩
     have := hd.2
     rw [ht] at this
     simpa [toD, mkS] using this
@@ -3778,7 +3786,7 @@ def exSwCode : Code :=
 
 def exSwFun : BFun :=
   ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x110, 0x112, 0x114, 0x116], [],
-   [⟨0x100, 0x10A, [0x110, 0x112, 0x114], none, none⟩]⟩
+   [⟨0x100, 0x10A, [0x110, 0x112, 0x114], none, none, false⟩]⟩
 
 def exSwCert : Cert := ⟨1, [12, 11, 10, 9, 7, 6, 3, 3, 3, 3, 0], [], 12⟩
 
@@ -3791,7 +3799,7 @@ theorem exSw_data : checkData 32 false exSwCode [exSwFun] [exSwD] = true := by d
 theorem exSw_needs_jt : checkBinary 32 exSwCode [exSwFun] [exSwCert] = false := by decide
 
 theorem exSw_target_missing :
-    checkData 32 false exSwCode [{ exSwFun with jumps := [⟨0x100, 0x10A, [0x110, 0x112], none, none⟩] }] [exSwD] = false := by
+    checkData 32 false exSwCode [{ exSwFun with jumps := [⟨0x100, 0x10A, [0x110, 0x112], none, none, false⟩] }] [exSwD] = false := by
   decide
 
 /-- Every run of the data semantics of the switch costs at most 12 cycles. -/
@@ -3808,7 +3816,7 @@ def exLsCode : Code :=
 
 def exLsFun : BFun :=
   ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x10C, 0x112, 0x114, 0x116, 0x118], [],
-   [⟨0x100, 0x10C, [0x112, 0x114, 0x116], none, none⟩]⟩
+   [⟨0x100, 0x10C, [0x112, 0x114, 0x116], none, none, false⟩]⟩
 
 def exLsCert : Cert := ⟨1, [14, 13, 6, 10, 9, 7, 6, 3, 3, 3, 3, 0], [], 14⟩
 
@@ -3817,7 +3825,7 @@ theorem exLs_checks : checkBinary 32 exLsCode [exLsFun] [exLsCert] true = true :
 theorem exLs_data : checkData 32 false exLsCode [exLsFun] [exSwD] = true := by decide
 
 theorem exLs_target_missing :
-    checkData 32 false exLsCode [{ exLsFun with jumps := [⟨0x100, 0x10C, [0x112, 0x116], none, none⟩] }] [exSwD] = false := by
+    checkData 32 false exLsCode [{ exLsFun with jumps := [⟨0x100, 0x10C, [0x112, 0x116], none, none, false⟩] }] [exSwD] = false := by
   decide
 
 theorem exLs_sound (d : Nat) (σc : MState) (tot : Int) (h : DRun 32 false exLsCode [exLsFun] [exSwD] d 0x100 σc tot) :
@@ -3837,7 +3845,7 @@ def exMaskCode : Code :=
 
 def exMaskFun : BFun :=
   ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x110, 0x112, 0x114, 0x116], [],
-   [⟨0x100, 0x10A, [0x110, 0x112, 0x114, 0x116], some 0x102, none⟩]⟩
+   [⟨0x100, 0x10A, [0x110, 0x112, 0x114, 0x116], some 0x102, none, false⟩]⟩
 
 theorem exMask_checks : checkBinary 32 exMaskCode [exMaskFun] [exSwCert] true = true := by decide
 
@@ -3848,7 +3856,7 @@ theorem exMask_wide :
       0x4770, 0x4770, 0x4770, 0x4770]⟩ [exMaskFun] [exSwD] = false := by decide
 
 theorem exMask_needs_ix :
-    checkData 32 false exMaskCode [{ exMaskFun with jumps := [⟨0x100, 0x10A, [0x110, 0x112, 0x114, 0x116], none, none⟩] }]
+    checkData 32 false exMaskCode [{ exMaskFun with jumps := [⟨0x100, 0x10A, [0x110, 0x112, 0x114, 0x116], none, none, false⟩] }]
       [exSwD] = false := by decide
 
 /-- Every data run of the switch without `CMP` costs at most 12 cycles. -/
@@ -3871,7 +3879,7 @@ def exPathCode : Code :=
 
 def exPathFun : BFun :=
   ⟨0x100, [0x100, 0x102, 0x104, 0x106, 0x108, 0x10A, 0x10C, 0x10E, 0x110, 0x114, 0x116, 0x118], [],
-   [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, some (1, 0, 1)⟩]⟩
+   [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, some (1, 0, 1), false⟩]⟩
 
 def exPathCert : Cert := ⟨1, [17, 16, 15, 14, 12, 11, 10, 8, 7, 3, 4, 3, 0], [], 17⟩
 
@@ -3949,12 +3957,12 @@ theorem exPath_data : checkData 32 false exPathCode [exPathFun] [exPathD] = true
 
 theorem exPath_needs_bound :
     checkData 32 false exPathCode
-      [{ exPathFun with jumps := [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, none⟩] }] [exPathD] = false := by
+      [{ exPathFun with jumps := [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, none, false⟩] }] [exPathD] = false := by
   decide
 
 theorem exPath_wide :
     checkData 32 false exPathCode
-      [{ exPathFun with jumps := [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, some (1, 0, 2)⟩] }] [exPathD] = false := by
+      [{ exPathFun with jumps := [⟨0x10A, 0x110, [0x114, 0x116], some 0x10A, some (1, 0, 2), false⟩] }] [exPathD] = false := by
   decide
 
 /-- Every data run of the switch bounded by the invariant costs at most 17 cycles. -/
@@ -4148,6 +4156,57 @@ theorem exAm_needs_outer :
 theorem exAm_sound (d : Nat) (σc : MState) (tot : Int)
     (h : DRun 32 false exAmCode [exAmF] [exAmD] d 0x100 σc tot) : tot ≤ 2409 :=
   data_sound 32 false exAmCode [exAmF] [exAmC] [exAmD] exAm_binary exAm_data d 0x100 0 σc tot h
+    (preAt_nil _ _ _ _ (by decide)) (by decide)
+
+
+/-! ### An example with a far branch
+
+`push {r4, lr}; movs r4, #3; L: subs r4, r4, #1; beq out; bl L; out: pop {r4, pc}`: the loop
+goes back through a `BL`, as Clang writes a branch that `B` cannot reach (`petrinet_main`
+of TACLeBench). Listed as a far branch (`JT.far`), the `BL` is a jump to its target (`transF`),
+not a call; `checkBinary` accepts it without `jt` (no window to prove) since the link
+register, which it writes, is read only by the entry's `PUSH` (`farOk`). The certificate
+(made by `benchmarks/cycles/binloops.py`) bounds the loop at 2 back edges and the function at
+26 cycles; it is refused when the `BL` is not listed (a call of no function) and when the
+return is `BX LR`, which would read the link register the far branch wrote. -/
+
+def exFarCode : Code := ⟨0x100, #[0xb510, 0x2403, 0x1e64, 0xd001, 0xf7ff, 0xfffc, 0xbd10]⟩
+
+def exFarF0 : BFun := ⟨256, [256, 258, 260, 262, 264, 268], [], [⟨264, 264, [], none, none, true⟩]⟩
+def exFarLoops : List LoopCert := [⟨260, [260, 262, 264], 1, 2, [⟨[0, 0, 0, 0, 1], -1⟩, ⟨[0, 0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, 1], 0⟩], false, none, []⟩]
+def exFarF : BFun := { exFarF0 with rows := exFarLoops.map (loopRow exFarF0) }
+def exFarC : Cert := ⟨1, [26, 23, 10, 9, 8, 6, 0], [6], 26⟩
+def exFarD : DFun :=
+  { kinds := [.none, .none, .none, .sub, .sub, .sub],
+    inv := [[], [], [⟨[0, 0, 0, 0, 1], [], -3⟩, ⟨[0, 0, 0, 0, -1], [], 1⟩], [⟨[0, 0, 0, 0, 1], [], -2⟩, ⟨[0, 0, 0, 0, 1, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -3⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, -1, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩], [⟨[0, 0, 0, 0, 1], [], -2⟩, ⟨[0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 1, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -3⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 2⟩, ⟨[0, 0, 0, 0, -1, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩], [⟨[0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩]],
+    loops := exFarLoops, trusted := [],
+    proofs := [(1, []), (1, []), (1, []), (1, []), (1, []), (1, [0, 1073741824]), (1, []), (1, [0, 1073741824]), (1, []), (1, [2]), (1, []), (1, [0, 0, 1]), (1, []), (1, [0, 0, 1]), (1, [1]), (1, []), (1, []), (1, []), (1, []), (1, [0, 8589934588, 0, 8589934588, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 4294967296, 0, 4294967296]), (1, [0, 4294967292, 0, 4294967292, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, []), (1, []), (1, [0, 4294967296, 0, 4294967296]), (1, [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [2, 0, 2]), (1, []), (1, []), (1, []), (1, [1, 0, 0, 1, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [4294967293, 0, 0, 0, 4294967293, 0, 4294967293, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [4294967296, 0, 0, 0, 4294967296, 0, 4294967296, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1]), (1, [4294967292, 0, 0, 0, 4294967292, 0, 4294967292, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [2, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [4294967294, 0, 0, 0, 4294967294, 0, 4294967294, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [4294967294, 0, 0, 0, 4294967294, 0, 4294967294, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [0, 1]), (1, [1, 0, 0, 0, 0, 1, 0, 1]), (1, [0, 0, 1]), (1, [0, 0, 0, 1]), (1, [1, 0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 1]), (1, [0, 0, 0, 0, 0, 0, 0, 1]), (1, []), (1, [1]), (1, [0, 1]), (1, []), (1, [])],
+    spOff := [some (0), some (-8), some (-8), some (-8), some (-8), some (-8)], slots := [], frame := false,
+    cong := [[], [], [], [(9, 32, 1)], [(9, 32, 1)], [(9, 32, 1)]],
+    alt := [],
+    pick := [],
+    pre := [],
+    callProofs := [] }
+
+theorem exFar_binary : checkBinary 32 exFarCode [exFarF] [exFarC] = true := by decide +kernel
+
+theorem exFar_binary_jt : checkBinary 32 exFarCode [exFarF] [exFarC] true = true := by decide +kernel
+
+theorem exFar_data : checkData 32 true exFarCode [exFarF] [exFarD] = true := by decide +kernel
+
+/-- Not listed, the `BL` is a call of a function that does not exist. -/
+theorem exFar_needs_far :
+    checkBinary 32 exFarCode [{ exFarF with jumps := [] }] [exFarC] = false := by decide +kernel
+
+/-- With `BX LR` as the return, which would read the link register the far branch wrote. -/
+theorem exFar_bx_refused :
+    checkBinary 32 ⟨0x100, #[0xb510, 0x2403, 0x1e64, 0xd001, 0xf7ff, 0xfffc, 0x4770]⟩ [exFarF] [exFarC] = false := by
+  decide +kernel
+
+/-- Every run of the function in the data semantics (with `abi`) takes at most 26 cycles. -/
+theorem exFar_sound (d : Nat) (σc : MState) (tot : Int)
+    (h : DRun 32 true exFarCode [exFarF] [exFarD] d 0x100 σc tot) : tot ≤ 26 :=
+  data_sound 32 true exFarCode [exFarF] [exFarC] [exFarD] exFar_binary_jt exFar_data d 0x100 0 σc tot h
     (preAt_nil _ _ _ _ (by decide)) (by decide)
 
 end ImperativeOptimization.Thumb

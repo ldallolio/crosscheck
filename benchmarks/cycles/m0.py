@@ -36,6 +36,15 @@ class Insn:
         return f"{self.addr:#x}:{self.op}{self.a}"
 
 
+def far_branch(i, entry, size):
+    """`i` as a far branch if it is a `BL` to an address inside the function at `entry` of
+    `size` bytes other than its entry (Clang's long branch where `B` cannot reach: the
+    processor jumps there, writing the link register), else `i` (Lean `JT.far`)."""
+    if i.kind == "call" and entry < i.target < entry + max(size, 2):
+        return Insn(i.addr, 4, "bl", kind="jump", target=i.target)
+    return i
+
+
 def decode(mem, addr):
     """Decode the instruction at `addr`. `kind`: seq, cond (conditional branch to
     `target`), jump (to `target`), call (BL to `target`), ret (bx lr, pop {..pc}),
@@ -894,7 +903,8 @@ class Watch:
         sp = mach.r[13]
         if frames and sp < frames[-1][1]:
             frames[-1][1] = sp
-        if i is not None and i.kind == "call":
+        if i is not None and i.kind == "call" and i.target in self.entry:
+            # a `BL` to an address that starts no function is a far branch (`far_branch`)
             stack.append((self.entry.get(i.target), mach.cyc, i.addr + 4))
             frames.append([sp, sp])
         elif stack and nxt == stack[-1][2] and (i is None or i.kind == "ret"):
@@ -1024,6 +1034,7 @@ def _table(lib, mach, lo, hi):
     target, cyt, cyn, regs = (C.c_uint32 * n)(), (C.c_uint32 * n)(), (C.c_uint32 * n)(), (C.c_uint16 * n)()
     ops = lib.ops
     mem = mach.mem
+    entries = {a for a, _ in mach.img.funcs.values()}
     for x in range(n):
         addr = lo + 2 * x
         i = mach.cache.get(addr)
@@ -1044,6 +1055,8 @@ def _table(lib, mach, lo, hi):
             else:
                 a0[x], a1[x], a2[x] = vals[:3]
         op[x], kind[x], size[x] = o, _KIND.get(i.kind, 0), i.size
+        if i.kind == "call" and i.target not in entries:
+            kind[x] = 0     # a far branch (`far_branch`): no call
         target[x] = (i.target or 0) & 0xFFFFFFFF
         cyt[x], cyn[x] = cycles(i, True), cycles(i, False)
     return dict(op=op, kind=kind, size=size, cond=cnd, a0=a0, a1=a1, a2=a2, target=target,
@@ -1141,7 +1154,8 @@ def _run_core(mach, lib, pc, max_cycles, watch):
         if i is None:
             lib.mon_step(pst, pw, 0, 0, 0, 0, nxt & 0xFFFFFFFF)
         else:
-            lib.mon_step(pst, pw, 1, _KIND.get(i.kind, 0), i.addr, (i.target or 0) & 0xFFFFFFFF,
+            k = _KIND.get(i.kind, 0) if i.kind != "call" or i.target in watch.entry else 0
+            lib.mon_step(pst, pw, 1, k, i.addr, (i.target or 0) & 0xFFFFFFFF,
                          nxt & 0xFFFFFFFF)
         if w.failed:
             raise MemoryError("m0core: observations")

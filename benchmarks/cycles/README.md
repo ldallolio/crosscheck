@@ -433,15 +433,15 @@ before them); before, `ammunition` did not finish within an hour, and `mpeg2` an
 | huff_dec | 11 | 7 | 14 of 32 | 11 | no |
 | huff_enc | 18 | 9 | 15 of 38 | 12 | no |
 | lift | 16 | 16 | 20 of 20 | 16 | yes |
-| mpeg2 | 17 | 8 | 41 of 62 | 12 | no |
+| mpeg2 | 17 | 8 | 64 of 95 | 17 | no |
 | ndes | 8 | 4 | 12 of 20 | 4 | no |
-| petrinet | 4 | 2 | 10 of 10 | 2 | no |
+| petrinet | 4 | 4 | 10 of 11 | 4 | yes |
 | powerwindow | 51 | 49 | 77 of 78 | 51 | no |
-| rijndael_dec | 13 | 8 | 11 of 18 | 9 | no |
-| rijndael_enc | 14 | 9 | 11 of 19 | 10 | no |
+| rijndael_dec | 13 | 9 | 11 of 18 | 13 | no |
+| rijndael_enc | 14 | 10 | 11 of 19 | 14 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
 | susan | 41 | 20 | 38 of 83 | 31 | no |
-| **25 programs** | **513** | **344** | **1,248 of 2,070** | **452** | **2** |
+| **25 programs** | **513** | **348** | **1,271 of 2,104** | **467** | **3** |
 
 Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
 in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
@@ -728,10 +728,10 @@ in `ammunition`, `__aeabi_memcpy4` in `cjpeg_wrbmp` and `ndes`, `fabs` in `susan
 irreducible control flow (`mpeg2_field_ME`, `susan_get_image`), a jump out of the function
 (`mpeg2_frame_ME`), a linear program that HiGHS reports unbounded (`mpeg2_dist1`), and in
 `petrinet_main`, its only obstacle, a `bl` to an address inside the function itself. LLVM uses `bl` as a long
-branch in Thumb-1 functions beyond the reach of `b` (2 KB): the 25 programs have 15 such
-branches (`petrinet_main` 6, `mpeg2_field_ME` 7, `rijndael_dec_decrypt` and
-`rijndael_enc_encrypt` 1 each). The checker's `decode` treats every `bl` as a call that
-returns to the next instruction, so these functions are refused.
+branch in Thumb-1 functions beyond the reach of `b` (2 KB). The checker's `decode` treated
+every `bl` as a call that returns to the next instruction, so these functions were refused;
+since 2026-11-26 they are far branches (next section), and the irreducible control flow and
+the jump out of the function of `mpeg2` were the same `bl` read as calls.
 
 The `__aeabi_memcpy4` calls of `ndes` copy local arrays from constant tables, 65 to 2,304
 bytes: the length is a constant at every call, but the loop of a `memcpy` is bounded by
@@ -842,6 +842,43 @@ in `audiobeam`), none lost, no bound higher, every certificate accepted, 344 cer
 functions as before; work +14 %, time 1,293 → 1,417 s (17 more linear programs stopped after
 60 CPU seconds, 49 in all; the slowest successful solve 13.3 CPU s). Not certified yet: binary search (`(lo + hi) >> 1`; a potential `hi - lo + 1`
 halving, which HiGHS does not find), bit reversal (a counter shifted left up to a limit).
+
+### Far branches: a `bl` inside its function (2026-11-26)
+
+LLVM writes an unconditional branch whose target `b` cannot reach (2 KB) as `bl target`. The
+25 larger programs have 27 of them, in `petrinet_main` (7, among them the back edge of its
+main loop), `mpeg2_field_ME` (7), `mpeg2_frame_ME` (11), `rijndael_dec_decrypt` and
+`rijndael_enc_encrypt` (1 each); the kernels have none. The processor jumps to the target and
+writes the link register. A `bl` to an address inside its function other than its entry is
+now a jump for the producer (`m0.far_branch`, in `wcet.cfg` and `stack.py`), and the
+certificate lists it as `{"start": p, "pos": p, "targets": [], "far": true}` in the
+function's jumps (Lean `JT.far`; `transF`: the listed `BL` goes to its target, no call, in
+the PC-level semantics `Step` and in the data step `DOkM`). The checker accepts it (with or
+without loop certificates) if the link register is read only by the instruction at the
+entry and no transition goes to the entry (`farOk`: no `BX LR`, no `PUSH {.., LR}` but at
+the entry, no high-register `ADD`/`CMP`/`MOV` with `r14`), so that a return is the `POP` of
+the value saved at the entry; this check restricts the functions to which the semantics
+applies and is not used by the proofs. In the data semantics the far branch keeps the
+effect of a call (`r0`-`r3` any; `r4`-`r7` and SP kept under `abi`): an over-approximation.
+The calling convention is not established for such a function (`convOk`), so `abi` is
+assumed for it and the checker names it. The emulator's observations count a `bl` as a call
+only when its target starts a function. Test `test_binloops.py FarBranches` (a loop closed by
+a far branch: 2 back edges, 26 cycles; refused without the listing, with `bx lr` as the
+return, with `mov r0, lr` in the loop); Lean example `exFar_sound`, `exFar_bx_refused`,
+`exFar_needs_far` (checked with `decide +kernel`: the elaborator's `decide` does not
+evaluate the target of a backward `bl`).
+
+Against the runs above (`compare_runs.py --check`): the 7 kernel configurations unchanged;
+the larger programs gain 23 loops (`mpeg2_field_ME`, `mpeg2_frame_ME`, now analysed), none
+lost, no bound higher; certified functions 344 → 348 (`petrinet_main`, `main` of
+`petrinet`, `rijndael_dec_decrypt`, `rijndael_enc_encrypt`), stack bounds 452 → 467,
+entry functions certified 2 → 3 (`petrinet`: 5,141 cycles certified, 5,889 by the timing
+schema, 518 observed); every certificate accepted, no emulated run above a bound. The run of
+the larger programs took 1,354 → 1,735 s on a quiet machine (1,904 s under load); the loop
+analysis, summed over the functions, 14,812 → 19,230 s, of which 881 s in the two `mpeg2`
+motion-estimation functions, analysed now, and the rest spread over functions whose code
+and certificates did not change (`susan_edges` +232 s), which points to variation between
+runs with 40 jobs on 40 cores rather than to the far branches.
 
 ### Binary search: potentials per disjunct (2026-11-26)
 

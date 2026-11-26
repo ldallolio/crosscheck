@@ -2686,6 +2686,38 @@ certificates, `lem:log-descent`, the binary search, the producer, `tab:loops`, `
 `tab:lean3`), `formalization.yaml`, certificate format, guide parts 5 and 7, cycles README,
 CLAUDE.md, Lean counts.
 
+154. "Go on with the b1"
+
+What the AI did for 154 (Claude Opus 5.5, 2026-11-26; "b1" read as the `bl` far branches of
+the plan): far branches on the machine code. Diagnosis: in 4 of the larger programs
+(27 times, in `petrinet_main`, `mpeg2_field_ME`, `mpeg2_frame_ME`, `rijndael_dec_decrypt`,
+`rijndael_enc_encrypt`) Clang writes a branch beyond the 2 KB of `B` as `BL`; the checker read
+every `BL` as a call, so these functions and their callers had no bound. Lean: `JT.far` (a
+`BL` listed as a branch), `farAt`, `transF` (a listed `BL` goes to its target, no call; used
+by `transJ`, so by the PC-level `Step`, and by the data step `DOkM`, which now takes the
+jump list), `jumpTr` skips far entries; `farOk` in `checkBinary` (a `BL` not to the entry,
+no transition to the entry, the link register read only at the entry, `readsLr`; not used by
+the proofs: it restricts the functions to which the semantics, where a return ends the run,
+applies); `jumpOkF` accepts far entries (no window; `interiorOk` holds for `start = pos`);
+`convOk` refuses functions with far branches, since the linked semantics gives a 32-bit
+instruction without callee no exact effect (`convOk_nofar`, `wide_call` and `stepL_step`
+take the hypothesis); proofs updated (`jumpTr_some` gives `t.far = false`, `dokm_calls`,
+`calls_cases` by `transF_calls`, `transF_of`, `transF_nil`). Example `exFar_*` (the
+producer's certificate of a loop closed by a far branch: 26 cycles; refused without the
+listing and with `BX LR`), by `decide +kernel`, since the elaborator's `decide` exceeds its
+recursion limit (or the stack) on the target of a backward `BL`. `#print axioms`: the three
+standard ones. `CheckerMain` reads `"far"` and reports far branches apart from jumps through
+tables. Producer: `m0.far_branch` (in `wcet.cfg`, `stack.py`), `Analysis.fars`, the
+certificates' far entries, `ipet.far_ok` (mirror of `farOk`), the emulator's observations
+count a `BL` as a call only to a function entry (Python and C paths). Test
+`test_binloops.py FarBranches` (three mutations rejected). Measured against the runs of the
+day: the kernels unchanged; the larger programs +23 loops (`mpeg2`), none lost, no bound
+higher, 344 -> 348 certified functions, 452 -> 467 stack bounds, `petrinet`'s `main`
+certified (5,141 cycles; 518 observed); every certificate accepted; the run 1,354 -> 1,735 s.
+Paper III (`def:machine-run`, the trusted specification, the larger programs, `tab:lean3`),
+`formalization.yaml`, certificate format, guide parts 5 and 7, cycles README, CLAUDE.md, Lean
+counts.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

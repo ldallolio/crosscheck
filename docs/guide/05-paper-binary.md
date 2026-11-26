@@ -162,6 +162,20 @@ instructions. The checker:
 the machine code — a sequence of instruction addresses in which each step is allowed by the
 decoder — is a walk of the built graph with the same cycles, so the bound holds for it.
 
+**A `bl` that is not a call.** On the Cortex-M0 an unconditional `b` reaches only 2 KB. In a
+larger function Clang then writes the branch as `bl target`, an instruction meant for calls:
+`petrinet_main` closes its main loop with `bl 0x1c`. The processor just jumps (and writes the
+link register), but the checker read every `bl` as a call returning to the next
+instruction, to a function that does not exist here: the function, and everything that calls
+it, got no bound. A certificate may now list such a `bl` as a **far branch** (`"far": true`
+in its jumps, Lean `JT.far`, `transF`): its successor is its target, with no call. That is
+the processor's own behaviour, but one thing changes: the link register no longer holds the
+return address. So the checker also asks (`farOk`) that nothing after the entry reads it — no
+`bx lr`, no `push {lr}` except at the entry, no `mov rX, lr` — and that nothing jumps back to
+the entry; the return is then the `pop {.., pc}` of the value saved at the entry. Example
+`exFar_sound` (a loop closed by a far branch, 26 cycles); `exFar_bx_refused` (the same with
+`bx lr`, refused).
+
 **The decoder is trusted**, as an instruction-set specification is. It is tested against the
 interpreter's decoder on all 2¹⁶ halfwords and against llvm-objdump on the 24 285 instructions
 of the kernels (`test_thumb.py`): no difference. It is not validated on hardware (Fox and

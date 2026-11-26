@@ -182,6 +182,9 @@ structure JT where
   tgts : List Nat
   ix : Option Nat := none
   vr : Option (Nat × Nat × Nat) := none
+  /-- A far branch: the `BL` at `pos` is a branch to its target inside the function (Clang's
+      long branch when `B` cannot reach), not a call; `start` and `tgts` are not used. -/
+  far : Bool := false
   deriving DecidableEq, Repr
 
 /-- The halfword, byte and word of the code at an address (aligned; halfwords below
@@ -255,13 +258,24 @@ def pcDestV (a : Nat) (add : Bool) (v : Nat) : Nat :=
 
 /-- The transitions of the jump at `a` listed in `J`. -/
 def jumpTr (J : List JT) (a : Nat) : List (Option Nat × Nat × List Nat) :=
-  match J.find? (fun t => t.pos == a) with
+  match J.find? (fun t => !t.far && t.pos == a) with
   | some t => t.tgts.map fun q => (some q, 3, [])
   | none => []
 
+/-- The `BL` at `a` is listed as a far branch. -/
+def farAt (J : List JT) (a : Nat) : Bool := J.any fun t => t.far && t.pos == a
+
+/-- The transitions of an instruction, a listed far branch `BL` going to its target (what the
+    processor does: the program counter takes the target, the link register `a + 5`), with
+    no call. -/
+def transF (J : List JT) (i : Insn) (a : Nat) : List (Option Nat × Nat × List Nat) :=
+  match i.kind with
+  | .call t => if farAt J a then [(some t, i.cyc, [])] else trans i a
+  | _ => trans i a
+
 /-- The transitions of an instruction, with those of a listed jump. -/
 def transJ (J : List JT) (i : Insn) (a : Nat) : List (Option Nat × Nat × List Nat) :=
-  trans i a ++ jumpTr J a
+  transF J i a ++ jumpTr J a
 
 /-- A loop row on transitions between addresses: `Σ coef(src, dst)·x(src → dst) ≤ rhs`. -/
 structure MRow where
@@ -339,10 +353,36 @@ def buildFn (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) : Option Grap
     | none => none
   else none
 
+/-- The instruction (halfword `h`) may read the link register `r14`: `BX LR`, `PUSH` with
+    `LR`, or an `ADD`, `CMP`, `MOV` of high registers with `r14` as an operand. -/
+def readsLr (h : Nat) : Bool :=
+  (h >>> 9 == 0b1011010 && (h >>> 8) % 2 == 1) ||
+  (h >>> 10 == 0b010001 && ((h >>> 3) % 16 == 14 ||
+    ((h >>> 8) % 4 != 2 && (h >>> 8) % 4 != 3 && ((h >>> 7) % 2) * 8 + h % 8 == 14)))
+
+/-- A function with far branches: each listed one is a `BL` (to a target other than the
+    entry, which no transition reaches), and the link register, which they overwrite, is read
+    only by a `PUSH` at the entry, so that a return (`POP {.., PC}`; `BX LR` reads it) does
+    not use it. Not used by the proofs: with it, the semantics `MRun`, in which a return ends
+    the function's run, describes the processor (as for a function without far branches,
+    whose `BL` are calls). -/
+def farOk (mul : Nat) (c : Code) (f : BFun) : Bool :=
+  !(f.jumps.any (·.far)) ||
+  ((f.jumps.all fun t => !t.far || match decode mul c t.pos with
+      | some i => match i.kind with
+        | .call q => q != f.entry
+        | _ => false
+      | none => false) &&
+   (f.nodes.all fun a => a == f.entry || match c.get a with
+      | some h => !readsLr h
+      | none => true) &&
+   (medges mul c f.jumps f.nodes).all fun m => m.2.1 != some f.entry)
+
 /-- The check of cycle certificates on machine code; jumps through tables only with `jt`
-    (the data semantics, `ThumbData.data_sound`, proves that they follow their targets). -/
+    (the data semantics, `ThumbData.data_sound`, proves that they follow their targets); far
+    branches (`JT.far`) with or without it (`farOk`). -/
 def checkBinary (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (jt : Bool := false) : Bool :=
-  fs.all (fun f => jt || f.jumps.isEmpty) &&
+  fs.all (fun f => (jt || f.jumps.all (·.far)) && farOk mul c f) &&
   match optMap (buildFn mul c (fs.map (·.entry))) fs with
   | some Ps => checkProgram Ps Cs
   | none => false

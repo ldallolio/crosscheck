@@ -1153,7 +1153,9 @@ def jumpInv (abi : Bool) (c : Code) (f : BFun) (L : DFun) (t : JT) : Bool :=
 
 /-- The check of a jump, by its form. -/
 def jumpOkF (abi : Bool) (mul : Nat) (c : Code) (f : BFun) (L : DFun) (t : JT) : Bool :=
-  if t.ix.isSome then (if t.vr.isSome then jumpInv abi c f L t else jumpRng abi c t)
+  -- a far branch (`farOk`, in `checkBinary`) has no window
+  if t.far then true
+  else if t.ix.isSome then (if t.vr.isSome then jumpInv abi c f L t else jumpRng abi c t)
   else jumpOk abi mul c t
 
 /-- Nothing enters the window of a jump except from the instruction before it on its path
@@ -1276,6 +1278,9 @@ def convNode (mul : Nat) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
 
 /-- The calling convention of one function. -/
 def convOk (mul : Nat) (c : Code) (f : BFun) (L : DFun) : Bool :=
+  -- not with far branches (`JT.far`: a `BL` that does not call): the linked semantics
+  -- (`ThumbConv.StepL`) gives a 32-bit instruction without callee no exact effect
+  !(f.jumps.any (·.far)) &&
   spAt f L f.entry == some 0 && f.nodes.all (convNode mul c f L)
 
 /-- The calling convention of every function of the certificate. -/

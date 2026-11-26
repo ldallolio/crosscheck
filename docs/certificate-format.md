@@ -368,6 +368,14 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   of the index, requires the address to be a listed target, and requires that nothing
   enters the window but from the instruction before (`interiorOk`); the targets are then
   the jump's transitions in the graph (`transJ`).
+  A **far branch** is listed in the same list as `{"start": p, "pos": p, "targets": [],
+  "far": true}`: the `BL` at `p` is a branch to its target inside the function (Clang's
+  long branch where `B` cannot reach), not a call (Lean `JT.far`, `transF`); allowed in
+  versions 1 and 2. The checker then requires (`farOk`) that it is a `BL` to an address
+  other than the entry, that no transition goes to the entry, and that no instruction but
+  the one at the entry may read the link register (`BX LR`, `PUSH` with `LR`, high-register
+  `ADD`/`CMP`/`MOV` with `r14`); the calling convention is not established for such a
+  function (`convOk`).
 - `"proofs"`: one Farkas certificate `[mu, [[premise index, multiplier], ...]]` per
   obligation, in the order of `Thumb.obligations` (the entry's invariant and the
   potentials at the entry from the ranges alone; then, for every instruction, every
