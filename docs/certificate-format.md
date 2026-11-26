@@ -314,6 +314,12 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   `2^k·Ψ(next) ≤ Ψ(here)` and `Ψ(next) ≥ 1` for `k > 0`, `Ψ(next) ≤ Ψ(here)` for `k = 0`,
   `Ψ(next) ≤ 2^(1−k) − 1` for `k < 0`, one proof per goal, in this order); the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body} N·x(u→h) ≤ N`
   if the entry is in the body, `≤ 0` otherwise (at most N/D back edges per entry).
+  `"outer": {"header": h°, "body": [addresses]}` (optional): an **amortised** row, with an
+  enclosing loop; `"pot"` is then in the order of the enclosing loop's body, the potential
+  is `0` outside it, and the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body°} N·x(u→h°) ≤ N`
+  if the entry is in `body°`, `≤ 0` otherwise: at most N/D back edges of the loop per entry
+  of the enclosing loop (Lean `LoopCert.outer`, `coefStep`; the same loop may also be listed
+  with an ordinary row).
 - `"kinds"`: per instruction (order of `nodes`) the operation that set the flags,
   `"none"`, `"add"`, `"sub"` or `"nz"` (N and Z of the value in `8`, after `LSLS`, `LSRS`,
   `ASRS` or `MOVS` with an immediate; `9` is then 0); `"inv"`: per instruction a list of constraints

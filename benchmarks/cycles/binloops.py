@@ -31,6 +31,10 @@ import wcet
 
 CONG = True
 DISJ = True          # disjunctive invariants at a possible wrap-around (`window_transfer`)
+# amortised rows (`amortised`): off unless asked for (`run_cycles.py --amortised`); in the
+# TACLeBench runs of 2026-11-26 they found nothing and cost up to 40 % more time
+AMORT = os.environ.get("CROSSCHECK_AMORT", "0") == "1"
+AMORT_LOG = os.environ.get("CROSSCHECK_AMORT_LOG")
 LOG_POT = True       # logarithmic potentials (`synth_lp(log=...)`)
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
@@ -817,20 +821,33 @@ def ranges_n(n):
 
 
 class Loop:
-    def __init__(self, header, body, scale, bound, pot, log=False):
+    def __init__(self, header, body, scale, bound, pot, log=False, outer=None):
         self.header, self.body, self.scale, self.bound, self.pot = header, body, scale, bound, pot
         # a logarithmic potential: floor(log2) of the affine expressions `pot` (Lean `LoopCert.log`)
         self.log = log
+        # an amortised row (Lean `LoopCert.outer`): (header, body) of an enclosing loop; the
+        # potentials are those of its instructions, and the row bounds the back edges of this
+        # loop per entry of the enclosing one
+        self.outer = outer
+
+    @property
+    def dom(self):
+        return self.body if self.outer is None else self.outer[1]
+
+    @property
+    def ent(self):
+        return self.header if self.outer is None else self.outer[0]
 
     def pot_at(self, a):
-        if a is None or a not in self.body:
+        if a is None or a not in self.dom:
             return pconst(0)
-        return self.pot[self.body.index(a)]
+        return self.pot[self.dom.index(a)]
 
     def coef(self, a, nxt):
-        if nxt != self.header:
-            return 0
-        return self.scale if a in self.body else -self.bound
+        k = self.scale if nxt == self.header and a in self.body else 0
+        if nxt == self.ent and a not in self.dom:
+            k -= self.bound
+        return k
 
 
 def pot_goals(lc, k, p, q):
@@ -845,7 +862,7 @@ def pot_goals(lc, k, p, q):
 
 
 def row_rhs(entry, lc):
-    return lc.bound if entry in lc.body else 0
+    return lc.bound if entry in lc.dom else 0
 
 
 class Invs(dict):
@@ -2252,7 +2269,7 @@ def synth_transport(ctx, kind, state, h, body, lin, sgn, cache=None):
     return best
 
 
-def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
+def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=None):
     """A potential per instruction of the loop, each with its own linear part, found by one
     linear program over the checker's own obligations (the potentials and the Farkas
     multipliers are the unknowns: Colon & Sipma 2001, Podelski & Rybalchenko 2004, and
@@ -2270,10 +2287,16 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
     `log` = (D, N): a logarithmic potential (Lean `potGoals`): affine `psi` per instruction
     with `2^D psi(header) <= psi` on the transitions back to the header, `psi(header) >= 1`
     there, `psi` not increasing elsewhere in the loop, `psi(header) <= 2^(N+1) - 1` on
-    entry; candidates [(N', [psi], D, True)], N' from the bound on `psi` at the header."""
+    entry; candidates [(N', [psi], D, True)], N' from the bound on `psi` at the header.
+
+    `outer` = (header, body) of an enclosing loop: an amortised row (Lean `LoopCert.outer`),
+    the potentials on the enclosing loop's instructions, `-N` on its entries (affine only)."""
     import numpy as np
     from scipy.sparse import coo_matrix
-    B = set(body)
+    Bk = set(body)          # the back edges counted: from the loop's body to its header
+    B = Bk if outer is None else set(outer[1])      # where the potentials are
+    he = h if outer is None else outer[0]           # the header whose entries are counted
+    region = body if outer is None else outer[1]
     S = len(ctx.slots)
     nv = nvars(S)
     rng = ranges_n(nv)
@@ -2286,7 +2309,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
         return col[key]
 
     NB = var("N")
-    for a in body:
+    for a in region:
         for v in V:
             var(("p", a, v))
         var(("c", a))
@@ -2352,11 +2375,10 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
                             add_oblig(prem, gd, (gcc, gk))
                         continue
                     gd, gcc, gk = {}, {}, 0
-                    if nxt == h:
-                        if a in B:
-                            gk += 1
-                        else:
-                            gcc[NB] = gcc.get(NB, 0) - 1
+                    if nxt == h and a in Bk:
+                        gk += 1
+                    if nxt == he and a not in B:
+                        gcc[NB] = gcc.get(NB, 0) - 1
                     if nxt in B:
                         for v in V:
                             pc = col[("p", nxt, v)]
@@ -2376,12 +2398,14 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
                         cc_ = col[("c", a)]
                         gcc[cc_] = gcc.get(cc_, 0) - 1
                     add_oblig(prem, gd, (gcc, gk))
-    if ctx.entry == h:
+    if ctx.entry in B if outer is not None else ctx.entry == h:
+        e0 = ctx.entry
         gd = {}
         for v in V:
-            gd.setdefault(v, {})[col[("p", h, v)]] = 1
+            gd.setdefault(v, {})[col[("p", e0, v)]] = 1
         if log is None:
-            add_oblig(list(rng), gd, ({col[("c", h)]: 1, NB: -1}, 0))
+            add_oblig((list(ctx.pre_lins) if outer is not None else []) + list(rng), gd,
+                      ({col[("c", e0)]: 1, NB: -1}, 0))
         else:
             add_oblig(list(ctx.pre_lins) + list(rng), gd, ({col[("c", h)]: 1}, 1 - 2 ** (log[1] + 1)))
     n = len(col)
@@ -2445,7 +2469,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None):
               if key == "N" or key[0] in ("p", "c")}
         L = math.lcm(*[f.denominator for key, f in fr.items() if key != "N" and key[0] == "p"] + [1])
         pots = []
-        for a in body:
+        for a in region:
             d = {v: int(fr[("p", a, v)] * L) for v in V if fr[("p", a, v)] != 0}
             pots.append((d, math.ceil(fr[("c", a)] * L)))
         N = math.ceil(Fraction(float(x[NB])) * L - Fraction(1, 10 ** 6))
@@ -2729,6 +2753,74 @@ def inv_jumps_unproved(ctx, inv):
     return bad
 
 
+def amortised(ctx, kind, full, loops, deadline):
+    """Amortised rows (Lean `LoopCert.outer`): for each certified loop and each loop that
+    encloses it, a potential on the enclosing loop's instructions that bounds the back edges
+    of the inner loop per entry of the enclosing one, kept if it is below the product of the
+    bounds per entry (inner `N/D` times the enclosing loop's bound plus one) and proved."""
+    per = {lc.header: -(-lc.bound // lc.scale) for lc in loops if lc.outer is None}
+    S = len(ctx.slots)
+    V = list(range(8)) + [20 + j for j in range(S)]
+
+    def written(a):
+        # the registers and tracked words that the instruction at `a` may change
+        eff, st = ctx.aeff[a], ctx.st[a]
+        return {v for v in V
+                if post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, 0, v) != ({v: 1}, 0)}
+
+    def prod_of(lc, No):
+        return per[lc.header] * (No + 1)
+
+    out = []
+    for lc in [x for x in loops if x.outer is None and not x.log]:
+        inner = set(lc.body)
+        # the variables of the inner loop's potentials (not the ghosts)
+        pvars = {v for p in lc.pot for v in p[0] if v not in (8, 9)}
+        encl = sorted(((oh, ob, ns) for oh, ob, ns in ctx.iloops if inner < set(ob)),
+                      key=lambda t: len(t[1]))
+        for oh, ob, ns in encl:
+            No = per.get(oh, ns)
+            if No is None:
+                continue
+            # an inner loop whose counter the enclosing loop sets again (reset, or copied
+            # from the outer counter) restarts at every turn: no affine amortised potential
+            # beats the product then; tried only if some variable of its potentials is
+            # written nowhere else in the enclosing loop
+            outside = set()
+            for a in ob:
+                if a not in inner:
+                    outside |= written(a)
+            if not pvars - outside:
+                _amort_log(ctx, lc, oh, prod_of(lc, No), "restarts")
+                continue
+            prod = prod_of(lc, No)
+            best = None
+            for coarse in (False, True):
+                if deadline is not None and _work() >= deadline:
+                    return out
+                for N, pots, D in synth_lp(ctx, kind, full, lc.header, lc.body, coarse,
+                                           outer=(oh, ob)):
+                    if Fraction(N, D) >= prod:
+                        break
+                    cand = Loop(lc.header, lc.body, D, N, pots, False, (oh, ob))
+                    if prove_all(ctx, kind, full, [cand])[0]:
+                        best = cand
+                        break
+                if best is not None:
+                    break
+            _amort_log(ctx, lc, oh, prod, "none" if best is None else
+                       f"found {-(-best.bound // best.scale)}")
+            if best is not None:
+                out.append(best)
+    return out
+
+
+def _amort_log(ctx, lc, oh, prod, what):
+    if AMORT_LOG:
+        with open(AMORT_LOG, "a") as fh:
+            fh.write(f"{ctx.name} inner={lc.header:#x} outer={oh:#x} product={prod} {what}\n")
+
+
 def certify_loops(an, name, abi=False, prefer_source=True, frame=False, pre=None, need_inv=False):
     """The loop certificate of a function: (JSON fields, [(header, N/D rounded up, source
     N)] of the certified loops, [(header, reason)] of the others). If a loop is left
@@ -2887,6 +2979,10 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
             continue
         loops.append(Loop(h, body, D, N, pots, len(s) > 3 and s[3]))
         info.append((h, eff_n, Nsrc))
+    if AMORT and LP and loops:
+        if full is None:
+            full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+        loops += amortised(ctx, kind, full, loops, deadline)
     if not loops and not injumps and not need_inv:
         return sp_only, [], why
     if full is None and injumps:
@@ -2902,7 +2998,9 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         kinds=[kind.get(a, "none") for a in ctx.nodes],
         inv=[[js_lin(g) for g in inv.get(a, [])] for a in ctx.nodes],
         loops=[dict(header=lc.header, body=lc.body, scale=lc.scale, bound=lc.bound,
-                    pot=[js_lin(p) for p in lc.pot], **({"log": True} if lc.log else {})) for lc in loops],
+                    pot=[js_lin(p) for p in lc.pot], **({"log": True} if lc.log else {}),
+                    **({"outer": dict(header=lc.outer[0], body=lc.outer[1])} if lc.outer else {}))
+               for lc in loops],
         sp=[ctx.sp.get(a) for a in ctx.nodes],
         slots=ctx.slots,
         frame=ctx.frame,

@@ -141,7 +141,7 @@ def trans(i, jumps=None):
 
 def certify_function(an, name, bound_of, base=0, cert_loops=()):
     """(JSON of the function, bound); `bound_of`: certified bounds by function address;
-    `cert_loops`: [(header, body, scale, bound)] of the loops certified on the machine code
+    `cert_loops`: [(header, body, scale, bound[, outer])] of the loops certified on the machine code
     (`binloops.py`), whose rows the checker generates (after the trusted ones, in this
     order: `Thumb.loopRow`)."""
     try:
@@ -176,7 +176,7 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
                 g = an.img.undefined.get(t) or next((n for n, (a, _) in an.img.funcs.items() if a == t), hex(t))
                 raise NoCertificate(f"call to {g}, which has no certificate")
     rows, mrows = [], []
-    certified = {h for h, *_ in cert_loops}
+    certified = {h for h, _b, _d, _n, *rest in cert_loops if not rest or rest[0] is None}
     for h, body in loops.items():
         if h in certified:
             continue
@@ -192,10 +192,19 @@ def certify_function(an, name, bound_of, base=0, cert_loops=()):
         rows.append(([[k, coef[p]] for k, p in enumerate(pairs) if p in coef], rhs))
         mrows.append(dict(coef=[[s + base, t + base, a] for (s, t), a in sorted(coef.items())], rhs=rhs,
                           note=f"loop at {h + base:#x}: at most {N} back edges per entry"))
-    for h, body, D, N in cert_loops:
+    for h, body, D, N, *rest in cert_loops:
+        outer = rest[0] if rest else None
         B = set(body)
-        coef = [[k, D if s in B else -N] for k, (s, t) in enumerate(pairs) if t == h]
-        rows.append((coef, N if entry in B else 0))
+        if outer is None:
+            coef = [[k, D if s in B else -N] for k, (s, t) in enumerate(pairs) if t == h]
+            rows.append((coef, N if entry in B else 0))
+        else:
+            # amortised (`Thumb.loopRow` with `outer`): D on the back edges of the loop, -N on
+            # the entries of the enclosing loop, per entry of which the row bounds them
+            oh, R = outer[0], set(outer[1])
+            coef = [[k, D] for k, (s, t) in enumerate(pairs) if t == h and s in B] + \
+                   [[k, -N] for k, (s, t) in enumerate(pairs) if t == oh and s not in R]
+            rows.append((coef, N if entry in R else 0))
     weights = [w + sum(bound_of[t] for t in cs) for (_u, _v, w, cs) in edges]
     allnodes = list(range(exit_ + 1))
     lam = lp_multipliers(allnodes, edges, rows, idx[entry], exit_, weights)
@@ -516,7 +525,9 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
                 if fields.get("unproved_jumps"):
                     raise NoCertificate("the invariants of the certificate do not bound the index of the "
                                         f"jump at {min(fields['unproved_jumps']):#x}")
-                cl = [(l["header"], l["body"], l["scale"], l["bound"]) for l in fields.get("loops", [])]
+                cl = [(l["header"], l["body"], l["scale"], l["bound"],
+                       (l["outer"]["header"], l["outer"]["body"]) if "outer" in l else None)
+                      for l in fields.get("loops", [])]
                 if stats is not None:
                     stats[name] = dict(certified=info, other=lwhy, seconds=secs, meter=meter)
             fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base, cl)

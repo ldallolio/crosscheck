@@ -2617,6 +2617,31 @@ the kernels and +14 % on the larger programs (1,293 -> 1,417 s). Paper III (data
 loop certificates, `lem:log-descent`, `lem:cond-facts`, the producer), `formalization.yaml`,
 certificate format, guide parts 5 and 7, cycles README, CLAUDE.md, Lean counts.
 
+152. "Let's go with amortised loop nests then!"
+
+What the AI did for 152 (Claude Opus 5.5, 2026-11-26): amortised rows on the machine code
+(step 4 of the plan). Lean: a loop certificate may name an enclosing loop
+(`LoopCert.outer`: its header and body); the potentials are then given on the enclosing
+loop's instructions (`LoopCert.dom`), and the row has `D` on the loop's back edges and `-N`
+on the transitions that enter the enclosing loop (`LoopCert.ent`, `coefStep`, `loopRow`;
+`rowRhs` on `dom`), so it bounds the back edges per entry of the enclosing loop. The
+obligations and the telescoping proof are unchanged (they never depended on the
+coefficients); `loopRow_coef` (by `coefPair_append`) shows that the generated row has the
+coefficients of `coefStep`, and `loopRow_rhs` its right-hand side. Example `exAm_*` (the
+producer's certificate for `i = j = 0; while (i < 100) { while (j <= 99 && a[j] != 0) j++;
+i++; }`, with the potential `100 - r2` written by hand: 2,409 cycles; refused with a bound
+of 99 or read as an ordinary row). `#print axioms`: the three standard ones. `CheckerMain`
+reads `outer`. Producer: `Loop(outer=)`, `synth_lp(outer=)`, `binloops.amortised`, rows in
+`ipet.certify_function`; test `test_binloops.py Amortised` (2,409 against 101,409 without;
+four mutations rejected). Measurements on the 7 kernel configurations and the larger
+programs, against the runs of 2026-11-25: no loop and no function bound changed; without a
+filter the runs took up to three times as long, so a nest is tried only if some variable of
+the inner loop's potentials is written nowhere else in the enclosing loop; then 743 nests
+considered, 673 restarting, one row found in a function without a cycle bound, and the
+search is off by default (`run_cycles.py --amortised`). Paper III (definition of loop
+certificates, the producer, `tab:lean3`), `formalization.yaml`, certificate format, guide
+parts 5 and 7, cycles README, CLAUDE.md, Lean counts.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

@@ -21,6 +21,7 @@ For each kernel (the same single-file unit as benchmarks/tacle/run_tacle.py):
 """
 import argparse
 import json
+import os
 import pathlib
 import sys
 import time
@@ -412,6 +413,9 @@ def main():
                     help="with --certify-loops: give the functions with loops a precondition on r0-r3 from "
                          "their calls, proved at every call by the checker (their bounds then hold for the "
                          "calls of the program)")
+    ap.add_argument("--amortised", action="store_true",
+                    help="with --certify-loops: also look for amortised rows (the back edges of a loop "
+                         "bounded per entry of a loop that encloses it; env CROSSCHECK_AMORT=1)")
     ap.add_argument("--cflag", action="append", default=[],
                     help="an extra compiler flag for the Cortex-M0 build (e.g. -fomit-frame-pointer)")
     ap.add_argument("--tag", default="",
@@ -437,6 +441,11 @@ def main():
     a = ap.parse_args()
     m0.MUL_CYCLES = a.mul_cycles
     src = run_tacle.fetch(pathlib.Path(a.cache), run_tacle.REV)
+    if a.amortised:
+        # the environment reaches the worker processes, whatever their start method
+        os.environ["CROSSCHECK_AMORT"] = "1"
+        import binloops
+        binloops.AMORT = True
     work = pathlib.Path(a.cache) / "work"
     work.mkdir(parents=True, exist_ok=True)
     kernels = [k for cat in (a.category or ["kernel"]) for k in sorted((src / "bench" / cat).iterdir())

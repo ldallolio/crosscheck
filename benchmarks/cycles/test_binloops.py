@@ -435,6 +435,54 @@ class LogPotentials(unittest.TestCase):
             self.assertEqual(check(d)[0], 1)
 
 
+# i = j = 0; while (i < 100) { while (j <= 99 && a[j] != 0) j++; i++; }: the inner loop
+# runs up to 100 times per entry, but up to 100 times in all, since j is never reset
+AMLOOP = {0x100: [0x2100, 0x2200, 0x2964, 0xD208, 0x2A63, 0xD804, 0x5C83, 0x2B00, 0xD001, 0x3201,
+                  0xE7F8, 0x3101, 0xE7F4, 0x4770]}
+
+
+def am_doc(amort=True):
+    an = test_ipet.analysis(AMLOOP, {"f": (0x100, 28)}, range(0x100, 0x11C, 2), 1000)
+    st = {}
+    saved, binloops.AMORT = binloops.AMORT, amort
+    try:
+        doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+    finally:
+        binloops.AMORT = saved
+    return doc, bounds, st
+
+
+class Amortised(unittest.TestCase):
+    """A nest whose inner loop continues its counter: the amortised row bounds its back edges
+    per entry of the outer loop (`outer`), so the function's bound is not the product; the
+    checker rejects a smaller bound, another enclosing loop, a part of it left out, or the row
+    read as an ordinary one."""
+
+    def test_producer(self):
+        doc, bounds, st = am_doc()
+        loops = doc["programs"][0]["functions"][0]["loops"]
+        am = [lc for lc in loops if "outer" in lc]
+        self.assertEqual([(lc["header"], lc["outer"]["header"], lc["bound"] // lc["scale"]) for lc in am],
+                         [(0x108, 0x104, 100)])
+        self.assertEqual(sorted(x[:2] for x in st["f"]["certified"]), [(0x104, 100), (0x108, 100)])
+        self.assertLess(bounds["f"], 3000)
+        self.assertGreater(am_doc(False)[1]["f"], 100_000)
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = am_doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        am = lambda d: next(lc for lc in d["programs"][0]["functions"][0]["loops"] if "outer" in lc)  # noqa: E731
+        for name, change in (("bound", lambda d: am(d).update(bound=am(d)["scale"] * 99)),
+                             ("outer header", lambda d: am(d)["outer"].update(header=0x108)),
+                             ("outer body", lambda d: am(d)["outer"]["body"].remove(0x116)),
+                             ("ordinary", lambda d: am(d).pop("outer"))):
+            d = copy.deepcopy(doc)
+            change(d)
+            self.assertEqual(check(d)[0], 1, name)
+
+
 class Disjunctions(unittest.TestCase):
     """A counter that exits on its wrap-around: the invariant between the subtraction and the
     branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate

@@ -498,7 +498,10 @@ def parseLoop (j : Json) : Except String ImperativeOptimization.Thumb.LoopCert :
   pure ⟨← getNat j "header", ← natList (← field j "body") "body", ← getNat j "scale", ← getNat j "bound",
     ← parseArr j "pot" parseDPExp, match j.getObjValAs? Bool "log" with
       | .ok b => b
-      | .error _ => false⟩
+      | .error _ => false,
+    ← match j.getObjVal? "outer" with
+      | .ok o => do pure (some (← getNat o "header", ← natList (← field o "body") "body"))
+      | .error _ => pure none⟩
 
 /-- A Farkas certificate `[mu, [[premise, multiplier], ...]]`. -/
 def parseProof (j : Json) : Except String (Nat × List Nat) := do

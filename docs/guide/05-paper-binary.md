@@ -329,6 +329,40 @@ The producer tries this when no affine potential is found: for a register shifte
 place once per turn it writes `Ψ` directly; otherwise it runs the linear program of the
 affine case with these goals for a fixed scale.
 
+### Loops that continue: amortised rows
+
+A loop row says "at most `N` back edges per entry of the loop". In a nest, IPET then lets the
+inner loop run `N` times at every turn of the outer one: the bound is the product. That is
+right when the inner loop starts again from scratch, and far too high when it continues
+where it stopped:
+
+```c
+i = j = 0;
+while (i < 100) {                      /* outer: 100 turns */
+    while (j <= 99 && a[j] != 0) j++;  /* inner: up to 100 per entry, 100 in all */
+    i++;
+}
+```
+
+An **amortised row** counts the entries of the *enclosing* loop instead: "at most `N` back
+edges of the inner loop per entry of the outer loop". Its certificate is the same as an
+ordinary one, with the potential given on the outer loop's instructions (`"outer"` in the
+certificate, Lean `LoopCert.outer`): here `Φ = 100 − r2` everywhere in the outer loop
+(`101 − r2` between `j++` and the back edge). The checker's obligations do not change; only
+the coefficients of the row do (`coefStep`: `D` on the inner back edges, `−N` on the
+transitions that enter the outer loop), and the telescoping argument never looked at them.
+Example `exAm_sound`: 2,409 cycles, against 101,409 with the product; `exAm_needs_outer`:
+the same potentials as an ordinary row are refused.
+
+On request (`run_cycles.py --amortised`), the producer tries this for every certified loop
+and every loop that encloses it, with the same linear program as before over the larger set
+of instructions, and keeps the row only if its bound is below the product of the bounds per
+entry. It skips a nest when the outer loop writes every variable of the inner loop's
+potential (the inner loop then restarts at each turn). Triangular nests (`for j < i`) are
+not amortised this way either: their total is quadratic in the bound, and the potentials are
+affine. On TACLeBench compiled at `-O1` it found no nest where this lowers a bound (743
+nests considered, 673 of them restarting), so the option is off by default.
+
 ### Stack slots, and two assumptions
 
 At `-O1`, a counter that must survive a call is often kept in the stack frame

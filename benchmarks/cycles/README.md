@@ -843,6 +843,48 @@ functions as before; work +14 %, time 1,293 → 1,417 s (17 more linear programs
 60 CPU seconds, 49 in all; the slowest successful solve 13.3 CPU s). Not certified yet: binary search (`(lo + hi) >> 1`; a potential `hi - lo + 1`
 halving, which HiGHS does not find), bit reversal (a counter shifted left up to a limit).
 
+### Loops that continue: amortised rows (2026-11-26)
+
+```bash
+python3 run_cycles.py --check --certify DIR --checker ../../formalization/.lake/build/bin/crosscheck-check \
+  --certify-loops --abi --frame --amortised --json both.json
+```
+
+A loop row bounds the back edges of a loop per entry of that loop, so IPET multiplies the
+bounds of a nest. An **amortised row** (certificate field `outer`, Lean `LoopCert.outer`)
+bounds them per entry of an enclosing loop instead: the potentials are given on the
+enclosing loop's instructions, the row has `D` on the loop's back edges and `−N` on the
+entries of the enclosing loop (`coefStep`, `loopRow_coef`); the obligations are those of an
+ordinary loop. Test `test_binloops.py Amortised`: `i = j = 0; while (i < 100) { while (j <=
+99 && a[j] != 0) j++; i++; }`, 2,409 cycles instead of 101,409; four mutations rejected (Lean
+example `exAm_sound`, refusals `exAm_bound_refused`, `exAm_needs_outer`).
+
+The producer (`binloops.amortised`, option `--amortised`, env `CROSSCHECK_AMORT=1`) tries
+every certified loop in every loop that encloses it, with the linear program of `synth_lp`
+over the enclosing loop's instructions, and keeps the row if its bound is below the product
+of the bounds per entry. Without a filter, it found nothing and the runs took up to three
+times as long (`both` 285 → 846 s, `crt` 243 → 841 s, `pm_kernel` alone 265 → 826 s, the
+larger programs 1,417 → 2,122 s). A nest is now tried only if some variable of the inner
+loop's potentials is written nowhere else in the enclosing loop (an inner loop whose counter
+is set again at each turn has no affine amortised potential below the product). With that
+filter (`CROSSCHECK_AMORT_LOG=FILE` lists every nest considered), against the runs of
+2026-11-25:
+
+| Run | Seconds (before) | Seconds (amortised) |
+|---|---:|---:|
+| plain / abi / both | 96 / 139 / 285 | 102 / 142 / 363 |
+| nofp plain / abi / both | 80 / 159 / 287 | 78 / 159 / 248 |
+| crt | 243 | 345 |
+| larger programs | 1,417 | 1,407 |
+
+Loops and function bounds are unchanged in every run (`compare_runs.py`, and the certified
+bound of every function). Of the 743 nests considered, 673 set the inner counter again, 69
+have no amortised potential below the product, and one row is found (`ludcmp_init`: 30
+instead of 35 back edges), in a function without a cycle bound. At `-O1`, the inner loops of
+these programs restart at each turn of the outer one (rectangular nests, and triangular ones,
+whose total is quadratic in the bound while the potentials are affine). The option is off by
+default; the figures of this README are without it.
+
 ## OTAWA on the same binaries
 
 `run_otawa.py` gives CrossCheck's loop bounds to [OTAWA](https://github.com/statinf-otawa/otawa-project)
