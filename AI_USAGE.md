@@ -2642,6 +2642,50 @@ search is off by default (`run_cycles.py --amortised`). Paper III (definition of
 certificates, the producer, `tab:lean3`), `formalization.yaml`, certificate format, guide
 parts 5 and 7, cycles README, CLAUDE.md, Lean counts.
 
+153. "Proceed with binary search"
+
+What the AI did for 153 (Claude Opus 5.5, 2026-11-26): loop bounds of binary search on the
+machine code. Diagnosis: TACLeBench's `binarysearch_binary_search` at -O1 has one test
+`cmp r2, r4; bgt` reached by the three updates; `up = low - 1` (and `up = mid - 1`) wraps
+around to `2^32 - 1` when `low` (`mid`) is 0, so that a potential that doubles the range at
+the test is about `2^33` on that path; the producer found no certificate with one potential
+per instruction, affine or logarithmic. Lean: potentials per disjunct of the invariant
+(`LoopCert.potAlt`, `potAtD`: the potential where disjunct `d` holds, that of `pot` when none
+is given, so earlier certificates keep their meaning); `obsOf` uses the potential of the
+source disjunct and of the target disjunct normalized by `tgtN` (`tgtNo`, `tgtN_get`:
+`tgtInv` is the disjunct of that index); `step_ok` takes the source disjunct and returns the
+target index, `chain_ok` is quantified over the disjunct that holds, `chain_rows` starts from
+disjunct 0 at the entry; well-formedness of the new potentials in `checkDFun`
+(`potAtD_wf`). `potGoals`: no goal for a logarithmic potential when the next value is a
+constant at most 1 (an exit: `⌊log₂⌋` of it is 0), `potGoals_sound` extended; Paper III
+`lem:log-descent` gets that case. The example `exLog` was regenerated (fewer obligations).
+New module `ThumbSearch`: the producer's certificate of the function as Clang compiles it,
+checked by `decide` (`exBs_binary`, `exBs_data`; `exBs_sound`: 100 cycles; `exBs_needs_alt`:
+refused without the per-disjunct potentials). `#print axioms`: the three standard ones.
+`CheckerMain` reads `pot_alt`. Producer: mirror (`Loop(alt=)`, `pot_at(a, d)`, the exit rule
+in `pot_goals` and `_log_goals`); a richer analysis retried on a function with a shift right
+whose loops stay without a potential (`RICH`, `_has_shr`): intervals of shifts right and of
+sums/differences of registers that cannot wrap, wrap-around disjuncts carried through joins
+(`regions_of`, `analyse_rich`), relational facts after additions and shifts right
+(`rel_facts`, proved by `prove_all` before the linear programs: the first version gave the
+linear program an equality false in the wrap-around disjunct), a column per disjunct in
+`synth_lp`, the logarithmic search also when the affine bound exceeds the source bound
+(the first version stopped at an affine bound of 36 above the source bound 29), and tighter
+entry bounds once one is found (7 back edges with the loose bound, 3 with the tighter).
+Measured on the 7 kernel configurations and the larger programs against the runs of
+2026-11-25: the first version, which ran every search of the richer analysis on every loop
+of such a function, took up to 4.5 times as long (`fft_bit_reduct` 425 s), so it now keeps
+the potentials of the loops certified before and searches only logarithmic potentials of the
+loops that shift a value right; then each kernel configuration gains the binary search and
+its two inlined copies (156 -> 159, 213 -> 216, 273 -> 276; without frame pointers 159 ->
+162, 217 -> 220, 274 -> 277), none lost, no bound higher, every certificate accepted, no
+emulated run above a bound; `binarysearch`'s `main` 24,895 -> 24,453 cycles (24,241
+observed); the larger programs unchanged; the loop analysis takes 7 to 30 % longer.
+Test `test_binloops.py BinarySearch` (four mutations rejected). Paper III (definition of loop
+certificates, `lem:log-descent`, the binary search, the producer, `tab:loops`, `tab:steps`,
+`tab:lean3`), `formalization.yaml`, certificate format, guide parts 5 and 7, cycles README,
+CLAUDE.md, Lean counts.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

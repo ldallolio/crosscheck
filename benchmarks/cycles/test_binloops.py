@@ -483,6 +483,62 @@ class Amortised(unittest.TestCase):
             self.assertEqual(check(d)[0], 1, name)
 
 
+# TACLeBench's binarysearch_binary_search as Clang compiles it for the Cortex-M0 (-O1), moved to
+# 0x100: low = 0, up = 14; while (low <= up) { mid = (low + up) >> 1; if (data[mid].key == x)
+# { up = low - 1; ... } else if (data[mid].key > x) up = mid - 1; else low = mid + 1; }. The
+# range up - low + 1 halves at each pass: a logarithmic potential; `up = low - 1` wraps around
+# when low = 0 and joins the other paths before the test, so the potentials differ between the
+# disjuncts of the invariant there (`pot_alt`); found by the richer analysis (`rich`)
+BSEARCH = {0x100: [0xB5F0, 0xAF03, 0xB081, 0x2200, 0x43D1, 0x9100, 0x240E, 0x4B0B, 0xE005, 0x1999,
+                   0x6849, 0x9100, 0x1E54, 0x42A2, 0xDC0A, 0x1915, 0x106D, 0x00EE, 0x5999, 0x4281,
+                   0xD0F3, 0xDD01, 0x1E6C, 0xE7F4, 0x1C6A, 0xE7F2, 0x9800, 0xB001, 0xBDF0, 0x46C0,
+                   0x02EC, 0x0000]}
+
+
+def bs_doc(rich=True):
+    an = test_ipet.analysis(BSEARCH, {"f": (0x100, 60)}, range(0x112, 0x134, 2), 15)
+    st = {}
+    saved, binloops.RICH = binloops.RICH, rich
+    try:
+        doc, bounds, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st, abi=True, frame=True)
+    finally:
+        binloops.RICH = saved
+    return doc, bounds, st
+
+
+class BinarySearch(unittest.TestCase):
+    """Binary search: 3 back edges (four passes over 15 entries), certified with a logarithmic
+    potential per disjunct of the invariant; the checker rejects a smaller bound, the
+    potentials of the wrap-around disjuncts left out, and the potential read as affine."""
+
+    def test_producer(self):
+        doc, _, st = bs_doc()
+        fn = doc["programs"][0]["functions"][0]
+        lc = fn["loops"][0]
+        self.assertTrue(lc.get("log"))
+        self.assertTrue(any(lc.get("pot_alt", [])))
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x11E, 3)])
+        self.assertEqual(fn["rows"], [])
+        self.assertEqual(bs_doc(False)[2]["f"]["certified"], [])
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = bs_doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        lp = lambda d: d["programs"][0]["functions"][0]["loops"][0]  # noqa: E731
+        for name, change in (("bound", lambda d: lp(d).update(bound=lp(d)["scale"] * 2)),
+                             ("pot_alt", lambda d: lp(d).pop("pot_alt")),
+                             ("affine", lambda d: lp(d).pop("log"))):
+            d = copy.deepcopy(doc)
+            change(d)
+            self.assertEqual(check(d)[0], 1, name)
+        # the code: the halving replaced by a decrement of 1 (asrs r5, r5, #1 -> subs r5, r5, #1)
+        d = copy.deepcopy(doc)
+        d["code"]["halfwords"][0x100 // 2 + 16] = 0x1E6D
+        self.assertEqual(check(d)[0], 1, "subs")
+
+
 class Disjunctions(unittest.TestCase):
     """A counter that exits on its wrap-around: the invariant between the subtraction and the
     branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate

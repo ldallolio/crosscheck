@@ -311,7 +311,7 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   in the order of body], "log": true}` (`"log"` optional, default false: the potential of an
   instruction is then `⌊log₂ Ψ⌋` for the affine `Ψ` given, `0` below `1`; scale and bound at
   most 64; Lean `potGoals`: the descent `k + Φ(next) − Φ(here) ≤ 0` is checked as
-  `2^k·Ψ(next) ≤ Ψ(here)` and `Ψ(next) ≥ 1` for `k > 0`, `Ψ(next) ≤ Ψ(here)` for `k = 0`,
+  `2^k·Ψ(next) ≤ Ψ(here)` and `Ψ(next) ≥ 1` for `k > 0`, `Ψ(next) ≤ Ψ(here)` for `k = 0` (no goal if `Ψ(next)` is a constant at most `1`, as on an exit),
   `Ψ(next) ≤ 2^(1−k) − 1` for `k < 0`, one proof per goal, in this order); the row is `Σ_{u ∈ body} D·x(u→h) − Σ_{u ∉ body} N·x(u→h) ≤ N`
   if the entry is in the body, `≤ 0` otherwise (at most N/D back edges per entry).
   `"outer": {"header": h°, "body": [addresses]}` (optional): an **amortised** row, with an
@@ -320,6 +320,12 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   if the entry is in `body°`, `≤ 0` otherwise: at most N/D back edges of the loop per entry
   of the enclosing loop (Lean `LoopCert.outer`, `coefStep`; the same loop may also be listed
   with an ordinary row).
+  `"pot_alt": [[affine expressions], ...]` (optional, in the order of `"pot"`): potentials
+  per disjunct of the invariant; the list `k` gives, for the instruction of `"pot"[k]`, the
+  potentials where its disjuncts `1, 2, ...` (`"alt"`) hold; missing ones are those of
+  `"pot"` (Lean `LoopCert.potAlt`, `potAtD`). The obligation of a case uses the potential of
+  its source disjunct and that of the disjunct it lands in (`"pick"`, the first one if that
+  disjunct does not exist: `tgtN`).
 - `"kinds"`: per instruction (order of `nodes`) the operation that set the flags,
   `"none"`, `"add"`, `"sub"` or `"nz"` (N and Z of the value in `8`, after `LSLS`, `LSRS`,
   `ASRS` or `MOVS` with an immediate; `9` is then 0); `"inv"`: per instruction a list of constraints

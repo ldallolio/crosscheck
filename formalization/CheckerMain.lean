@@ -494,15 +494,6 @@ def parseKind (j : Json) : Except String ImperativeOptimization.Thumb.FKind :=
   | .ok "nz" => pure .nz
   | _ => throw "a kind must be \"none\", \"add\", \"sub\" or \"nz\""
 
-def parseLoop (j : Json) : Except String ImperativeOptimization.Thumb.LoopCert := do
-  pure ⟨← getNat j "header", ← natList (← field j "body") "body", ← getNat j "scale", ← getNat j "bound",
-    ← parseArr j "pot" parseDPExp, match j.getObjValAs? Bool "log" with
-      | .ok b => b
-      | .error _ => false,
-    ← match j.getObjVal? "outer" with
-      | .ok o => do pure (some (← getNat o "header", ← natList (← field o "body") "body"))
-      | .error _ => pure none⟩
-
 /-- A Farkas certificate `[mu, [[premise, multiplier], ...]]`. -/
 def parseProof (j : Json) : Except String (Nat × List Nat) := do
   let a ← match j.getArr? with
@@ -522,6 +513,18 @@ def optArr {α : Type} (j : Json) (k : String) (f : Json → Except String α) :
   match j.getObjVal? k with
   | .ok _ => parseArr j k f
   | .error _ => pure []
+
+def parseLoop (j : Json) : Except String ImperativeOptimization.Thumb.LoopCert := do
+  pure ⟨← getNat j "header", ← natList (← field j "body") "body", ← getNat j "scale", ← getNat j "bound",
+    ← parseArr j "pot" parseDPExp, match j.getObjValAs? Bool "log" with
+      | .ok b => b
+      | .error _ => false,
+    ← match j.getObjVal? "outer" with
+      | .ok o => do pure (some (← getNat o "header", ← natList (← field o "body") "body"))
+      | .error _ => pure none,
+    ← optArr j "pot_alt" (fun l => match l.getArr? with
+        | .ok a => a.toList.mapM parseDPExp
+        | .error _ => throw "pot_alt must be an array of arrays of potentials")⟩
 
 /-- A jump through a table: the address of its `CMP`, of the jump, its targets. -/
 def parseJT (j : Json) : Except String ImperativeOptimization.Thumb.JT := do

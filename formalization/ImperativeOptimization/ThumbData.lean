@@ -361,9 +361,20 @@ theorem potGoals_sound (lc : LoopCert) (k : Int) (p q : PExp) (ρ s : Env)
       omega
     · by_cases hk0 : k = 0
       · subst hk0
-        simp only [lt_irrefl, if_false, if_true, List.mem_singleton, forall_eq, goalLin_eval] at h
-        have := log2_mono (Int.toNat_le_toNat (show p.eval s ≤ q.eval s by linarith))
-        omega
+        simp only [lt_irrefl, if_false, if_true] at h
+        split_ifs at h with hz
+        · -- a constant at most 1 (an exit): `⌊log₂⌋` of it is 0
+          simp only [Bool.and_eq_true, decide_eq_true_eq] at hz
+          have hp : p.eval s ≤ 1 := by
+            simp only [PExp.eval, Checker.dot_isZero hz.1]; omega
+          have h0 : Nat.log2 (p.eval s).toNat < 1 := by
+            by_cases hz0 : (p.eval s).toNat = 0
+            · rw [hz0, Nat.log2_zero]; omega
+            · exact (Nat.log2_lt hz0).mpr (by omega)
+          omega
+        · simp only [List.mem_singleton, forall_eq, goalLin_eval] at h
+          have := log2_mono (Int.toNat_le_toNat (show p.eval s ≤ q.eval s by linarith))
+          omega
       · simp only [hk, hk0, if_false, List.mem_singleton, forall_eq, goalLin_eval, pconst_eval] at h
         set n := (1 - k).toNat with hn
         have hlt : (p.eval s).toNat < 2 ^ n := by
@@ -964,12 +975,13 @@ theorem checkDFun_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (∀ a ∈ f.nodes, nodeOk mul abi c f L a = true) ∧ kindAt f L f.entry = .none ∧
     (spAt f L f.entry = some 0 ∨ spAt f L f.entry = none) ∧ slotsOk L = true ∧
     (∀ l ∈ L.inv, ∀ g ∈ l, wfLin L.slots.length g = true) ∧
-    (∀ lc ∈ L.loops, ∀ p ∈ lc.pot, wfSv L.slots.length p.sv = true) ∧
+    (∀ lc ∈ L.loops, (∀ p ∈ lc.pot, wfSv L.slots.length p.sv = true) ∧
+      ∀ l ∈ lc.potAlt, ∀ p ∈ l, wfSv L.slots.length p.sv = true) ∧
     checkObs (obligations mul abi c f L) L.proofs = true := by
   simp only [checkDFun, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, beq_iff_eq,
     Bool.or_eq_true] at h
   obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, _⟩, h9⟩, h10⟩, _⟩, _⟩, _⟩, _⟩ := h
-  exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, fun lc hlc => (h9 lc hlc).1, h10⟩
+  exact ⟨h1, h2, h3, h4, h5, h6, h7, h8, fun lc hlc => ⟨(h9 lc hlc).1.1, (h9 lc hlc).1.2⟩, h10⟩
 
 theorem checkDFun_alt {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (h : checkDFun mul abi c f L = true) :
@@ -1328,6 +1340,38 @@ theorem potAt_wf (S : Nat) (lc : LoopCert) (hw : ∀ p ∈ lc.pot, wfSv S p.sv =
       | none => simp [hp, pconst, wfSv_nil]
       | some p => simp [hp]; exact hw p (List.mem_of_getElem? hp)
 
+theorem potAtD_wf (S : Nat) (lc : LoopCert) (hw : (∀ p ∈ lc.pot, wfSv S p.sv = true) ∧
+    ∀ l ∈ lc.potAlt, ∀ p ∈ l, wfSv S p.sv = true) (x : Option Nat) (d : Nat) :
+    wfSv S (potAtD lc x d).sv = true := by
+  cases x with
+  | none => simp [potAtD, pconst, wfSv_nil]
+  | some a =>
+    cases d with
+    | zero => exact potAt_wf S lc hw.1 _
+    | succ d =>
+      show wfSv S ((((find lc.dom a).bind fun k => lc.potAlt[k]?).bind fun l => l[d]?).getD
+        (potAt lc (some a))).sv = true
+      cases hk : (find lc.dom a).bind fun k => lc.potAlt[k]? with
+      | none => simpa using potAt_wf S lc hw.1 _
+      | some l =>
+        obtain ⟨k, _, hl⟩ := Option.bind_eq_some.mp hk
+        cases hp : l[d]? with
+        | none => simpa [hp] using potAt_wf S lc hw.1 _
+        | some p => simpa [hp] using hw.2 l (List.mem_of_getElem? hl) p (List.mem_of_getElem? hp)
+
+theorem potAtD_none (lc : LoopCert) (d : Nat) (s : Env) : (potAtD lc none d).eval s = 0 := by
+  simp [potAtD, pconst_eval]
+
+theorem potAtD_zero (lc : LoopCert) (a : Nat) : potAtD lc (some a) 0 = potAt lc (some a) := rfl
+
+/-- The disjunct `tgtInv` gives is the one of index `tgtN`. -/
+theorem tgtN_get (f : BFun) (L : DFun) (n t : Nat) :
+    (invsAt f L n)[tgtN f L n t]? = some (tgtInv f L n t) := by
+  unfold tgtN tgtInv
+  split_ifs with ht
+  · rw [List.getElem?_eq_getElem ht]; rfl
+  · rw [List.getElem?_eq_none (show (invsAt f L n).length ≤ t by omega)]; simp [invsAt]
+
 theorem nodeOk_spec {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun} {a : Nat}
     (h : nodeOk mul abi c f L a = true) :
     wfEff (effect abi c a) = true ∧ stackWf (stackEffect abi c a) = true ∧
@@ -1357,12 +1401,13 @@ theorem mem_indexed {α : Type} : ∀ (l : List α) (k j : Nat) (x : α), l[j]? 
 
 /-- The goals of a transition: the invariant of the successor, the descent of the potentials. -/
 def tGoals (f : BFun) (L : DFun) (e : Eff) (st : StackE) (frame : Bool) (m : Int) (a : Nat)
-    (next : Option Nat) (t : Nat) : List Lin :=
+    (next : Option Nat) (t si : Nat) : List Lin :=
   (match next with
     | some n => (tgtInv f L n t).map fun g => substL g (postS e st frame (spAt f L a) L.slots m)
     | none => []) ++
   L.loops.flatMap fun lc => potGoals lc (coefStep lc a next)
-    (substP (potAt lc next) (postS e st frame (spAt f L a) L.slots m)) (potAt lc (some a))
+    (substP (potAtD lc next (tgtNo f L next t)) (postS e st frame (spAt f L a) L.slots m))
+    (potAtD lc (some a) si)
 
 theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) (i : Insn)
     (j : Nat) (next : Option Nat) (w : Nat) (calls : List Nat) (m : Int) (D : List Lin) (g : Lin)
@@ -1373,7 +1418,7 @@ theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : N
       | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
       | _ => [[]])[di]? = some D)
     (hI : (invsAt f L a)[si]? = some I)
-    (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next (tgtIdx f L a j m di si)) :
+    (hg : g ∈ tGoals f L (effect abi c a) (stackEffect abi c a) L.frame m a next (tgtIdx f L a j m di si) si) :
     (D ++ wrapPremAt (effect abi c a) m next ++ I ++ rangesN (nVars L.slots.length), g) ∈
       obsOf mul abi c f L a := by
   unfold obsOf
@@ -1533,17 +1578,22 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     (hc : checkDFun mul abi c f L = true) {SP0 a j : Nat} (hSP0 : SP0 < U) {σ : MState}
     {next : Option Nat} {w : Nat}
     {calls : List Nat} (ha : a ∈ f.nodes) (hok : DOk mul c f.jumps a j σ next w calls) {fa fb : Nat}
-    (hinv : Inv f L SP0 a σ fa fb) (σ' : MState) (hwf' : wfState σ') (hws' : wfStack σ')
+    (hinv : Inv f L SP0 a σ fa fb) {si : Nat} {I : List Lin} (hsi : (invsAt f L a)[si]? = some I)
+    (hI : holds I (fun _ => 0) (envOf σ fa fb SP0 L.slots))
+    (σ' : MState) (hwf' : wfState σ') (hws' : wfStack σ')
     (heff : next ≠ none → EffOk (effect abi c a) σ σ' ∧ StackOk L.frame SP0 (stackEffect abi c a) σ σ') :
-    (∀ n, next = some n →
-      Inv f L SP0 n σ' (postG (effect abi c a) σ.r fa fb).1 (postG (effect abi c a) σ.r fa fb).2) ∧
+    ∃ t : Nat, (∀ n, next = some n →
+      Inv f L SP0 n σ' (postG (effect abi c a) σ.r fa fb).1 (postG (effect abi c a) σ.r fa fb).2 ∧
+      holds (tgtInv f L n t) (fun _ => 0) (envOf σ' (postG (effect abi c a) σ.r fa fb).1
+        (postG (effect abi c a) σ.r fa fb).2 SP0 L.slots)) ∧
     ∀ lc ∈ L.loops, coefStep lc a next +
-      potTr lc ((potAt lc next).eval (envOf σ' (postG (effect abi c a) σ.r fa fb).1
+      potTr lc ((potAtD lc next (tgtNo f L next t)).eval (envOf σ' (postG (effect abi c a) σ.r fa fb).1
         (postG (effect abi c a) σ.r fa fb).2 SP0 L.slots)) -
-      potTr lc ((potAt lc (some a)).eval (envOf σ fa fb SP0 L.slots)) ≤ 0 := by
+      potTr lc ((potAtD lc (some a) si).eval (envOf σ fa fb SP0 L.slots)) ≤ 0 := by
   obtain ⟨_, _, _, hnodes, _, _, hslok, hwinv, hwpot, hobs⟩ := checkDFun_spec hc
   obtain ⟨hσ, hs, i, hdec, hj, hcond⟩ := hok
-  obtain ⟨_, _, hfa, hfb, hfl, hspa, hI, hC⟩ := hinv
+  obtain ⟨_, _, hfa, hfb, hfl, hspa, _, hC⟩ := hinv
+  have hImem : I ∈ invsAt f L a := List.mem_of_getElem? hsi
   obtain ⟨hwfe, hstw, i', hdec', hkind⟩ := nodeOk_spec (hnodes a ha)
   rw [hdec] at hdec'
   cases hdec'
@@ -1565,8 +1615,6 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have := gExp_dvd _ _ hC
     rw [h8, h9]
     simpa [envOf] using this
-  obtain ⟨I, hImem, hI⟩ := hI
-  obtain ⟨si, hsi⟩ := List.mem_iff_getElem?.mp hImem
   obtain ⟨D, hD, hDh⟩ : ∃ D ∈ (match i.kind with
       | .cond _ => condFactsM (kindAt f L a) (ccOf c a) (j == 0) (gExp (congAt f L a)) (gExpS (congAt f L a))
       | _ => [[]]), holds D (fun _ => 0) env := by
@@ -1596,7 +1644,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       (envOf σ fa fb SP0 L.slots) hstate]
     exact hI g hg
   set t := tgtIdx f L a j m di si with ht
-  have hgoal : ∀ g ∈ tGoals f L e st L.frame m a next t, g.eval (fun _ => 0) env ≤ 0 := by
+  have hgoal : ∀ g ∈ tGoals f L e st L.frame m a next t si, g.eval (fun _ => 0) env ≤ 0 := by
     intro g hg
     have hmem := obs_mem mul abi c f L a i j next w calls m D g di si I hdec hj hm hdi hsi hg
     have hin : (D ++ wrapPremAt e m next ++ I ++ rangesN (nVars S), g) ∈
@@ -1606,22 +1654,30 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       exact List.mem_flatMap.mpr ⟨a, ha, hmem⟩
     obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
     exact entails1_sound hp hprem
-  have hpot_a : ∀ lc ∈ L.loops, (potAt lc (some a)).eval env = (potAt lc (some a)).eval (envOf σ fa fb SP0 L.slots) :=
-    fun lc hlc => pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ hstate
+  have hpot_a : ∀ lc ∈ L.loops, (potAtD lc (some a) si).eval env = (potAtD lc (some a) si).eval (envOf σ fa fb SP0 L.slots) :=
+    fun lc hlc => pexp_congr S _ (potAtD_wf S lc (hwpot lc hlc) _ _) _ _ hstate
   have hslots := (slotsOk_spec hslok).1
   have hpost : next ≠ none → ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
       (postS e st L.frame (spAt f L a) L.slots m v).eval env =
         envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 L.slots v := fun hn v hv =>
     postS_eval e st L.frame hwfe hstw σ σ' fa fb SP0 L.slots (spAt f L a) hσ hSP0 (heff hn).1 (heff hn).2
       hspa (fun d hd => spAt_bound hslok a d hd) hslots v hv
-  constructor
+  refine ⟨t, ?_, ?_⟩
   · intro n hn
     subst hn
+    have hT : holds (tgtInv f L n t) (fun _ => 0)
+        (envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 L.slots) := by
+      intro g hg
+      have := hgoal (substL g (postS e st L.frame (spAt f L a) L.slots m)) (by
+        simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
+      rw [substL_eval] at this
+      rwa [lin_congr S g (invsAt_wf f L hwinv hwalt n _ (tgtInv_mem f L n t) g hg) (fun _ => 0)
+        (fun _ => 0) _ _ (hpost (by simp))] at this
     have heff' := heff (by simp)
     have hk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).1
     have hspk := (hkind (some n, w, calls) (List.mem_of_getElem? hj) n rfl).2
     obtain ⟨hfl', hga, hgb⟩ := flags_post _ _ e hwfe σ σ' hσ fa fb hfa hfb hfl hk heff'.1.2.2.2
-    refine ⟨hwf', hws', hga, hgb, hfl', ?_, ?_, ?_⟩
+    refine ⟨⟨hwf', hws', hga, hgb, hfl', ?_, ⟨tgtInv f L n t, tgtInv_mem f L n t, hT⟩, ?_⟩, hT⟩
     · intro dn hdn
       obtain ⟨_, hspE, _, _⟩ := heff'.2
       rw [hdn] at hspk
@@ -1643,12 +1699,6 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
           simp only [aOf, U] at *
           omega
         | any => rw [hsq] at hspk; simp at hspk
-    · refine ⟨tgtInv f L n t, tgtInv_mem f L n t, fun g hg => ?_⟩
-      have := hgoal (substL g (postS e st L.frame (spAt f L a) L.slots m)) (by
-        simp only [tGoals]; exact List.mem_append_left _ (List.mem_map.mpr ⟨g, hg, rfl⟩))
-      rw [substL_eval] at this
-      rwa [lin_congr S g (invsAt_wf f L hwinv hwalt n _ (tgtInv_mem f L n t) g hg) (fun _ => 0)
-        (fun _ => 0) _ _ (hpost (by simp))] at this
     · intro x hx
       obtain ⟨_, hwc, hcok⟩ := checkDFun_cong hc
       have hwx := congAt_wf f L hwc n x hx
@@ -1663,9 +1713,9 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       simp only [tGoals]; exact List.mem_append_right _ (List.mem_flatMap.mpr ⟨lc, hlc, hg⟩))
     rw [substP_eval, hpot_a lc hlc] at this
     cases next with
-    | none => simpa [potAt, pconst_eval] using this
+    | none => simpa [potAtD, pconst_eval] using this
     | some n =>
-      rwa [pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ (hpost (by simp))] at this
+      rwa [pexp_congr S _ (potAtD_wf S lc (hwpot lc hlc) _ _) _ _ (hpost (by simp))] at this
 
 /-! ### Runs -/
 
@@ -1679,24 +1729,25 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     ∀ (t : List DStep) (x : DStep) (a fa fb : Nat), DChain abi L.frame c SP0 (some a) (x :: t) →
       a ∈ f.nodes →
       (∀ y ∈ x :: t, DOk mul c f.jumps y.st.a y.j y.σ y.st.next y.st.w y.st.calls) →
-      Inv f L SP0 a x.σ fa fb →
+      Inv f L SP0 a x.σ fa fb → ∀ (si : Nat) (I : List Lin), (invsAt f L a)[si]? = some I →
+      holds I (fun _ => 0) (envOf x.σ fa fb SP0 L.slots) →
       (∀ y ∈ x :: t, y.st.a ∈ f.nodes) ∧
       ∀ lc ∈ L.loops, ((x :: t).map fun y => coefStep lc y.st.a y.st.next).sum ≤
-        potTr lc ((potAt lc (some a)).eval (envOf x.σ fa fb SP0 L.slots))
-  | [], x, a, fa, fb, hch, ha, hok, hinv => by
+        potTr lc ((potAtD lc (some a) si).eval (envOf x.σ fa fb SP0 L.slots))
+  | [], x, a, fa, fb, hch, ha, hok, hinv, si, I, hsi, hI => by
     obtain ⟨hxa, _, hrest⟩ := hch
     cases hn : x.st.next with
     | some _ => rw [hn] at hrest; simp [DChain] at hrest
     | none =>
       have hok' := hok x (by simp)
       rw [hxa, hn] at hok'
-      obtain ⟨_, hpot⟩ := step_ok hc hSP0 ha hok' hinv x.σ hinv.1 hinv.2.1 (fun h => absurd rfl h)
+      obtain ⟨_, _, hpot⟩ := step_ok hc hSP0 ha hok' hinv hsi hI x.σ hinv.1 hinv.2.1 (fun h => absurd rfl h)
       refine ⟨fun y hy => by simp at hy; rw [hy, hxa]; exact ha, fun lc hlc => ?_⟩
       have := hpot lc hlc
-      rw [potAt_none, potTr_zero] at this
+      rw [potAtD_none, potTr_zero] at this
       simp only [List.map_cons, List.map_nil, List.sum_cons, List.sum_nil, hxa, hn]
       linarith
-  | y :: t, x, a, fa, fb, hch, ha, hok, hinv => by
+  | y :: t, x, a, fa, fb, hch, ha, hok, hinv, si, I, hsi, hI => by
     obtain ⟨hxa, heff, hrest⟩ := hch
     cases hn : x.st.next with
     | none => rw [hn] at hrest; simp [DChain] at hrest
@@ -1707,7 +1758,7 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       have hwfy : wfState y.σ := (hok y (by simp)).1
       have hwsy : wfStack y.σ := (hok y (by simp)).2.1
       have hE := heff y (by simp)
-      obtain ⟨hinvn, hpot⟩ := step_ok hc hSP0 ha hok' hinv y.σ hwfy hwsy (fun _ => hE)
+      obtain ⟨tt, hinvn, hpot⟩ := step_ok hc hSP0 ha hok' hinv hsi hI y.σ hwfy hwsy (fun _ => hE)
       have hnn : n ∈ f.nodes := by
         obtain ⟨hcl, _⟩ := (checkDFun_spec hc)
         obtain ⟨_, hcl2⟩ := closed_spec mul c f.jumps f.entry f.nodes hcl
@@ -1716,13 +1767,14 @@ theorem chain_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
         rw [hi] at hi'; cases hi'
         exact hsucc _ (List.mem_of_getElem? hj) n rfl
       obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t y n _ _ hrest hnn
-        (fun z hz => hok z (by simp [hz])) (hinvn n rfl)
+        (fun z hz => hok z (by simp [hz])) (hinvn n rfl).1 _ _ (tgtN_get f L n tt) (hinvn n rfl).2
       refine ⟨fun z hz => ?_, fun lc hlc => ?_⟩
       · rcases List.mem_cons.mp hz with rfl | hz
         · rw [hxa]; exact ha
         · exact hnodes z hz
       · have h1 := hpot lc hlc
         have h2 := hsum lc hlc
+        simp only [tgtNo] at h1
         simp only [List.map_cons, List.sum_cons] at h2 ⊢
         rw [hxa, hn]
         linarith
@@ -1815,25 +1867,27 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
     have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
       fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
+    have hI0 : holds (invAt f L f.entry) (fun _ => 0) (envOf x.σ 0 0 x.σ.sp L.slots) := by
+      intro g hg
+      have hin : (entryPrem L, g) ∈ obligations mul abi c f L := by
+        simp only [obligations, List.mem_append, List.mem_map]
+        left; left; exact ⟨g, hg, rfl⟩
+      obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
+      have := entails1_sound hp env0
+      rwa [lin_congr S g (invAt_wf f L hwinv _ g hg) _ (fun _ => 0) _ _ hstate] at this
     have hinv : Inv f L x.σ.sp f.entry x.σ 0 0 := by
       refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_,
-        ⟨invAt f L f.entry, by simp [invsAt], fun g hg => ?_⟩, ?_⟩
+        ⟨invAt f L f.entry, by simp [invsAt], hI0⟩, ?_⟩
       · intro d hd
         rcases hspe with hspe | hspe <;> rw [hspe] at hd
         · cases hd
           simp only [aOf, U] at *
           omega
         · cases hd
-      · have hin : (entryPrem L, g) ∈ obligations mul abi c f L := by
-          simp only [obligations, List.mem_append, List.mem_map]
-          left; left; exact ⟨g, hg, rfl⟩
-        obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
-        have := entails1_sound hp env0
-        rwa [lin_congr S g (invAt_wf f L hwinv _ g hg) _ (fun _ => 0) _ _ hstate] at this
       · intro x hx
         rw [(checkDFun_cong hc).1] at hx
         cases hx
-    obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t x f.entry 0 0 hch he hok hinv
+    obtain ⟨hnodes, hsum⟩ := chain_ok hc hSP0 t x f.entry 0 0 hch he hok hinv 0 _ (by simp [invsAt]) hI0
     intro lc hlc
     have hall : ∀ g ∈ potGoals lc (-(rowRhs f lc)) (potAt lc (some f.entry)) (pconst 0),
         g.eval (fun _ => 0) (envT x.σ x.σ 0 0 x.σ.sp L.slots) ≤ 0 := by
@@ -1844,8 +1898,9 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       obtain ⟨p, hp⟩ := checkObs_mem _ _ hobs _ hin
       exact entails1_sound hp env0
     have h0 := potGoals_sound lc _ _ _ _ _ hall
-    rw [pconst_eval, potTr_zero, pexp_congr S _ (potAt_wf S lc (hwpot lc hlc) _) _ _ hstate] at h0
+    rw [pconst_eval, potTr_zero, pexp_congr S _ (potAt_wf S lc (hwpot lc hlc).1 _) _ _ hstate] at h0
     have h1 := hsum lc hlc
+    rw [potAtD_zero] at h1
     have hsame : ((x :: t).map fun y => coefPair (loopRow f lc).coef y.st.a y.st.next) =
         ((x :: t).map fun y => coefStep lc y.st.a y.st.next) :=
       List.map_congr_left (fun y hy => loopRow_coef f lc hnd _ _ (hnodes y hy))
@@ -2347,7 +2402,10 @@ theorem inv_prefix {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       | nil => simp at hy
       | cons x t => exact (hwf x (by simp)).2.1
     have hwy := hwf y (List.mem_of_getElem? hy)
-    exact ⟨_, _, (step_ok hc hSP0 hzn hdok hiz y.σ hwy.1 hwy.2 (fun _ => ⟨heff, hstk⟩)).1 y.st.a hnext⟩
+    obtain ⟨I, hImem, hIh⟩ := hiz.2.2.2.2.2.2.1
+    obtain ⟨si, hsi⟩ := List.mem_iff_getElem?.mp hImem
+    obtain ⟨_, hst, _⟩ := step_ok hc hSP0 hzn hdok hiz hsi hIh y.σ hwy.1 hwy.2 (fun _ => ⟨heff, hstk⟩)
+    exact ⟨_, _, (hst y.st.a hnext).1⟩
 
 theorem ubOf_sound {g : Lin} {d : Nat} {u : Int} (h : ubOf g d = some u) (s : Env)
     (hg : g.eval (fun _ => 0) s ≤ 0) : s d ≤ u := by
@@ -2962,7 +3020,7 @@ def exInv : List (List Lin) :=
     [⟨[1], [], -10⟩, ⟨[-1], [], 1⟩, ⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -9⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -1⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 1⟩],
     [⟨[1], [], -10⟩, ⟨[-1], [], 10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -10⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 10⟩]]
 
-def exLoop : LoopCert := ⟨258, [258, 260, 262, 264], 1, 10, [⟨[-1], 10⟩, ⟨[-1], 10⟩, ⟨[-1], 10⟩, ⟨[-1], 11⟩], false, none⟩
+def exLoop : LoopCert := ⟨258, [258, 260, 262, 264], 1, 10, [⟨[-1], 10⟩, ⟨[-1], 10⟩, ⟨[-1], 10⟩, ⟨[-1], 11⟩], false, none, []⟩
 
 def exProofs : List (Nat × List Nat) :=
   [(1, []),
@@ -3281,7 +3339,7 @@ def exStepInv : List (List Lin) :=
     [⟨[1], [], -40⟩, ⟨[-1], [], 4⟩, ⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 4⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩],
     [⟨[1], [], -40⟩, ⟨[-1], [], 40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], -40⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, -1], [], 40⟩]]
 
-def exStepLoop : LoopCert := ⟨258, [258, 260, 262], 4, 36, [⟨[-1], 36⟩, ⟨[-1], 40⟩, ⟨[-1], 40⟩], false, none⟩
+def exStepLoop : LoopCert := ⟨258, [258, 260, 262], 4, 36, [⟨[-1], 36⟩, ⟨[-1], 40⟩, ⟨[-1], 40⟩], false, none, []⟩
 
 def exStepProofs : List (Nat × List Nat) :=
   [(1, []),
@@ -3405,7 +3463,7 @@ def exWrapPick : List (List (Nat × Int × Nat × Nat × Nat)) := [[], [(0, 1, 0
 
 def exWrapCong : List (List (Nat × Nat × Nat)) := [[], [], [(9, 32, 1)], [(9, 32, 1)], [(9, 32, 1)], [(9, 32, 1)]]
 
-def exWrapLoop : LoopCert := ⟨258, [258, 260, 262, 264], 1, 9, [⟨[0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1, -16], 16⟩, ⟨[0, 0, 1, 16, 0, 0, 0, 0, -16, -16], 16⟩, ⟨[0, 0, 16, -16, 0, 0, 0, 0, 1, 16], -31⟩], false, none⟩
+def exWrapLoop : LoopCert := ⟨258, [258, 260, 262, 264], 1, 9, [⟨[0, 0, 0, 1], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1, -16], 16⟩, ⟨[0, 0, 1, 16, 0, 0, 0, 0, -16, -16], 16⟩, ⟨[0, 0, 16, -16, 0, 0, 0, 0, 1, 16], -31⟩], false, none, []⟩
 
 def exWrapProofs : List (Nat × List Nat) :=
   [(1, []),
@@ -3599,7 +3657,7 @@ def exZeroPick : List (List (Nat × Int × Nat × Nat × Nat)) := [[], [], [(0, 
 
 def exZeroCong : List (List (Nat × Nat × Nat)) := [[], [(3, 32, 15)], [(3, 2, 0)], [(3, 2, 0), (8, 2, 0), (9, 32, 4)], [(3, 2, 0), (8, 2, 0), (9, 32, 4)]]
 
-def exZeroLoop : LoopCert := ⟨260, [260, 262], 4, 12, [⟨[0, 0, 0, -1], 4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], 4294967292⟩], false, none⟩
+def exZeroLoop : LoopCert := ⟨260, [260, 262], 4, 12, [⟨[0, 0, 0, -1], 4294967292⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, -1], 4294967292⟩], false, none, []⟩
 
 def exZeroProofs : List (Nat × List Nat) :=
   [(1, []),
@@ -3919,7 +3977,7 @@ Contexts`). Without the proofs at the call, or without the precondition, it is r
 def exCtxCode : Code := ⟨256, #[0xb500, 0x200a, 0xf000, 0xf80c, 0xbd00, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2100, 0x4281, 0xda01, 0x3101, 0xe7fb, 0x4770]⟩
 
 def exCtxGF0 : BFun := ⟨288, [288, 290, 292, 294, 296, 298], [], []⟩
-def exCtxGLoops : List LoopCert := [⟨290, [290, 292, 294, 296], 1, 10, [⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 11⟩], false, none⟩]
+def exCtxGLoops : List LoopCert := [⟨290, [290, 292, 294, 296], 1, 10, [⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 10⟩, ⟨[0, -1], 11⟩], false, none, []⟩]
 def exCtxGF : BFun := { exCtxGF0 with rows := exCtxGLoops.map (loopRow exCtxGF0) }
 def exCtxGC : Cert := ⟨1, [68, 7, 6, 5, 4, 3, 0], [6], 68⟩
 def exCtxGD : DFun :=
@@ -4004,14 +4062,14 @@ bound 31 (`potGoals`), from the exact effect of `LSRS` and its flag Z (`FEff.nz`
 def exLogCode : Code := ⟨256, #[0xa00, 0xd1fd, 0x4770]⟩
 
 def exLogFF0 : BFun := ⟨256, [256, 258, 260], [], []⟩
-def exLogFLoops : List LoopCert := [⟨256, [256, 258], 8, 31, [⟨[1], 0⟩, ⟨[256], 0⟩], true, none⟩]
+def exLogFLoops : List LoopCert := [⟨256, [256, 258], 8, 31, [⟨[1], 0⟩, ⟨[256], 0⟩], true, none, []⟩]
 def exLogFF : BFun := { exLogFF0 with rows := exLogFLoops.map (loopRow exLogFF0) }
 def exLogFC : Cert := ⟨2, [10, 8, 6, 0], [1], 21⟩
 def exLogFD : DFun :=
-  { kinds := [.none, .nz, .nz],
-    inv := [[], [⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩], [⟨[1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩]],
+  { kinds := [.none, .nz, .none],
+    inv := [[], [⟨[1, 0, 0, 0, 0, 0, 0, 0, -1], [], 0⟩, ⟨[-1, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩, ⟨[0, 0, 0, 0, 0, 0, 0, 0, 0, 1], [], 0⟩], [⟨[1], [], 0⟩]],
     loops := exLogFLoops, trusted := [],
-    proofs := [(1, [0, 1]), (1, []), (1, []), (1, []), (1, [1]), (1, []), (1, [1, 0, 1]), (1, [1, 1]), (1, [1]), (1, [0, 0, 0, 1]), (1, [0, 0, 0, 0, 256]), (1, [])],
+    proofs := [(1, [0, 1]), (1, []), (1, []), (1, []), (1, [1]), (1, []), (1, [1, 0, 1]), (1, [1, 1])],
     spOff := [some (0), some (0), some (0)], slots := [], frame := false,
     cong := [[], [(9, 32, 0)], [(9, 32, 0)]] }
 
@@ -4046,7 +4104,7 @@ lives on the outer loop's instructions. With ordinary rows the bound is the prod
 def exAmCode : Code := ⟨256, #[0x2100, 0x2200, 0x2964, 0xd208, 0x2a63, 0xd804, 0x5c83, 0x2b00, 0xd001, 0x3201, 0xe7f8, 0x3101, 0xe7f4, 0x4770]⟩
 
 def exAmF0 : BFun := ⟨256, [256, 258, 260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280, 282], [], []⟩
-def exAmLoops : List LoopCert := [⟨260, [260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280], 1, 100, [⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 101⟩], false, none⟩, ⟨264, [264, 266, 268, 270, 272, 274, 276], 1, 100, [⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 101⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩], false, some (260, [260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280])⟩]
+def exAmLoops : List LoopCert := [⟨260, [260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280], 1, 100, [⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 100⟩, ⟨[0, -1], 101⟩], false, none, []⟩, ⟨264, [264, 266, 268, 270, 272, 274, 276], 1, 100, [⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 101⟩, ⟨[0, 0, -1], 100⟩, ⟨[0, 0, -1], 100⟩], false, some (260, [260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280]), []⟩]
 def exAmF : BFun := { exAmF0 with rows := exAmLoops.map (loopRow exAmF0) }
 def exAmC : Cert := ⟨1, [2409, 2408, 7, 6, 5, 4, 3, 1, 0, -1, -2, -3, -4, 3, 0], [14, 10], 2409⟩
 def exAmD : DFun :=

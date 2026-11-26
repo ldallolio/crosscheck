@@ -609,6 +609,10 @@ structure LoopCert where
       then given on the instructions of the enclosing loop, and the row bounds the back
       edges of this loop per entry of the enclosing one (`loopRow`). -/
   outer : Option (Nat × List Nat) := none
+  /-- Potentials per disjunct of the invariant: for the instruction `dom[k]`, `potAlt[k][d]`
+      is the potential where the disjunct `d + 1` holds (`potAtD`); where none is given, that
+      of `pot`. -/
+  potAlt : List (List PExp) := []
   deriving DecidableEq, Repr
 
 /-- The instructions where the potentials of a loop certificate are given. -/
@@ -668,6 +672,13 @@ def tgtIdx (f : BFun) (L : DFun) (a j : Nat) (m : Int) (d s : Nat) : Nat :=
 /-- The disjunct `t` of the invariant at `n` (the first one if there is no disjunct `t`). -/
 def tgtInv (f : BFun) (L : DFun) (n t : Nat) : List Lin :=
   ((invsAt f L n)[t]?).getD (invAt f L n)
+
+/-- The index of the disjunct `tgtInv` gives: `t`, or `0` if there is no disjunct `t`. -/
+def tgtN (f : BFun) (L : DFun) (n t : Nat) : Nat := if t < (invsAt f L n).length then t else 0
+
+def tgtNo (f : BFun) (L : DFun) : Option Nat → Nat → Nat
+  | some n, t => tgtN f L n t
+  | none, _ => 0
 
 /-- The offset of the stack pointer from its value at the entry, at instruction `a`. -/
 def spAt (f : BFun) (L : DFun) (a : Nat) : Option Int :=
@@ -750,6 +761,14 @@ def potAt (lc : LoopCert) : Option Nat → PExp
   | none => pconst 0
   | some a => ((find lc.dom a).bind fun k => lc.pot[k]?).getD (pconst 0)
 
+/-- The potential of a loop at an instruction where the disjunct `d` of the invariant holds:
+    that of `pot` for `d = 0`, else that of `potAlt` if given, else that of `pot`. -/
+def potAtD (lc : LoopCert) : Option Nat → Nat → PExp
+  | none, _ => pconst 0
+  | some a, 0 => potAt lc (some a)
+  | some a, d + 1 => (((find lc.dom a).bind fun k => lc.potAlt[k]?).bind fun l => l[d]?).getD
+      (potAt lc (some a))
+
 /-- The coefficient of the transition `a → next` in the row of a loop: `D` from the body to
     the header, `-N` from outside `dom` to `ent` (for an ordinary loop, from outside the
     body to the header). -/
@@ -771,11 +790,12 @@ def loopRow (f : BFun) (lc : LoopCert) : MRow :=
 /-- The goals of the descent `k + Φ(next) − Φ(here) ≤ 0` of a loop's potential, with `p` the
     expression of `next` (after the transition) and `q` that of `here`: the goal itself for
     an affine potential; for a logarithmic one (`Φ = ⌊log₂ Ψ⌋`, `ThumbData.potGoals_sound`):
-    `2^k·p ≤ q` and `p ≥ 1` if `k > 0`, `p ≤ q` if `k = 0`, `p < 2^(1−k)` if `k < 0`. -/
+    `2^k·p ≤ q` and `p ≥ 1` if `k > 0`, `p ≤ q` if `k = 0` (nothing if `p` is a constant at
+    most `1`, as on an exit: `⌊log₂⌋` of it is `0`), `p < 2^(1−k)` if `k < 0`. -/
 def potGoals (lc : LoopCert) (k : Int) (p q : PExp) : List Lin :=
   if lc.log then
     if 0 < k then [goalLin 0 (psmul ((2 ^ k.toNat : Nat) : Int) p) q, goalLin 1 (pconst 0) p]
-    else if k = 0 then [goalLin 0 p q]
+    else if k = 0 then (if isZero p.sv && decide (p.c ≤ 1) then [] else [goalLin 0 p q])
     else [goalLin (1 - ((2 ^ (1 - k).toNat : Nat) : Int)) p (pconst 0)]
   else [goalLin k p q]
 
@@ -801,7 +821,8 @@ def obsOf (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : Nat) :
           | some n => (tgtInv f L n (tgtIdx f L a p.1 m q.1 r.1)).map fun g => substL g σ
           | none => []
         let loopGoals := L.loops.flatMap fun lc =>
-          potGoals lc (coefStep lc a next) (substP (potAt lc next) σ) (potAt lc (some a))
+          potGoals lc (coefStep lc a next)
+            (substP (potAtD lc next (tgtNo f L next (tgtIdx f L a p.1 m q.1 r.1))) σ) (potAtD lc (some a) r.1)
         (invGoals ++ loopGoals).map fun g => (prem, g)
 
 /-- The premises at the entry: the precondition, then the ranges. -/
@@ -1187,6 +1208,7 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   L.alt.all (·.all (·.all (wfLin L.slots.length))) &&
   -- logarithmic potentials: small scale and bound (the goals hold `2^D` and `2^(N+1)`)
   L.loops.all (fun lc => (lc.pot.all fun p => wfSv L.slots.length p.sv) &&
+    (lc.potAlt.all fun l => l.all fun p => wfSv L.slots.length p.sv) &&
     (!lc.log || decide (lc.scale ≤ 64 ∧ lc.bound ≤ 64))) &&
   checkObs (obligations mul abi c f L) L.proofs && congChecks mul abi c f L &&
   f.jumps.all (jumpOkF abi mul c f L) && interiorOk mul c f &&

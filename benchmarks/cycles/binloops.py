@@ -37,6 +37,10 @@ AMORT = os.environ.get("CROSSCHECK_AMORT", "0") == "1"
 AMORT_LOG = os.environ.get("CROSSCHECK_AMORT_LOG")
 LOG_POT = True       # logarithmic potentials (`synth_lp(log=...)`)
 LP = True            # potentials per instruction by a linear program (`synth_lp`)
+# the richer analysis, tried again on a function with a shift right whose loops are left
+# uncertified (`certify_loops`): intervals of shifts right, wrap-around disjuncts kept
+# through joins (`regions_of`), relational facts (`rel_facts`), potentials per disjunct
+RICH = os.environ.get("CROSSCHECK_RICH", "1") != "0"
 BIG = 1 << 20       # constants above this are left out of a coarse linear program
 # Limits that do not depend on the machine, so that a binary gets the same certificate on
 # every machine and under any load (they replaced, on 2026-11-25, a wall-clock limit of 5 s
@@ -821,8 +825,11 @@ def ranges_n(n):
 
 
 class Loop:
-    def __init__(self, header, body, scale, bound, pot, log=False, outer=None):
+    def __init__(self, header, body, scale, bound, pot, log=False, outer=None, alt=None):
         self.header, self.body, self.scale, self.bound, self.pot = header, body, scale, bound, pot
+        # potentials per disjunct of the invariant (Lean `LoopCert.potAlt`, aligned with `dom`):
+        # alt[k][d] where the disjunct d + 1 holds at dom[k]; missing: that of `pot`
+        self.alt = alt or []
         # a logarithmic potential: floor(log2) of the affine expressions `pot` (Lean `LoopCert.log`)
         self.log = log
         # an amortised row (Lean `LoopCert.outer`): (header, body) of an enclosing loop; the
@@ -838,10 +845,14 @@ class Loop:
     def ent(self):
         return self.header if self.outer is None else self.outer[0]
 
-    def pot_at(self, a):
+    def pot_at(self, a, d=0):
+        """Lean `potAtD`: the potential at `a` where the disjunct `d` of the invariant holds."""
         if a is None or a not in self.dom:
             return pconst(0)
-        return self.pot[self.dom.index(a)]
+        k = self.dom.index(a)
+        if d > 0 and k < len(self.alt) and d - 1 < len(self.alt[k]):
+            return self.alt[k][d - 1]
+        return self.pot[k]
 
     def coef(self, a, nxt):
         k = self.scale if nxt == self.header and a in self.body else 0
@@ -857,6 +868,9 @@ def pot_goals(lc, k, p, q):
     if k > 0:
         return [goal_lin(0, psmul(2 ** k, p), q), goal_lin(1, pconst(0), p)]
     if k == 0:
+        # nothing for a constant at most 1 (an exit): floor(log2) of it is 0
+        if not any(p[0].values()) and p[1] <= 1:
+            return []
         return [goal_lin(0, p, q)]
     return [goal_lin(1 - 2 ** (1 - k), p, pconst(0))]
 
@@ -925,16 +939,17 @@ def obligations_of(ctx, a, inv, kinds, loops):
     eff, st = ctx.eff[a], ctx.st[a]
     out = []
     rng = ranges_n(nvars(len(ctx.slots)))
-    for _j, nxt, m, _d, D, _si, I, t in obligation_cases(ctx, a, inv, kinds):
+    for _j, nxt, m, _d, D, si, I, t in obligation_cases(ctx, a, inv, kinds):
         prem = D + wrap_prem_at(eff, m, nxt) + I + rng
         sigma = (lambda m: lambda v: post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, v))(m)
         goals = []
+        tn = 0      # Lean `tgtNo`
         if nxt is not None:
             ds = disjuncts(inv, nxt)
-            T = ds[t] if t < len(ds) else ds[0]
-            goals += [(subst(g, sigma), ("inv", nxt, t if t < len(ds) else 0, k)) for k, g in enumerate(T)]
+            tn = t if t < len(ds) else 0
+            goals += [(subst(g, sigma), ("inv", nxt, tn, k)) for k, g in enumerate(ds[tn])]
         goals += [(g, ("loop", li)) for li, lc in enumerate(loops)
-                  for g in pot_goals(lc, lc.coef(a, nxt), subst(lc.pot_at(nxt), sigma), lc.pot_at(a))]
+                  for g in pot_goals(lc, lc.coef(a, nxt), subst(lc.pot_at(nxt, tn), sigma), lc.pot_at(a, si))]
         out.append((prem, goals))
     return out
 
@@ -1487,6 +1502,9 @@ def post_exprs(ctx, a, M):
             _op, x, k, ar = v
             l, hh = Zd.lohi(M, x[1]) if x[0] == "reg" else (x[1], x[1])
             out[r] = ("shift", Z, l >> k) if l == hh and not (ar and hh >= 2 ** 31) else "any"
+            if out[r] == "any" and getattr(ctx, "rich", False) and not (ar and hh >= 2 ** 31):
+                # the richer analysis (`rich`): the interval of the shifted value
+                out.setdefault("rng", {})[r] = (l >> k, hh >> k)
         else:
             op, x, y = v
             if op == "shl":
@@ -1512,6 +1530,14 @@ def post_exprs(ctx, a, M):
                 out[r] = ("shift", Z, (x[1] - l) % U) if l == h else "any"
             else:
                 out[r] = "any"
+                if getattr(ctx, "rich", False) and op in ("add", "sub") and x[0] == "reg" and y[0] == "reg":
+                    # the richer analysis: the interval of a sum or difference of registers
+                    # that cannot wrap around
+                    l1, h1 = Zd.lohi(M, x[1])
+                    l2, h2 = Zd.lohi(M, y[1])
+                    lo_, hi_ = (l1 + l2, h1 + h2) if op == "add" else (l1 - h2, h1 - l2)
+                    if 0 <= lo_ and hi_ <= U - 1:
+                        out.setdefault("rng", {})[r] = (lo_, hi_)
     if load is not None and delta is not None:
         j = slot_idx(ctx.slots, -(delta + load[1]))
         if j is not None:
@@ -1917,7 +1943,243 @@ def hull(parts):
     return out
 
 
+def regions_of(ctx):
+    """The windows of the richer analysis (`rich`): {start: region}, the region of an
+    instruction `rd = rn ± imm` with one successor being the instructions reached from it up to
+    and including the next conditional branch, through joins too (a loop header ends it); a
+    case that wraps around at the start keeps its own disjunct in the region (`analyse_rich`)."""
+    heads = {h for h, _b, _n in ctx.iloops}
+    W = {}
+    for a in ctx.nodes:
+        if (a == ctx.entry or ctx.insn[a].kind == "cond" or len(ctx.out[a]) != 1
+                or wrap_op(ctx.aeff[a]) is None):
+            continue
+        reg, todo = [], [ctx.out[a][0][0]]
+        ok = True
+        while todo:
+            n = todo.pop()
+            if n is None or n in reg:
+                continue
+            if n not in ctx.insn or n in heads or n == ctx.entry or len(reg) >= 8:
+                ok = ok and (n is None or n in heads or n not in ctx.insn)
+                continue
+            reg.append(n)
+            if ctx.insn[n].kind != "cond":
+                todo += [m for m, _w, _c in ctx.out[n]]
+        if reg and ok:
+            W[a] = reg
+    return W
+
+
+def analyse_rich(ctx, kind):
+    """The zones with the windows of `regions_of`: the instructions of a region have a zone
+    per tag (0: no wrap-around at the start of the window, 1: wrap-around; Lean `pick` by
+    `pick_of`: a tag goes along every transition into a region, a transition from outside the
+    regions lands in tag 0, a start splits by the case of its addition)."""
+    Zd = ctx.zones
+    Z = Zd.Z
+    ctx.windows = regions_of(ctx)
+    tagged = {n for reg in ctx.windows.values() for n in reg}
+    heads = {h for h, _b, _n in ctx.iloops}
+    order = {a: k for k, a in enumerate(ctx.nodes)}
+
+    def posts(a, tag, M):
+        """[(successor, tag of the successor or None, zone)]."""
+        out = []
+        if tag is None and a in ctx.windows:
+            r, x, k = wrap_op(ctx.aeff[a])
+            parts = []
+            lo_ok = Zd.add_edge(copy(M), Z, x, k)
+            if lo_ok is not None:
+                lo_ok = Zd.add_edge(lo_ok, x, Z, U - 1 - k)
+            parts.append((0, lo_ok, k))
+            if k < 0:
+                parts.append((1, Zd.add_edge(copy(M), x, Z, -k - 1), k + U))
+            elif k > 0:
+                parts.append((1, Zd.add_edge(copy(M), Z, x, k - U), k - U))
+            nxt = ctx.out[a][0][0]
+            for t, Mi, shift in parts:
+                if Mi is None:
+                    continue
+                ex = post_exprs(ctx, a, Mi)
+                ex[r] = ("shift", x, shift)
+                if kind.get(nxt, "none") == "none":
+                    ex[8] = ex[9] = "any"
+                post = apply_post(Zd, Mi, ex, closed=True)
+                if post is not None:
+                    out.append((nxt, t if nxt in tagged else None, post))
+            return out
+        for j, _Mf, _ex, post in transfer(ctx, kind, a, M):
+            n = ctx.out[a][j][0]
+            if n is None or post is None:
+                continue
+            out.append((n, (tag if tag is not None else 0) if n in tagged else None, post))
+        return out
+
+    def run(state, tz, widen_at_heads):
+        work = [ctx.entry]
+        visits = {}
+        while work:
+            _tick()
+            work.sort(key=lambda x: order[x])
+            a = work.pop(0)
+            ins = sorted(tz[a].items()) if a in tagged else [(None, state[a])]
+            for tag, M in ins:
+                if M is None:
+                    continue
+                for n, t, post in posts(a, tag, M):
+                    if t is None:
+                        new = join(state[n], post)
+                        widened = False
+                        if n in heads and widen_at_heads:
+                            visits[n] = visits.get(n, 0) + 1
+                            if visits[n] > 2:
+                                new = widen(state[n], new, ctx.thresholds)
+                                widened = True
+                        if new is not None and (widened or n == ctx.entry):
+                            new = Zd.close(new)
+                            if widened and visits[n] > HARD_VISITS and new is not None and state[n] is not None:
+                                new = forget_growing(state[n], new)
+                        elif new is not None:
+                            new = Zd.checked(new, new)
+                        if not leq(new, state[n]):
+                            state[n] = new
+                            if n not in work:
+                                work.append(n)
+                    else:
+                        new = join(tz[n].get(t), post)
+                        if new is not None:
+                            new = Zd.checked(new, new)
+                        if not leq(new, tz[n].get(t)):
+                            tz[n][t] = new
+                            state[n] = hull(sorted(tz[n].items()))
+                            if n not in work:
+                                work.append(n)
+        return state, tz
+
+    state = {a: None for a in ctx.nodes}
+    state[ctx.entry] = entry_zone(ctx)
+    tz = {a: {} for a in tagged}
+    state, tz = run(state, tz, True)
+    for _ in range(3):
+        # one pass without widening from the fixpoint (as `analyse`)
+        new = {a: None for a in ctx.nodes}
+        new[ctx.entry] = entry_zone(ctx)
+        ntz = {a: {} for a in tagged}
+        for a in ctx.nodes:
+            ins = sorted(tz[a].items()) if a in tagged else [(None, state[a])]
+            for tag, M in ins:
+                if M is None:
+                    continue
+                for n, t, post in posts(a, tag, M):
+                    if t is None:
+                        new[n] = join(new[n], post)
+                    else:
+                        ntz[n][t] = join(ntz[n].get(t), post)
+        for n in tagged:
+            new[n] = hull(sorted(ntz[n].items()))
+        state = {a: (None if m is None else Zd.close(m) if a == ctx.entry else Zd.checked(m, m))
+                 for a, m in new.items()}
+        tz = {n: {t: Zd.checked(m, m) for t, m in d.items() if m is not None} for n, d in ntz.items()}
+    ctx.disj = {n: sorted(d.items()) for n, d in tz.items() if len(d) >= 2}
+    return state
+
+
+def rel_facts(ctx):
+    """Relational facts of the richer analysis (`rich`), candidates for the invariants (proved
+    by `prove_all`, dropped otherwise): after `rd = rn + rm` (or with an immediate), `rd - rn -
+    rm = 0`; after a shift right `rd = rs >> k`, `2^k rd <= rs <= 2^k rd + 2^k - 1`, with `rs`
+    replaced by what an equality gives it; kept while no variable of the fact is written.
+    {instruction: [lin]} (the facts before the instruction)."""
+    def written(a):
+        dst, _fl = ctx.aeff[a]
+        w = {r for r, _v in dst}
+        _sp, _mem, load, _e = ctx.st[a]
+        if load is not None:
+            w.add(load[0])
+        return w
+
+    def src_lin(x):
+        return ({x[1]: 1}, 0) if x[0] == "reg" else ({}, x[1])
+
+    def step(a, F):
+        dst, _fl = ctx.aeff[a]
+        out = set(F)
+        w = written(a)
+        newf = set()
+        for r, v in dst:
+            if v == "any":
+                continue
+            if v[0] in ("add", "sub") and v[0] != "shl":
+                op, x, y = v
+                ex, ey = src_lin(x), src_lin(y)
+                sg = 1 if op == "add" else -1
+                d = dict(ex[0])
+                for u, kk in ey[0].items():
+                    d[u] = d.get(u, 0) + sg * kk
+                c = ex[1] + sg * ey[1]
+                if r in d or any(u >= 8 for u in d):
+                    continue
+                if abs(c) > BIG:
+                    continue
+                # r - (d + c) = 0
+                e = {r: 1}
+                for u, kk in d.items():
+                    e[u] = e.get(u, 0) - kk
+                e = {u: kk for u, kk in e.items() if kk}
+                newf.add((tuple(sorted(e.items())), -c))
+                newf.add((tuple(sorted((u, -kk) for u, kk in e.items())), c))
+            elif v[0] == "shr":
+                _op, x, k, _ar = v
+                if x[0] != "reg" or k >= 32:
+                    continue
+                q = 2 ** k
+                rs = x[1]
+                # equalities rs = E from the facts before
+                exprs = []
+                for f in F:
+                    fd = dict(f[0])
+                    if fd.get(rs) == 1 and (tuple(sorted((u, -kk) for u, kk in fd.items())), -f[1]) in F:
+                        E = {u: -kk for u, kk in fd.items() if u != rs}
+                        if r not in E:
+                            exprs.append((E, -f[1]))
+                if rs != r:
+                    exprs.append(({rs: 1}, 0))
+                for E, c in exprs:
+                    # q r - E - c <= 0 ; E + c - q r - (q - 1) <= 0
+                    e1 = {r: q}
+                    for u, kk in E.items():
+                        e1[u] = e1.get(u, 0) - kk
+                    e2 = {u: -kk for u, kk in e1.items()}
+                    newf.add((tuple(sorted(e1.items())), -c))
+                    newf.add((tuple(sorted(e2.items())), c - (q - 1)))
+        out = {f for f in out if not any(u in w for u, _k in f[0])}
+        return frozenset(out | newf)
+
+    facts = {a: None for a in ctx.nodes}
+    facts[ctx.entry] = frozenset()
+    order = {a: k for k, a in enumerate(ctx.nodes)}
+    work = [ctx.entry]
+    n_iter = 0
+    while work and n_iter < 20 * len(ctx.nodes):
+        n_iter += 1
+        work.sort(key=lambda x: order[x])
+        a = work.pop(0)
+        post = step(a, facts[a])
+        for n, _w, _c in ctx.out[a]:
+            if n is None or n not in facts:
+                continue
+            new = post if facts[n] is None else facts[n] & post
+            if new != facts[n]:
+                facts[n] = new
+                if n not in work:
+                    work.append(n)
+    return {a: [(dict(f[0]), f[1]) for f in sorted(F)] for a, F in facts.items() if F}
+
+
 def analyse(ctx, kind):
+    if getattr(ctx, "rich", False):
+        return analyse_rich(ctx, kind)
     Zd = ctx.zones
     state = {a: None for a in ctx.nodes}
     state[ctx.entry] = entry_zone(ctx)
@@ -2309,10 +2571,19 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
         return col[key]
 
     NB = var("N")
+    # potentials per disjunct of the invariant (Lean `potAtD`) in the richer analysis: the
+    # columns of the disjunct d > 0 of `a` are those of the node (a, d)
+    per_disj = getattr(ctx, "rich", False)
+    nd = {a: (len(disjuncts(inv, a)) if per_disj else 1) for a in region}
+
+    def nid(a, d):
+        return a if d == 0 or nd.get(a, 1) <= d else (a, d)
+
     for a in region:
-        for v in V:
-            var(("p", a, v))
-        var(("c", a))
+        for d in range(nd[a]):
+            for v in V:
+                var(("p", nid(a, d), v))
+            var(("c", nid(a, d)))
     eq_rows, ub_rows = [], []    # rows: ({column: coefficient}, rhs)
     # the same constant rows with every constant split as q * 2^31 + r, |r| <= 2^30, and
     # the two parts required separately (stronger, well scaled: tried when HiGHS fails)
@@ -2366,12 +2637,17 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
                     wp = [g for g in wp if g[0] or abs(g[1]) <= BIG]
                     sig = {v: (pv(10 + v) if v < 8 and not e[0] and abs(e[1]) > BIG else e) for v, e in sig.items()}
                     ias = [[g for g in ia if abs(g[1]) <= BIG] for ia in ias]
-                for D, ia in ((D, ia) for D in facts for ia in ias):
+                for D, (si, ia) in ((D, x) for D in facts for x in enumerate(ias)):
                     prem = D + wp + ia + rng
                     if box_contradiction(prem):
                         continue        # a case that cannot happen: no constraint
+                    ida = nid(a, si) if a in B else a
+                    idn = nxt
+                    if nxt in B and per_disj:
+                        t = pick_of(ctx, inv, a, m, si, nxt)
+                        idn = nid(nxt, t if t < len(disjuncts(inv, nxt)) else 0)
                     if log is not None:
-                        for gd, gcc, gk in _log_goals(log, col, V, sig, h, B, a, nxt):
+                        for gd, gcc, gk in _log_goals(log, col, V, sig, h, B, a, nxt, ida, idn):
                             add_oblig(prem, gd, (gcc, gk))
                         continue
                     gd, gcc, gk = {}, {}, 0
@@ -2381,21 +2657,21 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
                         gcc[NB] = gcc.get(NB, 0) - 1
                     if nxt in B:
                         for v in V:
-                            pc = col[("p", nxt, v)]
+                            pc = col[("p", idn, v)]
                             dv, cv = sig[v]
                             for u, k in dv.items():
                                 gd.setdefault(u, {})
                                 gd[u][pc] = gd[u].get(pc, 0) + k
                             if cv:
                                 gcc[pc] = gcc.get(pc, 0) + cv
-                        cc_ = col[("c", nxt)]
+                        cc_ = col[("c", idn)]
                         gcc[cc_] = gcc.get(cc_, 0) + 1
                     if a in B:
                         for v in V:
-                            pc = col[("p", a, v)]
+                            pc = col[("p", ida, v)]
                             gd.setdefault(v, {})
                             gd[v][pc] = gd[v].get(pc, 0) - 1
-                        cc_ = col[("c", a)]
+                        cc_ = col[("c", ida)]
                         gcc[cc_] = gcc.get(cc_, 0) - 1
                     add_oblig(prem, gd, (gcc, gk))
     if ctx.entry in B if outer is not None else ctx.entry == h:
@@ -2431,7 +2707,8 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
         elif key[0] == "p":
             # with `fixed` = (linear parts, sign): those, the constants only are unknowns
             bounds[k] = (-16, 16) if fixed is None else \
-                ((fixed[1],) * 2 if _cv(fixed[0][key[1]]) == key[2] else (0, 0))
+                ((fixed[1],) * 2 if _cv(fixed[0][key[1] if not isinstance(key[1], tuple) else key[1][0]]) == key[2]
+                 else (0, 0))
         elif key[0] == "c":
             bounds[k] = (None, None)
         else:
@@ -2463,32 +2740,39 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
             sols.append(res.x)
     out = []
     if log is not None:
-        return _log_candidates(ctx, h, body, V, col, sols, log)
+        return _log_candidates(ctx, h, body, V, col, sols, log, nd if per_disj else None)
     for x, limit in ((x, limit) for x in sols for limit in (1, 4, 16, 64)):
         fr = {key: Fraction(float(x[k])).limit_denominator(limit) for key, k in col.items()
               if key == "N" or key[0] in ("p", "c")}
         L = math.lcm(*[f.denominator for key, f in fr.items() if key != "N" and key[0] == "p"] + [1])
-        pots = []
-        for a in region:
-            d = {v: int(fr[("p", a, v)] * L) for v in V if fr[("p", a, v)] != 0}
-            pots.append((d, math.ceil(fr[("c", a)] * L)))
+
+        def pot_of(i):
+            return ({v: int(fr[("p", i, v)] * L) for v in V if fr[("p", i, v)] != 0},
+                    math.ceil(fr[("c", i)] * L))
+        pots = [pot_of(a) for a in region]
+        alt = [[pot_of(nid(a, d)) for d in range(1, nd[a])] for a in region] if per_disj else []
         N = math.ceil(Fraction(float(x[NB])) * L - Fraction(1, 10 ** 6))
-        if (N, pots, L) not in out:
-            out.append((N, pots, L))
+        if (N, pots, L, False, alt) not in out:
+            out.append((N, pots, L, False, alt))
     # the tightest bound first (a coarse rounding may be proved with a much larger bound)
     return sorted(out, key=lambda t: Fraction(t[0], t[2]))
 
 
-def _log_goals(log, col, V, sig, h, B, a, nxt):
+def _log_goals(log, col, V, sig, h, B, a, nxt, ida=None, idn=None):
     """The goals of a transition for a logarithmic potential, as rows of `synth_lp`:
     [(gd, gcc, gk)] (Lean `potGoals` with the loop's coefficient: D back to the header,
-    -N on entry, 0 elsewhere)."""
+    -N on entry, 0 elsewhere; none on a transition that leaves the loop, whose potential after
+    is 0). `ida`, `idn`: the columns of the potentials of `a` and `nxt` (their disjuncts)."""
     D, N = log
+    ida = a if ida is None else ida
+    idn = nxt if idn is None else idn
 
     def part(gd, gcc, node, F):
+        post = F > 0 and node == nxt
+        node = idn if post else (ida if node == a else node)
         for v in V:
             pc = col[("p", node, v)]
-            dv, cv = sig[v] if F > 0 and node == nxt else ({v: 1}, 0)
+            dv, cv = sig[v] if post else ({v: 1}, 0)
             for u, k in dv.items():
                 gd.setdefault(u, {})
                 gd[u][pc] = gd[u].get(pc, 0) + F * k
@@ -2506,30 +2790,30 @@ def _log_goals(log, col, V, sig, h, B, a, nxt):
         gd, gcc = {}, {}
         # 1 - psi(next) <= 0: the post-expression with coefficient -1
         for v in V:
-            pc = col[("p", nxt, v)]
+            pc = col[("p", idn, v)]
             dv, cv = sig[v]
             for u, k in dv.items():
                 gd.setdefault(u, {})
                 gd[u][pc] = gd[u].get(pc, 0) - k
             if cv:
                 gcc[pc] = gcc.get(pc, 0) - cv
-        gcc[col[("c", nxt)]] = -1
+        gcc[col[("c", idn)]] = -1
         out.append((gd, gcc, 1))
     elif nxt == h:
         gd, gcc = {}, {}
         part(gd, gcc, nxt, 1)
         out.append((gd, gcc, 1 - 2 ** (N + 1)))
-    else:
+    elif nxt in B:
         gd, gcc = {}, {}
-        if nxt in B:
-            part(gd, gcc, nxt, 1)
+        part(gd, gcc, nxt, 1)
         if a in B:
             part(gd, gcc, a, -1)
         out.append((gd, gcc, 0))
+    # a transition that leaves the loop: no goal (Lean `potGoals` with a constant at most 1)
     return out
 
 
-def _log_candidates(ctx, h, body, V, col, sols, log):
+def _log_candidates(ctx, h, body, V, col, sols, log, nd=None):
     """Integer logarithmic potentials from the solutions of `synth_lp`, with the bound `N`
     from the range of `psi` at the header (its zone), and the bound of the program."""
     D, N = log
@@ -2539,10 +2823,11 @@ def _log_candidates(ctx, h, body, V, col, sols, log):
         fr = {key: Fraction(float(x[k])).limit_denominator(limit) for key, k in col.items()
               if key[0] in ("p", "c")}
         L = math.lcm(*[f.denominator for key, f in fr.items()] + [1])
-        pots = []
-        for a in body:
-            d = {v: int(fr[("p", a, v)] * L) for v in V if fr[("p", a, v)] != 0}
-            pots.append((d, int(fr[("c", a)] * L)))
+        def pot_of(i):
+            return ({v: int(fr[("p", i, v)] * L) for v in V if fr[("p", i, v)] != 0},
+                    int(fr[("c", i)] * L))
+        pots = [pot_of(a) for a in body]
+        alt = [[pot_of((a, d)) for d in range(1, nd[a])] for a in body] if nd else []
         b = (L - 1).bit_length()
         Ns = [N + b]
         if Mh is not None:
@@ -2554,8 +2839,8 @@ def _log_candidates(ctx, h, body, V, col, sols, log):
             if ub >= 1:
                 Ns.insert(0, ub.bit_length() - 1)
         for Nt in Ns:
-            if Nt <= 64 and (Nt, pots, D, True) not in out:
-                out.append((Nt, pots, D, True))
+            if Nt <= 64 and (Nt, pots, D, True, alt) not in out:
+                out.append((Nt, pots, D, True, alt))
     return sorted(out, key=lambda t: Fraction(t[0], t[2]))
 
 
@@ -2798,7 +3083,7 @@ def amortised(ctx, kind, full, loops, deadline):
             for coarse in (False, True):
                 if deadline is not None and _work() >= deadline:
                     return out
-                for N, pots, D in synth_lp(ctx, kind, full, lc.header, lc.body, coarse,
+                for N, pots, D, *_ in synth_lp(ctx, kind, full, lc.header, lc.body, coarse,
                                            outer=(oh, ob)):
                     if Fraction(N, D) >= prod:
                         break
@@ -2854,6 +3139,14 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False, pre=None
             alt = _certify_loops_budget(an, name, abi, prefer_source, frame, True, deadline, pre, need_inv)
             if len(alt[1]) > len(res[1]):
                 res = alt
+        if RICH and res[2] and any(w == "no potential found" for _h, w in res[2]) and \
+                _has_shr(an, name) and (deadline is None or _work() < deadline):
+            # only the logarithmic search, on the loops left without a potential that shift a
+            # value right; the loops certified before keep their potentials
+            alt = _certify_loops_budget(an, name, abi, prefer_source, frame, False, deadline, pre, need_inv,
+                                        rich=True, prev=_loops_of(res[0]))
+            if len(alt[1]) > len(res[1]):
+                res = alt
     finally:
         _DEADLINE = None
     if key is not None and set(res[0]) <= {"sp"} and not res[1]:
@@ -2861,11 +3154,36 @@ def certify_loops(an, name, abi=False, prefer_source=True, frame=False, pre=None
     return res
 
 
-def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline, pre=None, need_inv=False):
+def _loops_of(fields):
+    """{header: Loop} of the ordinary certified loops of a certificate's fields."""
+    def pexp(g):
+        return ({v: k for v, k in g["sv"]}, g["c"])
+    out = {}
+    for lc in fields.get("loops", []):
+        if "outer" in lc:
+            continue
+        out[lc["header"]] = Loop(lc["header"], lc["body"], lc["scale"], lc["bound"],
+                                 [pexp(p) for p in lc["pot"]], bool(lc.get("log")),
+                                 alt=[[pexp(p) for p in l] for l in lc.get("pot_alt", [])])
+    return out
+
+
+def _has_shr(an, name):
+    """The function has a shift right by an immediate (`LSRS`, `ASRS`)."""
+    if name not in an.img.funcs:
+        return False
+    start, size = an.img.funcs[name]
+    mem = an.img.mem
+    return any(int.from_bytes(mem[a:a + 2], "little") >> 11 in (1, 2)
+               for a in range(start, start + size - 1, 2))
+
+
+def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline, pre=None, need_inv=False,
+                          rich=False, prev=None):
     """`_certify_loops`; when the budget is spent during the analysis, no loop is certified
     (the offsets of SP are still given)."""
     try:
-        return _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline, pre, need_inv)
+        return _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline, pre, need_inv, rich, prev)
     except BudgetSpent:
         global _DEADLINE
         saved, _DEADLINE = _DEADLINE, None
@@ -2882,11 +3200,14 @@ def _certify_loops_budget(an, name, abi, prefer_source, frame, lit_any, deadline
 _RUNTIME_EMPTY = {}
 
 
-def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, pre=None, need_inv=False):
+def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, pre=None, need_inv=False,
+                   rich=False, prev=None):
     try:
         ctx = Ctx(an, name, abi, frame, lit_any, pre)
     except Exception as e:      # noqa: BLE001 (the analysis refuses the function)
         return {}, [], [(None, str(e))]
+    ctx.rich = rich
+    prev = prev or {}
     # the offsets of SP are given for every function, with loops or not: the checker uses them
     # to establish the calling convention on the code (Lean `convOk`)
     sp_only = {"sp": [ctx.sp.get(a) for a in ctx.nodes]}
@@ -2906,6 +3227,8 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
     ctx.state_h = state
     cache = {a: (transfer(ctx, kind, a, state[a]) if state[a] is not None else []) for a in ctx.nodes}
 
+    rel = rel_facts(ctx) if rich else {}
+
     def invariants(R):
         inv = Invs()
         for a in ctx.nodes:
@@ -2913,23 +3236,37 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
                 inv[a] = [({}, 1)]
                 continue
             keep = set(R) | ({8, 9} if kind.get(a, "none") != "none" else set())
+            extra = [g for g in rel.get(a, []) if set(g[0]) <= keep]
             parts = ctx.disj.get(a, [])
             if len(parts) >= 2:
-                zs = [zone_constraints(ctx.zones, Zn, keep) for _tag, Zn in parts]
+                zs = [zone_constraints(ctx.zones, Zn, keep) + extra for _tag, Zn in parts]
                 inv[a], inv.alt[a], inv.tags[a] = zs[0], zs[1:], [tag for tag, _Zn in parts]
             else:
-                inv[a] = zone_constraints(ctx.zones, state[a], keep)
+                inv[a] = zone_constraints(ctx.zones, state[a], keep) + extra
         return inv
 
     loops, info, why = [], [], []
     full = None             # invariants on every variable, for the linear programs
     for h, body, Nsrc in ctx.iloops:
+        if rich and h in prev:
+            # the richer analysis: a loop certified before keeps its potentials (proved again
+            # with the new invariants below)
+            loops.append(prev[h])
+            info.append((h, -(-prev[h].bound // prev[h].scale), Nsrc))
+            continue
+        if rich and not log_scales(ctx, body):
+            why.append((h, "no potential found"))
+            continue
         s = synth(ctx, kind, state, h, body, cache)
         eff_n = -(-s[0] // s[2]) if s is not None else None
         late = deadline is not None and _work() >= deadline
         if LP and not late and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
                 full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+                if rich:
+                    # the relational facts are candidates: only the proved ones go to the
+                    # linear programs (one may hold in one disjunct only)
+                    full = prove_all(ctx, kind, full, [])[1]
             def transported(h=h, body=body):
                 # linear parts that follow a bounded variable of the header (`transport`),
                 # the constants from the linear program (HiGHS fails on the full program)
@@ -2950,12 +3287,13 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
                 # is found within the source bound
                 if not LOG_POT:
                     return
-                if s is not None:
-                    return      # only when no affine potential is found
+                if s is not None and not (rich and Nsrc is not None and -(-s[0] // s[2]) > Nsrc):
+                    return      # only when no affine potential is found (richer analysis:
+                    #             or none within the source bound)
                 yield from synth_shift(ctx, h, body)
                 for D in log_scales(ctx, body):
                     yield from synth_lp(ctx, kind, full, h, body, False, log=(D, 31))
-            cands = itertools.chain(
+            cands = logs() if rich else itertools.chain(
                 (c for coarse in (False, True) for c in synth_lp(ctx, kind, full, h, body, coarse)),
                 transported(), logs())
             for cand in cands:
@@ -2966,8 +3304,22 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
                     break
                 if s is not None and Fraction(N, D) >= Fraction(s[0], s[2]):
                     continue
-                if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots, lg)])[0]:
-                    s, eff_n = (N, pots, D, lg), -(-N // D)
+                alt = cand[4] if len(cand) > 4 else None
+                if prove_all(ctx, kind, full, [Loop(h, body, D, N, pots, lg, alt=alt)])[0]:
+                    s, eff_n = (N, pots, D, lg, alt), -(-N // D)
+                    if rich and lg:
+                        # tighter entry bounds, once one is found (the linear program has no
+                        # objective: a feasible point with the loose bound may be far off)
+                        for Nt in (3, 7, 15):
+                            if Nt >= s[0]:
+                                break
+                            for c2 in synth_lp(ctx, kind, full, h, body, False, log=(D, Nt)):
+                                if c2[0] < s[0] and prove_all(ctx, kind, full, [Loop(h, body, D, c2[0], c2[1], True,
+                                                                                    alt=c2[4])])[0]:
+                                    s, eff_n = (c2[0], c2[1], D, True, c2[4]), -(-c2[0] // D)
+                                    break
+                            if s[0] <= Nt:
+                                break
                     if Nsrc is None or eff_n <= Nsrc:
                         break       # else look on for a bound within the source bound
         if s is None:
@@ -2977,7 +3329,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         if prefer_source and Nsrc is not None and eff_n > Nsrc:
             why.append((h, f"certified bound {eff_n} above the source bound {Nsrc}"))
             continue
-        loops.append(Loop(h, body, D, N, pots, len(s) > 3 and s[3]))
+        loops.append(Loop(h, body, D, N, pots, len(s) > 3 and s[3], alt=s[4] if len(s) > 4 else None))
         info.append((h, eff_n, Nsrc))
     if AMORT and LP and loops:
         if full is None:
@@ -2999,6 +3351,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         inv=[[js_lin(g) for g in inv.get(a, [])] for a in ctx.nodes],
         loops=[dict(header=lc.header, body=lc.body, scale=lc.scale, bound=lc.bound,
                     pot=[js_lin(p) for p in lc.pot], **({"log": True} if lc.log else {}),
+                    **({"pot_alt": [[js_lin(p) for p in l] for l in lc.alt]} if any(lc.alt) else {}),
                     **({"outer": dict(header=lc.outer[0], body=lc.outer[1])} if lc.outer else {}))
                for lc in loops],
         sp=[ctx.sp.get(a) for a in ctx.nodes],

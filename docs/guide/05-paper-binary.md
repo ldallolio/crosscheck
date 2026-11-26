@@ -329,6 +329,50 @@ The producer tries this when no affine potential is found: for a register shifte
 place once per turn it writes `Ψ` directly; otherwise it runs the linear program of the
 affine case with these goals for a fixed scale.
 
+### Binary search: a potential per disjunct
+
+Binary search halves a range, so it should get a logarithmic potential too:
+
+```c
+low = 0; up = 14;
+while (low <= up) {
+    mid = (low + up) >> 1;
+    if (data[mid].key == x) up = low - 1;        /* found: leave */
+    else if (data[mid].key > x) up = mid - 1;
+    else low = mid + 1;
+}
+```
+
+`2·(up − low + 1)` at the test halves at each turn. On the machine code, though, Clang puts the
+three updates before a single `cmp r2, r4; bgt exit` (the test `low <= up`, signed), and two of
+them can wrap around: `up = low − 1` with `low = 0`, and `up = mid − 1` with `mid = 0`, give
+`up = 2³² − 1` (that is `−1`). On that path a potential that doubles `up − low` is about `2³³`
+at the test, but a potential may not increase between the header and the test, and at the
+header it is about twice the range, at most 30: the descent fails. Taking `up` out of the potential at the test does not work either, since the path
+`low = mid + 1` needs it. The producer finds no certificate with one potential per
+instruction for this loop.
+
+The invariant there already has two disjuncts, "`up` has not wrapped around" and "`up` is
+`2³² − 1`" (the checker's `alt`/`pick`). The certificate now lets each disjunct have its
+own potential (`"pot_alt"`, Lean `LoopCert.potAlt`, `potAtD`): the second one can be small,
+because on that path the test leaves the loop. Each obligation uses the potential of the
+disjunct it starts from and that of the disjunct it lands in; the proof of
+`thm:machine-loops` follows the disjunct along the run (`step_ok`, `chain_ok`). One more rule
+helps: a logarithmic potential owes nothing when it leaves the loop, since `⌊log₂⌋` of the
+potential outside, 0, is 0.
+
+The producer finds this with a second, richer analysis, tried only on functions with a shift
+right whose loops are still uncertified:
+- intervals through shifts and sums of registers;
+- the wrap-around disjunct carried through the join up to the test;
+- relational facts such as `2·mid ≤ low + up ≤ 2·mid + 1`;
+- a column per disjunct in the linear program.
+
+The result is 3 back edges, four passes over 15 entries, with no trusted row. Lean example
+`exBs_sound` (module `ThumbSearch`) checks the certificate of the function exactly as Clang
+compiles it, and `exBs_needs_alt` shows that it is refused without the per-disjunct
+potentials.
+
 ### Loops that continue: amortised rows
 
 A loop row says "at most `N` back edges per entry of the loop". In a nest, IPET then lets the

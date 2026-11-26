@@ -250,19 +250,19 @@ that still grow are forgotten, so that the analysis terminates.
 
 | | no assumption | `--abi` | `--abi --frame` |
 |---|---:|---:|---:|
-| kernel loops certified (of 403) | 156 | 213 | 273 |
-| ... built with `-fomit-frame-pointer` | 159 | 217 | 274 |
-| ... certified bound below the source bound | 84 | 116 | 153 |
+| kernel loops certified (of 403) | 159 | 216 | 276 |
+| ... built with `-fomit-frame-pointer` | 162 | 220 | 277 |
+| ... certified bound below the source bound | 87 | 119 | 156 |
 | ... no source bound | 72 | 97 | 120 |
 | loops of the division routines certified (of 116) | 116 | 116 | 116 |
 | functions with a certified cycle bound | 118 | 118 | 123 |
-| loop rows still trusted in these bounds | 41 | 35 | 17 |
-| ... built with `-fomit-frame-pointer` | 39 | 34 | 16 |
+| loop rows still trusted in these bounds | 38 | 32 | 14 |
+| ... built with `-fomit-frame-pointer` | 36 | 31 | 13 |
 | run time with `--jobs 4` | 5 min | 8 min | 16 min |
 
 Every certificate is accepted, and no back-edge count of the emulated runs exceeds a
-certified bound. With both assumptions 389 of the 524 loops of the binaries are certified,
-and 162 of the 176 functions with loops have no trusted row left. A certified bound is
+certified bound. With both assumptions 392 of the 524 loops of the binaries are certified,
+and 165 of the 176 functions with loops have no trusted row left. A certified bound is
 never above the source bound (the producer keeps the source row then); those below it are
 often below by one, since the binary counts back edges. `--frame` is refused in 26 of the
 265 functions the producer analyses (25 without frame pointers): those that put another
@@ -271,8 +271,8 @@ certified that the source bounds alone do not bound: `fac_fac`, `fir2dim_pin_dow
 `md5_R_RandomInit`, `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`,
 `sha_fread`, `bitcount_btbl_bitcnt`, `bitcount_ntbl_bitcnt` (logarithmic potentials), and with
 both assumptions `bitcount_init`, `bitcount_init3`, `bitcount_init4`. (Figures of this table
-updated on 2026-11-25, after the logarithmic potentials; the rows of the time and of the loops
-left below are those of 2026-11-21.)
+updated on 2026-11-26, after the potentials per disjunct (binary search); the rows of the time
+and of the loops left below are those of 2026-11-21.)
 
 ### The loops left (with both assumptions)
 
@@ -369,7 +369,7 @@ to 5.53 times the observed cycles:
 
 | Kernel | Certified (cycles) | Observed | Ratio |
 |---|---:|---:|---:|
-| binarysearch | 24,895 | 24,241 | 1.03 |
+| binarysearch | 24,453 | 24,241 | 1.01 |
 | bsort | 282,526 | 148,668 | 1.90 |
 | complex_updates | 102,437 | 42,672 | 2.40 |
 | countnegative | 330,607 | 327,923 | 1.01 |
@@ -842,6 +842,53 @@ in `audiobeam`), none lost, no bound higher, every certificate accepted, 344 cer
 functions as before; work +14 %, time 1,293 → 1,417 s (17 more linear programs stopped after
 60 CPU seconds, 49 in all; the slowest successful solve 13.3 CPU s). Not certified yet: binary search (`(lo + hi) >> 1`; a potential `hi - lo + 1`
 halving, which HiGHS does not find), bit reversal (a counter shifted left up to a limit).
+
+### Binary search: potentials per disjunct (2026-11-26)
+
+TACLeBench's `binarysearch_binary_search` (`while (low <= up) { mid = (low + up) >> 1; ...
+up = low - 1 | up = mid - 1 | low = mid + 1 }`) is compiled with the three updates before a
+single `cmp r2, r4; bgt` (the test, signed). Its range halves at each pass, but `up = low -
+1` and `up = mid - 1` wrap around to `2^32 - 1` when `low` or `mid` is 0, on paths that join
+the third before the test; the producer found no certificate with one potential per
+instruction. The checker now takes potentials per disjunct of the invariant (`"pot_alt"`,
+Lean `LoopCert.potAlt`, `potAtD`; an obligation uses the potential of its source disjunct and
+of the disjunct it lands in), and a logarithmic potential has no goal on a transition whose
+next value is a constant at most 1 (an exit). The producer finds them with a richer analysis
+(`RICH`, on by default; `CROSSCHECK_RICH=0` disables it), tried again on a function with a
+shift right whose loops are left without a potential, and only for those loops (the others
+keep their potentials): intervals of shifts right and of sums of registers that cannot wrap,
+the wrap-around disjunct carried through joins up to the next conditional branch
+(`regions_of`, `analyse_rich`), the relational facts `rd = rn ± rm` and `2^s rd <= x <= 2^s rd
++ 2^s - 1` (`rel_facts`, proved before the linear programs see them), one column per disjunct
+in the linear programs, the logarithmic search also when the affine bound exceeds the source
+bound, and, once a potential is found with entry bound 31, the entry bounds 3, 7, 15. Test
+`test_binloops.py BinarySearch` (the function as Clang compiles it: 3 back edges; refused
+with a bound of 2, without `pot_alt`, read as affine, or with the halving replaced by a
+decrement); Lean example `exBs_sound` (module `ThumbSearch`, the same certificate, 100
+cycles), `exBs_needs_alt`.
+
+Against the runs of 2026-11-25 (`compare_runs.py --check`, 40-core machine, the same scripts):
+
+| configuration | loops certified | time (s) |
+|---|---:|---:|
+| no assumption | 156 → 159 | 96 → 111 |
+| `--abi` | 213 → 216 | 139 → 142 |
+| `--abi --frame` | 273 → 276 | 285 → 250 |
+| `-fomit-frame-pointer`, none / `--abi` / both | 159 / 217 / 274 → 162 / 220 / 277 | 80 / 159 / 287 → 156 / 165 / 235 |
+| compiler-rt, `--abi --frame` | 274 → 277 | 243 → 221 |
+| larger programs (compiler-rt, `--abi --frame`) | 1,148 → 1,148 | 1,417 → 1,354 |
+
+In every kernel configuration the three loops gained are the binary search and its two
+inlined copies (`binarysearch_main`, `main`); none is lost, no bound is higher, every
+certificate is accepted, no emulated run exceeds a bound. The certified bound of
+`binarysearch`'s `main` drops from 24,895 to 24,453 cycles (24,241 observed); its loops have
+no trusted row left. The time of the loop analysis summed over the functions grows by 7 %
+(`--abi --frame`) to 30 % (no assumption, without frame pointers), mostly in functions with
+shifts right and loops that stay uncertified: `fft_bit_reduct` (the bit reversal of `fft`,
+a counter shifted left up to a limit) takes 45 to 88 s more, and since `fft` is the longest
+kernel it sets the wall time of its group. A first version, which ran every search of the
+richer analysis on every loop of such a function, took up to 4.5 times as long
+(`fft_bit_reduct` alone 425 s).
 
 ### Loops that continue: amortised rows (2026-11-26)
 
