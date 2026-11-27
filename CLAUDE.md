@@ -309,5 +309,9 @@ How each item is met is in `AI_USAGE.md` §3; the repository keeps no list of op
    `doi:10.5281/zenodo.24425070`, concept `doi:10.5281/zenodo.24425069`; Software Heritage);
    `docs/release-record.md`. `main` is the released branch.
 2. Paper III: its evaluation follows `benchmarks/cycles/README.md`.
-3. The history of the work is in git (the planning documents of November 2026 were removed
-   on 2026-11-22); `AI_USAGE.md` summarises the AI's part.
+3. **Plans and perspectives: `docs/plan/README.md`** (re-introduced 2026-11-28 at the author's
+   request): standing against the other tools, the next task (the TPDB gap: programs that
+   KoAT2/CoFloCo bound and CrossCheck does not), other directions, the deferred packaging
+   plan, what was measured and set aside. Read it at the start of a session; keep it current
+   (update or delete entries when done). The history of the work is in git; `AI_USAGE.md`
+   summarises the AI's part (and keeps no list of open items).
