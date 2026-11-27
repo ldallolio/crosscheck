@@ -14,7 +14,12 @@ namespace crosscheck::cert {
 
 namespace {
 
-constexpr unsigned kTimeoutMs = 10000;
+// Every Z3 query is limited by Z3's resource counter (`rlimit`, per query), not by time, so that
+// the answers are the same on every machine and under any load (a wall-clock timeout made them
+// depend on both). An exhausted query answers "unknown", which every caller treats as
+// "not proved". On TACLeBench (kernels and larger programs, 2026-11-27) the largest query
+// used 187k units (0.06 s); the limit leaves a factor of about 270.
+constexpr unsigned kRlimit = 50000000;
 constexpr std::size_t kMaxConstraints = 64;
 
 std::int64_t at(const Vec& v, std::size_t i) { return i < v.size() ? v[i] : 0; }
@@ -354,7 +359,7 @@ bool feasible(const Assn& p) {
     z3::context ctx;
     z3::solver s(ctx);
     z3::params prm(ctx);
-    prm.set("timeout", kTimeoutMs);
+    prm.set("rlimit", kRlimit);
     s.set(prm);
     for (const Lin& e : p) s.add(eval(ctx, e) <= 0);
     return s.check() != z3::unsat;
@@ -390,7 +395,7 @@ std::optional<Farkas> farkas(const Assn& p, const Lin& g) {
     z3::context ctx;
     z3::solver s(ctx);
     z3::params prm(ctx);
-    prm.set("timeout", kTimeoutMs);
+    prm.set("rlimit", kRlimit);
     s.set(prm);
     std::vector<z3::expr> lam;
     for (std::size_t i = 0; i < p.size(); ++i) {
@@ -461,7 +466,7 @@ std::optional<std::int64_t> upperBound(const Assn& p, const PExp& e) {
     z3::context ctx;
     z3::optimize o(ctx);
     z3::params prm(ctx);
-    prm.set("timeout", kTimeoutMs);
+    prm.set("rlimit", kRlimit);
     o.set(prm);
     for (const Lin& c : p) o.add(eval(ctx, c) <= 0);
     z3::expr t = linExpr(ctx, e.sv, "x") + ctx.real_val(static_cast<int64_t>(e.c));

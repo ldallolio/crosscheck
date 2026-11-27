@@ -132,6 +132,12 @@ the optional searches once spent and caps the refinement at two rounds, dropping
 that is not yet inductive (`searchBudgetLeft`). `cjpeg_transupp`: 2,277 s → 742 s
 (cache) → 376 s (budget), same bounds.
 
+Since 2026-11-27 no Z3 query has a time limit: each is limited by Z3's resource counter
+(`rlimit`, 50 million units per query), so that the answers no longer depend on the speed or
+the load of the machine. The 10-second timeouts it replaces were never reached on TACLeBench
+(the largest of about 400,000 queries used 187,000 units, 0.06 s); the kernels' reports and
+certificates are identical with either limit.
+
 | Construct | How the analysis reads it |
 |---|---|
 | `c ? a : b` | a fresh value with the facts true in both arms (`m <= a` if the other arm proves its value `<= a`, …) and the hull of the arms' intervals |
