@@ -309,7 +309,15 @@ and 165 of the 176 functions with loops have no trusted row left. A certified bo
 never above the source bound (the producer keeps the source row then); those below it are
 often below by one, since the binary counts back edges. `--frame` is refused in 26 of the
 265 functions the producer analyses (25 without frame pointers): those that put another
-address of their frame in a register, mostly to pass a local array to a callee. Functions
+address of their frame in a register, mostly to pass a local array to a callee. A finer
+rule was measured on 2026-11-27 (producer only): an address of the frame allowed in any
+register that is used only as the base of loads until it is written again, and never in
+`r0`-`r3` at a call. It certifies one more loop of the Clang kernels (`isqrt_main` 0xaa,
+bound 999), none of the GCC kernels or of the larger programs, so it was not added to the
+checker. Forcing `--frame` on every function gains about eleven loops in `isqrt`, `lms`,
+`ludcmp` and `md5`, but there the assumption is false: `md5_main` passes its frame to a callee
+that writes it, and `lms_main`, `ludcmp_test` store addresses of their frame in it and write
+through pointers that move (a points-to analysis of the frame would be needed). Functions
 certified that the source bounds alone do not bound: `fac_fac`, `fir2dim_pin_down`,
 `md5_R_RandomInit`, `md5_R_memset`, `md5_memcpy`, `md5_memset_x`, `pm_memcpy`, `pm_memset`,
 `sha_fread`, `bitcount_btbl_bitcnt`, `bitcount_ntbl_bitcnt` (logarithmic potentials), and with
