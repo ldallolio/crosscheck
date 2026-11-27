@@ -79,6 +79,10 @@ WRAPLOOP = {0x100: [0x2309, 0x1E5B, 0x1C5A, 0xD200, 0xE7FB, 0x4770]}
 # zero: leaving needs the wrap-around disjunct and the rounding of the sum fact `r3 + 4 != 2^32`
 # with the congruence r3 = 0 (mod 4) (Lean `tightenS`)
 WRAPZERO = {0x100: [0x230F, 0x43DB, 0x3304, 0xD1FD, 0x4770]}
+# movs r1,#7; mvns r1,r1; L: adds r0,#32; adds r1,#1; bhs out; b L; out: bx lr -- Clang's jfdctint:
+# a counter from -8 up to the carry, after a pointer step; the branch reads the counter's carry,
+# so the window of the pointer's addition is split again at the counter's (`window_split`)
+PTRWRAP = {0x100: [0x2107, 0x43C9, 0x3020, 0x3101, 0xD200, 0xE7FB, 0x4770]}
 EXACT = {"lit": (LITLOOP, 12, 0x102), "stm": (STMLOOP, 10, 0x102), "keep": (STMKEEP, 12, 0x102),
          "neg": (NEGLOOP, 12, 0x106), "mvn": (MVNLOOP, 12, 0x106), "shl": (SHLLOOP, 10, 0x104),
          "wrap": (WRAPLOOP, 12, 0x102)}
@@ -347,6 +351,35 @@ class FramePointer(unittest.TestCase):
             for f in d["programs"][0]["functions"]:
                 f["frame"] = False
             self.assertEqual(check(d)[0], 1)
+
+
+class TwoWraps(unittest.TestCase):
+    """Two additions that may wrap before the branch: the disjuncts of the first are split
+    again at the second, whose carry the branch reads; 8 iterations, 7 back edges."""
+
+    def doc(self, code=PTRWRAP):
+        an = test_ipet.analysis(code, {"f": (0x100, 14)}, range(0x104, 0x10c, 2), 10)
+        st = {}
+        doc, _, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+        return doc, st
+
+    def test_producer(self):
+        doc, st = self.doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x104, 7)])
+        self.assertTrue(any(doc["programs"][0]["functions"][0]["alt"]))
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = self.doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        # the counter from -9: 9 iterations, more than certified; a smaller bound
+        d = copy.deepcopy(doc)
+        d["code"]["halfwords"][0x100 // 2] = 0x2108
+        self.assertEqual(check(d)[0], 1, "from -9")
+        d = copy.deepcopy(doc)
+        d["programs"][0]["functions"][0]["loops"][0]["bound"] -= 1
+        self.assertEqual(check(d)[0], 1, "bound")
 
 
 class ExactEffects(unittest.TestCase):

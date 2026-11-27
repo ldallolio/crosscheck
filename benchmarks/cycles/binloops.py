@@ -966,9 +966,19 @@ def pick_of(ctx, inv, a, m, si, nxt):
     tags = getattr(inv, "tags", {})
     if nxt not in tags:
         return 0
-    if a in tags:
+    starts = getattr(ctx, "windows", {})
+    if getattr(ctx, "_second_of", (None,))[0] is not starts:
+        ctx._second_of = (starts, {window_split(ctx, w) for w in starts} - {None} if starts else set())
+    second = ctx._second_of[1]
+    if a in tags and a in second:
+        # the second split of a window: the source disjunct's tag and the case `m` here
+        base = tags[a][si] if si < len(tags[a]) else None
+        w = wrap_op(ctx.eff[a])
+        wm = 1 if w is not None and w[2] < 0 else -1
+        tag = None if base is None else ((base, 0) if m == 0 else ((base, 1) if m == wm else None))
+    elif a in tags:
         tag = tags[a][si] if si < len(tags[a]) else None
-    elif a in getattr(ctx, "windows", {}):
+    elif a in starts:
         w = wrap_op(ctx.eff[a])
         wm = 1 if w is not None and w[2] < 0 else -1
         tag = 0 if m == 0 else (1 if m == wm else None)
@@ -1997,14 +2007,12 @@ def windows_of(ctx):
     return {a: ch for a, ch in W.items() if a not in inner}
 
 
-def window_transfer(ctx, kind, a, M):
-    """The zones of the window starting at `a` from the closed zone `M`: ({instruction:
-    [(tag, zone)]}, {transition of the branch: joined zone}); tag 0: no wrap-around at
-    `a`, tag 1: wrap-around."""
+def split_wrap(ctx, kind, a, M, nxt):
+    """The posts of `rd = rn + k` at `a` from the closed zone `M`, apart: [(0, post without
+    wrap-around), (1, post with)] (the cases that are possible)."""
     Zd = ctx.zones
     Z = Zd.Z
     r, x, k = wrap_op(ctx.zeff[a])
-    chain = ctx.windows[a]
     parts = []
     lo_ok = Zd.add_edge(copy(M), Z, x, k)               # x + k >= 0
     if lo_ok is not None:
@@ -2014,8 +2022,7 @@ def window_transfer(ctx, kind, a, M):
         parts.append((1, Zd.add_edge(copy(M), x, Z, -k - 1), k + U))   # x + k < 0
     elif k > 0:
         parts.append((1, Zd.add_edge(copy(M), Z, x, k - U), k - U))    # x + k >= U
-    nxt = ctx.out[a][0][0]
-    cur = []
+    out = []
     for tag, Mi, shift in parts:
         if Mi is None:
             continue
@@ -2025,12 +2032,43 @@ def window_transfer(ctx, kind, a, M):
             ex[8] = ex[9] = "any"
         post = apply_post(Zd, Mi, ex, closed=True)
         if post is not None:
-            cur.append((tag, post))
+            out.append((tag, post))
+    return out
+
+
+def window_split(ctx, a):
+    """The instruction of the window starting at `a` where its disjuncts are split again: the
+    last one before the branch that sets the flags, if it is another `rd = rn ± imm` (the
+    branch reads its flags: `subs r3, #1; adds r2, r3, #1; bcs` needs the subtraction's
+    wrap-around for r3 and the addition's for the carry; `adds r0, #32; adds r1, #1; bhs`, the
+    addition of the counter: before 2026-11-27 only the first was split, and the counter's
+    wrap case was joined with the others, so that its bounds were lost), else None."""
+    chain = ctx.windows[a]
+    last = None
+    for x in [a] + chain[:-1]:
+        if ctx.zeff[x][1] != "keep":
+            last = x
+    if last is None or last == a or wrap_op(ctx.zeff[last]) is None:
+        return None
+    return last
+
+
+def window_transfer(ctx, kind, a, M):
+    """The zones of the window starting at `a` from the closed zone `M`: ({instruction:
+    [(tag, zone)]}, {transition of the branch: joined zone}); tag 0: no wrap-around at
+    `a`, tag 1: wrap-around; after the instruction of `window_split`, the pairs (tag at `a`,
+    tag there)."""
+    chain = ctx.windows[a]
+    cur = split_wrap(ctx, kind, a, M, ctx.out[a][0][0])
+    second = window_split(ctx, a)
     disj, outs = {}, {}
     for idx, n in enumerate(chain):
         disj[n] = cur
         nxt_cur = []
         for tag, Zn in cur:
+            if n == second:
+                nxt_cur += [((tag, t2), post) for t2, post in split_wrap(ctx, kind, n, Zn, chain[idx + 1])]
+                continue
             for j, _Mf, _ex, post in transfer(ctx, kind, n, Zn):
                 if post is None:
                     continue

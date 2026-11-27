@@ -1224,6 +1224,16 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-27, two wrap-arounds before a branch.** A window of the zone analysis
+  (`window_transfer`) split only at its first addition that may wrap; in Clang's
+  `adds r0, #32; adds r1, #1; bhs` (a pointer, then a counter from -8 up to the carry) that
+  is the pointer, and the counter's wrap case was joined with the others, losing its bounds.
+  The disjuncts are now split again at the addition whose flags the branch reads
+  (`window_split`; tags become pairs, `pick_of`); choosing that addition alone instead broke
+  `subs r3, #1; adds r2, r3, #1; bcs` of the division routines, where the subtraction's
+  wrap-around carries the counter. Producer only. Clang kernels (both assumptions) 276 → 278
+  (`jfdctint` 0x64 at its exact 8 iterations; `md5_final` 0x93a with a bound of 2^32 − 2),
+  GCC 103 → 103, larger programs 1,171 → 1,172 (`gsm_dec`); test `TwoWraps`.
 - **2026-11-25, preconditions.** `--contexts`: bounds that depend on the calls, proved at
   every call ("Bounds that depend on the call"); off by default, figures unchanged.
 - **2026-11-25, creeping widening.** `forget_growing` drops the constraints of the growing
