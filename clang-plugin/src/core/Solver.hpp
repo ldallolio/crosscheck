@@ -31,6 +31,9 @@ std::uint64_t solverCalls();
 /// their answers ("not proved") may depend on the machine.
 std::uint64_t solverTimeouts();
 
+/// The version of the Z3 library in use (for `--version`).
+std::string solverVersion();
+
 /// A closed integer interval with optional ends.
 struct Interval {
   std::optional<std::int64_t> lo, hi;

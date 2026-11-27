@@ -31,6 +31,12 @@ endif()
 
 add_compile_options(-Wall -Wextra)
 
+set(CMAKE_INSTALL_DOCDIR "share/doc/crosscheck" CACHE PATH "documentation (DATAROOTDIR/doc/crosscheck)")
+include(GNUInstallDirs)
+# Installed binaries keep the run paths of libraries outside the system directories (a conda
+# environment, a private LLVM); for system libraries none is added.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+
 # --- core: affine expressions and the SMT back-end (no Clang dependency) -----
 add_library(crosscheck_core STATIC
   src/core/LinExpr.cpp
@@ -79,8 +85,17 @@ endif()
 
 add_executable(crosscheck-tool src/tool/Main.cpp)
 target_compile_definitions(crosscheck-tool PRIVATE
-  CROSSCHECK_RESOURCE_DIR="${CROSSCHECK_RESOURCE_DIR}")
+  CROSSCHECK_RESOURCE_DIR="${CROSSCHECK_RESOURCE_DIR}" CROSSCHECK_VERSION="${PROJECT_VERSION}")
 target_link_libraries(crosscheck-tool PRIVATE crosscheck_analysis ${CROSSCHECK_CLANG_LIBS})
+
+# --- installation -------------------------------------------------------------
+# bin/crosscheck-tool, lib/crosscheck/libCrossCheckPlugin.so (clang -fplugin=...), the
+# annotation header include/crosscheck/attributes.hpp, the user documentation.
+install(TARGETS crosscheck-tool RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS CrossCheckPlugin LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/crosscheck)
+install(DIRECTORY include/crosscheck DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES README.md ../LICENSE ../docs/certificate-format.md ../docs/contracts.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 # --- tests --------------------------------------------------------------------
 # Extra flags for the Clang front-end in the tests, e.g. when Clang must be
@@ -176,6 +191,14 @@ if(BUILD_TESTING)
           --mutants 150)
     endif()
   endif()
+  # The installed tree: installed into a scratch prefix, the installed tool and plugin run on
+  # an example with the installed header.
+  add_test(NAME install_tree_works
+    COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${CMAKE_BINARY_DIR} -DPREFIX=${CMAKE_BINARY_DIR}/install-test
+      -DBINDIR=${CMAKE_INSTALL_BINDIR} -DLIBDIR=${CMAKE_INSTALL_LIBDIR}
+      -DINCLUDEDIR=${CMAKE_INSTALL_INCLUDEDIR} -DDOCDIR=${CMAKE_INSTALL_DOCDIR}
+      -DEXAMPLE=${BENCH}/fir_filter.cpp -DCLANGXX=${CROSSCHECK_CLANGXX}
+      "-DEXTRA=${CROSSCHECK_CLANG_EXTRA_FLAGS}" -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_install.cmake)
   foreach(name rejected_allocation rejected_unbounded_loop rejected_deadline)
     add_test(NAME plugin_rejects_${name}
       COMMAND ${CROSSCHECK_CLANGXX} ${PLUGIN_FLAGS} ${BENCH}/${name}.cpp)

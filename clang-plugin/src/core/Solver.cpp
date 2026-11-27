@@ -216,6 +216,8 @@ std::uint64_t solverCalls() { return callCounter(); }
 
 std::uint64_t solverTimeouts() { return z3limits::timeouts(); }
 
+std::string solverVersion() { return Z3_get_full_version(); }
+
 bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
              const Constraint& goal) {
   if (goal.e.poisoned()) return false;

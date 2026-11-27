@@ -72,6 +72,23 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=$E \
 If Clang must be pointed at a particular libstdc++ for the tests, pass for
 instance `-DCROSSCHECK_CLANG_EXTRA_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13`.
 
+### Installing
+
+```bash
+cmake --install build --prefix /usr/local      # or DESTDIR=... for a package
+```
+
+installs `bin/crosscheck-tool`, the plugin `lib/crosscheck/libCrossCheckPlugin.so`, the
+annotation header `include/crosscheck/attributes.hpp` (`#include <crosscheck/attributes.hpp>`)
+and the user documentation in `share/doc/crosscheck`. `-DBUILD_TESTING=OFF` builds without
+the tests (no GoogleTest needed). The tool knows the resource directory of the Clang it was
+built against (`clang++ -print-resource-dir` at configuration time): install it with that
+Clang. Libraries found outside the system directories (a conda environment) stay on the run
+path of the installed files. The test `install_tree_works` installs into a scratch prefix
+and runs the installed tool and plugin on an example. The certificate checker
+`crosscheck-check` is built separately, by Lean (`formalization/`, `lake build
+crosscheck-check`).
+
 ## Usage
 
 ### As a compiler plugin
@@ -108,7 +125,8 @@ Options are passed as `-fplugin-arg-crosscheck-<option>`:
 crosscheck-tool [--summary] [--report=FILE] [--all] [--opt=weight-memory=3] file.cpp -- -std=c++20 -Iinclude
 ```
 
-Exit status 0 if every analysed function is accepted, 1 otherwise.
+Exit status 0 if every analysed function is accepted, 1 otherwise. `crosscheck-tool --version` prints its version and those of the
+LLVM and Z3 it uses.
 
 ## Annotations
 

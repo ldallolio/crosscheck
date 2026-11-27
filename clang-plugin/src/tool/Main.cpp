@@ -12,10 +12,12 @@
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Support/CommandLine.h"
 
 #include "../analysis/Consumer.hpp"
 #include "../analysis/Export.hpp"
+#include "../core/Solver.hpp"
 
 namespace {
 
@@ -52,6 +54,10 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace
 
 int main(int argc, const char** argv) {
+  llvm::cl::SetVersionPrinter([](llvm::raw_ostream& os) {
+    os << "crosscheck-tool " CROSSCHECK_VERSION " (LLVM " LLVM_VERSION_STRING ", Z3 "
+       << crosscheck::solverVersion() << ")\n";
+  });
   auto parser = clang::tooling::CommonOptionsParser::create(argc, argv, category);
   if (!parser) {
     llvm::errs() << llvm::toString(parser.takeError()) << "\n";
