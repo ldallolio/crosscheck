@@ -18,3 +18,8 @@ lean_lib «ImperativeOptimization» where
 /-- The certificate checker (`lake exe crosscheck-check FILE.json`). -/
 lean_exe «crosscheck-check» where
   root := `CheckerMain
+
+/-- Test, not part of the checker: its JSON reader (`JsonCore`) against `Lean.Json.parse`
+    (`python3 test/json_differential.py`). -/
+lean_exe «json-differential» where
+  root := `test.JsonDifferential

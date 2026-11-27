@@ -62,13 +62,15 @@ requirements:
       - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [run_tests.sh]}
   - id: TOR-8
     text: >
-      The part of the tool that is not covered by the proofs (the JSON reader and the main
-      program, CheckerMain.lean) does not make the tool accept a false claim: changing one
+      The part of the tool that is not covered by the proofs (the JSON reader, JsonCore.lean,
+      and the main program, CheckerMain.lean) does not make the tool accept a false claim: changing one
       integer of an accepted certificate yields either a rejection or a certificate whose
       claim still holds on executions.
     evidence:
       - {kind: test, files: [formalization/test/mutate_certificates.py, formalization/test/cert_interp.py]}
       - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [mutate_certificates.py]}
+      - {kind: test, files: [formalization/test/json_differential.py, formalization/test/JsonDifferential.lean], note: "the JSON reader against Lean.Json.parse: the same values on generated documents, never accepting a text Lean refuses"}
+      - {kind: ci, workflow: .github/workflows/lean_build.yml, contains: [json_differential.py]}
   - id: TOR-9
     text: >
       The tool reads only the files named on its command line, writes only to its standard

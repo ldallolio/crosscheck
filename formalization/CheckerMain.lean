@@ -3,7 +3,7 @@ Copyright (c) 2026 Luca Dall'Olio. All rights reserved.
 Released under the MIT license as described in the file LICENSE.
 Authors: Luca Dall'Olio
 -/
-import Lean.Data.Json
+import ImperativeOptimization.JsonCore
 import ImperativeOptimization.CheckerCore
 import ImperativeOptimization.MiniCCore
 import ImperativeOptimization.MiniCJumpCore
@@ -76,7 +76,7 @@ Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a ma
 input.
 -/
 
-open Lean ImperativeOptimization.Checker ImperativeOptimization.MiniC ImperativeOptimization.Interrupts
+open ImperativeOptimization.JsonCore ImperativeOptimization.Checker ImperativeOptimization.MiniC ImperativeOptimization.Interrupts
 
 namespace CheckerMain
 

@@ -37,6 +37,7 @@ import ImperativeOptimization.ThumbConv
 import ImperativeOptimization.ThumbSearch
 import ImperativeOptimization.ThumbHigh
 import ImperativeOptimization.ElfCore
+import ImperativeOptimization.JsonCore
 
 /-!
 # CrossCheck: Dual-Layer Semantics of Imperative Programs and WCET Verification

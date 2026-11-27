@@ -131,7 +131,8 @@ limitation, it says so.
   export (`--opt=minic`), and `validated_sound` transfers the bound. What you trust then is
   the exporter (`MiniC.cpp`, syntactic, a few hundred lines) and the cost model.
 - **"Is the checker program the verified one?"** It is the Lean definition `check`,
-  compiled by Lean's compiler. The JSON parser around it is not verified, and `--print`
+  compiled by Lean's compiler. The JSON parser around it is not verified (its own small
+  reader, `JsonCore`, compared with Lean's on generated documents), and `--print`
   shows what was checked. Trusted: Lean's compiler and runtime, the parser, and the
   lowering from C++ to the certificate's program.
 - **"Is this proof-carrying code?"** For cost bounds, yes in structure: an untrusted
