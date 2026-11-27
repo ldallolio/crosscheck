@@ -158,7 +158,12 @@ def highs_lp(c, A_ub, b_ub, A_eq, b_eq, bounds, solver=None, presolve=True, maxi
     interior-point ones; 0 when HiGHS fails with an error), `cpu`."""
     import types
     import numpy as np
-    import scipy.optimize._highspy._core as hc
+    try:
+        import scipy.optimize._highspy._core as hc
+    except ImportError:
+        # scipy before 1.15 has no such module: linprog itself, without the stop after
+        # LP_SAFETY_CPU CPU seconds (HiGHS's wall-clock limit remains)
+        return _linprog_lp(c, A_ub, b_ub, A_eq, b_eq, bounds, solver, presolve, maxiter)
     from scipy.sparse import csc_array, issparse, vstack
     mats = [M for M in (A_ub, A_eq) if M is not None]
     A = csc_array(vstack(mats) if any(issparse(M) for M in mats) else np.vstack(mats), dtype=float)
@@ -214,6 +219,25 @@ def highs_lp(c, A_ub, b_ub, A_eq, b_eq, bounds, solver=None, presolve=True, maxi
                   M.kInfeasible: 2, M.kModelError: 2, M.kUnbounded: 3}.get(ms, 4)
     if out.status == 0:
         out.x = np.array(h.getSolution().col_value)
+    return out
+
+
+def _linprog_lp(c, A_ub, b_ub, A_eq, b_eq, bounds, solver, presolve, maxiter):
+    """`highs_lp` through `scipy.optimize.linprog`, for a scipy without the module that
+    `highs_lp` uses (the same model; `nit` as linprog reports it)."""
+    import types
+    from scipy.optimize import linprog
+    method = {None: "highs", "simplex": "highs-ds", "ipm": "highs-ipm"}[solver]
+    opts = dict(presolve=presolve, time_limit=LP_WALL_SECONDS)
+    if maxiter is not None:
+        opts["maxiter"] = maxiter
+    t0 = time.process_time()
+    r = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method=method,
+                options=opts)
+    out = types.SimpleNamespace(status=int(r.status), x=r.x if r.status == 0 else None,
+                                nit=int(getattr(r, "nit", 0) or 0), interrupted=False,
+                                wall=r.status == 1 and "time" in str(r.message).lower(),
+                                cpu=time.process_time() - t0)
     return out
 
 

@@ -30,6 +30,9 @@ jobs:
             llvm-18-dev libclang-18-dev clang-18 lld-18 \
             libz3-dev libgtest-dev python3-jsonschema python3-scipy binutils-arm-none-eabi \
             libzstd-dev zlib1g-dev libedit-dev libcurl4-openssl-dev libxml2-dev libffi-dev
+          # the scipy of the certificates' runs (HiGHS through its own module, scipy >= 1.15;
+          # Ubuntu 24.04 has 1.11, on which binloops.py falls back to linprog)
+          python3 -m pip install --user --break-system-packages scipy==1.16.3
 
       # The SARIF 2.1.0 schema (OASIS), for the ctest that validates the plugin's SARIF output.
       - name: SARIF schema
@@ -199,6 +202,7 @@ jobs:
           echo "Cycle bounds accepted: $(grep -c '^ACCEPTED' cycles-checked.txt)" >> "$GITHUB_STEP_SUMMARY"
           if grep -E '^REJECTED|^PROGRAM .*REJECTED' cycles-checked.txt; then echo "a cycle certificate was rejected"; exit 1; fi
           sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy llvm-18 gcc-arm-none-eabi
+          python3 -m pip install --user --break-system-packages scipy==1.16.3
           python3 benchmarks/cycles/test_ipet.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_binloops.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_effect.py --checker formalization/.lake/build/bin/crosscheck-check

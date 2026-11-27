@@ -824,6 +824,9 @@ class LinearPrograms(unittest.TestCase):
         self.assertTrue({0, 2} <= statuses, statuses)     # optimal and infeasible ones
 
     def test_cpu_limit(self):
+        import importlib.util
+        if importlib.util.find_spec("scipy.optimize._highspy") is None:
+            self.skipTest("scipy before 1.15: linprog, without the stop in CPU time")
         c, A, b, E, beq, bounds = next(iter(self.programs()))
         saved = binloops.LP_SAFETY_CPU
         binloops.LP_SAFETY_CPU = -1.0       # every callback stops the solve
