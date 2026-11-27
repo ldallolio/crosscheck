@@ -36,7 +36,7 @@ are sound.
   constant factor at every step.
 -/
 
-variable {S : Type} {α : Type} [LinearOrderedField α]
+variable {S : Type} {α : Type} [Field α] [LinearOrder α] [IsStrictOrderedRing α]
 
 /-- Along a run of `step`, a potential that decreases by at least `1` per step has
     decreased by at least `k` after `k` steps. -/
@@ -204,7 +204,7 @@ theorem call_bound_of_context {A : Type} (callCost : A → ℕ) (C : A → Prop)
   induction args with
   | nil => simp
   | cons a t ih =>
-    have h1 := h a (hC a (List.mem_cons_self a t))
+    have h1 := h a (hC a (List.mem_cons_self))
     have h2 := ih (fun x hx => hC x (List.mem_cons_of_mem a hx))
     simp only [List.map_cons, List.sum_cons, List.length_cons]
     rw [Nat.succ_mul]

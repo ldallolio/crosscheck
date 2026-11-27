@@ -5,8 +5,8 @@
 # any community specification for formalization metadata.
 project: CrossCheck
 paper: paper/theory/crosscheck-theory.tex
-lean_toolchain: leanprover/lean4:v4.16.0
-mathlib: v4.16.0
+lean_toolchain: leanprover/lean4:v4.36.0
+mathlib: v4.36.0
 root_module: ImperativeOptimization
 namespace: ImperativeOptimization
 build: "cd formalization && lake exe cache get && lake build"

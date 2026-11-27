@@ -52,7 +52,6 @@ theorem parametricLoopStep_iter_i (s : ParametricState) (k : ℕ) :
     dsimp [Function.iterate_succ']
     rw [ih (parametricLoopStep s)]
     dsimp [parametricLoopStep]
-    push_cast
     ring
 
 /-- Lemma: Iterating `parametricLoopStep` k times increases `y` by `5 * k`. -/
@@ -66,7 +65,6 @@ theorem parametricLoopStep_iter_y (s : ParametricState) (k : ℕ) :
     dsimp [Function.iterate_succ']
     rw [ih (parametricLoopStep s)]
     dsimp [parametricLoopStep]
-    push_cast
     ring
 
 /-- Lemma: Iterating `parametricLoopStep` (m + 1) times produces `x = s.y + 5 * m + 2`.
@@ -108,8 +106,8 @@ theorem parametric_loop_minimal (R : Int) :
     isLoopSolution parametricLoop { i := R, x := 1, y := 2 } (parametricIterations R) := by
   constructor
   · show decide (((parametricLoopStep^[parametricIterations R]) _).i < 13) = false
-    rw [parametricLoopStep_iter_i]
-    simp only [decide_eq_false_iff_not, parametricIterations]
+    rw [parametricLoopStep_iter_i, decide_eq_false_iff_not]
+    simp only [parametricIterations]
     omega
   · intro k hk
     show decide (((parametricLoopStep^[k]) _).i < 13) = true

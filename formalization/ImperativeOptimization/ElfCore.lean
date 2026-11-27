@@ -75,7 +75,7 @@ def cstr (d : ByteArray) (o : Nat) : String := Id.run do
     let b := u8 d (o + k)
     if b == 0 then break
     s := Char.ofNat b :: s
-  return String.mk s.reverse
+  return String.ofList s.reverse
 
 def sections (d : ByteArray) : Except String (Array Sec) := do
   if d.size < 52 then throw "not an ELF file (too short)"
@@ -156,7 +156,7 @@ def loadExec (d : ByteArray) (secs : Array Sec) : Except String Image := do
 /-- A relocatable object, as `m0.load` (without the stack area that follows). -/
 def loadRel (d : ByteArray) (secs : Array Sec) : Except String Image := do
   let some shstr := secs[u16 d 0x32]? | throw "no section name table"
-  let mut addr : Array (Option Nat) := Array.mkArray secs.size none
+  let mut addr : Array (Option Nat) := Array.replicate secs.size none
   let mut pos := 0
   let mut mem := ByteArray.empty
   for k in [0:secs.size] do
@@ -195,7 +195,7 @@ def loadRel (d : ByteArray) (secs : Array Sec) : Except String Image := do
       let mut S := y.value
       if y.shndx == 0 then
         let nm := cstr d (strtab.off + y.name)
-        match stubs.indexOf? nm with
+        match stubs.idxOf? nm with
         | some i => S := stub + 2 * i
         | none =>
           S := stub + 2 * stubs.length

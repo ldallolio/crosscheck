@@ -38,7 +38,7 @@ theorem traceIter_succ (t : Trace Instr) (n : ℕ) :
 def cost (t : Trace Instr) : ℕ := t.length
 
 theorem cost_additive (u v : Trace Instr) :
-    cost (u ++ v) = cost u + cost v := List.length_append u v
+    cost (u ++ v) = cost u + cost v := List.length_append
 
 theorem cost_iter (t : Trace Instr) (n : ℕ) :
     cost (t ^[n]) = n * cost t := by
@@ -71,7 +71,7 @@ theorem order_antisymm {u w : Trace Instr} (h1 : u ⊑ w) (h2 : w ⊑ u) : u = w
   rcases h2 with ⟨r2, hr2⟩
   have len1 : w.length = u.length + r1.length := by rw [hr1, List.length_append]
   have len2 : u.length = w.length + r2.length := by rw [hr2, List.length_append]
-  have r1_nil : r1 = [] := List.length_eq_zero.mp (by omega)
+  have r1_nil : r1 = [] := List.length_eq_zero_iff.mp (by omega)
   rw [r1_nil] at hr1
   rw [hr1]
   exact (List.append_nil u).symm
@@ -108,7 +108,7 @@ theorem iter_monotone_iff {t : Trace Instr} (ht : t ≠ []) {n m : ℕ} :
   · intro h
     have hc := order_cost_le h
     rw [cost_iter, cost_iter] at hc
-    have hpos : 0 < cost t := List.length_pos.mpr ht
+    have hpos : 0 < cost t := List.length_pos_iff.mpr ht
     exact Nat.le_of_mul_le_mul_right hc hpos
   · exact iter_monotone t
 
@@ -214,7 +214,7 @@ theorem subseq_refl (t : Trace Instr) : t ⊑_sub t := by
   dsimp [SubsequenceOrder]
   induction t with
   | nil => exact List.Sublist.slnil
-  | cons a l ih => exact List.Sublist.cons₂ a ih
+  | cons a l ih => exact List.Sublist.cons_cons a ih
 
 /-- Monotonicity of cost under structural subsequence embedding. -/
 theorem subseq_cost_le {u w : Trace Instr} (h : u ⊑_sub w) :
@@ -225,7 +225,7 @@ theorem subseq_cost_le {u w : Trace Instr} (h : u ⊑_sub w) :
   | cons a _ ih =>
     dsimp
     omega
-  | cons₂ a _ ih =>
+  | cons_cons a _ ih =>
     dsimp
     omega
 
@@ -239,7 +239,7 @@ theorem prefix_le_subseq {u w : Trace Instr} (h : u ⊑ w) : u ⊑_sub w := by
     | nil => exact List.Sublist.slnil
     | cons b l ih => exact List.Sublist.cons b ih
   | cons a l ih =>
-    exact List.Sublist.cons₂ a ih
+    exact List.Sublist.cons_cons a ih
 
 /-- Transitivity of structural subsequence order. -/
 theorem subseq_trans {u v w : Trace Instr} (h1 : u ⊑_sub v) (h2 : v ⊑_sub w) : u ⊑_sub w :=
@@ -254,7 +254,7 @@ theorem subseq_wcost_le (ω : Instr → ℕ) {u w : Trace Instr} (h : u ⊑_sub 
   | cons a _ ih =>
     simp only [wcost, List.map_cons, List.sum_cons] at *
     omega
-  | cons₂ a _ ih =>
+  | cons_cons a _ ih =>
     simp only [wcost, List.map_cons, List.sum_cons] at *
     omega
 

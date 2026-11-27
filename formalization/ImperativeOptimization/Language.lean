@@ -205,7 +205,7 @@ theorem valid_conseq {P P' Q Q' : S → Prop} {c : Cmd ι S} {B B' : ℕ}
 
 section While
 
-variable {α : Type} [LinearOrderedField α]
+variable {α : Type} [Field α] [LinearOrder α] [IsStrictOrderedRing α]
 
 /-- Terminating executions of a loop under a ranking certificate: with invariant `I`
     and potential `V < m + 1`, at most `m` iterations are performed. -/

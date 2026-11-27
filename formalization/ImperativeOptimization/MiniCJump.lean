@@ -263,27 +263,27 @@ theorem MExp.affine_indep {G : List ℕ} (e : MExp) (he : ∀ x ∈ e.vars, x �
   | lit k => intro p hp; simp [MExp.affine] at hp; subst hp; exact Indep.const G k
   | add a b iha ihb =>
     intro p hp
-    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at hp
     obtain ⟨pa, ha, pb, hb, rfl⟩ := hp
     exact (iha (fun x hx => he x (by simp [MExp.vars, hx])) pa ha).padd
       (ihb (fun x hx => he x (by simp [MExp.vars, hx])) pb hb)
   | sub a b iha ihb =>
     intro p hp
-    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at hp
     obtain ⟨pa, ha, pb, hb, rfl⟩ := hp
     exact (iha (fun x hx => he x (by simp [MExp.vars, hx])) pa ha).padd
       ((ihb (fun x hx => he x (by simp [MExp.vars, hx])) pb hb).pscale (-1))
   | neg a iha =>
     intro p hp
-    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at hp
     obtain ⟨pa, ha, rfl⟩ := hp
     exact (iha (fun x hx => he x (by simp [MExp.vars, hx])) pa ha).pscale (-1)
   | mul a b iha ihb =>
     intro p hp
-    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some] at hp
+    simp only [MExp.affine, Option.bind_eq_bind, Option.bind_eq_some_iff] at hp
     obtain ⟨pa, ha, pb, hb, hp⟩ := hp
     have ia := iha (fun x hx => he x (by simp [MExp.vars, hx])) pa ha
     have ib := ihb (fun x hx => he x (by simp [MExp.vars, hx])) pb hb
@@ -297,7 +297,7 @@ theorem MCond.test_indep {G : List ℕ} (c : MCond) (hc : ∀ x ∈ c.vars, x �
   induction c with
   | cmp op a b =>
     intro g hg
-    simp only [MCond.test, Option.bind_eq_bind, Option.bind_eq_some] at hg
+    simp only [MCond.test, Option.bind_eq_bind, Option.bind_eq_some_iff] at hg
     obtain ⟨pa, ha, pb, hb, hg⟩ := hg
     have ia := a.affine_indep (fun x hx => hc x (by simp [MCond.vars, hx])) pa ha
     have ib := b.affine_indep (fun x hx => hc x (by simp [MCond.vars, hx])) pb hb
@@ -308,7 +308,7 @@ theorem MCond.test_indep {G : List ℕ} (c : MCond) (hc : ∀ x ∈ c.vars, x �
     · exact ib.padd (ia.pscale _)
   | not c ih =>
     intro g hg
-    simp only [MCond.test, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [MCond.test, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at hg
     obtain ⟨g', h', rfl⟩ := hg
     exact ((ih (fun x hx => hc x (by simpa [MCond.vars] using hx)) g' h').pscale _).padd
@@ -388,7 +388,7 @@ theorem mapM_test_indep {cs : List MCond} (hcs : ∀ c ∈ cs, ∀ x ∈ c.vars,
     subst h; simp
   | cons c cs ih =>
     intro gs h
-    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨g, hg, gs', hgs', rfl⟩ := h
     intro g' hg'
@@ -506,7 +506,7 @@ theorem lower_quiet (hW : ∀ x ∈ W, x ∈ G) (h0 : choiceVar ∉ G) (h1 : cos
     intro c hv hcb h
     simp only [lower, Option.some.injEq] at h; subst h
     exact quiet_foldr hW args (fun a ha => ⟨hv _ (mem_call_vars ha f).1,
-      fun x hx => hv x ((mem_call_vars ha f).2 x hx)⟩) _ (by simpa [MStmt.callsBelow] using hcb)
+      fun x hx => hv x ((mem_call_vars ha f).2 x hx)⟩) _ (by simpa [MStmt.callsBelow, Quiet, ACmd.toCmd] using hcb)
   | divStore w x op y c old =>
     intro d hv _hcb h
     have hx : x ∉ G := hv x (by simp [MStmt.vars])
@@ -535,7 +535,7 @@ theorem lower_quiet (hW : ∀ x ∈ W, x ∈ G) (h0 : choiceVar ∉ G) (h1 : cos
   | seq a b iha ihb =>
     intro c hv hcb h
     simp only [MStmt.callsBelow, Bool.and_eq_true] at hcb
-    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨la, ha, lb, hb, rfl⟩ := h
     exact quiet_seqOf (iha la (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb.1 ha)
@@ -543,7 +543,7 @@ theorem lower_quiet (hW : ∀ x ∈ W, x ∈ G) (h0 : choiceVar ∉ G) (h1 : cos
   | ite w c a b iha ihb =>
     intro d hv hcb h
     simp only [MStmt.callsBelow, Bool.and_eq_true] at hcb
-    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some] at h
+    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
     obtain ⟨la, ha, lb, hb, h⟩ := h
     have qa := iha la (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb.1 ha
     have qb := ihb lb (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb.2 hb
@@ -556,21 +556,21 @@ theorem lower_quiet (hW : ∀ x ∈ W, x ∈ G) (h0 : choiceVar ∉ G) (h1 : cos
   | «while» w cs body ih =>
     intro d hv hcb h
     simp only [MStmt.callsBelow] at hcb
-    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨gs, hgs, lb, hb, rfl⟩ := h
     have hcs : ∀ c ∈ cs, ∀ x ∈ c.vars, x ∉ G := fun c hc x hx =>
-      hv x (by simp [MStmt.vars, mem_foldr_vars hc hx])
+      hv x (by have := mem_foldr_vars hc hx; simp only [MStmt.vars, List.mem_append]; tauto)
     exact quiet_loopOf (mapM_test_indep hcs gs hgs)
       (ih lb (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb hb)
   | for_ init w cs inc body ihi ihc ihb =>
     intro d hv hcb h
     simp only [MStmt.callsBelow, Bool.and_eq_true] at hcb
-    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at h
     obtain ⟨li, hi, gs, hgs, lb, hb, lc, hinc, rfl⟩ := h
     have hcs : ∀ c ∈ cs, ∀ x ∈ c.vars, x ∉ G := fun c hc x hx =>
-      hv x (by simp [MStmt.vars, mem_foldr_vars hc hx])
+      hv x (by have := mem_foldr_vars hc hx; simp only [MStmt.vars, List.mem_append]; tauto)
     exact quiet_seqOf (ihi li (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb.1.1 hi)
       (quiet_loopOf (mapM_test_indep hcs gs hgs)
         (quiet_seqOf (ihb lb (fun x hx => hv x (by simp [MStmt.vars, hx])) hcb.2 hb)
@@ -616,13 +616,13 @@ theorem nearestCnt_mem {r : ℕ} : ∀ {ctx : List Frame} {f : ℕ}, nearestCnt 
     split_ifs at h
     · obtain ⟨h1, fr', h2, h3⟩ := nearestCnt_mem (r := r) h
       exact ⟨by simp [okFlags, h1], fr', List.mem_cons_of_mem _ h2, h3⟩
-    · exact ⟨by simp [okFlags, h], fr, List.mem_cons_self _ _, by simp [h]⟩
+    · exact ⟨by simp [okFlags, h], fr, List.mem_cons_self, by simp [h]⟩
 
 theorem okFlags_mem {r : ℕ} {Gh : List ℕ} (hr : r ∈ Gh) :
     ∀ {ctx : List Frame}, WF Gh ctx → ∀ f ∈ okFlags r ctx, f ∈ Gh ∧ (f = r ∨ f ∈ ghostsOf ctx)
   | [], _, f, hf => by simp [okFlags] at hf
   | fr :: ctx, hw, f, hf => by
-    have hfr := hw fr (List.mem_cons_self _ _)
+    have hfr := hw fr (List.mem_cons_self)
     have hw' : WF Gh ctx := fun fr' h => hw fr' (List.mem_cons_of_mem _ h)
     simp only [okFlags, List.mem_append] at hf
     rcases hf with ((h | h) | h) | h
@@ -686,7 +686,7 @@ theorem JumpOK.keeps {r : ℕ} {Gh : List ℕ} {ctx : List Frame} {o : Outcome} 
 
 theorem lower_seq {a b : MStmt} {c : ACmd} (h : lower (.seq a b) = some c) :
     ∃ ca cb, lower a = some ca ∧ lower b = some cb ∧ c = seqOf ca cb := by
-  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
     Option.some.injEq] at h
   obtain ⟨ca, ha, cb, hb, rfl⟩ := h
   exact ⟨ca, cb, ha, hb, rfl⟩
@@ -707,7 +707,7 @@ theorem eval_unit (f : ℕ) (σ : Env) : (⟨unit f, 0⟩ : PExp).eval σ = σ f
 theorem lower_ite_test {w : ℕ} {c : MCond} {a b : MStmt} {d : ACmd} {g : PExp}
     (hg : c.test = some g) (h : lower (.ite w c a b) = some d) :
     ∃ la lb, lower a = some la ∧ lower b = some lb ∧ d = .ite w g noSB noSB la lb := by
-  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, hg, Option.pure_def,
+  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, hg, Option.pure_def,
     Option.some.injEq] at h
   obtain ⟨la, ha, lb, hb, rfl⟩ := h
   exact ⟨la, lb, ha, hb, rfl⟩
@@ -716,7 +716,7 @@ theorem lower_ite_other {w : ℕ} {c : MCond} {a b : MStmt} {d : ACmd}
     (hg : c.test = none) (h : lower (.ite w c a b) = some d) :
     ∃ la lb, lower a = some la ∧ lower b = some lb ∧
       d = seqOf (.havoc 0 choiceVar) (.ite w ⟨unit choiceVar, 0⟩ noSB noSB la lb) := by
-  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some, hg, Option.pure_def,
+  simp only [lower, Option.bind_eq_bind, Option.bind_eq_some_iff, hg, Option.pure_def,
     Option.some.injEq] at h
   obtain ⟨la, ha, lb, hb, rfl⟩ := h
   exact ⟨la, lb, ha, hb, rfl⟩
@@ -731,12 +731,12 @@ theorem mapM_append_test (l₁ l₂ : List MCond) :
     (l₁ ++ l₂).mapM MCond.test =
       (l₁.mapM MCond.test).bind fun a => (l₂.mapM MCond.test).map fun b => a ++ b := by
   induction l₁ with
-  | nil => simp only [List.nil_append, List.mapM_nil, Option.pure_def, Option.some_bind,
+  | nil => simp only [List.nil_append, List.mapM_nil, Option.pure_def, Option.bind_some,
       List.nil_append, Option.map_id']
   | cons c l ih =>
     simp only [List.cons_append, List.mapM_cons, ih, Option.pure_def, Option.bind_eq_bind]
-    cases c.test <;> simp only [Option.none_bind, Option.some_bind]
-    cases List.mapM MCond.test l <;> simp only [Option.none_bind, Option.some_bind, Option.map_none']
+    cases c.test <;> simp only [Option.bind_none, Option.bind_some]
+    cases List.mapM MCond.test l <;> simp only [Option.bind_none, Option.bind_some]
     cases List.mapM MCond.test l₂ <;> simp
 
 theorem mapM_clearTests (fs : List ℕ) :
@@ -745,7 +745,7 @@ theorem mapM_clearTests (fs : List ℕ) :
   | nil => rfl
   | cons f fs ih =>
     simp only [List.map_cons, List.mapM_cons, clearTest_test, ih, Option.pure_def,
-      Option.bind_eq_bind, Option.some_bind]
+      Option.bind_eq_bind, Option.bind_some]
 
 theorem all_clear (fs : List ℕ) (σ : Env) :
     (fs.map fun f => (⟨unit f, 0⟩ : PExp)).all (fun g => decide (g.eval σ ≤ 0)) =
@@ -856,7 +856,7 @@ theorem foldl_unless (σ : Env) (fs : List ℕ) : ∀ (u : MStmt) (d : ACmd),
       simpa using this
     · by_cases hrest : ∃ g ∈ fs, 0 < σ g
       · exact hpos hrest
-      · push_neg at hrest
+      · push Not at hrest
         rcases List.mem_cons.mp hg with rfl | hg
         · have e := Exec.iteFalse (Φ := Φ) (w := 0)
             (b := fun s => decide ((⟨unit g, 0⟩ : PExp).eval s ≤ 0))
@@ -991,7 +991,7 @@ theorem trL_drop {r : ℕ} {Gh : List ℕ} {ctx : List Frame} : ∀ (i : ℕ) (g
     cases gs with
     | nil => simp [trL] at h; subst h; simp [trL]
     | cons g gs =>
-      simp only [trL, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+      simp only [trL, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at h
       obtain ⟨g', _, gs', hgs', rfl⟩ := h
       simpa using ih gs gs' hgs'
@@ -1124,12 +1124,12 @@ theorem lower_whileOf {w : ℕ} {cs : List MCond} {exits : List ℕ} {fc : Optio
       lower (incG exits inc) = some lig ∧
       cw.toCmd = Cmd.while w (fun s => gsC.all (fun g => decide (g.eval s ≤ 0)) &&
         exits.all (fun f => decide (s f ≤ 0))) (Cmd.seq lcc.toCmd (Cmd.seq lbd.toCmd lig.toCmd)) := by
-  simp only [whileOf, lower, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+  simp only [whileOf, lower, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
     Option.some.injEq] at h
   obtain ⟨gs, hgs, lb, hlb, rfl⟩ := h
   obtain ⟨lcc, hcc, lr, ⟨lbd, hbd, lig, hig, rfl⟩, rfl⟩ := hlb
   rw [mapM_append_test, mapM_clearTests] at hgs
-  simp only [Option.bind_eq_some, Option.map_some', Option.some.injEq] at hgs
+  simp only [Option.bind_eq_some_iff, Option.map_some, Option.some.injEq] at hgs
   obtain ⟨gsC, hC, rfl⟩ := hgs
   refine ⟨gsC, lcc, lbd, lig, hC, hcc, hbd, by cases inc <;> exact hig, ?_⟩
   rw [loopOf_toCmd]
@@ -1166,7 +1166,7 @@ theorem tr_loop_inv {r : ℕ} {Gh : List ℕ} {ctx : List Frame} {w : ℕ} {cs :
   cases B <;> cases C <;> cases R <;> simp only [ite_true, ite_false, Bool.false_eq_true] at h ⊢ <;>
     split_ifs at h with h1 h2 h3 h4 <;> simp_all
   all_goals
-    obtain ⟨bd, hbd, hm⟩ := Option.bind_eq_some.mp h
+    obtain ⟨bd, hbd, hm⟩ := Option.bind_eq_some_iff.mp h
     cases hm
     cases inc <;> simp_all [Option.isSome_iff_ne_none, incClean]
 
@@ -1486,7 +1486,7 @@ theorem cont_flags (hr : r ∈ Gh) {ctx : List Frame} (hw : WF Gh ctx) {body : J
   rcases hg with hg | hg
   · simp only [loopFrame] at hnd hf
     rw [List.nodup_append] at hnd
-    exact hnd.2.2 hg (by simp [hf])
+    exact hnd.2.2 _ hg _ (by simp [hf]) rfl
   · split_ifs at hg <;> simp at hg; exact hfr' hg
 
 /-- After a `break` of the loop. -/
@@ -1580,7 +1580,7 @@ theorem tr_switch_inv {ctx : List Frame} {w sc : ℕ} {gs : List JStmt} {k m : M
   cases R <;> cases E <;> simp only [ite_true, ite_false, Bool.false_eq_true] at h ⊢ <;>
     split_ifs at h with h1 h2 <;> simp_all
   all_goals
-    obtain ⟨groups, hg, hm⟩ := Option.bind_eq_some.mp h
+    obtain ⟨groups, hg, hm⟩ := Option.bind_eq_some_iff.mp h
     cases hm
     simp_all [Option.isSome_iff_ne_none]
     exact ⟨groups, hg, rfl⟩
@@ -1597,7 +1597,7 @@ theorem rclear_run {rets : Bool} {c : ACmd} (h : lower (if rets then flagSet 0 r
 
 theorem okFlags_swFrame {rets : Bool} {sc : ℕ} {ctx : List Frame} :
     okFlags r (swFrame rets sc :: ctx) = (if rets then [r] else []) ++ okFlags r ctx := by
-  simp [okFlags, swFrame]
+  cases rets <;> simp [okFlags, swFrame]
 
 theorem sc_fresh (hr : r ∈ Gh) {ctx : List Frame} (hw : WF Gh ctx) {sc : ℕ}
     (hF : freshGh r ctx [sc] = true) {rets : Bool} :
@@ -1670,7 +1670,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
   | @seqN a b σ υ τ o n₁ n₂ _ _ ih₁ ih₂ =>
     refine ⟨?_, notLoop (by intros; simp), notFall (by intros; simp)⟩
     intro ctx k m cm hw hg htr hl σ' ha hok
-    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some] at htr
+    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some_iff] at htr
     obtain ⟨kb, hkb, hta⟩ := htr
     have hga : ∀ x ∈ a.ghosts, x ∈ Gh := fun x hx => hg x (by simp [JStmt.ghosts, hx])
     have hgb : ∀ x ∈ b.ghosts, x ∈ Gh := fun x hx => hg x (by simp [JStmt.ghosts, hx])
@@ -1698,7 +1698,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
   | @seqJ a b σ τ o n _ ho ih =>
     refine ⟨?_, notLoop (by intros; simp), notFall (by intros; simp)⟩
     intro ctx k m cm hw hg htr hl σ' ha hok
-    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some] at htr
+    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some_iff] at htr
     obtain ⟨kb, hkb, hta⟩ := htr
     have hga : ∀ x ∈ a.ghosts, x ∈ Gh := fun x hx => hg x (by simp [JStmt.ghosts, hx])
     have hres := ih.1 ctx kb m cm hw hga hta hl σ' ha hok
@@ -1714,20 +1714,20 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
     have hgx : ∀ x ∈ a.ghosts, x ∈ Gh := fun x hx => hg x (by simp [JStmt.ghosts, hx])
     simp only [tr] at htr
     split_ifs at htr with hcl hend
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at htr
       obtain ⟨ta, hta, tb, htb, rfl⟩ := htr
       obtain ⟨σ₁', la, lb, hla, hlb, ha₁, hok₁, hrun, hpre⟩ :=
         ite_entry (Φ := Φ) h0 hr hw hl (by simpa using hcl) hc ha hok
-      simp only [↓reduceIte, Bool.false_eq_true] at hrun hpre
+      simp only [↓reduceIte] at hrun hpre
       exact ite_res hrun hpre (ih.1 ctx k _ _ hw hgx hta hla σ₁' ha₁ hok₁)
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at htr
       obtain ⟨ta, hta, tb, htb, rfl⟩ := htr
       obtain ⟨d, ck, hd, hck, rfl⟩ := lower_seq hl
       obtain ⟨σ₁', la, lb, hla, hlb, ha₁, hok₁, hrun, hpre⟩ :=
         ite_entry (Φ := Φ) h0 hr hw hd (by simpa using hcl) hc ha hok
-      simp only [↓reduceIte, Bool.false_eq_true] at hrun hpre
+      simp only [↓reduceIte] at hrun hpre
       have hesc := outcome_esc hx
       have ho : o = .normal ∨ o = .stop := by
         simp only [JStmt.ends, JStmt.hasRet, JStmt.escB, JStmt.escC, Bool.or_eq_true,
@@ -1746,14 +1746,14 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
     have hgx : ∀ x ∈ b.ghosts, x ∈ Gh := fun x hx => hg x (by simp [JStmt.ghosts, hx])
     simp only [tr] at htr
     split_ifs at htr with hcl hend
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at htr
       obtain ⟨ta, hta, tb, htb, rfl⟩ := htr
       obtain ⟨σ₁', la, lb, hla, hlb, ha₁, hok₁, hrun, hpre⟩ :=
         ite_entry (Φ := Φ) h0 hr hw hl (by simpa using hcl) hc ha hok
       simp only [↓reduceIte, Bool.false_eq_true] at hrun hpre
       exact ite_res hrun hpre (ih.1 ctx k _ _ hw hgx htb hlb σ₁' ha₁ hok₁)
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
         Option.some.injEq] at htr
       obtain ⟨ta, hta, tb, htb, rfl⟩ := htr
       obtain ⟨d, ck, hd, hck, rfl⟩ := lower_seq hl
@@ -1871,7 +1871,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
           apply Exec.whileFalse
           simp only [Bool.and_eq_false_iff]
           right
-          simp only [List.all_eq_false, decide_eq_false_iff_not, not_le]
+          simp only [List.all_eq_false]
           exact ⟨f, hf, by rw [hf1]; norm_num⟩
       rcases ho with rfl | rfl | rfl
       · obtain ⟨τ₁', n₁', hn, ha', hj, eb⟩ := hres
@@ -1907,13 +1907,13 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
       · cases htr
         simp only [lower_cost, Option.some.injEq] at hl; subst hl
         refine ⟨Function.update σ' costVar 0, w, le_refl _,
-          ha.update_right (List.mem_cons_self _ _) 0, ?_, exec_havoc w costVar σ' 0⟩
+          ha.update_right (List.mem_cons_self) 0, ?_, exec_havoc w costVar σ' 0⟩
         simp only [JumpOK, hsw, ite_true]
         exact JumpOK.update (o := .normal) (cost_ne_r hr h1) (notin_okFlags hr hw h1) 0 hok
-      · obtain ⟨f, hf, rfl⟩ := Option.map_eq_some'.mp htr
+      · obtain ⟨f, hf, rfl⟩ := Option.map_eq_some_iff.mp htr
         simp only [lower_flagSet, Option.some.injEq] at hl; subst hl
         have hfG : f ∈ Gh :=
-          (hw fr (List.mem_cons_self _ _)).2 f ((hw fr (List.mem_cons_self _ _)).1 f (by simp [hf]))
+          (hw fr (List.mem_cons_self)).2 f ((hw fr (List.mem_cons_self)).1 f (by simp [hf]))
         refine ⟨Function.update σ' f 1, w, le_refl _,
           ha.update_right (List.mem_cons_of_mem _ hfG) 1, ?_, exec_flagSet w f 1 σ'⟩
         simp only [JumpOK, hsw]
@@ -1922,7 +1922,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
     refine ⟨?_, notLoop (by intros; simp), notFall (by intros; simp)⟩
     intro ctx k m cm hw hg htr hl σ' ha hok
     simp only [tr] at htr
-    obtain ⟨f, hf, rfl⟩ := Option.map_eq_some'.mp htr
+    obtain ⟨f, hf, rfl⟩ := Option.map_eq_some_iff.mp htr
     simp only [lower_flagSet, Option.some.injEq] at hl; subst hl
     obtain ⟨_, fr, hfr, hffc⟩ := nearestCnt_mem (r := r) hf
     have hfG : f ∈ Gh := (hw fr hfr).2 f ((hw fr hfr).1 f (by simp at hffc ⊢; simp [hffc]))
@@ -2111,7 +2111,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
     refine ⟨fun ctx k m cm _ _ htr => by simp [tr] at htr, notLoop (by intros; simp), ?_⟩
     intro gs' heq ctx0 rets sc groups cc hw hg hsc hscr hsc0 htrL hcc σ' ha hok
     cases heq
-    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at htrL
     obtain ⟨g', hg', gs'', hgs'', rfl⟩ := htrL
     obtain ⟨dg, dr, hdg, hdr, rfl⟩ := lower_chain_cons hcc
@@ -2151,7 +2151,7 @@ theorem sim (hΦ : ∀ p, p < nb → Quiet nb (costVar :: Gh) Gh (Φ p)) (hr : r
     refine ⟨fun ctx k m cm _ _ htr => by simp [tr] at htr, notLoop (by intros; simp), ?_⟩
     intro gs' heq ctx0 rets sc groups cc hw hg hsc hscr hsc0 htrL hcc σ' ha hok
     cases heq
-    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some, Option.pure_def,
+    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.pure_def,
       Option.some.injEq] at htrL
     obtain ⟨g', hg', gs'', hgs'', rfl⟩ := htrL
     obtain ⟨dg, dr, hdg, hdr, rfl⟩ := lower_chain_cons hcc
@@ -2250,7 +2250,7 @@ theorem quiet_of_quietB {nq : ℕ} {G W : List ℕ} : ∀ c : ACmd, quietCmd nq 
     exact ⟨fun σ σ' ha => all_indep (fun g hg => indep_of_zeroOn (h.1 g hg)) ha, ih h.2⟩
   | weaken _ _ _ _ _ c ih => intro h; exact ih h
   | dead _ c ih => intro h; exact ih h
-  | call _ _ _ _ _ _ => intro h; simpa [quietCmd] using h
+  | call _ _ _ _ _ _ => intro h; simpa [quietCmd, Quiet, ACmd.toCmd] using h
 
 /-! ### `do` loops -/
 
@@ -2548,6 +2548,7 @@ theorem tr_desugar (r n : ℕ) (G : List ℕ) : ∀ (j : JStmt) (ctx : List Fram
     obtain ⟨b1, b2, b3⟩ := desugar_esc b h.2
     simp only [JStmt.desugar, tr, iha, ihb, JStmt.ends, JStmt.hasRet, JStmt.escB, JStmt.escC,
       a1, a2, a3, b1, b2, b3]
+    rfl
   | .loop w cs body inc fb fc, ctx, k, h => by
     have hb : body.okDo = true := by simpa [JStmt.okDo] using h
     have ih := fun ctx k => tr_desugar r n G body ctx k hb
@@ -2569,7 +2570,7 @@ theorem tr_desugar (r n : ℕ) (G : List ℕ) : ∀ (j : JStmt) (ctx : List Fram
     have ih := fun ctx k => tr_desugar r n G body ctx k hb
     obtain ⟨a1, a2, a3⟩ := desugar_esc body hb
     simp only [JStmt.desugar, tr, ih, a1, a2, a3, hB, hC]
-    simp [freshGh, nodup, disjoint, Option.bind_assoc]
+    simp [freshGh, nodup, disjoint]
     split_ifs <;> try rfl
     all_goals (cases tr r n G _ body MStmt.skip <;> rfl)
 theorem trL_desugar (r n : ℕ) (G : List ℕ) : ∀ (gs : List JStmt) (ctx : List Frame),
@@ -2588,16 +2589,16 @@ theorem tr_okDo (r n : ℕ) (G : List ℕ) : ∀ (j : JStmt) (ctx : List Frame) 
     tr r n G ctx j k = some m → j.okDo = true
   | .basic _, _, _, _, _ => rfl
   | .seq a b, ctx, k, m, h => by
-    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some] at h
+    simp only [tr, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
     obtain ⟨kb, hb, ha⟩ := h
     simp [JStmt.okDo, tr_okDo r n G a _ _ _ ha, tr_okDo r n G b _ _ _ hb]
   | .ite w c a b, ctx, k, m, h => by
     simp only [tr] at h
     split_ifs at h
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some] at h
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨ta, ha, tb, hb, _⟩ := h
       simp [JStmt.okDo, tr_okDo r n G a _ _ _ ha, tr_okDo r n G b _ _ _ hb]
-    · simp only [Option.bind_eq_bind, Option.bind_eq_some] at h
+    · simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨ta, ha, tb, hb, _⟩ := h
       simp [JStmt.okDo, tr_okDo r n G a _ _ _ ha, tr_okDo r n G b _ _ _ hb]
   | .loop w cs body inc fb fc, ctx, k, m, h => by
@@ -2614,7 +2615,7 @@ theorem tr_okDo (r n : ℕ) (G : List ℕ) : ∀ (j : JStmt) (ctx : List Frame) 
     simp only [tr] at h
     split_ifs at h with h1
     all_goals
-      simp only [Option.bind_eq_bind, Option.bind_eq_some] at h
+      simp only [Option.bind_eq_bind, Option.bind_eq_some_iff] at h
       obtain ⟨bd, hbd, hm⟩ := h
       simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at h1
       simp [JStmt.okDo, h1.1, h1.2, tr_okDo r n G body _ _ _ hm]
@@ -2622,7 +2623,7 @@ theorem trL_okDo (r n : ℕ) (G : List ℕ) : ∀ (gs : List JStmt) (ctx : List 
     (groups : List MStmt), trL r n G ctx gs = some groups → JStmt.okDoL gs = true
   | [], _, _, _ => rfl
   | g :: gs, ctx, groups, h => by
-    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some] at h
+    simp only [trL, Option.bind_eq_bind, Option.bind_eq_some_iff] at h
     obtain ⟨g', hg, gs', hgs, _⟩ := h
     simp [JStmt.okDoL, tr_okDo r n G g _ _ _ hg, trL_okDo r n G gs _ _ hgs]
 end
@@ -2692,7 +2693,7 @@ theorem validatedJ_sound (fs : List FunCert) (h : checkProgram fs = true)
     obtain ⟨d, hd, hsound⟩ := validated_sound fs h hbody hcontract hF hb hv
     have h0' : choiceVar ∉ ghostSet r j := by simpa using h0
     have h1' : costVar ∉ ghostSet r j := by simpa using h1
-    have hr : r ∈ ghostSet r j := List.mem_cons_self _ _
+    have hr : r ∈ ghostSet r j := List.mem_cons_self
     have hgj : ∀ x ∈ j.desugar.ghosts, x ∈ ghostSet r j := fun x hx =>
       List.mem_cons_of_mem _ (desugar_ghosts j x hx)
     have hok := tr_okDo r i (ghostSet r j) j [] .skip s hs

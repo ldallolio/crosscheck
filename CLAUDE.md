@@ -79,8 +79,10 @@ $E/bin/ninja -C build && (cd build && $E/bin/ctest --output-on-failure)
 ./build/crosscheck-tool --summary ../benchmarks/fir_filter.cpp -- -std=c++20 -Iinclude \
   --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
 ```
-Toolchain: `leanprover/lean4:v4.16.0`, mathlib pinned to tag `v4.16.0` in `lakefile.lean`.
-Note `lake-manifest.json` is gitignored, so dependency revs are not locked in git.
+Toolchain: `leanprover/lean4:v4.36.0`, mathlib pinned to tag `v4.36.0` in `lakefile.lean`
+(ported from `v4.16.0`, the toolchain of the archived `v1.0`, on 2026-11-27); `lake-manifest.json`
+is committed, so the dependency revisions are locked. The files are not modules of the module
+system (`allowNonModules := true` in the lakefile: no warning on importing mathlib).
 
 ## Lean formalization (`formalization/ImperativeOptimization/`)
 Everything lives in `namespace ImperativeOptimization` (examples in `…Examples`).
@@ -169,7 +171,15 @@ Axioms: only Lean's standard `propext`, `Quot.sound`, `Classical.choice` may app
   `Nat.iterate`. They resolve by type; if elaboration gets confused, write `traceIter t n`.
 - Functions defined by structural recursion into `Prop` (`IsExecTree`, `LeavesExit`) unfold with
   `obtain ⟨…⟩ := h`, `exact h`, or `simp [IsExecTree]`.
-- Pin to mathlib APIs available at v4.16.0 (e.g. `List.length_pos`, `Function.iterate_succ_apply'`).
+- Pin to mathlib APIs available at v4.36.0 (e.g. `List.length_pos_iff`, `Option.bind_eq_some_iff`,
+  `Option.bind_some`, `List.mem_cons_self` without arguments, `Nat.pow_pos`; an ordered field is
+  `[Field α] [LinearOrder α] [IsStrictOrderedRing α]`). The linters flag unused `simp` arguments
+  and tactics that do nothing: remove them, do not disable the linters.
+- Rewrite `decide p` (`decide_eq_decide`, `decide_eq_true_eq`, `beq_iff_eq`) **before** unfolding a
+  definition inside `p` (`U`, `sgn`): unfolding first leaves the old term in the `Decidable`
+  instance, and the rewrites no longer match. Two `match` expressions that print alike may be
+  different auxiliary functions (`obsOf.match_1`, `tGoals.match_1`): `simpa` then fails; split on
+  the discriminant (`cases next`) or close by `exact` (definitional equality).
 
 ## Papers (`paper/theory/`, `paper/tool/`)
 - Paper I holds every theorem except those on binaries, which are in Paper III with their measurements (cycle certificates, machine code, loop bounds on the code, the Cortex-M0/OTAWA/stack evaluation, time budgets); Paper II holds every other measurement (`tab:plugin`, `tab:tacle`,

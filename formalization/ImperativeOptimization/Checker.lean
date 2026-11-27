@@ -146,7 +146,7 @@ theorem entails1_sound {ps : List Lin} {g : Lin} {cert : ℕ × List ℕ}
   have hcomb := comb_nonpos cert.2 ps ρ s hps
   have hmu' : (0 : ℤ) < cert.1 := by exact_mod_cast hmu
   by_contra hg
-  push_neg at hg
+  push Not at hg
   have := mul_pos hmu' hg
   linarith
 
@@ -242,7 +242,7 @@ theorem dotN_update {l : List ℕ} {j : ℕ} (h : ncoeff l j = 0) (f : Env) (v :
       have e : (fun i => Function.update f 0 v (i + 1)) = fun i => f (i + 1) := by
         funext i; simp [Function.update]
       simp only [ncoeff, List.getD_cons_zero] at h
-      simp [dotN, e, h]
+      simp [dotN, h]
     | succ j =>
       have e : (fun i => Function.update f (j + 1) v (i + 1)) =
           Function.update (fun i => f (i + 1)) j v := by
@@ -277,10 +277,10 @@ theorem qsub_le : ∀ {a b : List (ℕ × ℕ × ℕ)}, qsub a b = true → ∀ 
     obtain ⟨y1, y2, y3⟩ := y
     by_cases hxy : x = (y1, y2, y3)
     · subst hxy
-      simp only [qsub, if_true] at h
+      simp only [qsub, ite_true] at h
       have := qsub_le h f
       simp only [dotQ]; omega
-    · simp only [qsub, hxy, if_false] at h
+    · simp only [qsub, hxy, ite_false] at h
       have := qsub_le h f
       simp only [dotQ] at this ⊢; omega
 
@@ -306,13 +306,13 @@ theorem dotN_sum (l : List ℕ) (f : Env) :
 theorem dotQ_foldr (L : List ℕ) (g : ℕ → List (ℕ × ℕ × ℕ)) (f : Env) :
     dotQ (L.foldr (fun i acc => g i ++ acc) []) f = (L.map (fun i => dotQ (g i) f)).sum := by
   induction L with
-  | nil => simp [dotQ]
+  | nil => simp
   | cons i L ih => simp only [List.foldr_cons, dotQ_append, ih, List.map_cons, List.sum_cons]
 
 theorem dotQ_row (L : List ℕ) (c : ℕ → ℕ) (i : ℕ) (f : Env) :
     dotQ (L.map (fun j => (c j, i, j))) f = (L.map (fun j => c j * (f i).toNat * (f j).toNat)).sum := by
   induction L with
-  | nil => simp [dotQ]
+  | nil => simp
   | cons j L ih => simp only [List.map_cons, dotQ, ih, List.sum_cons]
 
 theorem dotQ_crossQ (a b : List ℕ) (f : Env) : dotQ (crossQ a b) f = dotN a f * dotN b f := by
@@ -333,7 +333,7 @@ theorem SB.eval_mul {a b : SB} (ha : a.q = []) (hb : b.q = []) (ρ : Env) :
   ring
 
 @[simp] theorem SB.eval_const (w : ℕ) (ρ : Env) : (SB.const w).eval ρ = w := by
-  simp [SB.eval, SB.const, dotN, dotQ]
+  simp [SB.eval, SB.const, dotN]
 
 @[simp] theorem SB.eval_add (a b : SB) (ρ : Env) : (a.add b).eval ρ = a.eval ρ + b.eval ρ := by
   simp only [SB.eval, SB.add, dotN_nadd, dotQ_append]; ring
@@ -351,7 +351,7 @@ theorem SB.le_eval {a b : SB} (h : SB.le a b = true) (ρ : Env) : a.eval ρ ≤ 
 /-- A bound with no coefficient and no quadratic term is its constant. -/
 theorem SB.eval_of_const {b : SB} (h : b.co.all (· = 0) = true) (hq : b.q = []) (ρ : Env) :
     b.eval ρ = b.c := by
-  simp [SB.eval, dotN_zero h, hq, dotQ]
+  simp [SB.eval, dotN_zero h, hq]
 
 /-- A combination of bounds bounds the same combination of values bounded by them. -/
 theorem SB.comb_ge (ks : List ℕ) (bs : List SB) (ρ ρ' : Env) (hlen : ks.length ≤ bs.length)
@@ -443,10 +443,10 @@ theorem loopBoundOk_sound {w d : ℕ} {k : ℤ} {kl : List ℕ} {Wb B : SB}
     by_cases hK : k + D < 0
     · have : N = 0 := by
         simp only [N]
-        have : (k + D) / (d : ℤ) < 0 := Int.ediv_neg' hK hdZ
+        have : (k + D) / (d : ℤ) < 0 := Int.ediv_neg_of_neg_of_pos hK hdZ
         omega
       rw [this]; omega
-    · push_neg at hK
+    · push Not at hK
       have hq : 0 ≤ (k + D) / (d : ℤ) := Int.ediv_nonneg hK (le_of_lt hdZ)
       have hN : (N : ℤ) = (k + D) / (d : ℤ) := Int.toNat_of_nonneg hq
       have hmul : (k + D) / (d : ℤ) * d ≤ k + D := Int.ediv_mul_le _ (ne_of_gt hdZ)
@@ -1072,7 +1072,7 @@ def logPot (b : ℕ) (x : ℤ) : ℕ := if x ≤ 0 then 0 else Nat.log b x.toNat
 theorem logPot_step {b : ℕ} (hb : 1 < b) {x y : ℤ} (hx : 1 ≤ x) (hy : (b : ℤ) * y ≤ x) :
     logPot b y + 1 ≤ logPot b x := by
   have hx0 : ¬ x ≤ 0 := by omega
-  simp only [logPot, hx0, if_false]
+  simp only [logPot, hx0, ite_false]
   split_ifs with hy0
   · omega
   · have hy1 : 1 ≤ y := by omega
@@ -1096,7 +1096,7 @@ theorem logPot_le {b : ℕ} {x k : ℤ} (h : x ≤ k) : logPot b x ≤ logIters 
   unfold logPot logIters
   split
   · exact Nat.zero_le _
-  · rw [if_neg (by omega), ilog_eq]
+  · rw [ite_eq_right (by omega), ilog_eq]
     have := Nat.log_mono_right (b := b) (show x.toNat ≤ k.toNat by omega)
     omega
 
@@ -1183,7 +1183,7 @@ theorem logloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool}
   · intro s hI hbt
     have h1 := pos s hI hbt
     have : 1 ≤ logPot b (pot.eval s) := by
-      unfold logPot; rw [if_neg (by omega)]; omega
+      unfold logPot; rw [ite_eq_right (by omega)]; omega
     show (1 : ℚ) ≤ ((logPot b (pot.eval s) : ℕ) : ℚ)
     exact_mod_cast this
   · intro s hs
@@ -1313,7 +1313,7 @@ theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool
     have hKpos : 1 ≤ K := le_trans h1 hK
     have hmono := Nat.log_mono_right (b := b) (show (pot.eval s).toNat ≤ K.toNat by omega)
     have hL : logIters b K = Nat.log b K.toNat + 1 := by
-      simp only [logIters, ilog_eq]; rw [if_neg (by omega)]
+      simp only [logIters, ilog_eq]; rw [ite_eq_right (by omega)]
     have : V t + 1 ≤ V s := by
       simp only [V, hL]; omega
     rw [← hv]
@@ -1324,7 +1324,7 @@ theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool
     have hKpos : 1 ≤ K := le_trans hI.2 hK
     have hmono := Nat.log_mono_right (b := b) (show (pot.eval s).toNat ≤ K.toNat by omega)
     have hL : logIters b K = Nat.log b K.toNat + 1 := by
-      simp only [logIters, ilog_eq]; rw [if_neg (by omega)]
+      simp only [logIters, ilog_eq]; rw [ite_eq_right (by omega)]
     have : 1 ≤ V s := by simp only [V, hL]; omega
     show (1 : ℚ) ≤ ((V s : ℕ) : ℚ)
     exact_mod_cast this
@@ -1357,7 +1357,7 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
     refine ⟨valid_conseq (fun _ h => h) (valid_atom _ _ _ _ ?_)
       (by simpa using SB.le_eval hB ρ) (fun _ h => h), ?_⟩
     · rintro s t hP rfl e he
-      have := hP (e.subst x a) (List.mem_map_of_mem _ he)
+      have := hP (e.subst x a) (List.mem_map_of_mem he)
       rwa [Lin.subst_eval] at this
     · intro s t n _ he y hy
       cases he with
@@ -1583,7 +1583,7 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
       obtain ⟨hV, hfr⟩ := hfs f F hF
       have pre_at : ∀ s, holds P ρ s → holds F.pre (instEnv inst s) s := by
         intro s hs e he
-        have := entailsAll_sound hpre hs (e.inst inst) (List.mem_map_of_mem _ he)
+        have := entailsAll_sound hpre hs (e.inst inst) (List.mem_map_of_mem he)
         rwa [Lin.inst_eval] at this
       have bound_at : ∀ s, holds P ρ s → w + F.bound.eval (instEnv inst s) ≤ B.eval ρ := by
         intro s hs
@@ -1646,8 +1646,8 @@ theorem program_sound (fs : List FunCert) (h : checkProgram fs = true) (Φ : ℕ
         have hf : f < i := by
           rcases Nat.lt_or_ge f i with h' | h'
           · exact h'
-          · rw [List.getElem?_take, if_neg (Nat.not_lt.mpr h')] at hG; cases hG
-        rw [List.getElem?_take, if_pos hf] at hG
+          · rw [List.getElem?_take, ite_eq_right (Nat.not_lt.mpr h')] at hG; cases hG
+        rw [List.getElem?_take, ite_eq_left hf] at hG
         exact ih f hf G hG
       have H := check_sound (fs.take i) Φ hfs b F.pre F.post F.bound hchk
       unfold FunSpec
@@ -1741,7 +1741,7 @@ theorem countCert_cost (s : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 10) (n : ℕ)
   have := certified_cost_le countCert_checks (fun _ => Cmd.skip) (ρ := fun _ => 0) ?_ hp
   · simpa using this
   intro e he
-  simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at he
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
 
 /-! ### An amortised (triangular) loop nest -/
@@ -2333,7 +2333,7 @@ theorem countSym_cost (s : Env) (h0 : s 0 = 0) (n : ℕ)
   have := certified_cost_le countSym_checks (fun _ => Cmd.skip) (ρ := fun _ => s 1) ?_ hp
   · simpa [SB.eval, dotN] using this
   intro e he
-  simp only [countPre, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at he
+  simp only [countPre, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
 
 /-- The function `count` (variables `x₀ = i`, `x₁ = n`): it may modify `i`. -/

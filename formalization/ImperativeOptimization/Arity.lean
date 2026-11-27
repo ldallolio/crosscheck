@@ -160,7 +160,7 @@ end
 mutual
 /-- **Size potential.** If `1 + Σ_{y ∈ calls x} U y ≤ U x` for every argument, the
     call tree of `x` has at most `U x` nodes. -/
-theorem RTree.size_le_potential {β : Type} [LinearOrderedField β] (calls : α → List α)
+theorem RTree.size_le_potential {β : Type} [Field β] [LinearOrder β] [IsStrictOrderedRing β] (calls : α → List α)
     (U : α → β) (hU : ∀ x, 1 + ((calls x).map U).sum ≤ U x) :
     ∀ t : RTree α, t.IsCallTree calls → (t.size : β) ≤ U t.root
   | .node a f, h => by
@@ -169,7 +169,7 @@ theorem RTree.size_le_potential {β : Type} [LinearOrderedField β] (calls : α 
     simp only [RTree.size, RTree.root]
     push_cast
     linarith
-theorem Forest.size_le_potential {β : Type} [LinearOrderedField β] (calls : α → List α)
+theorem Forest.size_le_potential {β : Type} [Field β] [LinearOrder β] [IsStrictOrderedRing β] (calls : α → List α)
     (U : α → β) (hU : ∀ x, 1 + ((calls x).map U).sum ≤ U x) :
     ∀ (f : Forest α) (ys : List α), f.IsCallForest calls ys → (f.size : β) ≤ (ys.map U).sum
   | .nil, [], _ => by simp [Forest.size]
@@ -186,7 +186,7 @@ theorem Forest.size_le_potential {β : Type} [LinearOrderedField β] (calls : α
 end
 
 /-- The number reported by the analyser: `⌊U x⌋`. -/
-theorem callTree_size_le_potential {β : Type} [LinearOrderedField β] [FloorSemiring β]
+theorem callTree_size_le_potential {β : Type} [Field β] [LinearOrder β] [IsStrictOrderedRing β] [FloorSemiring β]
     (calls : α → List α) (U : α → β) (hU : ∀ x, 1 + ((calls x).map U).sum ≤ U x)
     (t : RTree α) (ht : t.IsCallTree calls) : t.size ≤ ⌊U t.root⌋₊ :=
   Nat.le_floor (RTree.size_le_potential calls U hU t ht)
@@ -211,7 +211,7 @@ theorem Forest.callTree_shape (calls : α → List α) (b : ℕ) (hb : ∀ x, (c
     have h1 := RTree.callTree_shape calls b hb V hV t ht
     have h2 := Forest.callTree_shape calls b hb V hV f ys m hf
       (fun z hz => hm z (List.mem_cons_of_mem _ hz))
-    have h3 : V y < m := hm y (List.mem_cons_self _ _)
+    have h3 : V y < m := hm y (List.mem_cons_self)
     rw [hy] at h1
     refine ⟨⟨h1.1, h2.1⟩, ?_, ?_⟩
     · simp only [Forest.length, List.length_cons, h2.2.1]; omega

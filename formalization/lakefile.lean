@@ -6,9 +6,11 @@ import Lake
 open Lake DSL
 
 package «ImperativeOptimization» where
+  -- the files are not modules of the module system; mathlib is (no warning on its imports)
+  allowNonModules := true
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4.git" @ "v4.16.0"
+  "https://github.com/leanprover-community/mathlib4.git" @ "v4.36.0"
 
 @[default_target]
 lean_lib «ImperativeOptimization» where

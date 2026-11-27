@@ -76,7 +76,7 @@ theorem find_get : ∀ (l : List Nat) (t i : Nat), find l t = some i → l[i]? =
     simp only [find] at h
     split at h
     · cases h; simp_all
-    · obtain ⟨j, hj, rfl⟩ := Option.map_eq_some'.mp h
+    · obtain ⟨j, hj, rfl⟩ := Option.map_eq_some_iff.mp h
       simpa using find_get xs t j hj
 
 theorem optMap_get {α β : Type} (f : α → Option β) : ∀ (l : List α) (L : List β) (i : Nat) (x : α),
@@ -203,7 +203,6 @@ theorem chain_walk (mul : Nat) (c : Code) (entries : List Nat) (f : BFun) (G : G
           simp only [mkRow]
           have hci := coefOf_indexed (fun m : Nat × Option Nat × Nat × List Nat => coefPair r.coef m.1 m.2.1)
             (medges mul c f.jumps f.nodes) 0 k
-          simp only at hci
           rw [hci]
           simp [hk, hsa]
         · intro s' hs'
@@ -242,7 +241,7 @@ theorem translate (mul : Nat) (c : Code) (fs : List BFun) (Ps : List Graph)
           (MRun mul c fs d) (Run Ps d) ih hcl edges hE rfl s (some e) hch
           (fun q hq => by cases hq; rw [← hentry]; exact (closed_spec mul c _ _ _ hcl).1) hsteps
         refine ⟨_, gs, hPi, ?_, ?_, hc, hcost.symm⟩
-        · simpa [hentry] using hw
+        · simpa [hentry, nid] using hw
         · intro r hr
           obtain ⟨r', hr', rfl⟩ := List.mem_map.mp hr
           rw [hrv r']
@@ -304,7 +303,7 @@ theorem exBinary_run : MRun 32 exCode [exFun] 1 0x100 8 := by
     ⟨0x104, some 0x10A, 3, [], 0⟩, ⟨0x10A, none, 3, [], 0⟩], rfl, ?_, ?_, ?_, by decide⟩
   · simp [MChain]
   · intro st hst
-    simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hst
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hst
     rcases hst with rfl | rfl | rfl | rfl
     · exact ⟨step_of (i := ⟨2, .seq, 1, 1⟩) (by decide) (by decide), rfl⟩
     · exact ⟨step_of (i := ⟨2, .seq, 1, 1⟩) (by decide) (by decide), rfl⟩

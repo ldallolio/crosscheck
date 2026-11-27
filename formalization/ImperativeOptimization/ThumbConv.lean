@@ -119,11 +119,11 @@ def isWide (h : Nat) : Prop := h >>> 11 = 0b11101 ∨ h >>> 11 = 0b11110 ∨ h >
 
 theorem effect_narrow {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : ¬ isWide h) :
     effect true c a = effect false c a := by
-  unfold isWide at hw; unfold effect; rw [hc]; simp only []; rw [if_neg hw, if_neg hw]
+  unfold isWide at hw; unfold effect; rw [hc]; simp only []; rw [ite_eq_right hw, ite_eq_right hw]
 
 theorem stackEffect_narrow {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : ¬ isWide h) :
     stackEffect true c a = stackEffect false c a := by
-  unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [if_neg hw, if_neg hw]
+  unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [ite_eq_right hw, ite_eq_right hw]
 
 /-- A step allowed at a 32-bit instruction is a call of one function. -/
 theorem wide_call {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState} {next : Option Nat} {w : Nat}
@@ -144,7 +144,7 @@ theorem wide_call {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState}
   unfold decode at hi
   rw [hc] at hi
   simp only [] at hi
-  rw [if_pos hw] at hi
+  rw [ite_eq_left hw] at hi
   split at hi
   · cases hi
   · split at hi
@@ -159,7 +159,7 @@ theorem wide_call {mul : Nat} {c : Code} {J : List JT} {a j : Nat} {σ : MState}
 theorem trans_calls (i : Insn) (a : Nat) (p : Option Nat × Nat × List Nat) (hp : p ∈ trans i a) :
     p.2.2 = [] ∨ ∃ t, p.2.2 = [t] := by
   unfold trans at hp
-  split at hp <;> simp at hp <;> (try rcases hp with rfl | rfl) <;> simp
+  split at hp <;> simp at hp <;> rcases hp with rfl | rfl <;> simp
 
 theorem transF_calls (J : List JT) (i : Insn) (a : Nat) (p : Option Nat × Nat × List Nat)
     (hp : p ∈ transF J i a) : p.2.2 = [] ∨ ∃ t, p.2.2 = [t] := by
@@ -194,11 +194,11 @@ def Preserves (σ σo : MState) : Prop := (∀ i, 4 ≤ i → i < 12 → σo.r i
 
 theorem effect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : isWide h) :
     effect true c a = ⟨anyRegs [0, 1, 2, 3, 12], .any⟩ := by
-  unfold isWide at hw; unfold effect; rw [hc]; simp only []; rw [if_pos hw]; simp
+  unfold isWide at hw; unfold effect; rw [hc]; simp only []; rw [ite_eq_left hw]; simp
 
 theorem stackEffect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : isWide h) (abi : Bool) :
     stackEffect abi c a = ⟨if abi then .keep else .any, .other, none, false⟩ := by
-  unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [if_pos hw]
+  unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [ite_eq_left hw]
 
 /-- A step of the linked semantics is a step with the assumption on callees, when the
     callees preserve `r4`-`r11` and SP. -/
@@ -237,7 +237,7 @@ theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Boo
       · simp [flagsOfE]
       · simp only [StackOk] at hst ⊢
         obtain ⟨hws, _, hmem, hload⟩ := hst
-        exact ⟨hws, by simp only [if_true]; rw [hsp, hspr], hmem, hload⟩
+        exact ⟨hws, by simp only [ite_true]; rw [hsp, hspr], hmem, hload⟩
     · rw [effect_narrow hc hw, stackEffect_narrow hc hw]; exact ⟨he, hst⟩
 
 /-- A chain of the linked semantics is a chain with the assumption on callees. -/
@@ -311,7 +311,7 @@ theorem stackEffect_push_mem {abi : Bool} {c : Code} {a h : Nat} (hc : c.get a =
     (stackEffect abi c a).mem = .push (popcount8 h + (h >>> 8) % 2) := by
   simp only [isPushH, beq_iff_eq] at hp
   obtain ⟨h11, h12, h13, h10, h8 | h8⟩ := shifts9 h _ hp <;>
-    simp [stackEffect, hc, h11, h12, h13, h10, h8, hp]
+    simp [stackEffect, hc, h11, h12, h8, hp]
 
 theorem effect_pop {abi : Bool} {c : Code} {a h : Nat} (hc : c.get a = some h)
     (hp : h >>> 9 = 0b1011110) : (effect abi c a).dst = anyRegs (lowList h) := by
@@ -322,19 +322,19 @@ theorem stackEffect_pop {abi : Bool} {c : Code} {a h : Nat} (hc : c.get a = some
     (hp : h >>> 9 = 0b1011110) :
     (stackEffect abi c a).sp = .add (((4 * (popcount8 h + (h >>> 8) % 2) : Nat) : Int)) := by
   obtain ⟨h11, h12, h13, h10, h8 | h8⟩ := shifts9 h _ hp <;>
-    simp [stackEffect, hc, h11, h12, h13, h10, h8, hp]
+    simp [stackEffect, hc, h11, h12, h8, hp]
 
 theorem effect_bx {abi : Bool} {c : Code} {a h : Nat} (hc : c.get a = some h)
     (hb : h >>> 8 = 0b01000111) : (effect abi c a).dst = [] := by
   have h9 : h >>> 9 = 35 := by simp only [Nat.shiftRight_eq_div_pow] at *; omega
   obtain ⟨h11, h12, h13, h10, _⟩ := shifts9 h _ h9
-  simp [effect, hc, h11, h12, h13, h10, hb, h9]
+  simp [effect, hc, h11, h10, hb]
 
 theorem stackEffect_bx {abi : Bool} {c : Code} {a h : Nat} (hc : c.get a = some h)
     (hb : h >>> 8 = 0b01000111) : (stackEffect abi c a).sp = .keep := by
   have h9 : h >>> 9 = 35 := by simp only [Nat.shiftRight_eq_div_pow] at *; omega
   obtain ⟨h11, h12, h13, h10, _⟩ := shifts9 h _ h9
-  simp [stackEffect, hc, h11, h12, h13, h10, hb, h9]
+  simp [stackEffect, hc, h11, h12, h10, hb, h9]
 
 /-! ### Small facts -/
 
@@ -481,12 +481,12 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
   have hnr : i.kind ≠ .ret := by
     intro hk
     have hc2 := hcase
-    rw [if_pos (by simp [hk])] at hc2
+    rw [ite_eq_left (by simp [hk])] at hc2
     simp only [Bool.and_eq_true, List.isEmpty_iff] at hc2
     have hm2 : (some b, x.st.w, x.st.calls) ∈ trans i a := by
       simpa [transJ, hc2.1, transF_of _ _ _ (convOk_nofar hcv a)] using hmem
     exact trans_ret hk hm2
-  rw [if_neg (by simpa using hnr)] at hcase
+  rw [ite_eq_right (by simpa using hnr)] at hcase
   simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hcase
   obtain ⟨_, _, i', hi', hspok⟩ := nodeOk_spec (hnodes a ha)
   rw [hdec] at hi'; cases hi'
@@ -530,7 +530,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
         intro p hp hpk
         have := hdst p hp
         rw [hpk] at this
-        simp only [Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq, Bool.and_eq_true] at this
+        simp only [decide_eq_true_eq] at this
         omega
       rw [heff.2.1 k (by omega) hnone]
       exact hregs k hk4 hk8 (Or.inr hbit)
@@ -595,7 +595,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
         intro p hp hpk
         have := hdst p hp
         rw [hpk] at this
-        simp only [Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq, Bool.and_eq_true] at this
+        simp only [decide_eq_true_eq] at this
         omega
       rw [heff.2.1 k (by omega) hnone]
       exact hhi k hk8 hk12
@@ -640,7 +640,7 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
   have hcn := hcv'.2 a ha
   simp only [convNode, hdec, hget, Bool.and_eq_true, List.all_eq_true] at hcn
   obtain ⟨_, hcase⟩ := hcn
-  rw [if_pos (by simp [hk])] at hcase
+  rw [ite_eq_left (by simp [hk])] at hcase
   simp only [Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq] at hcase
   have hn9 := saveN_le c f.entry
   rcases hcase.2 with ⟨⟨⟨⟨hpop, hpc⟩, hlist⟩, hlr⟩, hspa⟩ | ⟨⟨hbx, hn0⟩, hspa⟩

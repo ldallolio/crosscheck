@@ -141,7 +141,7 @@ theorem response_time_bound (H : Handlers) (run : ℕ → Option ℕ) (C R : ℕ
     (hA : Admissible H run C) (hR : demand H C R ≤ R) :
     C ≤ (slots run 0 R).card := by
   by_contra hlt
-  push_neg at hlt
+  push Not at hlt
   -- every slot before R is busy
   have hcover : Finset.range R ⊆ slots run 0 R ∪ H.hs.biUnion (fun k => slots run (k + 1) R) := by
     intro s hs
@@ -209,7 +209,8 @@ theorem oneRun_admissible : Admissible oneH oneRun 3 where
         ≤ ({0} : Finset ℕ).card := by
           apply Finset.card_le_card
           intro s hs
-          simp only [Finset.mem_filter, oneRun] at hs
+          rw [Finset.mem_filter] at hs
+          simp only [oneRun] at hs
           split at hs <;> simp_all
       _ = 1 := rfl
 
@@ -240,7 +241,8 @@ theorem perRun_admissible (C : ℕ) : Admissible perH perRun C where
         ≤ ({r} : Finset ℕ).card := by
           apply Finset.card_le_card
           intro s hs
-          simp only [Finset.mem_filter, perH] at hs
+          rw [Finset.mem_filter] at hs
+          simp only [perH] at hs
           simp [hs.2.2]
       _ = 1 := rfl
 

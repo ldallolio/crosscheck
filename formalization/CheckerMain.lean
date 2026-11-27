@@ -425,7 +425,7 @@ def parseCyclesProgram (p : Json) : Except String (String × List (String × Imp
       let calls ← match e.getObjVal? "calls" with
         | .ok v => match v.getArr? with
           | .ok a => a.toList.mapM fun c => match c.getStr? with
-            | .ok n => match names.indexOf? n with
+            | .ok n => match names.idxOf? n with
               | some i => pure i
               | none => throw s!"call of '{n}', which is not a function of the program"
             | .error _ => throw "'calls' must be an array of function names"
@@ -756,7 +756,7 @@ def runEffect (j : Json) : Except String (List String) := do
 /-! ### Printing what was checked -/
 
 def showSB (b : SB) : String :=
-  let terms := (b.co.enum.filter (·.2 != 0)).map (fun (i, k) =>
+  let terms := (b.co.zipIdx.filter (·.1 != 0)).map (fun (k, i) =>
     (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})") ++
     (b.q.filter (·.1 != 0)).map (fun (k, i, j) =>
       (if k == 1 then "" else s!"{k}*") ++ s!"max(0,γ{i})*max(0,γ{j})")
@@ -767,8 +767,8 @@ def varName (vars : List String) (i : Nat) : String := vars.getD i s!"x{i}"
 def showAffine (vars : List String) (sv lv : List Int) (c : Int) : String :=
   let term (k : Int) (v : String) : String :=
     if k == 1 then v else if k == -1 then s!"-{v}" else s!"{k}*{v}"
-  let terms := (sv.enum.filter (·.2 != 0)).map (fun (i, k) => term k (varName vars i)) ++
-    (lv.enum.filter (·.2 != 0)).map (fun (i, k) => term k s!"γ{i}")
+  let terms := (sv.zipIdx.filter (·.1 != 0)).map (fun (k, i) => term k (varName vars i)) ++
+    (lv.zipIdx.filter (·.1 != 0)).map (fun (k, i) => term k s!"γ{i}")
   let terms := if c != 0 || terms.isEmpty then terms ++ [toString c] else terms
   " + ".intercalate terms
 

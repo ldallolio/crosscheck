@@ -46,7 +46,10 @@ measurements and the checks listed in Section 4, and reported what it could not 
   `Interrupts`, `ForkJoin`, `Stack`, `Norms`, `Branching`, `Divergence`, and extensions of
   the author's modules `Trace`, `Tree`, `Dominance`, `FixedPoint`, `OperationalSemantics`,
   `Examples`. The correspondence with the paper is Table 1 of Paper I and
-  `formalization/formalization.yaml`.
+  `formalization/formalization.yaml`. On 2026-11-27 the assistant ported the whole development
+  from Lean and mathlib `v4.16.0` (the toolchain of the archived `v1.0`) to `v4.36.0`: renamed
+  library lemmas, removed `simp` arguments and tactics that the new linters report as unused,
+  and repaired the proofs that broke; no statement changed.
 - **Split into papers.** The single paper was split into Papers I and II on 2026-11-14 and
   the work on binaries became Paper III on 2026-11-18 (the earlier versions are in git).
 
@@ -129,7 +132,10 @@ Lean, the figures, the bibliography and the trusted parts.
   against the labels of the papers and the names of the Lean sources (2026-11-22).
 - **Lean.** `lake build` without errors or warnings; no `sorry`, `admit` or new `axiom`;
   `#print axioms`: at most `propext`, `Classical.choice`, `Quot.sound`; the Lean CI passes on
-  GitHub.
+  GitHub. After the port to `v4.36.0` (2026-11-27): the axioms of all 4,277 declarations of the
+  project collected by a program, none beyond the three; the checker program built with each
+  toolchain gives identical output on 68 certificate files (the kernels, GCC and Clang, and the
+  test certificates, accepted and rejected); the checker's test suites pass.
 - **Figures.** Every figure of Paper II reproduced on 2026-11-21 (`docs/release-record.md`);
   the figures of Paper III follow `benchmarks/cycles/README.md` and the runs it describes;
   `ctest` 183 of 183.

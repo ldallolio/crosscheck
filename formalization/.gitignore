@@ -1,3 +1,2 @@
 # Lean / Lake build directories and cache
 .lake/
-lake-manifest.json

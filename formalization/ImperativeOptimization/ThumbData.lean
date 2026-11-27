@@ -197,22 +197,24 @@ theorem beq_decide (p q : Prop) [Decidable p] [Decidable q] :
   by_cases hp : p <;> by_cases hq : q <;> simp [hp, hq]
 
 theorem sub_z (a b : Nat) (ha : a < U) (hb : b < U) : (flagsSub a b).z = decide (a = b) := by
-  simp only [flagsSub, U] at *
-  rw [decide_eq_decide]; omega
+  simp only [flagsSub]
+  rw [decide_eq_decide]; simp only [U] at *; omega
 
 theorem sub_c (a b : Nat) : (flagsSub a b).c = decide (b ≤ a) := by
   simp only [flagsSub]
 
 theorem sub_nv (a b : Nat) (ha : a < U) (hb : b < U) :
     ((flagsSub a b).n == (flagsSub a b).v) = decide (sgn b ≤ sgn a) := by
-  simp only [flagsSub, sgn, U] at *
-  rw [beq_decide, decide_eq_decide]
+  simp only [flagsSub]
+  apply Bool.eq_iff_iff.mpr
+  rw [beq_iff_eq, decide_eq_decide, decide_eq_true_iff]
+  simp only [sgn, U] at *
   split_ifs <;> omega
 
 theorem add_z (a b : Nat) (ha : a < U) (hb : b < U) :
     (flagsAdd a b).z = decide (a + b = 0 ∨ a + b = U) := by
-  simp only [flagsAdd, U] at *
-  rw [decide_eq_decide]; omega
+  simp only [flagsAdd]
+  rw [decide_eq_decide]; simp only [U] at *; omega
 
 theorem add_c (a b : Nat) : (flagsAdd a b).c = decide (U ≤ a + b) := by
   simp only [flagsAdd]
@@ -232,6 +234,7 @@ theorem subFacts_true (a b : Nat) (ha : a < U) (hb : b < U) (c' : Nat) (hc : c' 
   have hnv := sub_nv a b ha hb
   simp only [U] at ha hb
   interval_cases c' <;> simp only [condHolds, bne_not, hz, hcy, hnv] at h <;>
+    (try simp only [Bool.not_eq_true', decide_eq_true_eq, decide_eq_false_iff_not, Bool.and_eq_true, Bool.or_eq_true] at h) <;>
     simp [subFacts, holds, dle_eval, dge_eval, lo_eval, hi_eval, h8, h9, sgn] at h ⊢ <;>
     (try split_ifs at h) <;> omega
 
@@ -240,8 +243,9 @@ theorem addFacts_true (a b : Nat) (ha : a < U) (hb : b < U) (c' : Nat) (hc : c' 
     ∃ D ∈ addFacts c', holds D ρ s := by
   have hz := add_z a b ha hb
   have hcy := add_c a b
-  simp only [U] at ha hb hz hcy
+  simp only [U] at ha hb
   interval_cases c' <;> simp only [condHolds, bne_not, hz, hcy] at h <;>
+    (try simp only [Bool.not_eq_true', decide_eq_true_eq, decide_eq_false_iff_not, Bool.and_eq_true, Bool.or_eq_true] at h) <;>
     simp [addFacts, holds, sumC_eval, h8, h9, U] at h ⊢ <;> omega
 
 theorem nzFacts_true (a : Nat) (ha : a < U) (f : Flags) (hf : NZOf a f) (c' : Nat) (hc : c' < 16)
@@ -335,9 +339,9 @@ theorem potGoals_sound (lc : LoopCert) (k : Int) (p q : PExp) (ρ s : Env)
   unfold potGoals at h
   unfold potTr
   by_cases hl : lc.log = true
-  · simp only [hl, if_true] at h ⊢
+  · simp only [hl, ite_true] at h ⊢
     by_cases hk : 0 < k
-    · simp only [hk, if_true, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false,
+    · simp only [hk, ite_true, List.mem_cons, List.not_mem_nil, or_false,
         forall_eq_or_imp, forall_eq, goalLin_eval, psmul_eval, pconst_eval] at h
       obtain ⟨h1, h2⟩ := h
       obtain ⟨k', rfl⟩ : ∃ k' : Nat, k = (k' : Int) := ⟨k.toNat, by omega⟩
@@ -353,7 +357,7 @@ theorem potGoals_sound (lc : LoopCert) (k : Int) (p q : PExp) (ρ s : Env)
           push_cast; rw [hp', hq']; exact_mod_cast h3
         exact_mod_cast this
       have hQ : (q.eval s).toNat ≠ 0 := by
-        have : 0 < 2 ^ k' * (p.eval s).toNat := Nat.mul_pos (Nat.pos_pow_of_pos k' (by norm_num)) hP
+        have : 0 < 2 ^ k' * (p.eval s).toNat := Nat.mul_pos (Nat.pow_pos (by norm_num)) hP
         omega
       have : k' + Nat.log2 (p.eval s).toNat ≤ Nat.log2 (q.eval s).toNat := by
         rw [Nat.le_log2 hQ, Nat.pow_add]
@@ -361,7 +365,7 @@ theorem potGoals_sound (lc : LoopCert) (k : Int) (p q : PExp) (ρ s : Env)
       omega
     · by_cases hk0 : k = 0
       · subst hk0
-        simp only [lt_irrefl, if_false, if_true] at h
+        simp only [lt_irrefl, ite_false, ite_true] at h
         split_ifs at h with hz
         · -- a constant at most 1 (an exit): `⌊log₂⌋` of it is 0
           simp only [Bool.and_eq_true, decide_eq_true_eq] at hz
@@ -375,18 +379,18 @@ theorem potGoals_sound (lc : LoopCert) (k : Int) (p q : PExp) (ρ s : Env)
         · simp only [List.mem_singleton, forall_eq, goalLin_eval] at h
           have := log2_mono (Int.toNat_le_toNat (show p.eval s ≤ q.eval s by linarith))
           omega
-      · simp only [hk, hk0, if_false, List.mem_singleton, forall_eq, goalLin_eval, pconst_eval] at h
+      · simp only [hk, hk0, ite_false, List.mem_singleton, forall_eq, goalLin_eval, pconst_eval] at h
         set n := (1 - k).toNat with hn
         have hlt : (p.eval s).toNat < 2 ^ n := by
           have h' : p.eval s < ((2 ^ n : Nat) : Int) := by linarith
-          have hpos : 0 < 2 ^ n := Nat.pos_pow_of_pos n (by norm_num)
+          have hpos : 0 < 2 ^ n := Nat.pow_pos (by norm_num)
           omega
         have : Nat.log2 (p.eval s).toNat < n := by
           by_cases h0 : (p.eval s).toNat = 0
           · rw [h0, Nat.log2_zero]; omega
           · exact (Nat.log2_lt h0).mpr hlt
         omega
-  · simp only [hl, if_false, Bool.false_eq_true, List.mem_singleton, forall_eq, goalLin_eval] at h ⊢
+  · simp only [hl, ite_false, Bool.false_eq_true, List.mem_singleton, forall_eq, goalLin_eval] at h ⊢
     exact h
 
 theorem dot_congr : ∀ (l : List Int) (f g : Env) (n : Nat), l.length ≤ n →
@@ -431,10 +435,10 @@ theorem envT_state (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : N
   rcases hv with hv | hv | hv
   · simp [envT, hv]
   · simp only [envT]
-    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv.2]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left hv.2]
   · simp only [envT]
-    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
-      if_neg (by omega), if_pos hv.2]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega),
+      ite_eq_right (by omega), ite_eq_left hv.2]
 
 theorem envOf_range (σ : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
     (hs : wfStack σ) (ha : fa < U) (hb : fb < U) (v : Nat) :
@@ -466,7 +470,7 @@ theorem rangesN_holds (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (h�
     (hσ' : wfState σ') (hs : wfStack σ) (hs' : wfStack σ') (ha : fa < U) (hb : fb < U) (ρ : Env) :
     holds (rangesN (nVars slots.length)) ρ (envT σ σ' fa fb SP0 slots) := by
   intro e he
-  simp only [rangesN, List.mem_flatMap, List.mem_range, List.mem_cons, List.mem_singleton,
+  simp only [rangesN, List.mem_flatMap, List.mem_range, List.mem_cons,
     List.not_mem_nil, or_false] at he
   obtain ⟨v, _, rfl | rfl⟩ := he
   all_goals
@@ -494,7 +498,7 @@ theorem srcOk_lt (σ : MState) (hσ : wfState σ) (x : Src) (h : srcOk x = true)
     srcVal σ.r x < U := by
   cases x with
   | reg i => simp [srcOk] at h; exact hσ i h
-  | imm k => simpa [srcOk] using h
+  | imm k => simpa [srcOk, srcVal] using h
 
 /-- The variable of a register holds its value before the instruction. -/
 theorem envT_rv (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (i : Nat) (h : i < 13) :
@@ -502,9 +506,9 @@ theorem envT_rv (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (i : Nat)
   unfold rv
   by_cases hi : i < 8
   · simp [envT, envOf, hi, show i < 10 by omega]
-  · simp only [hi, if_false, envT, envOf]
-    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega),
-      if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+  · simp only [hi, ite_false, envT, envOf]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left (by omega),
+      ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left (by omega)]
     congr 2; omega
 
 /-- The fresh variable of a register holds its value after the instruction. -/
@@ -512,10 +516,10 @@ theorem envT_fv (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (i : Nat)
     envT σ σ' fa fb SP0 slots (fv i) = σ'.r i := by
   unfold fv
   by_cases hi : i < 8
-  · simp only [hi, if_true, envT]
-    rw [if_neg (by omega), if_pos (by omega)]; congr 2; omega
-  · simp only [hi, if_false, envT]
-    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+  · simp only [hi, ite_true, envT]
+    rw [ite_eq_right (by omega), ite_eq_left (by omega)]; congr 2; omega
+  · simp only [hi, ite_false, envT]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left (by omega)]
     congr 2; omega
 
 theorem srcE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (x : Src) (h : srcOk x = true) :
@@ -549,7 +553,7 @@ theorem mSel_mem (e : Eff) (σ : MState) (hσ : wfState σ) (h : wfEff e = true)
       rw [hq] at hv; simp only [valOk, Bool.and_eq_true] at hv
       have ha := srcOk_lt σ hσ a hv.1
       have hb := srcOk_lt σ hσ b hv.2
-      simp only [mOf, mcasesV, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false]
+      simp only [mOf, mcasesV, List.mem_cons, List.not_mem_nil, or_false]
       simp only [U] at ha hb ⊢
       omega
     | sub a b => simp only [mOf, mcasesV]; split_ifs <;> simp
@@ -599,10 +603,10 @@ theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : 
     simp only [valOk, Bool.and_eq_true, decide_eq_true_eq] at hv
     simp only [valOf, Option.some.injEq] at hx
     by_cases h1 : srcVal σ.r a * 2 ^ k < U
-    · simp only [valE, mOf, h1, if_true]
+    · simp only [valE, mOf, h1, ite_true]
       rw [psmul_eval, srcE_eval σ σ' fa fb SP0 slots a hv.1, ← hx, Nat.mod_eq_of_lt h1]
       push_cast; ring
-    · simp only [valE, mOf, h1, if_false, show (1 : Int) ≠ 0 by decide]
+    · simp only [valE, mOf, h1, ite_false, show (1 : Int) ≠ 0 by decide]
       rw [pv_eval, envT_fv σ σ' fa fb SP0 slots i hi, hw]
   · exact valE_eval_ar σ σ' fa fb SP0 slots hσ v hv hs hs2 i x hx
 
@@ -619,7 +623,7 @@ theorem shr_bounds (ar : Bool) (k A : Nat) (hA : A < U) :
       (A : Int) + (if (ar && decide (2147483648 ≤ A)) = true then 1 else 0 : Int) * (((2 ^ k : Nat) : Int) - 1) * U ∧
     (A : Int) + (if (ar && decide (2147483648 ≤ A)) = true then 1 else 0 : Int) * (((2 ^ k : Nat) : Int) - 1) * U ≤
       ((2 ^ k : Nat) : Int) * ((shrVal ar k A % U : Nat) : Int) + (((2 ^ k : Nat) : Int) - 1) := by
-  have hM : 0 < 2 ^ k := Nat.pos_pow_of_pos k (by norm_num)
+  have hM : 0 < 2 ^ k := Nat.pow_pos (by norm_num)
   set M := 2 ^ k with hMd
   set n : Nat := if ar && decide (2147483648 ≤ A) then A + (M - 1) * U else A with hn
   have hsv : shrVal ar k A = n / M := by
@@ -681,14 +685,14 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
       have hN := Int.natCast_nonneg (srcVal σ.r a * 2 ^ k)
       intro c hc
       by_cases h1 : srcVal σ.r a * 2 ^ k < U
-      · simp only [mOf, h1, if_true, valE, List.mem_cons, List.mem_singleton,
+      · simp only [mOf, h1, ite_true, valE, List.mem_cons,
           List.not_mem_nil, or_false] at hc
         have h1' : ((srcVal σ.r a * 2 ^ k : Nat) : Int) < (U : Int) := by exact_mod_cast h1
         rcases hc with rfl | rfl <;>
           simp only [Lin.eval, dot_vsmul, Checker.dot, psmul] <;>
-          simp only [Checker.dot, dot_vsmul] at key ⊢ <;> simp only [U] at h1' ⊢ <;> push_cast at key h1' hN ⊢ <;> linarith
-      · simp only [mOf, h1, if_false, show (1 : Int) ≠ 0 by decide, List.mem_cons,
-          List.mem_singleton, List.not_mem_nil, or_false] at hc
+          simp only [U] at h1' ⊢ <;> push_cast at key h1' hN ⊢ <;> linarith
+      · simp only [mOf, h1, ite_false, show (1 : Int) ≠ 0 by decide, List.mem_cons,
+          List.not_mem_nil, or_false] at hc
         have h1' : (U : Int) ≤ ((srcVal σ.r a * 2 ^ k : Nat) : Int) := by exact_mod_cast not_lt.mp h1
         subst hc
         simp only [Lin.eval, dot_vsmul, Checker.dot, psmul] at key ⊢
@@ -699,14 +703,14 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
       have hval := valE_eval_ar σ σ' fa fb SP0 slots hσ _ hv (by simp) (by simp) i x hx
       simp only [PExp.eval] at hval
       intro c hc
-      simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
       simp only [U] at hlt
       rcases hc with rfl | rfl <;> simp only [Lin.eval, dot_vsmul, Checker.dot, U] <;> push_cast at hval ⊢ <;> omega
     | sub a b =>
       have hval := valE_eval_ar σ σ' fa fb SP0 slots hσ _ hv (by simp) (by simp) i x hx
       simp only [PExp.eval] at hval
       intro c hc
-      simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
       simp only [U] at hlt
       rcases hc with rfl | rfl <;> simp only [Lin.eval, dot_vsmul, Checker.dot, U] <;> push_cast at hval ⊢ <;> omega
     | shr a k ar =>
@@ -724,7 +728,7 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
         simp only [mOf]
       rw [hmS]
       intro c hc
-      simp only [List.mem_append, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hc
+      simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at hc
       rcases hc with (rfl | rfl) | hc
       · rw [linSub_eval]
         simp only [psmul_eval, padd_eval, pconst_eval, h10, hae]
@@ -736,16 +740,15 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
         | false => simp at hc
         | true =>
           by_cases hneg : 2147483648 ≤ srcVal σ.r a
-          · simp only [hneg, decide_true, Bool.and_self, if_true, if_false, one_ne_zero,
-              List.mem_singleton, if_true] at hc
+          · simp only [hneg, decide_true, Bool.and_self, ite_true, ite_false, one_ne_zero,
+              List.mem_singleton, ite_true] at hc
             subst hc
             have := linNeg_eval (srcE a) 2147483648 ρ (envT σ σ' fa fb SP0 slots)
             rw [this, hae]
             have : (2147483648 : Int) ≤ (srcVal σ.r a : Int) := by exact_mod_cast hneg
             linarith
-          · simp only [hneg, decide_false, Bool.and_false, if_true, if_false,
-              List.mem_singleton] at hc
-            simp only [Bool.false_eq_true, if_false, if_true, List.mem_singleton] at hc
+          · simp only [hneg, decide_false, Bool.and_false, ite_true] at hc
+            simp only [Bool.false_eq_true, ite_false, ite_true, List.mem_singleton] at hc
             subst hc
             have := linPos_eval (srcE a) 2147483647 ρ (envT σ σ' fa fb SP0 slots)
             rw [this, hae]
@@ -807,8 +810,8 @@ theorem rv_regOf (v : Nat) (h : isRegVar v) : rv (regOf v) = v ∧ regOf v < 13 
   unfold isRegVar at h; unfold rv regOf
   by_cases h8 : v < 8
   · simp [h8]; omega
-  · simp only [h8, if_false]; constructor
-    · rw [if_neg (by omega)]; omega
+  · simp only [h8, ite_false]; constructor
+    · rw [ite_eq_right (by omega)]; omega
     · omega
 
 theorem envOf_reg (σ : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (h : isRegVar v) :
@@ -816,8 +819,8 @@ theorem envOf_reg (σ : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (
   unfold isRegVar at h; unfold envOf regOf
   by_cases h8 : v < 8
   · simp [h8]
-  · simp only [h8, if_false]
-    rw [if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+  · simp only [h8, ite_false]
+    rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left (by omega)]
 
 theorem envT_reg (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (h : isRegVar v) :
     envT σ σ' fa fb SP0 slots v = σ.r (regOf v) := by
@@ -834,7 +837,7 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 :
   by_cases h8 : isRegVar v
   · obtain ⟨hrv, hr13⟩ := rv_regOf v h8
     rw [envOf_reg _ _ _ _ _ v h8]
-    simp only [postE, h8, if_true]
+    simp only [postE, h8, ite_true]
     cases hf : e.dst.find? (fun p => p.1 == regOf v) with
     | none =>
       simp only
@@ -857,7 +860,7 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 :
   · have hv89 : v = 8 ∨ v = 9 := by unfold isRegVar at h8; omega
     have hv : v < 10 := by omega
     have hfl := wfEff_fl e h
-    simp only [postE, h8, if_false, postG]
+    simp only [postE, h8, ite_false, postG]
     cases hq : e.fl with
     | keep =>
       simp only
@@ -871,18 +874,18 @@ theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 :
       rw [hq] at hfl
       simp only
       rcases hv89 with rfl | rfl
-      · simp only [if_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
-      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
+      · simp only [ite_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
+      · simp only [show (9 : Nat) ≠ 8 by omega, ite_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
     | sub a b =>
       rw [hq] at hfl
       simp only
       rcases hv89 with rfl | rfl
-      · simp only [if_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
-      · simp only [show (9 : Nat) ≠ 8 by omega, if_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
+      · simp only [ite_true]; rw [srcE_eval σ σ' fa fb SP0 slots a hfl.1]; simp [envOf]
+      · simp only [show (9 : Nat) ≠ 8 by omega, ite_false]; rw [srcE_eval σ σ' fa fb SP0 slots b hfl.2]; simp [envOf]
     | nz =>
       simp only
       rcases hv89 with rfl | rfl
-      · simp only [if_true]
+      · simp only [ite_true]
         cases hop : opOf e with
         | none => simp [pconst_eval, envOf]
         | some p =>
@@ -1016,7 +1019,7 @@ theorem pre_eval {g : Lin} (hg : wfPre g = true) (ρ ρ' s s' : Env) (h : ∀ v 
 theorem preOk_holds {pre : List Lin} (hw : ∀ g ∈ pre, wfPre g = true) {σ : MState} {s : Env}
     (hs : ∀ v < 8, s v = (σ.r v : Int)) (ρ : Env) : PreOk pre σ ↔ holds pre ρ s := by
   have hR : ∀ v < 8, s v = (fun v => if v < 8 then (σ.r v : Int) else 0) v := fun v hv => by
-    simp only [if_pos hv]; exact hs v hv
+    simp only [ite_eq_left hv]; exact hs v hv
   constructor
   · intro h e he
     rw [pre_eval (hw e he) ρ (fun _ => 0) s (fun v => if v < 8 then (σ.r v : Int) else 0) hR]
@@ -1092,7 +1095,7 @@ theorem congOf_sound (cs : List Cong) (s : Env) (h : CongHolds cs s) (v : Nat) :
     have hv : x.1 = v := by simpa using List.find?_some hf
     rw [← hv]
     exact h x hx
-  · simp [Int.emod_one]
+  · simp
 
 theorem congOf_dvd (cs : List Cong) (s : Env) (h : CongHolds cs s) (v : Nat) :
     ((2 ^ (congOf cs v).1 : Nat) : Int) ∣ s v - (congOf cs v).2 :=
@@ -1187,7 +1190,7 @@ theorem tightenL_holds (e : Nat) (g : Lin) (ρ s : Env)
   split
   · rename_i hc
     obtain ⟨_, hlv, hsv⟩ := hc
-    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pos_pow_of_pos e (by norm_num)
+    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pow_pos (by norm_num)
     simp only [Checker.Lin.eval, Checker.dot, add_zero] at h ⊢
     rw [hlv] at h
     simp only [Checker.dot, add_zero] at h
@@ -1204,7 +1207,7 @@ theorem tightenS_holds (e : Nat) (g : Lin) (ρ s : Env)
   split
   · rename_i hc
     obtain ⟨_, hlv, hsv⟩ := hc
-    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pos_pow_of_pos e (by norm_num)
+    have hM : (0 : Int) < ((2 ^ e : Nat) : Int) := by exact_mod_cast Nat.pow_pos (by norm_num)
     simp only [Checker.Lin.eval, Checker.dot, add_zero] at h ⊢
     rw [hlv] at h
     simp only [Checker.dot, add_zero] at h
@@ -1348,7 +1351,7 @@ theorem shlCong_sound {abi : Bool} {c : Code} {a : Nat} {x : Cong} (h : shlCong 
     have hk := of_decide_eq_true hm
     obtain ⟨he1, _, hk3⟩ := hk
     have hv := he.2.2.1 x.1 (by omega) _ hf _ rfl
-    simp only [envOf, if_pos hlt]
+    simp only [envOf, ite_eq_left hlt]
     rw [hv]
     have hU : U = 2 ^ 32 := rfl
     have hd : 2 ^ x.2.1 ∣ U := by rw [hU]; exact Nat.pow_dvd_pow 2 (by omega)
@@ -1424,7 +1427,7 @@ theorem potAtD_wf (S : Nat) (lc : LoopCert) (hw : (∀ p ∈ lc.pot, wfSv S p.sv
       cases hk : (find lc.dom a).bind fun k => lc.potAlt[k]? with
       | none => simpa using potAt_wf S lc hw.1 _
       | some l =>
-        obtain ⟨k, _, hl⟩ := Option.bind_eq_some.mp hk
+        obtain ⟨k, _, hl⟩ := Option.bind_eq_some_iff.mp hk
         cases hp : l[d]? with
         | none => simpa [hp] using potAt_wf S lc hw.1 _
         | some p => simpa [hp] using hw.2 l (List.mem_of_getElem? hl) p (List.mem_of_getElem? hp)
@@ -1496,8 +1499,11 @@ theorem obs_mem (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) (a : N
   simp only [List.mem_flatMap, List.mem_map]
   refine ⟨(0 + j, (next, w, calls)), mem_indexed _ 0 j _ hj, m, hm, (0 + di, D), ?_,
     (0 + si, I), mem_indexed _ 0 si _ hI, g, ?_, rfl⟩
-  · exact mem_indexed _ 0 di _ (by simpa using hD)
-  · simpa [tGoals] using hg
+  · have h0 := mem_indexed _ 0 di _ hD
+    rw [Nat.zero_add] at h0
+    simp only [Nat.zero_add]
+    exact h0
+  · simp only [Nat.zero_add]; cases next <;> simpa [tGoals] using hg
 
 /-! ### The stack -/
 
@@ -1530,7 +1536,7 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
   simp only [stackWf, Bool.and_eq_true] at hw
   rcases hv with hv | hv | hv
   · by_cases h8 : v < 8
-    · simp only [postS, if_pos h8]
+    · simp only [postS, ite_eq_left h8]
       cases hl : st.load with
       | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
       | some p =>
@@ -1539,7 +1545,7 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
         | some d =>
           simp only
           by_cases hp : v = p.1
-          · rw [if_pos hp]
+          · rw [ite_eq_left hp]
             cases hj : slotIdx slots (-(d + (p.2 : Int))) with
             | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
             | some j =>
@@ -1549,36 +1555,36 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
               have hpb : p.2 < 1024 := by
                 have := hw.1; rw [hl] at this; exact (by simpa [stackLoadOk] using this : p.1 < 8 ∧ p.2 < 1024).2
               rw [pv_eval, envT_state σ σ' fa fb SP0 slots _ (Or.inr (Or.inr ⟨by omega, by omega⟩))]
-              simp only [envOf, h8, if_true, slotVal]
-              rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
-                if_pos ⟨by omega, by omega⟩]
+              simp only [envOf, h8, ite_true, slotVal]
+              rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega),
+                ite_eq_left ⟨by omega, by omega⟩]
               rw [hp, hload p hl]
               congr 2
               rw [show 30 + j - 30 = j by omega, hkj, hsd]
               simp only [aOf, U] at *
               omega
-          · rw [if_neg hp]; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
-    · simp only [postS, if_neg h8, if_pos (show v < 30 by omega)]
+          · rw [ite_eq_right hp]; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
+    · simp only [postS, ite_eq_right h8, ite_eq_left (show v < 30 by omega)]
       exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
-  · simp only [postS, if_neg (show ¬ v < 8 by omega), if_pos (show v < 30 by omega)]
+  · simp only [postS, ite_eq_right (show ¬ v < 8 by omega), ite_eq_left (show v < 30 by omega)]
     exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inr hv)
   · have hj : v - 30 < slots.length := by omega
     have hkm := hslots _ (slot_mem slots (v - 30) hj)
     set k := slots.getD (v - 30) 0 with hkdef
     have hpost : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = slotVal σ' SP0 slots (v - 30) := by
       simp only [envOf]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+      rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left hv]
     have hpre : envT σ σ' fa fb SP0 slots v = slotVal σ SP0 slots (v - 30) := by
       rw [envT_state σ σ' fa fb SP0 slots v (Or.inr (Or.inr hv))]
       simp only [envOf]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+      rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_left hv]
     have hfresh : envT σ σ' fa fb SP0 slots (v + slots.length) = slotVal σ' SP0 slots (v - 30) := by
       simp only [envT]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
-        if_neg (by omega), if_pos (by omega)]
+      rw [ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega), ite_eq_right (by omega),
+        ite_eq_right (by omega), ite_eq_left (by omega)]
       congr 1; omega
     rw [hpost]
-    simp only [postS, if_neg (show ¬ v < 8 by omega), if_neg (show ¬ v < 30 by omega)]
+    simp only [postS, ite_eq_right (show ¬ v < 8 by omega), ite_eq_right (show ¬ v < 30 by omega)]
     cases hm : st.mem with
     | keep =>
       rw [hm] at hmem
@@ -1595,14 +1601,14 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
         have hdb := hδ d rfl
         simp only
         by_cases hk : ((k : Nat) : Int) = -(d + (imm : Int))
-        · rw [if_pos hk, pv_eval]
+        · rw [ite_eq_left hk, pv_eval]
           rw [envT_state σ σ' fa fb SP0 slots rt (Or.inl (by omega))]
-          simp only [envOf, show rt < 8 by omega, if_true, slotVal]
+          simp only [envOf, show rt < 8 by omega, ite_true, slotVal]
           rw [← hkdef]
           have : aOf ((SP0 : Int) - (k : Int)) = aOf ((σ.sp : Int) + imm) := by
             rw [hsd]; simp only [aOf, U] at *; omega
           rw [this, hmem.1]
-        · rw [if_neg hk, pv_eval, hpre]
+        · rw [ite_eq_right hk, pv_eval, hpre]
           simp only [slotVal]
           rw [← hkdef]
           rw [hmem.2]
@@ -1618,8 +1624,8 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
         have hdb := hδ d rfl
         simp only
         by_cases hr : d - 4 * (n : Int) ≤ -((k : Nat) : Int) ∧ -((k : Nat) : Int) < d
-        · rw [if_pos hr, pv_eval, hfresh]
-        · rw [if_neg hr, pv_eval, hpre]
+        · rw [ite_eq_left hr, pv_eval, hfresh]
+        · rw [ite_eq_right hr, pv_eval, hpre]
           simp only [slotVal]
           rw [← hkdef]
           rw [hmem]
@@ -1634,14 +1640,14 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
         have hdb := hδ d rfl
         simp only
         by_cases hr : frame = true ∧ ((k : Nat) : Int) ≤ -d
-        · rw [if_pos hr, pv_eval, hpre]
+        · rw [ite_eq_left hr, pv_eval, hpre]
           simp only [slotVal]
           rw [← hkdef]
           symm
           congr 1
           apply hmem hr.1 (k : Int) (by omega)
           rw [hsd]; simp only [aOf, U] at *; omega
-        · rw [if_neg hr, pv_eval, hfresh]
+        · rw [ite_eq_right hr, pv_eval, hfresh]
 
 /-! ### One transition -/
 
@@ -2079,19 +2085,19 @@ theorem srcP_sound {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) :
 theorem valP_sound {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) :
     ∀ (x : Val) (v : Nat), valP P x = some v → valOf σ.r x = some v
   | .add a b, v, hv => by
-    simp only [valP, Option.bind_eq_some, Option.map_eq_some'] at hv
+    simp only [valP, Option.bind_eq_some_iff, Option.map_eq_some_iff] at hv
     obtain ⟨x, hx, y, hy, rfl⟩ := hv
     simp [valOf, srcP_sound h a x hx, srcP_sound h b y hy]
   | .sub a b, v, hv => by
-    simp only [valP, Option.bind_eq_some, Option.map_eq_some'] at hv
+    simp only [valP, Option.bind_eq_some_iff, Option.map_eq_some_iff] at hv
     obtain ⟨x, hx, y, hy, rfl⟩ := hv
     simp [valOf, srcP_sound h a x hx, srcP_sound h b y hy]
   | .shl a k, v, hv => by
-    simp only [valP, Option.map_eq_some'] at hv
+    simp only [valP, Option.map_eq_some_iff] at hv
     obtain ⟨x, hx, rfl⟩ := hv
     simp [valOf, srcP_sound h a x hx]
   | .shr a k ar, v, hv => by
-    simp only [valP, Option.map_eq_some'] at hv
+    simp only [valP, Option.map_eq_some_iff] at hv
     obtain ⟨x, hx, rfl⟩ := hv
     simp [valOf, srcP_sound h a x hx]
   | .any, v, hv => by simp [valP] at hv
@@ -2099,16 +2105,16 @@ theorem valP_sound {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) :
 theorem xres_mono {P : Nat → Option Nat} {σ : MState} (h : Agree P σ) (c : Code) (a : Nat) :
     ∀ (op : XOp) (v : Nat), xres c a P op = some v → xres c a (fun i => some (σ.r i)) op = some v
   | .addPc d, v, hv => by
-    simp only [xres, Option.map_eq_some'] at hv ⊢
+    simp only [xres, Option.map_eq_some_iff] at hv ⊢
     obtain ⟨x, hx, rfl⟩ := hv
     exact ⟨σ.r d, rfl, by rw [h d x hx]⟩
   | .adr d k, v, hv => by simpa [xres] using hv
   | .ldImm sz d n off, v, hv => by
-    simp only [xres, Option.bind_eq_some] at hv ⊢
+    simp only [xres, Option.bind_eq_some_iff] at hv ⊢
     obtain ⟨x, hx, hl⟩ := hv
     exact ⟨σ.r n, rfl, by rw [h n x hx]; exact hl⟩
   | .ldReg sz d n m, v, hv => by
-    simp only [xres, Option.bind_eq_some] at hv ⊢
+    simp only [xres, Option.bind_eq_some_iff] at hv ⊢
     obtain ⟨x, hx, y, hy, hl⟩ := hv
     exact ⟨σ.r n, rfl, σ.r m, rfl, by rw [h n x hx, h m y hy]; exact hl⟩
 
@@ -2118,7 +2124,7 @@ theorem wstep_sound {abi : Bool} {c : Code} {a : Nat} {P : Nat → Option Nat} {
   intro i v hv
   simp only [wstep] at hv
   by_cases hi : i < 8
-  · rw [if_pos hi] at hv
+  · rw [ite_eq_left hi] at hv
     cases hf : (effect abi c a).dst.find? (fun p => p.1 == i) with
     | none =>
       rw [hf] at hv
@@ -2134,12 +2140,12 @@ theorem wstep_sound {abi : Bool} {c : Code} {a : Nat} {P : Nat → Option Nat} {
         rw [hxo] at hv
         simp only at hv
         by_cases hd : op.dst = i
-        · rw [if_pos hd] at hv
+        · rw [ite_eq_left hd] at hv
           rw [← hd]
           exact hx.1 op hxo v (xres_mono hP c a op v hv)
-        · rw [if_neg hd] at hv
+        · rw [ite_eq_right hd] at hv
           exact he.2.2.1 i (by omega) p hf v (valP_sound hP p.2 v hv)
-  · rw [if_neg hi] at hv
+  · rw [ite_eq_right hi] at hv
     cases hv
 
 theorem wrun_sound {abi frame : Bool} {c : Code} {SP0 : Nat} {o : Option Nat} (s : List DStep)
@@ -2169,8 +2175,9 @@ theorem wrun_sound {abi frame : Bool} {c : Code} {SP0 : Nat} {o : Option Nat} (s
 
 theorem hi_false (v n : Nat) (hv : v < U) (hn : n < U) (h : condHolds 8 (flagsSub v n) = false) :
     v ≤ n := by
-  simp only [condHolds, flagsSub, U, Bool.and_eq_false_iff, decide_eq_false_iff_not,
-    Bool.not_eq_false', decide_eq_true_eq] at h hv hn
+  simp only [condHolds, flagsSub, Bool.and_eq_false_iff, decide_eq_false_iff_not,
+    Bool.not_eq_false', decide_eq_true_eq] at h
+  simp only [U] at h hv hn
   omega
 
 /-- A step whose address is a node and that follows a transition of the function. -/
@@ -2198,11 +2205,11 @@ theorem wpath_mem (c : Code) (t : JT) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos -
   have hw := wbeg_cases c t
   unfold wpath interior
   by_cases h1 : i ≤ (t.pos - wbeg c t) / 2
-  · rw [if_pos h1]
+  · rw [ite_eq_left h1]
     simp only [List.mem_cons, List.mem_map, List.mem_range]
     right
     exact ⟨(t.pos - wbeg c t) / 2 - i, by omega, by omega⟩
-  · rw [if_neg h1, if_pos (by omega)]
+  · rw [ite_eq_right h1, ite_eq_left (by omega)]
     simp
 
 theorem wpath_pred (c : Code) (t : JT) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos - t.start) % 2 = 0)
@@ -2212,7 +2219,7 @@ theorem wpath_pred (c : Code) (t : JT) (hwb : wbeg c t ≤ t.pos) (hev : (t.pos 
     simp only [wpath, wpred, hl, hb, true_and]
     split_ifs <;> omega
   · rw [hb] at hwb hi
-    simp only [wpath, wpred, hl, hb, Bool.false_eq_true, false_and, if_false]
+    simp only [wpath, wpred, hl, hb, Bool.false_eq_true, false_and, ite_false]
     split_ifs <;> omega
 
 theorem interiorOk_spec {mul : Nat} {c : Code} {f : BFun} (hint : interiorOk mul c f = true)
@@ -2222,7 +2229,7 @@ theorem interiorOk_spec {mul : Nat} {c : Code} {f : BFun} (hint : interiorOk mul
   unfold interiorOk at hint
   rw [List.all_eq_true] at hint
   have htt := hint t ht
-  rw [if_neg (by simp [hix])] at htt
+  rw [ite_eq_right (by simp [hix])] at htt
   rw [Bool.and_eq_true, Bool.and_eq_true, List.all_eq_true] at htt
   obtain ⟨⟨hent, hj2⟩, hm⟩ := htt
   refine ⟨fun h => ?_, by simpa using hj2, fun m hm' p hp hin => ?_⟩
@@ -2243,7 +2250,7 @@ theorem interiorR_spec {mul : Nat} {c : Code} {f : BFun} (hint : interiorOk mul 
   unfold interiorOk at hint
   rw [List.all_eq_true] at hint
   have htt := hint t ht
-  rw [if_pos hix, Bool.and_eq_true, List.all_eq_true] at htt
+  rw [ite_eq_left hix, Bool.and_eq_true, List.all_eq_true] at htt
   obtain ⟨hent, hm⟩ := htt
   refine ⟨fun h => ?_, fun m hm' p hp hin => ?_⟩
   · have : (interiorR t).contains f.entry = true := List.contains_iff_mem.mpr h
@@ -2304,7 +2311,7 @@ theorem rngB_spec {c : Code} {a : Nat} {P : Nat → Option Nat} {d b : Nat}
     (h : rngB c a P = some (d, b)) : ∃ q ∈ rngOps c a, srcP P q.2 = some b ∧ q.1 = d := by
   unfold rngB at h
   obtain ⟨q, hq, hqv⟩ := List.exists_of_findSome?_eq_some h
-  simp only [Option.map_eq_some'] at hqv
+  simp only [Option.map_eq_some_iff] at hqv
   obtain ⟨b', hb', hbe⟩ := hqv
   simp only [Prod.mk.injEq] at hbe
   obtain ⟨h1, h2⟩ := hbe
@@ -2363,8 +2370,8 @@ theorem jump_good_rng {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f :
       intro i v hv
       unfold setR at hv
       by_cases hid : i = d
-      · rw [if_pos hid] at hv; cases hv; rw [hid]
-      · rw [if_neg hid] at hv; exact hag1 i v hv
+      · rw [ite_eq_left hid] at hv; cases hv; rw [hid]
+      · rw [ite_eq_right hid] at hv; exact hag1 i v hv
     obtain ⟨y, hy, hagy⟩ := wrun_sound s hch hX ((t.pos - (p + 2)) / 2) (p + 2)
       (k - (t.pos - t.start) / 2 + (p - t.start) / 2 + 1) _ y1 hy1' hagx (fun j hj => by
         obtain ⟨_, z, hz, hza⟩ := hbw ((t.pos - t.start) / 2 - (p - t.start) / 2 - 1 - j) (by omega)
@@ -2569,7 +2576,7 @@ theorem jump_good_inv {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f :
     rw [hypa] at hI
     obtain ⟨_, _, _, _, _, _, ⟨I, hIm, hIh⟩, hC⟩ := hI
     have hbd := invBound_spec hib I hIm _ hIh
-    simp only [envOf, if_pos hd8] at hbd
+    simp only [envOf, ite_eq_left hd8] at hbd
     have hle : yp.σ.r d ≤ b := by omega
     have hlo : ¬ yp.σ.r d < lo := by
       intro hlt
@@ -2578,15 +2585,15 @@ theorem jump_good_inv {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f :
       · have := hbd.2 h0; omega
     have hcg : congFits f L p d (yp.σ.r d) = true := by
       have := congOf_sound _ _ hC d
-      simp only [envOf, if_pos hd8] at this
+      simp only [envOf, ite_eq_left hd8] at this
       unfold congFits
       exact decide_eq_true this
     have hagx : Agree (setR (wpre abi c t p) d (yp.σ.r d)) yp.σ := by
       intro i v hv
       unfold setR at hv
       by_cases hid : i = d
-      · rw [if_pos hid] at hv; cases hv; rw [hid]
-      · rw [if_neg hid] at hv; exact hagp i v hv
+      · rw [ite_eq_left hid] at hv; cases hv; rw [hid]
+      · rw [ite_eq_right hid] at hv; exact hagp i v hv
     obtain ⟨y, hy, hagy⟩ := wrun_sound s hch hX ((t.pos - p) / 2) p
       (k - (t.pos - t.start) / 2 + (p - t.start) / 2) _ yp hyp hagx (fun j hj => by
         obtain ⟨_, z, hz, hza⟩ := hbw ((t.pos - t.start) / 2 - (p - t.start) / 2 - j) (by omega)
@@ -2619,7 +2626,7 @@ theorem back_walk {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
   induction i with
   | zero =>
     intro _
-    exact ⟨by omega, x, by simpa using hx, by rw [hxa]; unfold wpath; rw [if_pos (by omega)]; omega⟩
+    exact ⟨by omega, x, by simpa using hx, by rw [hxa]; unfold wpath; rw [ite_eq_left (by omega)]; omega⟩
   | succ i ih =>
     intro hi
     obtain ⟨hik, y, hy, hya⟩ := ih (by omega)
@@ -2656,8 +2663,9 @@ theorem jumpTr_some {J : List JT} {a : Nat} (h : jumpTr J a ≠ []) :
 
 theorem ls_true (v n : Nat) (hv : v < U) (hn : n < U) (h : condHolds 9 (flagsSub v n) = true) :
     v ≤ n := by
-  simp only [condHolds, flagsSub, U, Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not,
-    decide_eq_true_eq] at h hv hn
+  simp only [condHolds, flagsSub, Bool.or_eq_true, Bool.not_eq_true', decide_eq_false_iff_not,
+    decide_eq_true_eq] at h
+  simp only [U] at h hv hn
   omega
 
 /-- The jump case: the address computed by the run is a target of the jump. -/
@@ -2687,26 +2695,26 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
   · obtain ⟨p, hp⟩ := Option.isSome_iff_exists.mp hix
     have hok := hjk t ht
     unfold jumpOkF at hok
-    rw [if_neg (by simp [hfar]), if_pos hix] at hok
+    rw [ite_eq_right (by simp [hfar]), ite_eq_left hix] at hok
     rw [← htp] at hpw ⊢
     by_cases hvr : t.vr.isSome
-    · rw [if_pos hvr] at hok
+    · rw [ite_eq_left hvr] at hok
       exact jump_good_inv hint s hch hX k x hx t ht p hp add m hpw htp.symm hok hgood
         (hinv ⟨t, ht, by simpa [Option.isSome_iff_ne_none] using hvr⟩)
-    · rw [if_neg hvr] at hok
+    · rw [ite_eq_right hvr] at hok
       exact jump_good_rng hint s hch hX k x hx t ht p hp add m hpw htp.symm hok hgood
   have hixn : t.ix = none := by simpa using hix
   obtain ⟨_, hj2, _⟩ := interiorOk_spec hint t ht hixn
   have hok := hjk t ht
   unfold jumpOkF at hok
-  rw [if_neg (by simp [hfar]), if_neg hix] at hok
+  rw [ite_eq_right (by simp [hfar]), ite_eq_right hix] at hok
   unfold jumpOk at hok
   rw [← htp] at hpw
   rw [hpw] at hok
   split at hok
   · rename_i r n _ tb _ _ _ _ he hd hpw'
     cases hpw'
-    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq, bne_iff_ne, ne_eq,
+    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq,
       List.all_eq_true, List.mem_range] at hok
     obtain ⟨⟨⟨⟨⟨⟨⟨hr, hn⟩, hform⟩, hebr⟩, hdec⟩, hwb⟩, hev⟩, hall⟩ := hok
     set M := (t.pos - wbeg c t) / 2 with hM
@@ -2719,9 +2727,9 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     have i12 : s[k - (M + 1) + 1]? = some y2 := by rw [show k - (M + 1) + 1 = k - M by omega]; exact hy2
     obtain ⟨_, he0⟩ := dchain_get s _ hch (k - (M + 2)) y0 y1 hy0 i01
     obtain ⟨hn12, he1⟩ := dchain_get s _ hch (k - (M + 1)) y1 y2 hy1 i12
-    have hst : y0.st.a = t.start := by rw [hy0a]; unfold wpath; rw [if_neg (by omega), if_neg (by omega)]
-    have hb : y1.st.a = t.start + 2 := by rw [hy1a]; unfold wpath; rw [if_neg (by omega), if_pos rfl]
-    have hc4 : y2.st.a = wbeg c t := by rw [hy2a]; unfold wpath; rw [if_pos (le_refl _)]; omega
+    have hst : y0.st.a = t.start := by rw [hy0a]; unfold wpath; rw [ite_eq_right (by omega), ite_eq_right (by omega)]
+    have hb : y1.st.a = t.start + 2 := by rw [hy1a]; unfold wpath; rw [ite_eq_right (by omega), ite_eq_left rfl]
+    have hc4 : y2.st.a = wbeg c t := by rw [hy2a]; unfold wpath; rw [ite_eq_left (le_refl _)]; omega
     rw [hst, he] at he0
     rw [hb, hebr] at he1
     -- the flags of the CMP, the branch: not taken (`BHI`) or taken (`BLS`)
@@ -2737,7 +2745,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     rw [hfl] at hch1
     have hle' : y0.σ.r r ≤ n := by
       rcases hw with ⟨hl, hwb6⟩ | ⟨hl, hwb4⟩
-      · rw [if_pos hl] at hform
+      · rw [ite_eq_left hl] at hform
         have hcc : ccOf c (t.start + 2) = 9 := by simpa [lsForm] using hl
         rw [hcc] at hch1
         have hj10 : j1 = 0 := by
@@ -2753,7 +2761,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
           · simp at hj1
         rw [hj10] at hch1
         exact ls_true _ _ hv0 hn (by simpa using hch1)
-      · rw [if_neg (by rw [hl]; simp)] at hform
+      · rw [ite_eq_right (by rw [hl]; simp)] at hform
         simp only [Bool.and_eq_true, beq_iff_eq, bne_iff_ne, ne_eq] at hform
         obtain ⟨hcc, htb⟩ := hform
         rw [hcc] at hch1
@@ -2776,7 +2784,7 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
       _ y2 hy2 hag (fun j hj => by
         obtain ⟨_, z, hz, hza⟩ := hbw (M - j) (by omega)
         refine ⟨z, by rw [show k - M + j = k - (M - j) by omega]; exact hz, ?_⟩
-        rw [hza]; unfold wpath; rw [if_pos (by omega)]
+        rw [hza]; unfold wpath; rw [ite_eq_left (by omega)]
         rcases hw with ⟨_, hb'⟩ | ⟨_, hb'⟩ <;> omega)
     rw [show k - M + M = k by omega, hx] at hy
     cases hy
@@ -3017,7 +3025,7 @@ theorem drun_mrun {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : Lis
     refine ⟨f, s.map (·.st), hfn, dchain_mchain abi L.frame c _ s _ hch, ?_, ?_, ?_⟩
     · intro st hst
       obtain ⟨x, hx, rfl⟩ := List.mem_map.mp hst
-      have hst' : x.st ∈ s'.map (·.st) := by rw [h1]; exact List.mem_map_of_mem _ hx
+      have hst' : x.st ∈ s'.map (·.st) := by rw [h1]; exact List.mem_map_of_mem hx
       obtain ⟨y, hy, hyx⟩ := List.mem_map.mp hst'
       obtain ⟨_, _, i, hi, hj, _⟩ := hok' y hy
       rw [hyx] at hi hj
@@ -3392,7 +3400,7 @@ theorem exData_run : DRun 32 false exCode [exFunD] [exDFun] 1 0x100 (mkS (regs0 
     refine ⟨dOkB_sound 32 exCode y (List.all_eq_true.mp exRun_steps y hy), ?_⟩
     have : y.1.calls = [] ∧ y.1.x = 0 := by
       revert hy; simp only [exRunC, cstep, List.mem_append, List.mem_flatMap, List.mem_range,
-        List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false]
+        List.mem_cons, List.not_mem_nil, or_false]
       intro hy; rcases hy with (rfl | ⟨v, _, hv⟩) | hv <;> (try rcases hv with rfl | rfl | rfl | rfl) <;> simp
     simp only [toD, this.1, this.2, CallsWith]
   · intro r hr; simp [exDFun] at hr

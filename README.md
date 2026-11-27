@@ -57,7 +57,7 @@ crosscheck/
 
 ## Building
 
-Lean 4 (toolchain `leanprover/lean4:v4.16.0`, mathlib `v4.16.0`):
+Lean 4 (toolchain `leanprover/lean4:v4.36.0`, mathlib `v4.36.0`, revisions locked in `formalization/lake-manifest.json`; the archived `v1.0` used `v4.16.0`):
 
 ```bash
 cd formalization

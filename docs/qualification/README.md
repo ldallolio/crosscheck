@@ -50,7 +50,7 @@ All three run in CI (`.github/workflows/lean_build.yml`).
 | Tool | `crosscheck-check`, built by `lake build crosscheck-check` from `formalization/CheckerMain.lean` |
 | Verified definitions | `ImperativeOptimization/CheckerCore.lean`, `MiniCCore.lean`, `ResponseCore.lean` (no mathlib) |
 | Proofs | `Checker.lean`, `MiniC.lean`, `Interrupts.lean` (mathlib), checked by `lake build`; no `sorry`, no axiom beyond Lean's three standard ones |
-| Compiler | Lean 4 `v4.16.0` (pinned in `lean-toolchain`); the executable is produced by Lean's compiler and a C compiler |
+| Compiler | Lean 4 `v4.36.0` (pinned in `lean-toolchain`; mathlib `v4.36.0`, revisions in `lake-manifest.json`); the executable is produced by Lean's compiler and a C compiler |
 | Input | certificate files, `docs/certificate-format.md` (versions 1 and 2) |
 | Output | one line per function, program, validation and response claim; exit status 0, 1 or 2 |
 
