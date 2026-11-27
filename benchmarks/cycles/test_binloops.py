@@ -382,6 +382,46 @@ class TwoWraps(unittest.TestCase):
         self.assertEqual(check(d)[0], 1, "bound")
 
 
+# if (n > 99) return; if (n < 1) return; for (i = 0; i != n; i++);  (signed n in r0)
+SIGNED = {0x100: [0x2863, 0xDC06, 0x2801, 0xDB04, 0x2100, 0x3101, 0x4281, 0xD1FC, 0x4770, 0x4770]}
+
+
+class SignedTests(unittest.TestCase):
+    """Two signed tests of the same register: the first leaves `0 <= n <= 99` or `n` negative,
+    carried apart (`sign_regions`) up to the second, which removes the negative case; 98 back
+    edges. Joined, only `n <= 2^31 - 1` would remain."""
+
+    def doc(self, code=SIGNED):
+        an = test_ipet.analysis(code, {"f": (0x100, 20)}, range(0x10a, 0x110, 2), 99)
+        st = {}
+        doc, _, _ = ipet.certify(an, ["f"], mul=32, loops=True, stats=st)
+        return doc, st
+
+    def test_producer(self):
+        doc, st = self.doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x10a, 98)])
+        self.assertTrue(any(doc["programs"][0]["functions"][0]["alt"]))
+        old = binloops.SIGN_DISJ
+        binloops.SIGN_DISJ = False
+        try:
+            self.assertEqual(self.doc()[1]["f"]["certified"], [])
+        finally:
+            binloops.SIGN_DISJ = old
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        doc = self.doc()[0]
+        self.assertEqual(check(doc)[0], 0, check(doc)[1])
+        # n up to 100: 99 back edges, more than certified; a smaller bound
+        d = copy.deepcopy(doc)
+        d["code"]["halfwords"][0x100 // 2] = 0x2864
+        self.assertEqual(check(d)[0], 1, "n <= 100")
+        d = copy.deepcopy(doc)
+        d["programs"][0]["functions"][0]["loops"][0]["bound"] -= 1
+        self.assertEqual(check(d)[0], 1, "bound")
+
+
 class ExactEffects(unittest.TestCase):
     """Literal loads, STM/LDM write-back, NEGS, MVNS and LSLS have exact effects: the loops whose
     counter they set are certified, and a change of the value they produce is rejected."""

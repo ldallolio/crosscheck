@@ -31,6 +31,7 @@ import wcet
 
 CONG = True
 DISJ = True          # disjunctive invariants at a possible wrap-around (`window_transfer`)
+SIGN_DISJ = os.environ.get("CROSSCHECK_SIGN_DISJ", "1") != "0"   # at a signed comparison (`sign_transfer`)
 # amortised rows (`amortised`): off unless asked for (`run_cycles.py --amortised`); in the
 # TACLeBench runs of 2026-11-26 they found nothing and cost up to 40 % more time
 AMORT = os.environ.get("CROSSCHECK_AMORT", "0") == "1"
@@ -983,13 +984,17 @@ def disjuncts(inv, a):
     return [inv.get(a, [])] + getattr(inv, "alt", {}).get(a, [])
 
 
-def pick_of(ctx, inv, a, m, si, nxt):
+def pick_of(ctx, inv, a, m, si, nxt, d=0):
     """Lean `tgtIdx`: the disjunct of `nxt` that the case lands in (the producer's choice):
     the same tag as the source disjunct, or, from the start of a window, the tag of the
-    wrap-around case `m`."""
+    wrap-around case `m`, from the start of a signed region (`sign_regions`), that of the
+    branch fact `d`."""
     tags = getattr(inv, "tags", {})
     if nxt not in tags:
         return 0
+    if a in getattr(ctx, "sregions", {}) and a not in tags:
+        tag = ("s", d)
+        return tags[nxt].index(tag) if tag in tags[nxt] else 0
     starts = getattr(ctx, "windows", {})
     if getattr(ctx, "_second_of", (None,))[0] is not starts:
         ctx._second_of = (starts, {window_split(ctx, w) for w in starts} - {None} if starts else set())
@@ -1022,7 +1027,7 @@ def obligation_cases(ctx, a, inv, kinds):
         for m in mcases(eff):
             for d, D in enumerate(facts):
                 for si, I in enumerate(disjuncts(inv, a)):
-                    t = pick_of(ctx, inv, a, m, si, nxt) if nxt is not None else 0
+                    t = pick_of(ctx, inv, a, m, si, nxt, d) if nxt is not None else 0
                     out.append((j, nxt, m, d, D, si, I, t))
     return out
 
@@ -2104,6 +2109,145 @@ def window_transfer(ctx, kind, a, M):
     return disj, outs
 
 
+# Disjunctions at a signed comparison: `if (n > 99) return; ... if (n < 1) ...` on a signed
+# `n` gives, on the first branch, `0 <= n <= 99` or `n` negative (as an unsigned word, at least
+# 2^31); their hull keeps neither bound, and the second test then leaves `1 <= n <= 2^31 - 1`.
+# The cases of the first branch are carried apart (tag `("s", d)`, `d` the index of the branch
+# fact, Lean `pick` on `d`) over the code after it that only it enters, up to a later signed
+# test of the same register, and joined where they leave it.
+
+SIGNED_CC = (10, 11, 12, 13)
+SIGN_REGION_MAX = 24
+
+
+def flag_reg(ctx, a):
+    """The register compared by the instruction that sets the flags a branch at `a` reads
+    (straight back while the flags are kept), or None."""
+    b = a
+    for _ in range(16):
+        b -= 2
+        if b not in ctx.insn:
+            return None
+        fl = ctx.zeff[b][1]
+        if fl == "keep":
+            continue
+        if fl in ("any", "nz") or fl[1][0] != "reg":
+            return None
+        return fl[1][1]
+    return None
+
+
+def sign_regions(ctx, kind):
+    """{start: {transition j: [instructions in order]}}: a signed conditional branch whose
+    facts on transition `j` are a disjunction; the region holds the instructions that only it
+    and the region enter (no loop header, not the entry, none of a wrap-around window), in an
+    order where every instruction follows its predecessors, up to and including a signed branch
+    on the same register; kept only if one is reached."""
+    preds = {a: [] for a in ctx.nodes}
+    for a in ctx.nodes:
+        for n, _w, _c in ctx.out[a]:
+            if n in preds:
+                preds[n].append(a)
+    heads = {h for h, _b, _n in ctx.iloops}
+    banned = set(ctx.windows) | {n for ch in ctx.windows.values() for n in ch} | heads | {ctx.entry}
+    R = {}
+    used = set()
+    for a in ctx.nodes:
+        if (ctx.insn[a].kind != "cond" or ctx.cc[a] not in SIGNED_CC or kind.get(a, "none") != "sub"
+                or a in banned or a in used):
+            continue
+        r = flag_reg(ctx, a)
+        if r is None:
+            continue
+        for j, (n0, _w, _c) in enumerate(ctx.out[a]):
+            facts = cond_facts("sub", ctx.cc[a], j == 0, cmod(ctx.cong, a))
+            if len(facts) < 2 or n0 is None or n0 not in preds or n0 in banned or n0 in used:
+                continue
+            if preds[n0] != [a]:
+                continue
+            reg, inside, end = [n0], {n0}, None
+            frontier = [n0] if not (ctx.insn[n0].kind == "cond" and ctx.cc[n0] in SIGNED_CC
+                                    and flag_reg(ctx, n0) == r) else []
+            if not frontier:
+                end = n0
+            while frontier and end is None and len(reg) < SIGN_REGION_MAX:
+                grown = False
+                for x in list(frontier):
+                    for n, _w, _c in ctx.out[x]:
+                        if (n is None or n not in preds or n in inside or n in banned or n in used
+                                or n == a or not all(p in inside for p in preds[n])):
+                            continue
+                        reg.append(n)
+                        inside.add(n)
+                        grown = True
+                        if (ctx.insn[n].kind == "cond" and ctx.cc[n] in SIGNED_CC
+                                and flag_reg(ctx, n) == r):
+                            end = n
+                        else:
+                            frontier.append(n)
+                        break
+                    if grown:
+                        break
+                    frontier.remove(x)
+                if not grown and not frontier:
+                    break
+            if end is None:
+                continue
+            # the instructions after the end are not part of the region
+            R.setdefault(a, {})[j] = reg
+            used |= inside
+    return R
+
+
+def sign_transfer(ctx, kind, a, M):
+    """As `window_transfer`, for the regions of `sign_regions` starting at `a`: ({instruction:
+    [(tag, zone)]}, [(source, j, post)] of the transitions leaving the regions and of the
+    other transitions of `a`)."""
+    Zd = ctx.zones
+    i = ctx.insn[a]
+    regs = ctx.sregions[a]
+    disj, outs = {}, {}
+    closed = a != ctx.entry
+    for j, (nxt, _w, _cs) in enumerate(ctx.out[a]):
+        facts = cond_facts(kind.get(a, "none"), ctx.cc[a], j == 0, cmod(ctx.cong, a)) if i.kind == "cond" else [[]]
+        for d, D in enumerate(facts):
+            Mf, cl = M, closed
+            for p in D:
+                if Mf is not None:
+                    Mf, cl = guard(Zd, Mf, p, closed=cl)
+            if Mf is None:
+                continue
+            ex = post_exprs(ctx, a, Mf)
+            if nxt is not None and kind.get(nxt, "none") == "none":
+                ex[8] = ex[9] = "any"
+                ex.pop("eq", None)
+            post = apply_post(Zd, Mf, ex, closed=cl)
+            if post is None:
+                continue
+            if j in regs:
+                tz = disj.setdefault(nxt, {})
+                tz[("s", d)] = join(tz.get(("s", d)), post)
+            else:
+                outs[(a, j)] = join(outs.get((a, j)), post)
+    for j, reg in regs.items():
+        inside = set(reg)
+        for n in reg:
+            for tag, Zn in sorted(disj.get(n, {}).items()):
+                Zn = Zd.checked(Zn, Zn)
+                disj[n][tag] = Zn
+                for jj, _Mf, _ex, post in transfer(ctx, kind, n, Zn):
+                    m = ctx.out[n][jj][0]
+                    if m is None or post is None:
+                        continue
+                    if m in inside:
+                        tz = disj.setdefault(m, {})
+                        tz[tag] = join(tz.get(tag), post)
+                    else:
+                        outs[(n, jj)] = join(outs.get((n, jj)), post)
+    parts = {n: sorted(tz.items()) for n, tz in disj.items()}
+    return parts, [(src, j, post) for (src, j), post in outs.items()]
+
+
 def hull(parts):
     out = None
     for _tag, Zn in parts:
@@ -2355,11 +2499,21 @@ def analyse(ctx, kind):
     order = {a: k for k, a in enumerate(ctx.nodes)}
     if getattr(ctx, "windows", None) is None:
         ctx.windows = windows_of(ctx) if DISJ else {}
+    if getattr(ctx, "sregions", None) is None:
+        ctx.sregions = sign_regions(ctx, kind) if SIGN_DISJ else {}
     inner = {n for ch in ctx.windows.values() for n in ch}
+    inner |= {n for rs in ctx.sregions.values() for reg in rs.values() for n in reg}
     ctx.disj = {}
 
     def steps(a, M, into):
         """[(successor transition source, j, post)], the window's zones stored in `into`."""
+        if a in ctx.sregions:
+            parts, outs = sign_transfer(ctx, kind, a, M)
+            for n, ps in parts.items():
+                if len(ps) >= 2:
+                    ctx.disj[n] = ps
+                into[n] = hull(ps)
+            return outs
         if a in ctx.windows:
             disj, outs = window_transfer(ctx, kind, a, M)
             for n, parts in disj.items():
@@ -2800,14 +2954,14 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
                     wp = [g for g in wp if g[0] or abs(g[1]) <= BIG]
                     sig = {v: (pv(10 + v) if v < 8 and not e[0] and abs(e[1]) > BIG else e) for v, e in sig.items()}
                     ias = [[g for g in ia if abs(g[1]) <= BIG] for ia in ias]
-                for D, (si, ia) in ((D, x) for D in facts for x in enumerate(ias)):
+                for d, D, (si, ia) in ((d, D, x) for d, D in enumerate(facts) for x in enumerate(ias)):
                     prem = D + wp + ia + rng
                     if box_contradiction(prem):
                         continue        # a case that cannot happen: no constraint
                     ida = nid(a, si) if a in B else a
                     idn = nxt
                     if nxt in B and per_disj:
-                        t = pick_of(ctx, inv, a, m, si, nxt)
+                        t = pick_of(ctx, inv, a, m, si, nxt, d)
                         idn = nid(nxt, t if t < len(disjuncts(inv, nxt)) else 0)
                     if log is not None:
                         for gd, gcc, gk in _log_goals(log, col, V, sig, h, B, a, nxt, ida, idn):

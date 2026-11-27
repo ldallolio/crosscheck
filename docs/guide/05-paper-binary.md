@@ -596,6 +596,16 @@ specification of effects, flags, conditions and stack effects is compared with t
 interpreter on every 16-bit encoding (297 244 executions, no difference); 28 tests check that
 altered certificates are refused.
 
+Signed comparisons (2026-11-27). The machine has no signed numbers: a register holds a word,
+and a signed test such as "`n ≤ 99`" (`ble`) is true for 0..99 *and* for the words 2^31 and
+above, which stand for the negative numbers. A zone describes only one convex piece, so after
+the branch it kept the hull of the two, which bounds nothing; a later test "`n ≥ 1`" then
+removed the negative piece, but the bound 99 was already lost. The producer now carries the
+two pieces apart, as for a wrap-around, over the code after the branch that only it leads
+to (no loop in it), up to the next signed test of the same register, and merges them where
+they leave it. The checker needed no change (it already takes invariants made of pieces).
+Result: one more loop of the larger programs (`ammunition`), nothing changed on the kernels.
+
 ## 5.7 The rest of Paper III's evaluation
 
 - **OTAWA on the same binaries.** OTAWA 2.3 (an open-source WCET analyser) is given the loop

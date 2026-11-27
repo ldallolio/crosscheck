@@ -275,7 +275,8 @@ SP; checked where it may be stated by `frameUseOk`).
 differences of registers and tracked words of the frame (SP offsets per instruction),
 widening at loop heads with thresholds at the wrap-around values of additions, descending
 iterations, the zone split at an addition or subtraction that may wrap around and joined
-after the next branch (trace partitioning, Mauborgne & Rival, ESOP 2005); potentials
+after the next branch (trace partitioning, Mauborgne & Rival, ESOP 2005), and the cases of a
+signed comparison carried apart up to the next signed test of the same register (`sign_regions`); potentials
 `±r_i` or `±(r_i − r_j)` plus per-instruction constants with scale 1, 2, 4 or 8, else a
 potential per instruction from one linear program over the obligations (`synth_lp`:
 Colón–Sipma, Alias et al.; HiGHS, limited in iterations, `lp_maxiter`; retried without
@@ -461,7 +462,7 @@ before them); before, `ammunition` did not finish within an hour, and `mpeg2` an
 |---|---:|---:|---:|---:|:-:|
 | adpcm_dec | 17 | 13 | 23 of 28 | 17 | no |
 | adpcm_enc | 19 | 15 | 27 of 31 | 19 | no |
-| ammunition | 74 | 44 | 638 of 1,135 | 57 | no |
+| ammunition | 74 | 45 | 639 of 1,135 | 57 | no |
 | anagram | 26 | 13 | 29 of 51 | 20 | no |
 | audiobeam | 36 | 28 | 21 of 43 | 36 | no |
 | cjpeg_transupp | 11 | 4 | 63 of 87 | 11 | no |
@@ -470,7 +471,7 @@ before them); before, `ammunition` did not finish within an hour, and `mpeg2` an
 | epic | 9 | 1 | 15 of 67 | 9 | no |
 | fmref | 19 | 14 | 25 of 34 | 19 | no |
 | g723_enc | 18 | 16 | 26 of 32 | 18 | no |
-| gsm_dec | 24 | 17 | 27 of 48 | 24 | no |
+| gsm_dec | 24 | 17 | 28 of 48 | 24 | no |
 | gsm_enc | 36 | 28 | 57 of 79 | 36 | no |
 | h264_dec | 5 | 2 | 15 of 17 | 5 | no |
 | huff_dec | 11 | 7 | 14 of 32 | 11 | no |
@@ -484,7 +485,7 @@ before them); before, `ammunition` did not finish within an hour, and `mpeg2` an
 | rijndael_enc | 14 | 10 | 11 of 19 | 14 | no |
 | statemate | 10 | 10 | 5 of 5 | 10 | yes |
 | susan | 41 | 20 | 38 of 83 | 31 | no |
-| **25 programs** | **513** | **348** | **1,271 of 2,104** | **467** | **3** |
+| **25 programs** | **513** | **349** | **1,273 of 2,104** | **467** | **3** |
 
 Functions and loops include those of compiler-rt. 535 of `ammunition`'s certified loops are
 in `ammunition_arithm_test` (535 of its 910 loops), whose search reaches its work budget
@@ -1224,6 +1225,17 @@ The changes that moved the figures above, newest first (each run: no loop lost, 
 certified bound higher, every certificate accepted, no emulated run above a bound, unless
 said otherwise).
 
+- **2026-11-27, signed comparisons.** The facts of a branch on a signed condition are a
+  disjunction (`r <= 99` signed: `r <= 99` or `r >= 2^31` unsigned), whose hull keeps neither
+  bound, so that `if (n > 99) return; ... if (n < 1) ...` lost the bound 99 of `n`. The cases
+  are now carried apart (tags `("s", d)`, `d` the branch fact, `pick_of`) over the
+  instructions that only the branch and the region enter (no loop header, entry or window; at
+  most 24), up to a later signed branch on the same register, and joined where they leave it
+  (`sign_regions`, `sign_transfer`; `CROSSCHECK_SIGN_DISJ=0` disables it). Producer only.
+  Clang kernels (both assumptions) 278 → 278, GCC 103 → 103; larger programs 1,172 → 1,173
+  (`ammunition_bit_string_comparison` 0xe5a, which also receives a cycle bound: 348 → 349
+  certified functions; the table above now also counts the loop of `gsm_dec` of the entry
+  below), 1,714 → 1,680 s on the 40-core machine, 64 → 61 linear programs stopped at 60 CPU seconds; test `SignedTests`.
 - **2026-11-27, two wrap-arounds before a branch.** A window of the zone analysis
   (`window_transfer`) split only at its first addition that may wrap; in Clang's
   `adds r0, #32; adds r1, #1; bhs` (a pointer, then a counter from -8 up to the carry) that
