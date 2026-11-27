@@ -28,6 +28,8 @@ import json
 import os
 import pathlib
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -96,7 +98,6 @@ def parallel_units(src: pathlib.Path, work: pathlib.Path):
                           patches=[(re.compile(r"\bsrandom\b"), "rosace_srandom"),
                                    (re.compile(r"\brandom\b"), "rosace_random")],
                           main=f"ros_th{i}_main"))
-    import shutil
     code = work / "debie_src"
     if code.exists():
         shutil.rmtree(code)
@@ -107,6 +108,23 @@ def parallel_units(src: pathlib.Path, work: pathlib.Path):
                       [code, code / "harness", code / "arch" / "x86"],
                       patches=[("#pragma entrypoint ", "")], main="main"))
     return units
+
+
+def crash_backtrace(cmd, status):
+    """After a crash of the tool (a fault, not a kill), the same command once more under gdb, for
+    its backtrace; the run still fails. A rerun that does not crash says so (an intermittent
+    fault)."""
+    if status not in (-signal.SIGSEGV, -signal.SIGBUS, -signal.SIGABRT, -signal.SIGILL, -signal.SIGFPE) \
+            or not shutil.which("gdb"):
+        return ""
+    try:
+        out = subprocess.run(["gdb", "-batch", "-nx", "-ex", "run", "-ex", "bt 40", "--args", *map(str, cmd)],
+                             capture_output=True, text=True, timeout=3600).stdout
+    except subprocess.TimeoutExpired:
+        return "\n(rerun under gdb: timed out)"
+    frames = [l for l in out.splitlines() if l.startswith("#") or "received signal" in l]
+    return ("\nrerun under gdb:\n" + "\n".join(frames[:41])) if frames else \
+        "\n(rerun under gdb: no crash, the fault is intermittent)"
 
 
 def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None, minic=False,
@@ -137,7 +155,8 @@ def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None,
     seconds = time.monotonic() - t0
     if not report.exists():
         # a negative status is the signal that killed the tool (e.g. -9: out of memory)
-        sys.exit(f"{name}: no report written (exit status {proc.returncode})\n{proc.stderr[-2000:]}")
+        sys.exit(f"{name}: no report written (exit status {proc.returncode})\n{proc.stderr[-2000:]}"
+                 + crash_backtrace(cmd, proc.returncode))
     rep = json.loads(report.read_text())
 
     error_lines = {int(m.group(1)) for m in map(DIAG_RE.search, proc.stderr.splitlines()) if m}
