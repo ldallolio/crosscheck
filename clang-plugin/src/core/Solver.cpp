@@ -257,6 +257,16 @@ std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Cons
   if (auto it = m.find(key); it != m.end()) return it->second;
   std::optional<Interval> res = [&]() -> std::optional<Interval> {
   Interval out;
+  // A variable of `e` that no premise mentions makes `e` unbounded both ways when the premises
+  // are satisfiable: answered without the optimiser, whose search for an end does not stop on
+  // such an objective in some Z3 versions (4.8.12 runs to the backstop; 5.1.0 answers at once,
+  // with no end on either side, as here).
+  for (const auto& [s, _c] : e.terms()) {
+    bool mentioned = false;
+    for (const Constraint& c : closed)
+      if (c.e.coefficient(s) != 0) { mentioned = true; break; }
+    if (!mentioned) return feasibleClosed(closed) ? std::optional<Interval>(out) : std::nullopt;
+  }
   for (bool upper : {true, false}) {
     std::optional<std::int64_t> end;
     try {

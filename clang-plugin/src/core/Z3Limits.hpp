@@ -9,11 +9,17 @@
 // finish in 30 minutes with Ubuntu 24.04's Z3 4.8.12 (CI; it does with the timeouts), so the
 // wall-clock timeout of 10 s stays as a backstop: a query stopped by it is counted (`solverTimeouts`, the report's `solver_timeouts`), since its answer may
 // depend on the machine. An exhausted query answers "unknown", which every caller treats as
-// "not proved".
+// "not proved". The queries that reached the backstop with 4.8.12 on TACLeBench were
+// optimisations of an objective with a variable that no premise mentions, now answered without
+// the optimiser (`boundsOf`); after that change no query of the kernels reaches it with either
+// version. `CROSSCHECK_Z3_DUMP=DIR` writes each query it stops to DIR (SMT-LIB).
 #pragma once
+#include <unistd.h>
 #include <z3++.h>
 
 #include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <string>
 
 namespace crosscheck::z3limits {
@@ -36,13 +42,30 @@ inline std::string reasonUnknown(z3::optimize& o) {
   return Z3_optimize_get_reason_unknown(o.ctx(), o);  // no member in z3++
 }
 
+inline std::string text(z3::solver& s) { return s.to_smt2(); }
+inline std::string text(z3::optimize& o) { return Z3_optimize_to_string(o.ctx(), o); }
+
+/// With `CROSSCHECK_Z3_DUMP=DIR`, each query stopped by the backstop is written to
+/// DIR/query-<pid>-<n>.smt2 (diagnosis of slow queries; nothing else changes).
+template <class S>
+void dump(S& s) {
+  static const char* dir = std::getenv("CROSSCHECK_Z3_DUMP");
+  if (!dir) return;
+  static thread_local unsigned n = 0;
+  std::ofstream(std::string(dir) + "/query-" + std::to_string(::getpid()) + "-" + std::to_string(n++) + ".smt2")
+      << text(s);
+}
+
 /// `s.check()`, counting a query that the backstop stopped.
 template <class S>
 z3::check_result check(S& s) {
   z3::check_result r = s.check();
   if (r == z3::unknown) {
     std::string why = reasonUnknown(s);
-    if (why.find("timeout") != std::string::npos || why.find("canceled") != std::string::npos) ++timeouts();
+    if (why.find("timeout") != std::string::npos || why.find("canceled") != std::string::npos) {
+      ++timeouts();
+      dump(s);
+    }
   }
   return r;
 }

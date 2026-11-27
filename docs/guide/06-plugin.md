@@ -139,7 +139,14 @@ CI) does not stop every query by the counter: with the counter alone, `cosf` ran
 30 minutes there. The report counts, per function, the queries that the backstop stopped
 (`solver_timeouts`); `run_tacle.py` prints them. With Z3 5.1.0 the timeout was never reached
 on TACLeBench (the largest of about 416,000 queries used 187,000 units, 0.06 s), and the
-kernels' reports and certificates are identical with or without the counter.
+kernels' reports and certificates are identical with or without the counter. With 4.8.12, CI
+counted 65 such queries in four kernels (`cosf`, `cubic`, `isqrt`, `quicksort`), so their
+results depended on the machine; the queries, written out with `CROSSCHECK_Z3_DUMP=DIR`, all
+asked for the largest or smallest value of an expression with a variable that no premise
+mentions, which has none. `boundsOf` now answers these without the optimiser (no end on
+either side, if the premises are satisfiable): no query reaches the backstop with either
+version, both give the same bounds on the kernels, and those four kernels take 10 to 17 s
+instead of about 90 s with 4.8.12.
 
 | Construct | How the analysis reads it |
 |---|---|

@@ -207,6 +207,23 @@ TEST(Bounds, MissingEndsAndDeadStates) {
   EXPECT_FALSE(boundsOf(syms, {ge(x, LinExpr::constant(1)), le(x, LinExpr::constant(0))}, x).has_value());
 }
 
+TEST(Bounds, VariableNoPremiseMentions) {
+  // `z` occurs in no fact: `x + z` has no end on either side (answered without the optimiser,
+  // which some Z3 versions do not stop on such an objective), unless the facts contradict.
+  SymbolTable syms;
+  LinExpr x = LinExpr::symbol(syms.fresh("x")), z = LinExpr::symbol(syms.fresh("z"));
+  std::optional<Interval> b =
+      boundsOf(syms, {ge(x, LinExpr::constant(0)), le(x, LinExpr::constant(5))}, x + z);
+  ASSERT_TRUE(b.has_value());
+  EXPECT_FALSE(b->lo.has_value());
+  EXPECT_FALSE(b->hi.has_value());
+  EXPECT_FALSE(boundsOf(syms, {ge(x, LinExpr::constant(1)), le(x, LinExpr::constant(0))}, x + z).has_value());
+  // `x` alone keeps its ends.
+  b = boundsOf(syms, {ge(x, LinExpr::constant(0)), le(x, LinExpr::constant(5))}, x);
+  ASSERT_TRUE(b.has_value());
+  EXPECT_EQ(b->hi, std::optional<std::int64_t>(5));
+}
+
 }  // namespace
 
 // --- certificates (the checker's own operations, src/core/Cert.hpp) -------------
