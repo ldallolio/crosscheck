@@ -3,10 +3,12 @@
 # Released under the MIT license as described in the file LICENSE.
 """Diagnosis of the kernel loops that `binloops.py` does not certify on the machine code.
 
-    python3 benchmarks/cycles/classify_loops.py RUN.json [--examples]
+    python3 benchmarks/cycles/classify_loops.py RUN.json [--examples] [--work DIR] [--tag .crt]
+         [--kernel NAME ...]
 
 RUN.json is the output of `run_cycles.py --json ... --certify-loops --abi --frame` (default
-build). For every loop left uncertified (the run-time division routines `__aeabi_*` are
+build; `--work`: the directory of the objects, default TACLeBench's work copy; `--tag .crt`:
+the objects linked with a run-time library, `--rtlib`; `--kernel`: only these programs). For every loop left uncertified (the run-time division routines `__aeabi_*` are
 skipped), the exits are examined: the instruction that set the flags of the exit branch and,
 for each of its register operands, the definitions that reach it along paths inside the loop
 (a backward search through registers and tracked words of the frame). An operand is a
@@ -68,8 +70,8 @@ def origin(ctx, body, h, node, var, P):
                     m = mn(ctx, p)
                     out.add("load" if m in LOADS else "shift" if m in SHIFTS else {"mul": "mul", "bl": "call", "ldrlit": "const"}.get(m, "other:" + m))
                     continue
+                if dfn[0] in ("shl", "shr"): out.add("shift"); continue
                 op, x, y = dfn
-                if op == "shl": out.add("shift"); continue
                 srcs = [t for t in (x, y) if t[0] == "reg"]
                 if not srcs: out.add("const"); continue
                 if len(srcs) == 2:
@@ -146,11 +148,20 @@ def group(c):
 
 
 def main():
-    d = json.loads(pathlib.Path(sys.argv[1]).read_text())
-    examples = "--examples" in sys.argv
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("run", help="JSON of run_cycles.py --certify-loops")
+    ap.add_argument("--examples", action="store_true", help="print up to four loops of each group")
+    ap.add_argument("--work", default=str(W), help="directory of the objects KERNEL.m0[TAG].o")
+    ap.add_argument("--tag", default="", help="object suffix, e.g. .crt for --rtlib compiler-rt")
+    ap.add_argument("--kernel", action="append", help="only this program (repeatable)")
+    opt = ap.parse_args()
+    d = json.loads(pathlib.Path(opt.run).read_text())
+    examples = opt.examples
     cat = collections.Counter(); ex = collections.defaultdict(list); reasons = collections.Counter()
     for k in d["kernels"]:
-        img = m0.load(str(W / f"{k['kernel']}.m0.o")); an = wcet.Analysis(img, {}, {None: 5})
+        if opt.kernel and k["kernel"] not in opt.kernel: continue
+        img = m0.load(str(pathlib.Path(opt.work) / f"{k['kernel']}.m0{opt.tag}.o")); an = wcet.Analysis(img, {}, {None: 5})
         an.jt_opts = (True, True)   # jumps bounded by the loop analysis, as in the run (--abi --frame)
         for fn, v in k.get("loops_detail", {}).items():
             if fn.startswith("__aeabi") or not v["other"]: continue

@@ -586,6 +586,99 @@ class FarBranches(unittest.TestCase):
             self.assertEqual(check(d)[0], 1, hex(h))
 
 
+# Counters in the high registers, as GCC writes them for the Cortex-M0: movs r0, #0; mov r8,
+# r0; movs r1, #10; mov r9, r1; L: movs r2, #1; add r8, r2; cmp r8, r9; bne L; bx lr (Lean
+# `effect`: MOV, ADD and CMP on r0-r12, variables `rv`). HICALL: the same loop with a call
+# in it (push {lr}; ...; L: bl g; ...; pop {pc}): r8 and r9 survive the call under the
+# assumption on callees (the AAPCS: r4-r11), r12 does not.
+HILOOP = {0x100: [0x2000, 0x4680, 0x210A, 0x4689, 0x2201, 0x4490, 0x45C8, 0xD1FB, 0x4770]}
+HICALL = {0x100: [0xB500, 0x2000, 0x4680, 0x210A, 0x4689, 0xF000, 0xF809, 0x2201, 0x4490, 0x45C8,
+                  0xD1F9, 0xBD00], 0x120: [0x4770]}
+
+
+def hi_doc(code=HILOOP, call=False):
+    if call:
+        an = test_ipet.analysis(code, {"f": (0x100, 24), "g": (0x120, 2)}, range(0x10A, 0x116, 2), 10)
+    else:
+        an = test_ipet.analysis(code, {"f": (0x100, 18)}, range(0x108, 0x110, 2), 10)
+    st = {}
+    doc, bounds, why = ipet.certify(an, ["f"], mul=32, loops=True, stats=st, abi=True)
+    return doc, bounds, st
+
+
+class HighRegisters(unittest.TestCase):
+    """Loop counters in r8-r12: certified, also across a call for r8-r11 (callees preserve
+    them under the assumption); the checker rejects a smaller bound and the code changed to
+    compare with a register that holds nothing known, and the producer certifies no loop
+    whose counter is r12 across a call."""
+
+    def test_producer(self):
+        doc, bounds, st = hi_doc()
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x108, 9)])
+        # 4 + 10 x (movs, add, cmp) + 9 x bne taken 3 + bne not taken 1 + bx lr 3
+        self.assertEqual(bounds["f"], 4 + 30 + 27 + 1 + 3)
+        self.assertEqual(doc["programs"][0]["functions"][0]["rows"], [])
+        _, _, st = hi_doc(HICALL, True)
+        self.assertEqual([x[:2] for x in st["f"]["certified"]], [(0x10A, 9)])
+        r12 = {0x100: [0xB500, 0x2000, 0x4684, 0x210A, 0x4689, 0xF000, 0xF809, 0x2201, 0x4494, 0x45CC,
+                       0xD1F9, 0xBD00], 0x120: [0x4770]}
+        _, _, st = hi_doc(r12, True)
+        self.assertEqual(st["f"]["certified"], [])
+
+    def test_used_registers(self):
+        """`hi_regs`: no register for `mov r8, r8` or for r12 made any value by a call (a
+        column of no use changed the vertex HiGHS returned: mpeg2 7 -> 8); r12 counts once
+        it is read."""
+        eff = lambda h, abi=True: binloops.effect(abi, lambda a: h, 0)  # noqa: E731
+        self.assertEqual(binloops.hi_regs(eff(0x46C0)), set())          # mov r8, r8
+        self.assertEqual(binloops.hi_regs(eff(0xF000)), set())          # bl (first half)
+        self.assertEqual(binloops.hi_regs(eff(0xF000, False)), set())
+        self.assertEqual(binloops.hi_regs(eff(0x4680)), {8})            # mov r8, r0
+        self.assertEqual(binloops.hi_regs(eff(0x4660)), {12})           # mov r0, r12
+        self.assertEqual(binloops.hi_regs(eff(0x45CC)), {9, 12})        # cmp r12, r9
+
+    def test_checker(self):
+        if not pathlib.Path(CHECKER).exists():
+            self.skipTest("crosscheck-check not built")
+        for code, call in ((HILOOP, False), (HICALL, True)):
+            doc = hi_doc(code, call)[0]
+            self.assertEqual(check(doc)[0], 0, check(doc)[1])
+            fn = lambda d: next(f for f in d["programs"][0]["functions"] if f["name"] == "f")  # noqa: E731
+            d = copy.deepcopy(doc)
+            fn(d)["loops"][0]["bound"] -= 1
+            self.assertEqual(check(d)[0], 1, "bound")
+            k = 6 if not call else 9          # cmp r8, r9 -> cmp r8, r10
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + k] = 0x45D0
+            self.assertEqual(check(d)[0], 1, "cmp r8, r10")
+            d = copy.deepcopy(doc)
+            d["code"]["halfwords"][0x100 // 2 + 3 + (1 if call else 0)] = 0x468A    # mov r10, r1
+            self.assertEqual(check(d)[0], 1, "mov r10, r1")
+        # the counter in r12, which a call may change: the certificate of r8 on that code
+        doc = hi_doc(HICALL, True)[0]
+        for k, h in ((2, 0x4684), (8, 0x4494), (9, 0x45CC)):
+            doc["code"]["halfwords"][0x100 // 2 + k] = h
+        self.assertEqual(check(doc)[0], 1, "r12 across a call")
+
+
+class CongruencesExact(unittest.TestCase):
+    """The congruences are those of the checker's effects, also in the producer's retry that
+    gives shifts any value (`lit_any`): there N and Z of `lsls r2, r0, #3` were taken as those
+    of 0, and the checker rejected the claimed `g1 = 0 mod 2^32` (TACLeBench's `matrix1`
+    without frame pointers, both assumptions, 2026-11-26)."""
+
+    def test_lit_any(self):
+        # movs r0, #125; L: lsls r2, r0, #3; beq out; subs r0, #1; b L; out: bx lr
+        code = {0x100: [0x207D, 0x00C2, 0xD001, 0x3801, 0xE7FB, 0x4770]}
+        an = test_ipet.analysis(code, {"f": (0x100, 12)}, range(0x102, 0x10A, 2), 200)
+        cs = []
+        for lit_any in (False, True):
+            ctx = binloops.Ctx(an, "f", True, True, lit_any)
+            cs.append(binloops.congruences(ctx))
+        self.assertEqual(cs[0], cs[1])
+        self.assertNotIn(8, cs[1][0x104])
+
+
 class Disjunctions(unittest.TestCase):
     """A counter that exits on its wrap-around: the invariant between the subtraction and the
     branch is a disjunction (no wrap-around, or the counter is 2^32 - 1); the certificate

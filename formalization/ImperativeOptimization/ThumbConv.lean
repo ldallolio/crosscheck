@@ -9,7 +9,7 @@ import ImperativeOptimization.ThumbData
 # The calling convention, checked instead of assumed
 
 `ThumbData` proves loop bounds on the machine code in a semantics where a call (`BL`) is one
-step whose effect is given by `effect abi`: with `abi`, the callee preserves `r4`-`r7` and
+step whose effect is given by `effect abi`: with `abi`, the callee preserves `r4`-`r11` and
 SP, an assumption on the code of the callees (the AAPCS). This module removes it.
 
 * `DRunL`: the *linked* data semantics. A run has an initial and a final state; at a `BL`,
@@ -21,12 +21,12 @@ SP, an assumption on the code of the callees (the AAPCS). This module removes it
   - `SaveSafe` (the hypothesis, *no stack smashing*): the words where a function saves
     registers at its entry are not written by stores through registers other than SP, nor
     by the functions it calls.
-* `convOk` (in `ThumbDataCore`, executable): the function saves the registers of `r4`-`r7`
-  that it writes with one `PUSH` at its entry, restores them with a `POP` of the same list at
+* `convOk` (in `ThumbDataCore`, executable): the function writes none of `r8`-`r11`, saves
+  the registers of `r4`-`r7` that it writes with one `PUSH` at its entry, restores them with a `POP` of the same list at
   every return, at the offset of SP where they were saved, and stores through SP only below
   them. The check follows `transJ`: the targets of the function's jumps through tables are
   transitions like the others.
-* `conv_chain`: a function accepted by `convOk` returns with `r4`-`r7` and SP as it
+* `conv_chain`: a function accepted by `convOk` returns with `r4`-`r11` and SP as it
   found them (along the transitions that `ThumbData.steps_good` gives every step);
   `drunL_drun`: hence a run of the linked semantics is a run of `ThumbData`'s
   semantics *with* the assumption, by induction on the depth of calls;
@@ -70,7 +70,7 @@ def StepL (R : Nat → MState → MState → Int → Prop) (frame : Bool) (c : C
   EffOk (effect false c x.st.a) x.σ σ' ∧ StackOk frame SP0 (stackEffect false c x.st.a) x.σ σ' ∧
     PushPopOk c x.st.a x.σ σ' ∧ SaveSafe SP0 n (stackEffect false c x.st.a) x.σ σ' ∧
     (x.st.calls = [] → x.st.x = 0) ∧
-    (∀ g, x.st.calls = [g] → ∃ σo, R g x.σ σo x.st.x ∧ (∀ i < 8, σ'.r i = σo.r i) ∧ σ'.sp = σo.sp)
+    (∀ g, x.st.calls = [g] → ∃ σo, R g x.σ σo x.st.x ∧ (∀ i < 13, σ'.r i = σo.r i) ∧ σ'.sp = σo.sp)
 
 /-- The steps of a function from the given address to a return, the last one leading to
     the final state `σf`. -/
@@ -189,11 +189,11 @@ theorem convOk_nofar {mul : Nat} {c : Code} {f : BFun} {L : DFun} (h : convOk mu
 
 /-! ### From the linked semantics to the semantics with the assumption -/
 
-/-- What a callee guarantees: `r4`-`r7` and SP are restored. -/
-def Preserves (σ σo : MState) : Prop := (∀ i, 4 ≤ i → i < 8 → σo.r i = σ.r i) ∧ σo.sp = σ.sp
+/-- What a callee guarantees: `r4`-`r11` and SP are restored. -/
+def Preserves (σ σo : MState) : Prop := (∀ i, 4 ≤ i → i < 12 → σo.r i = σ.r i) ∧ σo.sp = σ.sp
 
 theorem effect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : isWide h) :
-    effect true c a = ⟨anyRegs [0, 1, 2, 3], .any⟩ := by
+    effect true c a = ⟨anyRegs [0, 1, 2, 3, 12], .any⟩ := by
   unfold isWide at hw; unfold effect; rw [hc]; simp only []; rw [if_pos hw]; simp
 
 theorem stackEffect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : isWide h) (abi : Bool) :
@@ -201,7 +201,7 @@ theorem stackEffect_wide {c : Code} {a h : Nat} (hc : c.get a = some h) (hw : is
   unfold isWide at hw; unfold stackEffect; rw [hc]; simp only []; rw [if_pos hw]
 
 /-- A step of the linked semantics is a step with the assumption on callees, when the
-    callees preserve `r4`-`r7` and SP. -/
+    callees preserve `r4`-`r11` and SP. -/
 theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Bool} {c : Code}
     {SP0 n mul : Nat} {x : DStep} {σ' : MState}
     (hR : ∀ g σ σo k, R g σ σo k → Preserves σ σo)
@@ -225,10 +225,10 @@ theorem stepL_step {R : Nat → MState → MState → Int → Prop} {frame : Boo
       obtain ⟨hwf, _, _, _⟩ := he
       refine ⟨⟨hwf, ?_, ?_, ?_⟩, ?_⟩
       · intro i hi hfind
-        have h4 : 4 ≤ i := by
+        have h4 : 4 ≤ i ∧ i < 12 := by
           simp [anyRegs] at hfind
           omega
-        rw [hr i hi, hpr i h4 hi]
+        rw [hr i hi, hpr i h4.1 h4.2]
       · intro i _ p hp v hv
         have hm := List.mem_of_find?_eq_some hp
         simp only [anyRegs, List.mem_map] at hm
@@ -391,17 +391,19 @@ theorem sp_next {da dn : Option Int} {frame : Bool} {SP0 SP1 : Nat} {st : StackE
       omega
     | any => rw [he] at hok; simp [spOk] at hok
 
-/-! ### A function that keeps the convention restores `r4`-`r7` and SP -/
+/-! ### A function that keeps the convention restores `r4`-`r11` and SP -/
 
 /-- The invariant at instruction `a` in state `σ`, for a run entered in `σi`: SP follows its
     offsets; the registers of `r4`-`r7` not saved keep their entry values (all of them at the
-    entry); after the entry, the saved words hold the entry values of the saved registers. -/
+    entry); after the entry, the saved words hold the entry values of the saved registers;
+    `r8`-`r11` keep their entry values. -/
 def ConvInv (c : Code) (f : BFun) (L : DFun) (σi : MState) (a : Nat) (σ : MState) : Prop :=
   a ∈ f.nodes ∧
   (∀ d, spAt f L a = some d → σ.sp = aOf ((σi.sp : Int) + d)) ∧
   (∀ k, 4 ≤ k → k < 8 → (a = f.entry ∨ (saveList c f.entry >>> k) % 2 = 0) → σ.r k = σi.r k) ∧
   (a ≠ f.entry → ∀ k, 4 ≤ k → k < 8 → (saveList c f.entry >>> k) % 2 = 1 →
-    σ.mem (savedAddr σi.sp (saveN c f.entry) (rankBits (saveList c f.entry) k)) = σi.r k)
+    σ.mem (savedAddr σi.sp (saveN c f.entry) (rankBits (saveList c f.entry) k)) = σi.r k) ∧
+  (∀ k, 8 ≤ k → k < 12 → σ.r k = σi.r k)
 
 /-- The saved list, at an entry that pushes. -/
 theorem save_push {c : Code} {e h : Nat} (hc : c.get e = some h) (hp : isPushH h = true) :
@@ -456,7 +458,7 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hn : x.st.next = some b) :
     ConvInv c f L σi b σ' := by
   obtain ⟨hcl, _, _, hnodes, _, _, hslok, _⟩ := checkDFun_spec hcd
-  obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
+  obtain ⟨ha, hsp, hregs, hslots, hhi⟩ := hJ
   obtain ⟨heff, hst⟩ := stepL_step hR hs hokM (convOk_nofar hcv _)
   obtain ⟨_, _, hpp, hsafe, _, _⟩ := hs
   obtain ⟨_, _, _, _, i, hdec, htr, _⟩ := hg
@@ -498,10 +500,10 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     have hx0 : x.σ.sp = σi.sp := by
       have := hsp 0 (hae ▸ hcv'.1.2)
       rw [this]; simp only [aOf, U] at *; omega
-    refine ⟨hb, hspb, ?_, ?_⟩
+    have hd : (effect true c a).dst = [] := effect_push hget hph
+    refine ⟨hb, hspb, ?_, ?_, ?_⟩
     · intro k hk4 hk8 _
-      have hd : (effect true c a).dst = [] := effect_push hget hph
-      rw [heff.2.1 k hk8 (by rw [hd]; rfl)]
+      rw [heff.2.1 k (by omega) (by rw [hd]; rfl)]
       exact hregs k hk4 hk8 (Or.inl hae)
     · intro _ k hk4 hk8 hbit
       rw [hl] at hbit ⊢
@@ -514,10 +516,13 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
       rw [← hregs k hk4 hk8 (Or.inl hae), ← this]
       simp only [savedAddr]
       congr 2
+    · intro k hk8 hk12
+      rw [heff.2.1 k (by omega) (by rw [hd]; rfl)]
+      exact hhi k hk8 hk12
   · have hgen := hcase.resolve_left (by
       intro h'; exact hpush ⟨h'.1, h'.2⟩)
     obtain ⟨hdst, hmemc⟩ := hgen
-    refine ⟨hb, hspb, ?_, ?_⟩
+    refine ⟨hb, hspb, ?_, ?_, ?_⟩
     · intro k hk4 hk8 hor
       have hbit : (saveList c f.entry >>> k) % 2 = 0 := hor.resolve_left hbe
       have hnone : (effect true c a).dst.find? (fun p => p.1 == k) = none := by
@@ -525,9 +530,9 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
         intro p hp hpk
         have := hdst p hp
         rw [hpk] at this
-        simp only [Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq] at this
+        simp only [Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq, Bool.and_eq_true] at this
         omega
-      rw [heff.2.1 k hk8 hnone]
+      rw [heff.2.1 k (by omega) hnone]
       exact hregs k hk4 hk8 (Or.inr hbit)
     · intro _ k hk4 hk8 hbit
       have hr := rank_lt_saveN hk8 hbit
@@ -584,6 +589,16 @@ theorem conv_step {mul : Nat} {c : Code} {f : BFun} {L : DFun}
           omega
       | other =>
         exact hsafe (by rw [← stackEffect_mem_same]; exact hm) _ hr
+    · intro k hk8 hk12
+      have hnone : (effect true c a).dst.find? (fun p => p.1 == k) = none := by
+        apply find_none_of
+        intro p hp hpk
+        have := hdst p hp
+        rw [hpk] at this
+        simp only [Bool.or_eq_true, decide_eq_true_eq, beq_iff_eq, Bool.and_eq_true] at this
+        omega
+      rw [heff.2.1 k (by omega) hnone]
+      exact hhi k hk8 hk12
 
 /-- An entry that saves `lr` pushes. -/
 theorem saveLr_push {c : Code} {e : Nat} (h : saveLr c e = true) :
@@ -594,7 +609,7 @@ theorem saveLr_push {c : Code} {e : Nat} (h : saveLr c e = true) :
     simp only [saveLr, hc, Bool.and_eq_true, beq_iff_eq] at h
     exact ⟨h0, rfl, h.1, h.2⟩
 
-/-- **At a return, `r4`-`r7` and SP are back.** -/
+/-- **At a return, `r4`-`r11` and SP are back.** -/
 theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     {R : Nat → MState → MState → Int → Prop} {σi : MState} {a : Nat} {x : DStep} {σf : MState}
     (hcv : convOk mul c f L = true)
@@ -604,7 +619,7 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
     (hokM : DOkM mul c f.jumps x.st.a x.j x.σ x.st.next x.st.w x.st.calls) (hg : Good mul c f x)
     (hn : x.st.next = none) :
     Preserves σi σf := by
-  obtain ⟨ha, hsp, hregs, hslots⟩ := hJ
+  obtain ⟨ha, hsp, hregs, hslots, hhi⟩ := hJ
   obtain ⟨heff, hst⟩ := stepL_step hR hs hokM (convOk_nofar hcv _)
   obtain ⟨_, _, hpp, _, _, _⟩ := hs
   obtain ⟨_, _, _, _, i, hdec, htr, _⟩ := hg
@@ -639,8 +654,21 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
       simp only [isPushH, beq_iff_eq] at hp0
       omega
     have hx := hsp _ hspa
-    refine ⟨fun k hk4 hk8 => ?_, ?_⟩
-    · by_cases hb : (saveList c f.entry >>> k) % 2 = 1
+    refine ⟨fun k hk4 hk12 => ?_, ?_⟩
+    · by_cases hk8 : ¬ k < 8
+      · have hnone : (effect true c a).dst.find? (fun p => p.1 == k) = none := by
+          rw [effect_pop hget hpop]
+          apply find_none_of
+          intro p hp hpk
+          simp only [anyRegs, List.mem_map] at hp
+          obtain ⟨j, hj, rfl⟩ := hp
+          have := ((mem_lowList h j).mp hj).1
+          simp only at hpk
+          omega
+        rw [heff.2.1 k (by omega) hnone]
+        exact hhi k (by omega) hk12
+      have hk8 : k < 8 := by omega
+      by_cases hb : (saveList c f.entry >>> k) % 2 = 1
       · have hbh : (h >>> k) % 2 = 1 := by rw [← bit_low h k hk8, hlist]; exact hb
         have hw := (show PushPopOk c a x.σ σf from hpp)
         simp only [PushPopOk, hget] at hw
@@ -661,7 +689,7 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
           have := ((mem_lowList h j).mp hj).2
           rw [← bit_low h j hk8, hlist] at this
           omega
-        rw [heff.2.1 k hk8 hnone]
+        rw [heff.2.1 k (by omega) hnone]
         exact hregs k hk4 hk8 (Or.inr hb0)
     · have hspm := hst.2.1
       rw [stackEffect_pop hget hpop] at hspm
@@ -674,14 +702,20 @@ theorem conv_ret {mul : Nat} {c : Code} {f : BFun} {L : DFun}
       omega
   · -- `BX LR`, nothing saved
     have hx := hsp _ hspa
-    refine ⟨fun k hk4 hk8 => ?_, ?_⟩
-    · have hb0 : (saveList c f.entry >>> k) % 2 = 0 := by
+    refine ⟨fun k hk4 hk12 => ?_, ?_⟩
+    · by_cases hk8 : ¬ k < 8
+      · have hnone : (effect true c a).dst.find? (fun p => p.1 == k) = none := by
+          rw [effect_bx hget hbx]; rfl
+        rw [heff.2.1 k (by omega) hnone]
+        exact hhi k (by omega) hk12
+      have hk8 : k < 8 := by omega
+      have hb0 : (saveList c f.entry >>> k) % 2 = 0 := by
         by_contra hb
         have := rank_lt_saveN (e := f.entry) (c := c) hk8 (by omega)
         omega
       have hnone : (effect true c a).dst.find? (fun p => p.1 == k) = none := by
         rw [effect_bx hget hbx]; rfl
-      rw [heff.2.1 k hk8 hnone]
+      rw [heff.2.1 k (by omega) hnone]
       exact hregs k hk4 hk8 (Or.inr hb0)
     · have hspm := hst.2.1
       rw [stackEffect_bx hget hbx] at hspm
@@ -756,7 +790,7 @@ theorem dfAt_conv {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
         exact hC.2 (f', L') (List.mem_of_getElem? (List.getElem?_zip_eq_some.mpr ⟨hf, hl⟩))
 
 /-- **A run of the linked semantics is a run with the assumption on callees, and returns
-    with `r4`-`r7` and SP restored**, when the checker accepts the loop certificates (with the
+    with `r4`-`r11` and SP restored**, when the checker accepts the loop certificates (with the
     assumption) and the calling convention of every function. By induction on the depth of
     calls: the callees of a run satisfy the convention by the induction hypothesis, so that
     every call is a step of `ThumbData`'s semantics with the assumption. -/
@@ -799,12 +833,13 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
         obtain ⟨hcl, _⟩ := checkDFun_spec hcd
         have hcv' := hcv
         simp only [convOk, Bool.and_eq_true, beq_iff_eq] at hcv'
-        refine ⟨(closed_spec mul c f.jumps f.entry f.nodes hcl).1, ?_, ?_, ?_⟩
+        refine ⟨(closed_spec mul c f.jumps f.entry f.nodes hcl).1, ?_, ?_, ?_, ?_⟩
         · intro d hd
           rw [hcv'.1.2] at hd; cases hd
           rw [hxσ]; simp only [aOf, U] at *; omega
         · intro k _ _ _; rw [hxσ]
         · intro hne; exact absurd rfl hne
+        · intro k _ _; rw [hxσ]
       exact conv_chain hcd hcv hR hSP0 x t f.entry hch hokM hgood hJ
 
 /-- **Soundness on machine code without the assumption on callees**: if the checker accepts
@@ -812,7 +847,7 @@ theorem drunL_drun {mul : Nat} {c : Code} {fs : List BFun} {Ls : List DFun}
     every run of the linked semantics of the function at entry `e` that starts with registers
     satisfying its precondition (none if its certificate gives none) costs at most its
     certified bound; the preconditions of the callees are proved at the calls. The loop rows
-    left in `trusted` remain assumed; the callees' preservation of `r4`-`r7` and SP is
+    left in `trusted` remain assumed; the callees' preservation of `r4`-`r11` and SP is
     proved, under the hypothesis `SaveSafe` (no stack smashing). -/
 theorem data_sound_conv (mul : Nat) (c : Code) (fs : List BFun) (Cs : List Cert) (Ls : List DFun)
     (h : checkBinary mul c fs Cs true = true) (hD : checkData mul true c fs Ls = true)

@@ -107,10 +107,10 @@ requirements:
       certificates, the tool generates the rows of the certified loops (Thumb.loopRow),
       builds the graphs with them and prints "PROGRAM <name>: ACCEPTED (... loop rows
       certified on the machine code, ...)" only if, in addition to TOR-11, every run of the
-      data semantics Thumb.DRun (effects of the instructions on r0-r7 and the flags, branch
+      data semantics Thumb.DRun (effects of the instructions on r0-r12 and the flags, branch
       conditions on the flags, stack pointer and memory, Thumb.stackEffect) on which the
       rows left in "rows" hold costs at most the stated bound; with "abi": true, callees
-      are assumed to preserve r4-r7 and SP, and with "frame": true on a function, other
+      are assumed to preserve r4-r11 and SP, and with "frame": true on a function, other
       stores and calls are assumed not to write its frame (refused if the function takes
       an address of its frame); the verdict states both. The effects, flags, conditions
       and stack effects are the specification of the processor; they are compared with

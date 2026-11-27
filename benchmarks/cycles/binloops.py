@@ -273,8 +273,13 @@ def structure(an, name):
 
 U = 1 << 32
 H = 1 << 31
-# variables of the certificate: 0-7 registers, 8-9 ghosts, 10-17 written registers, 18-19 fresh
-# ghosts, 20.. the tracked words of the frame, then their fresh values (Lean `nVars`)
+# variables of the certificate: 0-7 registers r0-r7, 8-9 ghosts, 10-17 written registers r0-r7,
+# 18-19 fresh ghosts, 20-24 registers r8-r12, 25-29 written registers r8-r12, 30.. the tracked
+# words of the frame, then their fresh values (Lean `rv`, `fv`, `nVars`). The producer's own
+# analysis (zones) numbers them 0-7, 8-9, then only the registers of r8-r12 that the function
+# uses (`Ctx.hi`), the words, the zero node (`Zones.areg`, `Zones.cv`, `Zones.ca`): the
+# linear programs too have columns only for those (HiGHS fails numerically on binary search
+# with columns for all five).
 INF = 1 << 62
 # BINLOOPS_CHECK_CLOSE=1: compare every shortcut of the zone closure (incremental closure,
 # images of closed zones, joins) with the full closure, and fail on a difference (tests)
@@ -287,6 +292,57 @@ ZERO = -1        # the zero node of the difference graphs
 
 def reg(i):
     return ("reg", i)
+
+
+def rvar(i):
+    """Lean `rv`: the certificate variable of register `i` (r0-r12)."""
+    return i if i < 8 else 12 + i
+
+
+def fvar(i):
+    """Lean `fv`: the certificate variable of register `i` written with any value."""
+    return 10 + i if i < 8 else 17 + i
+
+
+def is_reg_var(v):
+    return v < 8 or 20 <= v < 25
+
+
+def reg_of(v):
+    return v if v < 8 else v - 12
+
+
+def hi_regs(eff):
+    """The registers r8-r12 that an effect reads, or writes with a value other than any
+    value or the register itself. A register only ever written with any value (r12 at a
+    call) or by `MOV r8, r8` (GCC's and Clang's no-op) is left out of the analysis: no
+    column of the linear programs for it (a column of no use changed the vertex HiGHS
+    returns, and one bound of mpeg2 with it)."""
+    dst, fl = eff
+    out = set()
+    for r, v in dst:
+        if v == "any" or v == ("add", ("reg", r), ("imm", 0)):
+            continue
+        out |= {r} | {x[1] for x in val_srcs(v) if x[0] == "reg"}
+    if fl not in ("keep", "any", "nz"):
+        out |= {x[1] for x in fl[1:] if x[0] == "reg"}
+    return {r for r in out if 8 <= r < 13}
+
+
+def rename_eff(eff, areg):
+    """An effect with its registers numbered as analysis variables (`areg`)."""
+    def rs(x):
+        return ("reg", areg(x[1])) if x[0] == "reg" else x
+
+    def rv_(v):
+        if v == "any":
+            return v
+        if v[0] in ("shl", "shr"):
+            return (v[0], rs(v[1])) + tuple(v[2:])
+        return (v[0], rs(v[1]), rs(v[2]))
+    dst, fl = eff
+    fl2 = fl if fl in ("keep", "any", "nz") else (fl[0], rs(fl[1]), rs(fl[2]))
+    return [(areg(r), rv_(v)) for r, v in dst if areg(r) is not None], fl2
 
 
 def imm(k):
@@ -306,7 +362,7 @@ def effect(abi, get, a):
         return [], "any"
     top5, rd, rn = h >> 11, h % 8, (h >> 3) % 8
     if top5 in (0b11101, 0b11110, 0b11111):
-        return [(i, "any") for i in ([0, 1, 2, 3] if abi else range(8))], "any"
+        return [(i, "any") for i in ([0, 1, 2, 3, 12] if abi else range(13))], "any"
     if top5 == 0:
         # LSLS rd, rm, #s: (rm * 2^s) mod 2^32 (s = 0 is MOVS rd, rm)
         s = (h >> 6) % 32
@@ -344,11 +400,13 @@ def effect(abi, get, a):
     if h >> 10 == 0b010001:
         opc, d, m = (h >> 8) % 4, ((h >> 7) % 2) * 8 + h % 8, (h >> 3) % 16
         if opc == 0:
-            return ([(d, ("add", reg(d), reg(m)) if m < 8 else "any")] if d < 8 else []), "keep"
+            return ([(d, ("add", reg(d), reg(m)) if m < 13 else "any")] if d < 13 else []), "keep"
         if opc == 1:
+            if d < 13 and m < 13 and (d >= 8 or m >= 8):
+                return [], ("sub", reg(d), reg(m))
             return [], "any"
         if opc == 2:
-            return ([(d, ("add", reg(m), imm(0)) if m < 8 else "any")] if d < 8 else []), "keep"
+            return ([(d, ("add", reg(m), imm(0)) if m < 13 else "any")] if d < 13 else []), "keep"
         return [], "keep"
     if top5 == 0b01001:
         ad = (a + 4) // 4 * 4 + 4 * (h % 256)
@@ -511,10 +569,10 @@ def cjoin(x, y):
 
 def congruences(ctx):
     """The congruences of the variables of the certificate (registers, ghosts, tracked
-    words `20 + j`) before each instruction: a fixpoint over the transitions, from the
+    words `30 + j`) before each instruction: a fixpoint over the transitions, from the
     entry where nothing is known."""
     S = len(ctx.slots)
-    vs = list(range(10)) + [20 + j for j in range(S)]
+    vs = list(range(10)) + [rvar(r) for r in ctx.hi] + [30 + j for j in range(S)]
     C = {a: None for a in ctx.nodes}
     C[ctx.entry] = {}
     work = [ctx.entry]
@@ -522,7 +580,9 @@ def congruences(ctx):
         _tick()
         a = work.pop()
         Ca = C[a]
-        eff, st = ctx.aeff[a], ctx.st[a]
+        # the exact effects, those of the checker (`congOk`): with `lit_any`, the producer's
+        # own effects give a shift any value, and N, Z of it the constant 0
+        eff, st = ctx.eff[a], ctx.st[a]
         for nxt, _w, _cs in ipet.trans(ctx.insn[a], ctx.jumps):
             if nxt is None or nxt not in C:
                 continue
@@ -583,7 +643,7 @@ def pconst(k):
 
 
 def src_e(s):
-    return pv(s[1]) if s[0] == "reg" else pconst(s[1])
+    return pv(rvar(s[1])) if s[0] == "reg" else pconst(s[1])
 
 
 def val_srcs(v):
@@ -598,23 +658,23 @@ def shr_val(ar, k, x):
 
 def val_e(v, m, i):
     if v == "any":
-        return pv(10 + i)
+        return pv(fvar(i))
     if v[0] == "shr":
-        return pv(10 + i)
+        return pv(fvar(i))
     op, a, b = v
     if op == "shl":
         # no overflow (m = 0): a * 2^b; overflow: any value
-        return psmul(1 << b, src_e(a)) if m == 0 else pv(10 + i)
+        return psmul(1 << b, src_e(a)) if m == 0 else pv(fvar(i))
     e = padd(src_e(a), src_e(b)) if op == "add" else padd(src_e(a), psmul(-1, src_e(b)))
     return padd(e, pconst(m * U))
 
 
 def post_e(eff, m, i):
     dst, fl = eff
-    if i < 8:
+    if is_reg_var(i):
         for r, v in dst:
-            if r == i:
-                return val_e(v, m, i)
+            if r == reg_of(i):
+                return val_e(v, m, r)
         return pv(i)
     if fl == "keep":
         return pv(i)
@@ -739,11 +799,11 @@ def post_s(eff, st, frame, delta, slots, m, i):
         if load is not None and delta is not None and i == load[0]:
             j = slot_idx(slots, -(delta + load[1]))
             if j is not None:
-                return pv(20 + j)
+                return pv(30 + j)
         return post_e(eff, m, i)
-    if i < 20:
+    if i < 30:
         return post_e(eff, m, i)
-    jj = i - 20
+    jj = i - 30
     k = slots[jj] if jj < S else 0
     if mem == "keep":
         return pv(i)
@@ -789,7 +849,7 @@ def wrap_prem(eff, m):
         _op, a, k, ar = o[1]
         M = 2 ** k
         x = padd(src_e(a), pconst(m * (M - 1) * U))
-        y = psmul(M, pv(10 + o[0]))
+        y = psmul(M, pv(fvar(o[0])))
         out = [padd(y, psmul(-1, x)), padd(padd(x, psmul(-1, y)), pconst(-(M - 1)))]
         if ar:
             out.append(padd(src_e(a), pconst(-2147483647)) if m == 0 else padd(psmul(-1, src_e(a)), pconst(2147483648)))
@@ -817,7 +877,7 @@ def wrap_prem_at(eff, m, nxt):
 
 
 def nvars(S):
-    return 20 + 2 * S
+    return 30 + 2 * S
 
 
 def ranges_n(n):
@@ -1296,14 +1356,42 @@ class Prover:
 
 # ----------------------------------------------------------------------------------------
 # The analysis: zones on the registers, the ghosts and the tracked words of the frame
-# (analysis variable 10 + j is the word j, certificate variable 20 + j; the last index is
-# the zero node)
+# (analysis variables 10.. the registers of r8-r12 used, `hi`, then the words `s0 + j`;
+# certificate variables `rv r` and 30 + j; the last index is the zero node)
 
 class Zones:
-    def __init__(self, S):
-        self.S = S
-        self.n = 11 + S          # 0-7, 8-9, slots, zero
-        self.Z = 10 + S
+    def __init__(self, S, hi=()):
+        self.S, self.hi = S, list(hi)
+        H = len(self.hi)
+        self.s0 = 10 + H         # the first tracked word
+        self.n = 11 + H + S      # 0-7, 8-9, the registers of r8-r12 used, slots, zero
+        self.Z = 10 + H + S
+        self.aregs = list(range(8)) + list(range(10, 10 + H))
+
+    def areg(self, r):
+        """The analysis variable of register `r` (None for a register of r8-r12 that the
+        analysis leaves out, `hi_regs`)."""
+        if r < 8:
+            return r
+        return 10 + self.hi.index(r) if r in self.hi else None
+
+    def cv(self, v):
+        """Analysis variable -> variable of the certificate."""
+        if v < 10:
+            return v
+        if v < self.s0:
+            return rvar(self.hi[v - 10])
+        return 30 + (v - self.s0)
+
+    def ca(self, v):
+        """Variable of the certificate (of a state) -> analysis variable, None if none."""
+        if v < 10:
+            return v
+        if 20 <= v < 25 and (v - 12) in self.hi:
+            return 10 + self.hi.index(v - 12)
+        if 30 <= v < 30 + self.S:
+            return self.s0 + (v - 30)
+        return None
 
     def top(self):
         n, Z = self.n, self.Z
@@ -1481,7 +1569,7 @@ def post_exprs(ctx, a, M):
     """For each analysis variable, its value after the instruction at `a` as ("shift", w,
     c) (`w + c`, w an analysis variable or the zero node) or "any", from the zone `M`
     before it (a sum or difference only when no wrap is possible)."""
-    Zd, eff, st = ctx.zones, ctx.aeff[a], ctx.st[a]
+    Zd, eff, st = ctx.zones, ctx.zeff[a], ctx.st[a]
     Z = Zd.Z
     dst, fl = eff
     _sp, mem, load, _e = st
@@ -1490,7 +1578,7 @@ def post_exprs(ctx, a, M):
     first = {}
     for r, v in dst:
         first.setdefault(r, v)
-    for r in range(8):
+    for r in Zd.aregs:
         v = first.get(r)
         if v is None:
             out[r] = ("shift", r, 0)
@@ -1528,6 +1616,19 @@ def post_exprs(ctx, a, M):
                 # NEGS, MVNS: a constant only when the register holds one
                 l, h = Zd.lohi(M, y[1])
                 out[r] = ("shift", Z, (x[1] - l) % U) if l == h else "any"
+            elif fl == "keep" and x[0] == "reg" and y[0] == "reg" and op == "add" and (
+                    Zd.lohi(M, y[1])[0] == Zd.lohi(M, y[1])[1] or Zd.lohi(M, x[1])[0] == Zd.lohi(M, x[1])[1]):
+                # `ADD rd, rm` with a high register (it keeps the flags) when one operand
+                # holds a constant (GCC keeps constants in registers: `add r8, r2` with r2 = 1),
+                # when it cannot wrap: a shift of the zone (for `ADDS` between low registers
+                # this changed the widening, and a bound of `jfdctint` from 7 to 8)
+                l1, h1 = Zd.lohi(M, x[1])
+                l2, h2 = Zd.lohi(M, y[1])
+                if l2 == h2:
+                    w, k, lo_, hi_ = x[1], l2, l1, h1
+                else:
+                    w, k, lo_, hi_ = y[1], l1, l2, h2
+                out[r] = ("shift", w, k) if lo_ + k >= 0 and hi_ + k <= U - 1 and abs(k) <= BIG else "any"
             else:
                 out[r] = "any"
                 if getattr(ctx, "rich", False) and op in ("add", "sub") and x[0] == "reg" and y[0] == "reg":
@@ -1541,7 +1642,7 @@ def post_exprs(ctx, a, M):
     if load is not None and delta is not None:
         j = slot_idx(ctx.slots, -(delta + load[1]))
         if j is not None:
-            out[load[0]] = ("shift", 10 + j, 0)
+            out[load[0]] = ("shift", Zd.s0 + j, 0)
     for gv, idx in ((8, 1), (9, 2)):
         if fl == "keep":
             out[gv] = ("shift", gv, 0)
@@ -1561,7 +1662,7 @@ def post_exprs(ctx, a, M):
             sv = fl[idx]
             out[gv] = ("shift", sv[1], 0) if sv[0] == "reg" else ("shift", Z, sv[1])
     for jj, k in enumerate(ctx.slots):
-        x = 10 + jj
+        x = Zd.s0 + jj
         if mem == "keep":
             out[x] = ("shift", x, 0)
         elif mem[0] == "store":
@@ -1695,7 +1796,12 @@ class Ctx:
                     if 0 < k < 1048576 and k % 4 == 0:
                         slots.add(k)
         self.slots = sorted(slots)
-        self.zones = Zones(len(self.slots))
+        # the registers of r8-r12 that the function uses (GCC's spills and counters)
+        self.hi = sorted(set().union(*[hi_regs(self.eff[a]) for a in self.nodes]))
+        self.zones = Zones(len(self.slots), self.hi)
+        # the effects of the producer's analysis with its numbering of the registers
+        self.zeff = {a: rename_eff(self.aeff[a], self.zones.areg) for a in self.nodes}
+        self.zeff_exact = {a: rename_eff(self.eff[a], self.zones.areg) for a in self.nodes}
         self.cong = None
         imms = {0, 1, U - 1}
         for a in self.nodes:
@@ -1875,7 +1981,7 @@ def windows_of(ctx):
     W = {}
     for a in ctx.nodes:
         if (a == ctx.entry or ctx.insn[a].kind == "cond" or len(ctx.out[a]) != 1
-                or wrap_op(ctx.aeff[a]) is None):
+                or wrap_op(ctx.zeff[a]) is None):
             continue
         chain, n = [], ctx.out[a][0][0]
         while n is not None and n in preds and preds[n] == 1 and n not in heads and len(chain) < 6:
@@ -1897,7 +2003,7 @@ def window_transfer(ctx, kind, a, M):
     `a`, tag 1: wrap-around."""
     Zd = ctx.zones
     Z = Zd.Z
-    r, x, k = wrap_op(ctx.aeff[a])
+    r, x, k = wrap_op(ctx.zeff[a])
     chain = ctx.windows[a]
     parts = []
     lo_ok = Zd.add_edge(copy(M), Z, x, k)               # x + k >= 0
@@ -1952,7 +2058,7 @@ def regions_of(ctx):
     W = {}
     for a in ctx.nodes:
         if (a == ctx.entry or ctx.insn[a].kind == "cond" or len(ctx.out[a]) != 1
-                or wrap_op(ctx.aeff[a]) is None):
+                or wrap_op(ctx.zeff[a]) is None):
             continue
         reg, todo = [], [ctx.out[a][0][0]]
         ok = True
@@ -1987,7 +2093,7 @@ def analyse_rich(ctx, kind):
         """[(successor, tag of the successor or None, zone)]."""
         out = []
         if tag is None and a in ctx.windows:
-            r, x, k = wrap_op(ctx.aeff[a])
+            r, x, k = wrap_op(ctx.zeff[a])
             parts = []
             lo_ok = Zd.add_edge(copy(M), Z, x, k)
             if lo_ok is not None:
@@ -2118,7 +2224,7 @@ def rel_facts(ctx):
                 for u, kk in ey[0].items():
                     d[u] = d.get(u, 0) + sg * kk
                 c = ex[1] + sg * ey[1]
-                if r in d or any(u >= 8 for u in d):
+                if r >= 8 or r in d or any(u >= 8 for u in d):
                     continue
                 if abs(c) > BIG:
                     continue
@@ -2287,7 +2393,7 @@ def synth(ctx, kind, state, h, body, cache):
     """The best potential of the loop at `h`: (N, [potentials], D) or None."""
     Zd = ctx.zones
     B = set(body)
-    nv = 10 + len(ctx.slots)
+    nv = Zd.Z
     cands = []
     for r in list(range(8)) + list(range(10, nv)):
         cands += [{r: 1}, {r: -1}]
@@ -2362,24 +2468,19 @@ def synth(ctx, kind, state, h, body, cache):
                 entry_terms.append(bound_of(Zd, entry_zone(ctx), phi))
             N = max(0, max([c[h] + t for t in entry_terms], default=0))
             if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
-                cphi = {(v if v < 10 else 20 + (v - 10)): k for v, k in phi.items()}
+                cphi = {Zd.cv(v): k for v, k in phi.items()}
                 best = (N, [padd((dict(cphi), 0), pconst(c[a])) for a in body], D)
     return best
-
-
-def _cv(v):
-    """Analysis variable -> variable of the certificate."""
-    return v if v < 10 else 20 + (v - 10)
 
 
 def _zone_range(Zd, M, d, c):
     """[min, max] of `Σ d·x + c` (certificate variables, coefficients ±1, at most two of
     them, a difference if two) on the zone `M`; None if not of that form."""
     Z = Zd.Z
-    # only variables of the state before the instruction: r0-r7, ghosts, tracked words
-    if any((10 <= v < 20 or v >= 10 + Z) and k for v, k in d.items()):
+    # only variables of the state before the instruction: r0-r12, ghosts, tracked words
+    if any(k and Zd.ca(v) is None for v, k in d.items()):
         return None
-    av = {(v if v < 20 else 10 + (v - 20)): k for v, k in d.items() if k}
+    av = {Zd.ca(v): k for v, k in d.items() if k}
     if any(abs(k) != 1 for k in av.values()):
         return None
     if not av:
@@ -2409,13 +2510,13 @@ def _follow(ctx, state, a, v):
             if any((r := _zone_range(Zd, Za, p[0], p[1])) is not None and r[0] > 0 for p in prem):
                 continue
             cases.append((Za, m))
-    nv = 10 + len(ctx.slots)
+    nv = Zd.Z
     for w in [v] + [u for u in range(nv) if u != v]:
         diff = None
         for Za, m in cases:
-            e = post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, _cv(w))
+            e = post_s(eff, st, ctx.frame, ctx.sp.get(a), ctx.slots, m, Zd.cv(w))
             d = dict(e[0])
-            d[_cv(v)] = d.get(_cv(v), 0) - 1
+            d[Zd.cv(v)] = d.get(Zd.cv(v), 0) - 1
             r = _zone_range(Zd, Za, d, e[1])
             if r is None or r[0] != r[1] or (diff is not None and r[0] != diff):
                 break
@@ -2527,7 +2628,7 @@ def synth_transport(ctx, kind, state, h, body, lin, sgn, cache=None):
             entry_terms.append(bound_of(Zd, entry_zone(ctx), {lin[h]: sgn}))
         N = max(0, max([c[h] + t for t in entry_terms], default=0))
         if best is None or Fraction(N, D) < Fraction(best[0], best[2]):
-            best = (N, [padd(({_cv(lin[a]): sgn}, 0), pconst(c[a])) for a in body], D)
+            best = (N, [padd(({Zd.cv(lin[a]): sgn}, 0), pconst(c[a])) for a in body], D)
     return best
 
 
@@ -2562,7 +2663,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
     S = len(ctx.slots)
     nv = nvars(S)
     rng = ranges_n(nv)
-    V = list(range(10)) + [20 + j for j in range(S)]
+    V = list(range(10)) + [rvar(r) for r in ctx.hi] + [30 + j for j in range(S)]
     col = {}
 
     def var(key):
@@ -2707,7 +2808,7 @@ def synth_lp(ctx, kind, inv, h, body, coarse=False, fixed=None, log=None, outer=
         elif key[0] == "p":
             # with `fixed` = (linear parts, sign): those, the constants only are unknowns
             bounds[k] = (-16, 16) if fixed is None else \
-                ((fixed[1],) * 2 if _cv(fixed[0][key[1] if not isinstance(key[1], tuple) else key[1][0]]) == key[2]
+                ((fixed[1],) * 2 if ctx.zones.cv(fixed[0][key[1] if not isinstance(key[1], tuple) else key[1][0]]) == key[2]
                  else (0, 0))
         elif key[0] == "c":
             bounds[k] = (None, None)
@@ -2834,7 +2935,7 @@ def _log_candidates(ctx, h, body, V, col, sols, log, nd=None):
             ph = pots[body.index(h)]
             ub = ph[1]
             for v, k in ph[0].items():
-                lo_, hi_ = ctx.zones.lohi(Mh, v if v < 10 else 10 + (v - 20))
+                lo_, hi_ = ctx.zones.lohi(Mh, ctx.zones.ca(v))
                 ub += k * (hi_ if k > 0 else lo_)
             if ub >= 1:
                 Ns.insert(0, ub.bit_length() - 1)
@@ -2879,11 +2980,11 @@ def synth_shift(ctx, h, body):
                     ok = False
         if not ok or len(s) != len(body) or max(s.values()) != 1:
             continue
-        pots = [({d: 2 ** (k * s[a])}, 0) for a in body]
+        pots = [({rvar(d): 2 ** (k * s[a])}, 0) for a in body]
         Ns = [31]
         Mh = getattr(ctx, "state_h", {}).get(h)
         if Mh is not None:
-            ub = ctx.zones.lohi(Mh, d)[1]
+            ub = ctx.zones.lohi(Mh, ctx.zones.areg(d))[1]
             if 1 <= ub and ub.bit_length() - 1 < 31:
                 Ns.insert(0, ub.bit_length() - 1)
         out += [(N, pots, k, True) for N in Ns]
@@ -2929,7 +3030,7 @@ def zone_constraints(Zd, M, keep):
     """The constraints of a closed zone on the analysis variables `keep`, in the variables
     of the certificate, without those that the ranges imply."""
     Z = Zd.Z
-    cv = lambda v: v if v < 10 else 20 + (v - 10)
+    cv = Zd.cv
     out = []
     vs = sorted(keep)
     for i in vs:
@@ -2949,22 +3050,22 @@ def relevant(ctx, loops, extra=()):
     R = set(extra)
     for lc in loops:
         for p in lc.pot:
-            R |= {v if v < 20 else 10 + (v - 20) for v in p[0]}
+            R |= {ctx.zones.ca(v) for v in p[0]} - {None}
     for _h, body, _N in ctx.iloops:
         for a in body:
-            fl = ctx.eff[a][1]
+            fl = ctx.zeff_exact[a][1]
             if fl == "nz":
-                o = op_of(ctx.eff[a])
+                o = op_of(ctx.zeff_exact[a])
                 if o is not None:
                     R.add(o[0])
             elif fl not in ("keep", "any"):
                 R |= {x[1] for x in fl[1:] if x[0] == "reg"}
-    R |= set(range(10, 10 + len(ctx.slots)))
+    R |= set(range(ctx.zones.s0, ctx.zones.Z))
     changed = True
     while changed:
         changed = False
         for a in ctx.nodes:
-            for r, v in ctx.eff[a][0]:
+            for r, v in ctx.zeff_exact[a][0]:
                 if r in R and v != "any":
                     for x in val_srcs(v):
                         if x[0] == "reg" and x[1] not in R:
@@ -2976,7 +3077,7 @@ def relevant(ctx, loops, extra=()):
             if st[1] not in ("keep", "other") and st[1][0] == "store" and st[1][2] not in R:
                 R.add(st[1][2])
                 changed = True
-    return {r for r in R if r < 10 + len(ctx.slots) and r not in (8, 9)}
+    return {r for r in R if r < ctx.zones.Z and r not in (8, 9)}
 
 
 def inv_jumps(an, name, cands, abi=False, frame=False):
@@ -3045,7 +3146,7 @@ def amortised(ctx, kind, full, loops, deadline):
     bounds per entry (inner `N/D` times the enclosing loop's bound plus one) and proved."""
     per = {lc.header: -(-lc.bound // lc.scale) for lc in loops if lc.outer is None}
     S = len(ctx.slots)
-    V = list(range(8)) + [20 + j for j in range(S)]
+    V = list(range(8)) + [rvar(r) for r in ctx.hi] + [30 + j for j in range(S)]
 
     def written(a):
         # the registers and tracked words that the instruction at `a` may change
@@ -3262,7 +3363,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         late = deadline is not None and _work() >= deadline
         if LP and not late and (s is None or (Nsrc is not None and eff_n > Nsrc)):
             if full is None:
-                full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+                full = invariants(set(range(ctx.zones.Z)) - {8, 9})
                 if rich:
                     # the relational facts are candidates: only the proved ones go to the
                     # linear programs (one may hold in one disjunct only)
@@ -3271,7 +3372,7 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
                 # linear parts that follow a bounded variable of the header (`transport`),
                 # the constants from the linear program (HiGHS fails on the full program)
                 Mh = state[h]
-                for r in range(10 + len(ctx.slots)):
+                for r in range(ctx.zones.Z):
                     if r in (8, 9) or Mh is None or ctx.zones.lohi(Mh, r) == (0, U - 1):
                         continue
                     lin = transport(ctx, state, h, body, r)
@@ -3333,12 +3434,12 @@ def _certify_loops(an, name, abi, prefer_source, frame, lit_any, deadline=None, 
         info.append((h, eff_n, Nsrc))
     if AMORT and LP and loops:
         if full is None:
-            full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+            full = invariants(set(range(ctx.zones.Z)) - {8, 9})
         loops += amortised(ctx, kind, full, loops, deadline)
     if not loops and not injumps and not need_inv:
         return sp_only, [], why
     if full is None and injumps:
-        full = invariants(set(range(10 + len(ctx.slots))) - {8, 9})
+        full = invariants(set(range(ctx.zones.Z)) - {8, 9})
     inv = full if full is not None else invariants(relevant(ctx, loops, range(4) if need_inv else ()))
     loops, inv, proofs, dropped = prove_all(ctx, kind, inv, loops)
     for li, h in dropped:

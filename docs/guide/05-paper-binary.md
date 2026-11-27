@@ -205,7 +205,7 @@ needs the values of `r0`, which the program-counter semantics of 5.5 ignores.
 
 ### The data semantics (`def:data-run`)
 
-A state now holds the eight low registers `r0`–`r7`, the four flags, the stack pointer and
+A state now holds the registers `r0`–`r12`, the four flags, the stack pointer and
 the memory. Each instruction has an **effect** (`Thumb.effect`, `Thumb.stackEffect`):
 
 | Instruction | Effect in the model |
@@ -213,6 +213,7 @@ the memory. Each instruction has an **effect** (`Thumb.effect`, `Thumb.stackEffe
 | `ADDS rd, rn, #k`, `SUBS`, `ADDS rd, rn, rm`, … | `rd := (rn ± k) mod 2³²`; flags of the addition or subtraction (AddWithCarry) |
 | `MOVS rd, #k` | `rd := k`; flags: any |
 | `MOV rd, rm` (low registers) | `rd := rm`; flags kept |
+| `MOV`, `ADD`, `CMP` with a high register (`r8`–`r12`) | `rd := rm`, `rd := (rd + rm) mod 2³²` (flags kept), flags of `rn − rm`: GCC keeps loop counters and limits there (`mov r8, r3`, `add r12, r10`, `cmp r12, r9`); an operand `sp`, `lr` or `pc` gives any value |
 | `CMP rn, #k`, `CMP rn, rm`, `CMN` | registers kept; flags of `rn − k` (or `rn + rm`) |
 | `LSLS rd, rm, #s` | `rd := rm·2^s` if that is below 2³², otherwise any value (two cases in every proof); flags: any. `LSLS rd, rm, #0` is `MOVS rd, rm`: `rd := rm` |
 | `NEGS rd, rm` | `rd := (0 − rm) mod 2³²`; flags of that subtraction |
@@ -225,7 +226,7 @@ the memory. Each instruction has an **effect** (`Thumb.effect`, `Thumb.stackEffe
 | `SUB sp, #k`, `ADD sp, #k`, `PUSH`, `POP` | `sp` moved by the constant; `PUSH` writes the words just below `sp` |
 | other loads | the destination register: any value |
 | other stores, calls | memory: any word may change (except the frame, under `frame`) |
-| `BL` (call) | `r0`–`r3`, flags: any; `r4`–`r7` and `sp` also any unless `abi` |
+| `BL` (call) | `r0`–`r3`, `r12`, flags: any; `r4`–`r11` and `sp` also any unless `abi` |
 | everything else | the registers it may write: any; flags: any if it may change them |
 
 "Any value" is a safe over-approximation: the model allows more behaviours than the real
@@ -241,7 +242,7 @@ For each instruction `a`:
   `g₁ = r0`, `g₂ = 10`);
 - an **offset** `δ_a` of the stack pointer from its value at the function's entry (or
   unknown);
-- an **invariant** `I_a`: linear constraints over `r0`–`r7`, the ghosts, and the **tracked
+- an **invariant** `I_a`: linear constraints over `r0`–`r12`, the ghosts, and the **tracked
   words** of the frame (the words at `sp₀ − k` for a list of offsets `k`).
 
 For each certified loop: its header, its body, a scale `D`, a bound `N`, and a potential
@@ -433,14 +434,14 @@ A store through another register (`str r1, [r0, r5]`) or a call could, in princi
 anywhere — including the frame. Two assumptions, each stated in the certificate and in the
 checker's verdict, cover the usual case:
 
-- **`abi`**: callees preserve `r4`–`r7` and `sp` (the Arm procedure call standard).
+- **`abi`**: callees preserve `r4`–`r11` and `sp` (the Arm procedure call standard).
 - **`frame`** (per function): no store through another register and no call writes the
   function's frame. This is true of C code without undefined behaviour **if the function
   never takes an address of its frame**, so the checker refuses `frame` for a function that
   writes an SP-derived address into a register (`add rd, sp, #i`, `mov rd, sp`).
 
 **`abi`, checked instead of assumed** (Paper III `thm:machine-conv`, Lean `ThumbConv`).
-Whether a callee preserves `r4`–`r7` and `sp` is a property of its code, which the checker
+Whether a callee preserves `r4`–`r11` and `sp` is a property of its code, which the checker
 has. Compilers follow one pattern, which the checker now verifies on every function
 (`convOk`):
 
@@ -450,14 +451,17 @@ push {r4, r5, lr}      @ entry: save the registers of r4-r7 that the function wr
 pop  {r4, r5, pc}      @ every return: the same list, with SP back where the push left it
 ```
 
+and it writes none of `r8`–`r11` (GCC saves those through low registers, `mov r7, r9; push
+{r6, r7}`, a form the check does not follow: such a function keeps `abi` as an assumption).
+
 Restoring works only if nothing overwrites the saved words between the `push` and the `pop`.
 No analysis of the function's own instructions can show that for stores through pointers, so
 it becomes the one hypothesis left: **no stack smashing** (the words where a function saves
 registers are written by no store through a pointer and no callee). Memory-safe code
 satisfies it, whatever its callees were compiled with. The proof (`drunL_drun`) is an
 induction on the depth of calls in a *linked* semantics where a callee's run starts in the
-caller's state and the caller resumes with the callee's final `r0`–`r7` and `sp`: callees
-of smaller depth restore `r4`–`r7` and `sp`, so every call is a step with `abi`, and the
+caller's state and the caller resumes with the callee's final `r0`–`r12` and `sp`: callees
+of smaller depth restore `r4`–`r11` and `sp`, so every call is a step with `abi`, and the
 existing proof of the loop bounds applies unchanged. The checker reports `abi` as checked
 when every function keeps the convention, and otherwise names the functions that do not
 (typically one whose SP is set from a register, so that its offsets are unknown).

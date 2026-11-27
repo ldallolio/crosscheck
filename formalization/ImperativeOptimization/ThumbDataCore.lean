@@ -12,11 +12,11 @@ import ImperativeOptimization.CheckerCore
 The executable part (no mathlib) of the check of loop bounds on the machine code, so that
 the loop rows of `ThumbCore` need not be trusted:
 
-* `effect`: the effect of an instruction on the low registers `r0`-`r7` and on the flags
+* `effect`: the effect of an instruction on the registers `r0`-`r12` and on the flags
   (`Eff`): a register gets the sum or difference of two operands modulo `2^32`, or any
   value; the flags are kept, become those of an addition or subtraction (`FEff`), or any.
-  Modelled exactly: ADDS, SUBS, MOVS (immediate), CMP, CMN and MOV/ADD between low
-  registers; LSLS (immediate; `x · 2^s`, two cases: no overflow, or `x · 2^s ≥ 2^32` and
+  Modelled exactly: ADDS, SUBS, MOVS (immediate), CMP, CMN; MOV, ADD and CMP between
+  registers of `r0`-`r12` (the high registers that GCC uses for spills and loop counters); LSLS (immediate; `x · 2^s`, two cases: no overflow, or `x · 2^s ≥ 2^32` and
   any value; with `s = 0` it is MOVS between low registers); LSRS and ASRS (immediate;
   `⌊x / 2^s⌋`, arithmetic: the sign bits shifted in; the value written is a fresh variable
   with the two linear facts `2^s·x' ≤ x + m(2^s − 1)·2^32 ≤ 2^s·x' + 2^s − 1`, `m` the
@@ -29,8 +29,8 @@ the loop rows of `ThumbCore` need not be trusted:
   code (assumption: the code is not written during a run; otherwise any value). Every
   other instruction writes the registers it may write with any value, and changes the
   flags with any value if it may change them. A call (`BL`) may
-  change `r0`-`r3` and the flags or, without the assumption `abi` (the AAPCS: a callee
-  preserves `r4`-`r7`), every low register. This is a part of the specification of the
+  change `r0`-`r3`, `r12` and the flags or, without the assumption `abi` (the AAPCS: a
+  callee preserves `r4`-`r11`), every register of `r0`-`r12`. This is a part of the specification of the
   processor, trusted as `decode` is.
 * `condFacts`: what the outcome of a conditional branch says about the operands of the
   addition or subtraction that set the flags, as a disjunction of linear constraints.
@@ -109,7 +109,7 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
   let rn := (h >>> 3) % 8
   if top5 = 0b11101 ∨ top5 = 0b11110 ∨ top5 = 0b11111 then
     -- BL (the other 32-bit instructions are `stop`)
-    ⟨anyRegs (if abi then [0, 1, 2, 3] else List.range 8), .any⟩
+    ⟨anyRegs (if abi then [0, 1, 2, 3, 12] else List.range 13), .any⟩
   -- LSLS (immediate): `rm · 2^s` modulo `2^32`; `s = 0` is MOVS rd, rm
   else if top5 = 0 then
     let s := (h >>> 6) % 32
@@ -145,17 +145,20 @@ def effect (abi : Bool) (c : Code) (a : Nat) : Eff :=
     else if opc = 9 then ⟨[(rd, .sub (.imm 0) (.reg rn))], .sub (.imm 0) (.reg rn)⟩
     else if opc = 15 then ⟨[(rd, .sub (.imm (U - 1)) (.reg rn))], .any⟩
     else ⟨[(rd, .any)], .any⟩
-  -- high registers: ADD, CMP, MOV (ADD and MOV keep the flags), BX/BLX
+  -- high registers: ADD, CMP, MOV (ADD and MOV keep the flags), BX/BLX; `r0`-`r12`
+  -- exactly, SP, LR and PC as operands any value (SP and PC as destinations: `stackEffect`,
+  -- `decode`); CMP with two low registers (unpredictable) changes the flags with any value
   else if h >>> 10 = 0b010001 then
     let opc := (h >>> 8) % 4
     let d := ((h >>> 7) % 2) * 8 + h % 8
     let m := (h >>> 3) % 16
     if opc = 0 then
-      (if d < 8 then (if m < 8 then ⟨[(d, .add (.reg d) (.reg m))], .keep⟩ else ⟨[(d, .any)], .keep⟩)
+      (if d < 13 then (if m < 13 then ⟨[(d, .add (.reg d) (.reg m))], .keep⟩ else ⟨[(d, .any)], .keep⟩)
        else ⟨[], .keep⟩)
-    else if opc = 1 then ⟨[], .any⟩
+    else if opc = 1 then
+      (if d < 13 ∧ m < 13 ∧ (8 ≤ d ∨ 8 ≤ m) then ⟨[], .sub (.reg d) (.reg m)⟩ else ⟨[], .any⟩)
     else if opc = 2 then
-      (if d < 8 then (if m < 8 then ⟨[(d, .add (.reg m) (.imm 0))], .keep⟩ else ⟨[(d, .any)], .keep⟩)
+      (if d < 13 then (if m < 13 then ⟨[(d, .add (.reg m) (.imm 0))], .keep⟩ else ⟨[(d, .any)], .keep⟩)
        else ⟨[], .keep⟩)
     else ⟨[], .keep⟩
   -- LDR (literal): the word of the code at `Align(a + 4, 4) + 4·imm8`
@@ -331,10 +334,26 @@ def valOf (r : Nat → Nat) : Val → Option Nat
 
 /-! ### Linear constraints
 
-Variables: `0`-`7` the registers before the instruction, `8`, `9` the ghost operands of
-the operation that set the flags, `10`-`17` the registers after it when written with any
-value, `18`, `19` the ghosts after it when the flags change with any value. A constraint
+Variables: `0`-`7` the registers `r0`-`r7` before the instruction, `8`, `9` the ghost
+operands of the operation that set the flags, `10`-`17` the registers `r0`-`r7` after it
+when written with any value, `18`, `19` the ghosts after it when the flags change with any
+value; `20`-`24` the registers `r8`-`r12` before it, `25`-`29` after it when written with
+any value (`rv`, `fv`); from `30` the tracked words of the frame (`nVars`). A constraint
 `e` means `e ≤ 0`. -/
+
+/-- The variable of register `i` (`r0`-`r12`): `i` for `r0`-`r7`, `12 + i` for `r8`-`r12`. -/
+def rv (i : Nat) : Nat := if i < 8 then i else 12 + i
+
+/-- The variable of register `i` after an instruction that writes it with any value. -/
+def fv (i : Nat) : Nat := if i < 8 then 10 + i else 17 + i
+
+/-- The register of a register variable (`v < 8` or `20 ≤ v < 25`). -/
+def regOf (v : Nat) : Nat := if v < 8 then v else v - 12
+
+/-- The variables of registers: `0`-`7` and `20`-`24`. -/
+def isRegVar (v : Nat) : Prop := v < 8 ∨ (20 ≤ v ∧ v < 25)
+
+instance (v : Nat) : Decidable (isRegVar v) := by unfold isRegVar; infer_instance
 
 /-- `Σ k·x_v + c` as a constraint. -/
 def mk (terms : List (Int × Nat)) (c : Int) : Lin :=
@@ -407,19 +426,19 @@ def padd (a b : PExp) : PExp := ⟨vadd a.sv b.sv, a.c + b.c⟩
 def psmul (k : Int) (a : PExp) : PExp := ⟨vsmul k a.sv, k * a.c⟩
 
 def srcE : Src → PExp
-  | .reg i => pv i
+  | .reg i => pv (rv i)
   | .imm k => pconst k
 
 /-- The value of a write as an expression, with `m·2^32` added (the wrap case `m`); for a
-    shift, `a · 2^k` if `m = 0` (no overflow), otherwise the value after (variable `10 + i`);
+    shift, `a · 2^k` if `m = 0` (no overflow), otherwise the value after (variable `fv i`);
     for a shift right, the value after (its relation to `a` is in `wrapPrem`). -/
 def valE (v : Val) (m : Int) (i : Nat) : PExp :=
   match v with
   | .add a b => padd (padd (srcE a) (srcE b)) (pconst (m * U))
   | .sub a b => padd (padd (srcE a) (psmul (-1) (srcE b))) (pconst (m * U))
-  | .shl a k => if m = 0 then psmul ((2 ^ k : Nat) : Int) (srcE a) else pv (10 + i)
-  | .shr _ _ _ => pv (10 + i)
-  | .any => pv (10 + i)
+  | .shl a k => if m = 0 then psmul ((2 ^ k : Nat) : Int) (srcE a) else pv (fv i)
+  | .shr _ _ _ => pv (fv i)
+  | .any => pv (fv i)
 
 /-- The written register whose value is a sum or difference (at most one, `wfEff`). -/
 def isOp : Val → Bool
@@ -428,11 +447,11 @@ def isOp : Val → Bool
 
 def opOf (e : Eff) : Option (Nat × Val) := e.dst.find? fun p => isOp p.2
 
-/-- The value of variable `i < 10` after the instruction, in wrap case `m`. -/
+/-- The value of variable `i` (a register or a ghost) after the instruction, in wrap case `m`. -/
 def postE (e : Eff) (m : Int) (i : Nat) : PExp :=
-  if i < 8 then
-    match e.dst.find? (fun p => p.1 == i) with
-    | some p => valE p.2 m i
+  if isRegVar i then
+    match e.dst.find? (fun p => p.1 == regOf i) with
+    | some p => valE p.2 m (regOf i)
     | none => pv i
   else
     match e.fl with
@@ -477,7 +496,7 @@ def wrapPrem (e : Eff) (m : Int) : List Lin :=
       -- `2^k·x ≤ a + m(2^k − 1)·2^32 ≤ 2^k·x + 2^k − 1`; `m = 1`: `a` negative (arithmetic)
       let M : Int := ((2 ^ k : Nat) : Int)
       let x := padd (srcE a) (pconst (m * (M - 1) * U))
-      let y := psmul M (pv (10 + i))
+      let y := psmul M (pv (fv i))
       [⟨vadd y.sv (vsmul (-1) x.sv), [], y.c - x.c - 0⟩, ⟨vadd x.sv (vsmul (-1) y.sv), [], x.c - y.c - (M - 1)⟩] ++
         (if ar then (if m = 0 then [⟨(srcE a).sv, [], (srcE a).c - 2147483647⟩]
           else [⟨vsmul (-1) (srcE a).sv, [], 2147483648 - (srcE a).c⟩]) else [])
@@ -508,10 +527,10 @@ def mcases (e : Eff) : List Int :=
 def rangesN (n : Nat) : List Lin :=
   (List.range n).flatMap fun v => [mk [(-1, v)] 0, mk [(1, v)] (1 - (U : Int))]
 
-/-- The variables of a function with `S` tracked words of the frame: `0`-`19` as above,
-    `20`..`20+S-1` the tracked words before the instruction, `20+S`..`20+2S-1` after it
+/-- The variables of a function with `S` tracked words of the frame: `0`-`29` as above,
+    `30`..`30+S-1` the tracked words before the instruction, `30+S`..`30+2S-1` after it
     when they change with any value. -/
-def nVars (S : Nat) : Nat := 20 + 2 * S
+def nVars (S : Nat) : Nat := 30 + 2 * S
 
 /-- The tracked word of the frame at offset `k` (the word at `SP₀ − k`, `SP₀` the stack
     pointer at the function's entry). -/
@@ -527,14 +546,14 @@ def postS (e : Eff) (s : StackE) (frame : Bool) (δ : Option Int) (slots : List 
     | some p, some d =>
       if i = p.1 then
         match slotIdx slots (-(d + (p.2 : Int))) with
-        | some j => pv (20 + j)
+        | some j => pv (30 + j)
         | none => postE e m i
       else postE e m i
     | _, _ => postE e m i
-  else if i < 20 then postE e m i
+  else if i < 30 then postE e m i
   else
     let S := slots.length
-    let k : Int := ((slots.getD (i - 20) 0 : Nat) : Int)
+    let k : Int := ((slots.getD (i - 30) 0 : Nat) : Int)
     match s.mem with
     | .keep => pv i
     | .storeSP imm rt => match δ with
@@ -547,9 +566,9 @@ def postS (e : Eff) (s : StackE) (frame : Bool) (δ : Option Int) (slots : List 
       | some d => if frame = true ∧ k ≤ -d then pv i else pv (i + S)
       | none => pv (i + S)
 
-/-- Registers below 8, constants below `2^32`, at most one written sum or difference. -/
+/-- Registers `r0`-`r12`, constants below `2^32`, at most one written sum or difference. -/
 def srcOk : Src → Bool
-  | .reg i => decide (i < 8)
+  | .reg i => decide (i < 13)
   | .imm k => decide (k < U)
 
 def valOk : Val → Bool
@@ -560,7 +579,7 @@ def valOk : Val → Bool
   | .any => true
 
 def wfEff (e : Eff) : Bool :=
-  e.dst.all (fun p => decide (p.1 < 8) && valOk p.2) &&
+  e.dst.all (fun p => decide (p.1 < 13) && valOk p.2) &&
   decide ((e.dst.filter fun p => isOp p.2).length ≤ 1) &&
   (match e.fl with
    | .add a b => srcOk a && srcOk b
@@ -755,7 +774,7 @@ def congPE (cs : List Cong) (e r : Nat) (P : PExp) : Bool :=
 
 /-- Congruences on the variables of a state, with exponents at most 32. -/
 def wfCong (S : Nat) (x : Cong) : Bool :=
-  decide (x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 20 + S) && decide (x.2.1 ≤ 32)
+  decide (x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 25 ∨ 30 ≤ x.1 ∧ x.1 < 30 + S) && decide (x.2.1 ≤ 32)
 
 def potAt (lc : LoopCert) : Option Nat → PExp
   | none => pconst 0
@@ -848,9 +867,10 @@ def nodupB : List Nat → Bool
   | x :: xs => !(xs.contains x) && nodupB xs
 
 /-- A constraint or potential on the variables of a state: registers, ghosts and the `S`
-    tracked words (not on the variables `10`-`19` of a transition). -/
+    tracked words (not on the variables `10`-`19` and `25`-`29` of a transition). -/
 def wfSv (S : Nat) (sv : List Int) : Bool :=
-  decide (sv.length ≤ 20 + S) && (List.range 10).all fun v => sv.getD (10 + v) 0 == 0
+  decide (sv.length ≤ 30 + S) && ((List.range 10).all fun v => sv.getD (10 + v) 0 == 0) &&
+    (List.range 5).all fun v => sv.getD (25 + v) 0 == 0
 
 def wfLin (S : Nat) (g : Lin) : Bool := g.lv.isEmpty && wfSv S g.sv
 
@@ -1219,7 +1239,7 @@ def checkDFun (mul : Nat) (abi : Bool) (c : Code) (f : BFun) (L : DFun) : Bool :
   (L.pre.all wfPre && (L.pre.isEmpty || f.jumps.all fun t => t.vr.isNone))
 
 /-- The check of the loop certificates of all functions (aligned with the functions);
-    `abi`: callees preserve `r4`-`r7` and the stack pointer; a certificate with `frame`
+    `abi`: callees preserve `r4`-`r11` and the stack pointer; a certificate with `frame`
     assumes that no store through a register other than SP, and no call, writes the
     function's frame, and the function must not put an address of its frame in a register. -/
 def checkData (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DFun) : Bool :=
@@ -1228,13 +1248,14 @@ def checkData (mul : Nat) (abi : Bool) (c : Code) (fs : List BFun) (Ls : List DF
 
 /-! ### The calling convention, checked on the code (`ThumbConv`)
 
-Instead of assuming that callees preserve `r4`-`r7` and SP, the checker can verify it on
+Instead of assuming that callees preserve `r4`-`r11` and SP, the checker can verify it on
 each function of the certificate: the function saves at its entry, with one `PUSH`, the
-registers of `r4`-`r7` that it writes (and `lr`), writes no other register of `r4`-`r7`,
+registers of `r4`-`r7` that it writes (and `lr`), writes no other register of `r4`-`r7`
+and none of `r8`-`r11`,
 restores them at every return with a `POP` of the same list (and `pc`) at the offset of SP
 where they were saved (or returns with `BX LR` when it saved nothing and SP is back at its
 entry value), and stores through SP, or pushes, only below the saved words. `ThumbConv`
-proves that every function so checked returns with `r4`-`r7` and SP as it found them,
+proves that every function so checked returns with `r4`-`r11` and SP as it found them,
 assuming only that the saved words are written by no other instruction (no stack smashing). -/
 
 /-- `PUSH` at `h`. -/
@@ -1265,7 +1286,7 @@ def convNode (mul : Nat) (c : Code) (f : BFun) (L : DFun) (a : Nat) : Bool :=
       (h >>> 8 == 0b01000111 && n == 0 && spAt f L a == some 0))
     else
       (a == f.entry && isPushH h) ||
-      ((effect true c a).dst.all (fun p => p.1 < 4 || 8 ≤ p.1 || (P >>> p.1) % 2 == 1) &&
+      ((effect true c a).dst.all (fun p => p.1 < 4 || p.1 == 12 || (p.1 < 8 && (P >>> p.1) % 2 == 1)) &&
         (match (stackEffect true c a).mem with
          | .storeSP imm _ => match spAt f L a with
            | some d => decide (d + imm < -(4 * n))

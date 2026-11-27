@@ -116,12 +116,45 @@ python3 benchmarks/cycles/run_cycles.py --gcc armgcc:local --tag=.gcc --check --
 | `main`: bound / observed | 1.31-2.51 | 1.24-2.46 |
 | functions with a certified cycle bound (none / `--abi` / both) | 110 / 110 / 112 | 118 / 118 / 123 |
 | `main`: certified / observed (both assumptions) | 1.12-1.90 | 1.00-1.90 |
-| kernel loops certified on the code (none / `--abi` / both) | 40 / 66 / 75 of 215 | 156 / 213 / 273 of 403 |
+| kernel loops certified on the code (none / `--abi` / both; 2026-11-26) | 44 / 93 / 103 of 215 | 159 / 216 / 276 of 403 |
 | loops of the division routines certified | 29 of 29 | 116 of 116 |
 
 GCC inlines less at `-O1`, so many more calls are compared with the runs (73 instead of 11);
-Clang's binaries have more loops, probably because inlining copies them (not counted). Why fewer of GCC's loops are
-certified was not analysed.
+Clang's binaries have more loops, probably because inlining copies them (not counted).
+
+**GCC's loop counters in the high registers (2026-11-26).** Of GCC's 215 kernel loops, 86
+have an instruction on `r8`-`r12` in their body, against 2 of Clang's 2,411 (all functions of
+the 29 kernels and their copies, counted on the code): Thumb-1 has eight low registers, and
+GCC keeps counters, limits and constants in the high ones (`mov r8, r3`, `add r12, r10`,
+`cmp r12, r9` in `matrix1_main`), which `MOV`, `ADD` and `CMP` reach. The checker modelled
+only `r0`-`r7`, so these counters were any value. Since 2026-11-26 its specification
+(`ThumbDataCore.effect`) has `MOV`, `ADD` and `CMP` with a high register exactly, on
+`r0`-`r12` (certificate variables `20`-`24` for `r8`-`r12`, Lean `rv`; the tracked words
+move from `20 + j` to `30 + j`), and a call keeps `r4`-`r11` under `abi` (the AAPCS), not
+`r12`; the calling convention, when checked (`convOk`), requires a function to write none of
+`r8`-`r11` (GCC saves them through low registers, a form the check does not follow). The
+proofs (`ThumbData`, `ThumbConv`) carry the five registers; examples `ThumbHigh.exHi_*`,
+`exHc_*` (a counter in `r8` across a call; refused in `r12`). `test_effect.py` compares the
+effects on all 13 registers with `m0.py` (297,414 executions, no difference). The producer
+numbers in its analysis only the high registers a function uses (`Ctx.hi`): with columns for
+all five, HiGHS failed numerically on binary search's linear program (420 -> 605 columns,
+bound 7 instead of 3). A register counts as used if some instruction reads it or writes it
+with a value other than any value or itself (`hi_regs`): `r12`, which every call makes any
+value, and Clang's no-op `mov r8, r8` add no column (with them, a column of no use changed
+the vertex HiGHS returned, and one bound of `mpeg2_field_ME` from 7 to 8). A second change: an `ADD rd, rm` with a high register where one
+operand holds a constant shifts the zone (GCC writes `movs r2, #1; add r8, r2`).
+
+Measured on the GCC kernels with both assumptions: 78 -> 103 kernel loops certified (+18
+from the registers alone, +7 from the constant operands), 27 gained in 9 kernels (`pm` 10,
+`minver` 8), two lost where another loop of the same function is certified instead
+(`cubic_main` 0x1486 for 0x1494, `fft_bit_reduct` 0x94 for 0x4e), no bound higher; the
+certified functions and `main` unchanged (112, 6: what keeps the others uncertified is
+elsewhere, soft-float calls without code and loops on data). On the 7 Clang configurations
+the counts are unchanged (one bound lower, `ludcmp_init` without frame pointers). The run
+also found a defect of the producer: in its retry that gives shifts any value (`lit_any`) the
+congruences were computed on its own effects, where N and Z of a shift were those of 0, and
+the checker rejected `matrix1`'s certificate without frame pointers; they are now computed on
+the checker's effects (`test_binloops.py CongruencesExact`).
 
 The GCC binaries revealed three defects, all fixed before the figures above:
 
@@ -200,12 +233,13 @@ bounds are also certified on the machine code where `binloops.py` finds a certif
 row, trusted.
 
 **The calling convention, checked (2026-11-22).** With `--abi`, the checker no longer takes
-the callees' preservation of `r4`-`r7` and SP on trust: it verifies on the code of every
-function that the registers of `r4`-`r7` it writes are pushed at its entry and popped by
-every return at the right SP offset, and that its stores through SP stay below them (Lean
+the callees' preservation of `r4`-`r7` (since 2026-11-26 `r4`-`r11`) and SP on trust: it
+verifies on the code of every function that the registers of `r4`-`r7` it writes are pushed
+at its entry and popped by every return at the right SP offset, that it writes none of
+`r8`-`r11`, and that its stores through SP stay below them (Lean
 `ThumbConv`, `convOk`, `data_sound_conv`; Paper III `thm:machine-conv`). What remains is
 the hypothesis that no store through a pointer and no callee overwrites the saved words (no
-stack smashing). The checker prints `callees' preservation of r4-r7 and SP checked on the
+stack smashing). The checker prints `callees' preservation of r4-r11 and SP checked on the
 code of every function`, or names the functions where the convention is not established.
 On the 29 kernels it is established everywhere, with `--abi` and with `--abi --frame`; the
 loop counts are those of the tables below. The producer gives the SP offsets of every
@@ -214,7 +248,7 @@ and the check failed in 9 kernels). Test: `test_binloops.py`
 `Producer.test_convention_checked`.
 
 **What a certificate holds.** Per instruction, the kind of operation that set the flags and
-an invariant on `r0`-`r7` and the two operands of that operation, possibly a disjunction
+an invariant on `r0`-`r12` and the two operands of that operation, possibly a disjunction
 (`alt` disjuncts and, per case of a transition, the disjunct it lands in, `pick`), and
 congruences modulo powers of two (Granger), with which the facts of a branch are rounded:
 a counter stepped by 4 that leaves its loop at 80 gets `≤ 76` (`congOk`, Lean
@@ -222,9 +256,10 @@ a counter stepped by 4 that leaves its loop at 80 gets `≤ 76` (`congOk`, Lean
 `tightenS_holds`: a byte offset counted from 2^32 − 16 up by 4 to zero). Per loop, a
 potential that decreases on its back edges, with Farkas multipliers for every obligation.
 The specification (`ThumbDataCore.effect`) is exact for sums and differences modulo 2^32
-with the flags of AddWithCarry, `LSLS` by a constant, `NEGS`, `MVNS`, `STM`/`LDM`
+with the flags of AddWithCarry, `MOV`/`ADD`/`CMP` with a high register (`r8`-`r12`, since
+2026-11-26), `LSLS` by a constant, `NEGS`, `MVNS`, `STM`/`LDM`
 write-back and literal-pool loads (assuming the code is not written during a run); other
-instructions give any value. Two optional assumptions: `--abi` (callees preserve r4-r7 and
+instructions give any value. Two optional assumptions: `--abi` (callees preserve r4-r11 and
 SP) and `--frame` (a function that takes no address of its frame other than the frame
 pointer `ADD r7, SP, #i`, then read only as a load base, has its frame written only through
 SP; checked where it may be stated by `frameUseOk`).
@@ -302,10 +337,11 @@ heuristic, for diagnosis only):
 ### Tests and development cycle
 
 Trusted, in addition to the decoder and timing table: the effects of the instructions on
-`r0`-`r7` and the flags, the flags of additions and subtractions and the conditions
+`r0`-`r12` and the flags, the flags of additions and subtractions and the conditions
 (`Thumb.effect`, `flagsAdd`, `flagsSub`, `condHolds`), compared by `test_effect.py` (CI)
 with `m0.py` on every 16-bit encoding in three random states, with and without the
-assumption on callees: 297,244 executions, no difference. `test_binloops.py` (CI):
+assumption on callees: 297,414 executions, no difference (on `r0`-`r12` since
+2026-11-26). `test_binloops.py` (CI):
 certificates altered in their bounds, scales, potentials, invariants, kinds, multipliers,
 tracked words, SP offsets, congruences, assumptions or code must be rejected, and so must
 certificates of small loops whose instruction is changed (classes `ExactEffects`, `EXACT`,
@@ -859,7 +895,7 @@ entry and no transition goes to the entry (`farOk`: no `BX LR`, no `PUSH {.., LR
 the entry, no high-register `ADD`/`CMP`/`MOV` with `r14`), so that a return is the `POP` of
 the value saved at the entry; this check restricts the functions to which the semantics
 applies and is not used by the proofs. In the data semantics the far branch keeps the
-effect of a call (`r0`-`r3` any; `r4`-`r7` and SP kept under `abi`): an over-approximation.
+effect of a call (`r0`-`r3`, `r12` any; `r4`-`r11` and SP kept under `abi`): an over-approximation.
 The calling convention is not established for such a function (`convOk`), so `abi` is
 assumed for it and the checker names it. The emulator's observations count a `bl` as a call
 only when its target starts a function. Test `test_binloops.py FarBranches` (a loop closed by

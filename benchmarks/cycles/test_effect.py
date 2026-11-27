@@ -51,10 +51,10 @@ def lean_effects(checker, hws, cases, abi):
 
 
 def run_m0(img, i, r, f):
-    """(registers r0-r7, flags, stack pointer, memory window before, after) after the
+    """(registers r0-r12, flags, stack pointer, memory window before, after) after the
     instruction, or None (not executable here). The memory is restored afterwards."""
     mach = m0.Machine(img)
-    mach.r = list(r) + [0] * 5 + [SP, 0, 0]
+    mach.r = list(r) + [SP, 0, 0]
     mach.n, mach.z, mach.c, mach.v = f
     before = window(img.mem)
     snap = bytes(img.mem[:WIN[1] + 4096])
@@ -80,7 +80,7 @@ def run_m0(img, i, r, f):
         return None
     after = window(img.mem)
     img.mem[:WIN[1] + 4096] = snap
-    return ([x & 0xFFFFFFFF for x in mach.r[:8]], (mach.n, mach.z, mach.c, mach.v), mach.r[13] & 0xFFFFFFFF,
+    return ([x & 0xFFFFFFFF for x in mach.r[:13]], (mach.n, mach.z, mach.c, mach.v), mach.r[13] & 0xFFFFFFFF,
             before, after)
 
 
@@ -109,16 +109,16 @@ def main():
                 continue
             for s in range(a.states):
                 if s == 0:
-                    r = [rnd.randrange(0, 64) * 4 for _ in range(8)]
+                    r = [rnd.randrange(0, 64) * 4 for _ in range(13)]
                 else:
                     r = [rnd.choice([rnd.randrange(1 << 32), rnd.randrange(16), (1 << 32) - 1 - rnd.randrange(16),
-                                     (1 << 31) + rnd.randrange(-8, 8)]) for _ in range(8)]
+                                     (1 << 31) + rnd.randrange(-8, 8)]) for _ in range(13)]
                 f = [rnd.randrange(2) for _ in range(4)]
                 cases.append((addr, r, f))
                 meta.append(i)
         res = lean_effects(a.checker, hws, cases, abi)
         for (addr, r, f), i, line in zip(cases, meta, res):
-            regs, fl, conds = line[1:9], line[9], line[10]
+            regs, fl, conds = line[1:14], line[14], line[15]
             mach = m0.Machine(img)
             mach.n, mach.z, mach.c, mach.v = f
             for cc in range(14):
@@ -132,7 +132,7 @@ def main():
             post, pf, psp, before, after = got
             checked += 1
             ok = True
-            sps, mems, lds = line[11], line[12], line[13]
+            sps, mems, lds = line[16], line[17], line[18]
             if sps == "k":
                 ok &= psp == SP
             elif sps != "?":
@@ -152,7 +152,7 @@ def main():
             if lds != "-":
                 rt, imm = (int(x) for x in lds[1:].split(","))
                 ok &= post[rt] == word(before, SP + imm)
-            for k in range(8):
+            for k in range(13):
                 if regs[k] == "k":
                     ok &= post[k] is not None and post[k] == r[k]
                 elif regs[k].startswith("="):
@@ -162,12 +162,12 @@ def main():
             elif fl != "any":
                 # "?": a flag that Lean leaves any (N and Z only, `FEff.nz`)
                 ok &= all(x == "?" or int(x) == int(y) for x, y in zip(fl, pf))
-            if i.op == "bl" and any(x != "?" for x in regs[:4]):
+            if i.op == "bl" and any(x != "?" for x in regs[:4] + regs[12:13]):
                 ok = False
             if not ok:
                 bad += 1
                 if bad <= 10:
-                    print(f"{i} (halfword {(addr - BASE) // 4:#06x}) regs {r} flags {f}: m0.py {post} {pf} sp {psp:#x}; Lean {line[1:10]} {line[11:]}")
+                    print(f"{i} (halfword {(addr - BASE) // 4:#06x}) regs {r} flags {f}: m0.py {post} {pf} sp {psp:#x}; Lean {line[1:15]} {line[16:]}")
     print(f"effects: {checked} executions compared, {bad} differences")
     if bad:
         sys.exit("effect differences")

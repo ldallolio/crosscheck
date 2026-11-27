@@ -58,15 +58,15 @@ def flagsAt : FKind → Nat → Nat → Flags → Prop
   | .sub, a, b, f => f = flagsSub a b
   | .nz, a, _, f => NZOf a f
 
-def wfState (σ : MState) : Prop := ∀ i < 8, σ.r i < U
+def wfState (σ : MState) : Prop := ∀ i < 13, σ.r i < U
 
 /-- The effect of an instruction between the state before and the state after it: a
     register gets the value of its first write in `dst` (any value for `any`), the others
     keep theirs. -/
 def EffOk (e : Eff) (σ σ' : MState) : Prop :=
   wfState σ' ∧
-  (∀ i < 8, e.dst.find? (fun p => p.1 == i) = none → σ'.r i = σ.r i) ∧
-  (∀ i < 8, ∀ p, e.dst.find? (fun p => p.1 == i) = some p → ∀ v, valOf σ.r p.2 = some v → σ'.r i = v) ∧
+  (∀ i < 13, e.dst.find? (fun p => p.1 == i) = none → σ'.r i = σ.r i) ∧
+  (∀ i < 13, ∀ p, e.dst.find? (fun p => p.1 == i) = some p → ∀ v, valOf σ.r p.2 = some v → σ'.r i = v) ∧
   flagsOfE σ.r e e.fl σ.f σ'.f
 
 /-- The stack pointer and the memory hold words. -/
@@ -404,31 +404,63 @@ theorem dot_congr : ∀ (l : List Int) (f g : Env) (n : Nat), l.length ≤ n →
 def slotVal (σ : MState) (SP0 : Nat) (slots : List Nat) (j : Nat) : Int :=
   (σ.mem (aOf ((SP0 : Int) - ((slots.getD j 0 : Nat) : Int))) : Int)
 
-/-- The variables of a state: registers `0`-`7`, the ghosts `8`, `9`, the tracked words
-    `20`.. of the frame. -/
+/-- The variables of a state: registers `r0`-`r7` (`0`-`7`), the ghosts `8`, `9`, the
+    registers `r8`-`r12` (`20`-`24`), the tracked words `30`.. of the frame. -/
 def envOf (σ : MState) (fa fb : Nat) (SP0 : Nat) (slots : List Nat) : Env := fun v =>
   if v < 8 then (σ.r v : Int) else if v = 8 then (fa : Int) else if v = 9 then (fb : Int)
-  else if 20 ≤ v ∧ v < 20 + slots.length then slotVal σ SP0 slots (v - 20) else 0
+  else if 20 ≤ v ∧ v < 25 then (σ.r (v - 12) : Int)
+  else if 30 ≤ v ∧ v < 30 + slots.length then slotVal σ SP0 slots (v - 30) else 0
 
-/-- The variables of a transition: those of the state before, the registers after
-    (`10`-`17`), the fresh ghosts `18`, `19` (`0`), the tracked words before, then after
-    (`20 + S`..). -/
+/-- The variables of a transition: those of the state before, the registers `r0`-`r7`
+    after (`10`-`17`), the fresh ghosts `18`, `19` (`0`), the registers `r8`-`r12` before
+    and after (`25`-`29`), the tracked words before, then after (`30 + S`..). -/
 def envT (σ σ' : MState) (fa fb : Nat) (SP0 : Nat) (slots : List Nat) : Env := fun v =>
   if v < 10 then envOf σ fa fb SP0 slots v else if v < 18 then (σ'.r (v - 10) : Int)
   else if v < 20 then 0
-  else if v < 20 + slots.length then envOf σ fa fb SP0 slots v
-  else if v < 20 + 2 * slots.length then slotVal σ' SP0 slots (v - 20 - slots.length) else 0
+  else if v < 25 then envOf σ fa fb SP0 slots v
+  else if v < 30 then (σ'.r (v - 17) : Int)
+  else if v < 30 + slots.length then envOf σ fa fb SP0 slots v
+  else if v < 30 + 2 * slots.length then slotVal σ' SP0 slots (v - 30 - slots.length) else 0
 
 theorem envT_below (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (hv : v < 10) :
     envT σ σ' fa fb SP0 slots v = envOf σ fa fb SP0 slots v := by simp [envT, hv]
 
 theorem envT_state (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat)
-    (hv : v < 10 ∨ 20 ≤ v ∧ v < 20 + slots.length) :
+    (hv : v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + slots.length) :
     envT σ σ' fa fb SP0 slots v = envOf σ fa fb SP0 slots v := by
-  rcases hv with hv | hv
+  rcases hv with hv | hv | hv
   · simp [envT, hv]
   · simp only [envT]
     rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv.2]
+  · simp only [envT]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+      if_neg (by omega), if_pos hv.2]
+
+theorem envOf_range (σ : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
+    (hs : wfStack σ) (ha : fa < U) (hb : fb < U) (v : Nat) :
+    0 ≤ envOf σ fa fb SP0 slots v ∧ envOf σ fa fb SP0 slots v < (U : Int) := by
+  unfold envOf slotVal
+  split_ifs with h1 h2 h3 h4 h5
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ _ (by omega))⟩
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr ha⟩
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr hb⟩
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ _ (by omega))⟩
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs.2 _)⟩
+  · exact ⟨le_refl _, by simp [U]⟩
+
+theorem envT_range (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
+    (hσ' : wfState σ') (hs : wfStack σ) (hs' : wfStack σ') (ha : fa < U) (hb : fb < U) (v : Nat) :
+    0 ≤ envT σ σ' fa fb SP0 slots v ∧ envT σ σ' fa fb SP0 slots v < (U : Int) := by
+  unfold envT
+  split_ifs
+  · exact envOf_range σ fa fb SP0 slots hσ hs ha hb v
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ' _ (by omega))⟩
+  · exact ⟨le_refl _, by simp [U]⟩
+  · exact envOf_range σ fa fb SP0 slots hσ hs ha hb v
+  · exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ' _ (by omega))⟩
+  · exact envOf_range σ fa fb SP0 slots hσ hs ha hb v
+  · unfold slotVal; exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs'.2 _)⟩
+  · exact ⟨le_refl _, by simp [U]⟩
 
 theorem rangesN_holds (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
     (hσ' : wfState σ') (hs : wfStack σ) (hs' : wfStack σ') (ha : fa < U) (hb : fb < U) (ρ : Env) :
@@ -439,17 +471,7 @@ theorem rangesN_holds (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (h�
   obtain ⟨v, _, rfl | rfl⟩ := he
   all_goals
     simp only [mk_eval, List.map_cons, List.map_nil, List.sum_cons, List.sum_nil]
-    have h1 : 0 ≤ envT σ σ' fa fb SP0 slots v ∧ envT σ σ' fa fb SP0 slots v < (U : Int) := by
-      simp only [envT, envOf, slotVal]
-      split_ifs
-      all_goals first
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ _ (by omega))⟩
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr ha⟩
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr hb⟩
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hσ' _ (by omega))⟩
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs.2 _)⟩
-        | exact ⟨Int.natCast_nonneg _, Int.ofNat_lt.mpr (hs'.2 _)⟩
-        | exact ⟨le_refl _, by simp [U]⟩
+    have h1 := envT_range σ σ' fa fb SP0 slots hσ hσ' hs hs' ha hb v
     simp only [U] at h1 ⊢
     omega
 
@@ -474,12 +496,34 @@ theorem srcOk_lt (σ : MState) (hσ : wfState σ) (x : Src) (h : srcOk x = true)
   | reg i => simp [srcOk] at h; exact hσ i h
   | imm k => simpa [srcOk] using h
 
+/-- The variable of a register holds its value before the instruction. -/
+theorem envT_rv (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (i : Nat) (h : i < 13) :
+    envT σ σ' fa fb SP0 slots (rv i) = σ.r i := by
+  unfold rv
+  by_cases hi : i < 8
+  · simp [envT, envOf, hi, show i < 10 by omega]
+  · simp only [hi, if_false, envT, envOf]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega),
+      if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+    congr 2; omega
+
+/-- The fresh variable of a register holds its value after the instruction. -/
+theorem envT_fv (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (i : Nat) (h : i < 13) :
+    envT σ σ' fa fb SP0 slots (fv i) = σ'.r i := by
+  unfold fv
+  by_cases hi : i < 8
+  · simp only [hi, if_true, envT]
+    rw [if_neg (by omega), if_pos (by omega)]; congr 2; omega
+  · simp only [hi, if_false, envT]
+    rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+    congr 2; omega
+
 theorem srcE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (x : Src) (h : srcOk x = true) :
     (srcE x).eval (envT σ σ' fa fb SP0 slots) = srcVal σ.r x := by
   cases x with
   | reg i =>
-    simp [srcOk] at h
-    simp [srcE, srcVal, pv_eval, envT, envOf, h, show i < 10 by omega]
+    simp only [srcOk, decide_eq_true_eq] at h
+    simp only [srcE, srcVal, pv_eval, envT_rv σ σ' fa fb SP0 slots i h]
   | imm k => simp [srcE, srcVal, pconst_eval]
 
 theorem opOf_mem (e : Eff) (p : Nat × Val) (h : opOf e = some p) : p ∈ e.dst ∧ isOp p.2 = true := by
@@ -487,7 +531,7 @@ theorem opOf_mem (e : Eff) (p : Nat × Val) (h : opOf e = some p) : p ∈ e.dst 
   exact ⟨List.mem_of_find?_eq_some h, by simpa using List.find?_some h⟩
 
 theorem wfEff_dst (e : Eff) (h : wfEff e = true) (p : Nat × Val) (hp : p ∈ e.dst) :
-    p.1 < 8 ∧ valOk p.2 = true := by
+    p.1 < 13 ∧ valOk p.2 = true := by
   simp only [wfEff, Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at h
   exact h.1.1.1 p hp
 
@@ -544,13 +588,12 @@ theorem valE_eval_ar (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ
 
 /-- The value of a sum, difference or shift, in its wrap case, is the value written. -/
 theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ) (v : Val) (hv : valOk v = true)
-    (i x : Nat) (hx : valOf σ.r v = some x) (hi : i < 8) (hw : σ'.r i = x) :
+    (i x : Nat) (hx : valOf σ.r v = some x) (hi : i < 13) (hw : σ'.r i = x) :
     (valE v (mOf σ.r v) i).eval (envT σ σ' fa fb SP0 slots) = x := by
   by_cases hs2 : ∃ a k ar, v = .shr a k ar
   · obtain ⟨a, k, ar, rfl⟩ := hs2
     simp only [valE]
-    rw [pv_eval]
-    simp [envT, show ¬ (10 + i < 10) by omega, show 10 + i < 18 by omega, hw]
+    rw [pv_eval, envT_fv σ σ' fa fb SP0 slots i hi, hw]
   by_cases hs : ∃ a k, v = .shl a k
   · obtain ⟨a, k, rfl⟩ := hs
     simp only [valOk, Bool.and_eq_true, decide_eq_true_eq] at hv
@@ -560,8 +603,7 @@ theorem valE_eval (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : 
       rw [psmul_eval, srcE_eval σ σ' fa fb SP0 slots a hv.1, ← hx, Nat.mod_eq_of_lt h1]
       push_cast; ring
     · simp only [valE, mOf, h1, if_false, show (1 : Int) ≠ 0 by decide]
-      rw [pv_eval]
-      simp [envT, show ¬ (10 + i < 10) by omega, show 10 + i < 18 by omega, hw]
+      rw [pv_eval, envT_fv σ σ' fa fb SP0 slots i hi, hw]
   · exact valE_eval_ar σ σ' fa fb SP0 slots hσ v hv hs hs2 i x hx
 
 theorem valOf_op (r : Nat → Nat) (v : Val) (h : isOp v = true) : ∃ x, valOf r v = some x := by
@@ -672,8 +714,8 @@ theorem wrapPrem_holds (e : Eff) (σ σ' : MState) (fa fb SP0 : Nat) (slots : Li
       have hae := srcE_eval σ σ' fa fb SP0 slots a hv.1
       have hal := srcOk_lt σ hσ a hv.1
       have hxi : σ'.r i = x := hw (i, .shr a k ar) hp x hx
-      have h10 : (pv (10 + i)).eval (envT σ σ' fa fb SP0 slots) = (x : Int) := by
-        rw [pv_eval]; simp [envT, show ¬ (10 + i < 10) by omega, show 10 + i < 18 by omega, hxi]
+      have h10 : (pv (fv i)).eval (envT σ σ' fa fb SP0 slots) = (x : Int) := by
+        rw [pv_eval, envT_fv σ σ' fa fb SP0 slots i hi, hxi]
       simp only [valOf, Option.some.injEq] at hx
       obtain ⟨hb1, hb2⟩ := shr_bounds ar k (srcVal σ.r a) hal
       rw [hx] at hb1 hb2
@@ -761,36 +803,59 @@ theorem wfEff_op (e : Eff) (h : wfEff e = true) (p : Nat × Val) (hp : opOf e = 
   rw [hp] at h4
   simpa using h4
 
+theorem rv_regOf (v : Nat) (h : isRegVar v) : rv (regOf v) = v ∧ regOf v < 13 := by
+  unfold isRegVar at h; unfold rv regOf
+  by_cases h8 : v < 8
+  · simp [h8]; omega
+  · simp only [h8, if_false]; constructor
+    · rw [if_neg (by omega)]; omega
+    · omega
+
+theorem envOf_reg (σ : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (h : isRegVar v) :
+    envOf σ fa fb SP0 slots v = σ.r (regOf v) := by
+  unfold isRegVar at h; unfold envOf regOf
+  by_cases h8 : v < 8
+  · simp [h8]
+  · simp only [h8, if_false]
+    rw [if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+
+theorem envT_reg (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (v : Nat) (h : isRegVar v) :
+    envT σ σ' fa fb SP0 slots v = σ.r (regOf v) := by
+  obtain ⟨h1, h2⟩ := rv_regOf v h
+  conv_lhs => rw [← h1]
+  exact envT_rv σ σ' fa fb SP0 slots _ h2
+
 /-- The value of every variable after the instruction, in the right wrap case. -/
 theorem postE_eval (e : Eff) (h : wfEff e = true) (σ σ' : MState) (fa fb SP0 : Nat) (slots : List Nat) (hσ : wfState σ)
-    (heff : EffOk e σ σ') (v : Nat) (hv : v < 10) :
+    (heff : EffOk e σ σ') (v : Nat) (hv : v < 10 ∨ 20 ≤ v ∧ v < 25) :
     (postE e (mSel e σ.r) v).eval (envT σ σ' fa fb SP0 slots) =
       envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v := by
   obtain ⟨_, hkeep, hwrite, _⟩ := heff
-  by_cases h8 : v < 8
-  · have hev : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = σ'.r v := by
-      simp [envOf, h8]
-    rw [hev]
+  by_cases h8 : isRegVar v
+  · obtain ⟨hrv, hr13⟩ := rv_regOf v h8
+    rw [envOf_reg _ _ _ _ _ v h8]
     simp only [postE, h8, if_true]
-    cases hf : e.dst.find? (fun p => p.1 == v) with
+    cases hf : e.dst.find? (fun p => p.1 == regOf v) with
     | none =>
       simp only
-      rw [pv_eval, envT_below _ _ _ _ _ _ _ hv]
-      simp [envOf, h8, hkeep v h8 hf]
+      rw [pv_eval, envT_reg _ _ _ _ _ _ v h8, hkeep _ hr13 hf]
     | some p =>
       simp only
       have hm := List.mem_of_find?_eq_some hf
       have hpv := (wfEff_dst e h p hm).2
       by_cases hop : isOp p.2 = true
-      · have hO := opOf_of_find e h v p hf hop
+      · have hO := opOf_of_find e h (regOf v) p hf hop
         obtain ⟨x, hx⟩ := valOf_op σ.r p.2 hop
         rw [show mSel e σ.r = mOf σ.r p.2 by simp [mSel, hO]]
-        rw [valE_eval σ σ' fa fb SP0 slots hσ p.2 hpv v x hx h8 (hwrite v h8 p hf x hx), hwrite v h8 p hf x hx]
+        rw [valE_eval σ σ' fa fb SP0 slots hσ p.2 hpv (regOf v) x hx hr13 (hwrite _ hr13 p hf x hx),
+          hwrite _ hr13 p hf x hx]
       · have hany : p.2 = .any := by
           cases hq : p.2 <;> simp_all [isOp]
         rw [hany]
-        simp [valE, pv_eval, envT, show ¬ (10 + v < 10) by omega, show 10 + v < 18 by omega]
-  · have hv89 : v = 8 ∨ v = 9 := by omega
+        simp only [valE, pv_eval]
+        exact envT_fv σ σ' fa fb SP0 slots _ hr13
+  · have hv89 : v = 8 ∨ v = 9 := by unfold isRegVar at h8; omega
+    have hv : v < 10 := by omega
     have hfl := wfEff_fl e h
     simp only [postE, h8, if_false, postG]
     cases hq : e.fl with
@@ -905,7 +970,7 @@ theorem dot_congr_nz : ∀ (l : List Int) (f g : Env),
       (fun v hv hne => h (v + 1) (by simp; omega) (by simpa using hne))]
 
 theorem wfSv_congr (S : Nat) (sv : List Int) (h : wfSv S sv = true) (f g : Env)
-    (hfg : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → f v = g v) :
+    (hfg : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) → f v = g v) :
     Checker.dot sv f = Checker.dot sv g := by
   simp only [wfSv, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, List.mem_range,
     beq_iff_eq] at h
@@ -914,21 +979,26 @@ theorem wfSv_congr (S : Nat) (sv : List Int) (h : wfSv S sv = true) (f g : Env)
   apply hfg
   by_cases h10 : v < 10
   · exact Or.inl h10
-  · right
-    refine ⟨?_, by omega⟩
-    by_contra h20
-    have := h.2 (v - 10) (by omega)
+  by_cases h20 : v < 20
+  · have := h.1.2 (v - 10) (by omega)
     rw [show 10 + (v - 10) = v by omega] at this
-    exact hne this
+    exact absurd this hne
+  by_cases h25 : v < 25
+  · exact Or.inr (Or.inl ⟨by omega, h25⟩)
+  by_cases h30 : v < 30
+  · have := h.2 (v - 25) (by omega)
+    rw [show 25 + (v - 25) = v by omega] at this
+    exact absurd this hne
+  · exact Or.inr (Or.inr ⟨by omega, by omega⟩)
 
 theorem lin_congr (S : Nat) (g : Lin) (hg : wfLin S g = true) (ρ ρ' s s' : Env)
-    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) : g.eval ρ s = g.eval ρ' s' := by
+    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) → s v = s' v) : g.eval ρ s = g.eval ρ' s' := by
   simp only [wfLin, Bool.and_eq_true, List.isEmpty_iff] at hg
   simp only [Lin.eval, hg.1, Checker.dot]
   rw [wfSv_congr S g.sv hg.2 s s' h]
 
 theorem pexp_congr (S : Nat) (p : PExp) (hp : wfSv S p.sv = true) (s s' : Env)
-    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) : p.eval s = p.eval s' := by
+    (h : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) → s v = s' v) : p.eval s = p.eval s' := by
   simp only [PExp.eval]; rw [wfSv_congr S p.sv hp s s' h]
 
 theorem holds_append (A B : List Lin) (ρ s : Env) : holds (A ++ B) ρ s ↔ holds A ρ s ∧ holds B ρ s := by
@@ -1238,12 +1308,12 @@ theorem congAt_wf (f : BFun) (L : DFun) (hw : ∀ l ∈ L.cong, ∀ x ∈ l, wfC
       simp [hk, hl] at hx
       exact hw l (List.mem_of_getElem? hl) x hx
 
-theorem wfCong_var {S : Nat} {x : Cong} (h : wfCong S x = true) : x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 20 + S := by
+theorem wfCong_var {S : Nat} {x : Cong} (h : wfCong S x = true) : x.1 < 10 ∨ 20 ≤ x.1 ∧ x.1 < 25 ∨ 30 ≤ x.1 ∧ x.1 < 30 + S := by
   simp only [wfCong, Bool.and_eq_true, decide_eq_true_eq] at h
   exact h.1
 
 theorem congHolds_congr (S : Nat) (cs : List Cong) (hw : ∀ x ∈ cs, wfCong S x = true) (s s' : Env)
-    (hs : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → s v = s' v) (h : CongHolds cs s') : CongHolds cs s := by
+    (hs : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) → s v = s' v) (h : CongHolds cs s') : CongHolds cs s := by
   intro x hx
   rw [hs x.1 (wfCong_var (hw x hx))]
   exact h x hx
@@ -1277,7 +1347,7 @@ theorem shlCong_sound {abi : Bool} {c : Code} {a : Nat} {x : Cong} (h : shlCong 
   · rename_i q src k hf
     have hk := of_decide_eq_true hm
     obtain ⟨he1, _, hk3⟩ := hk
-    have hv := he.2.2.1 x.1 hlt _ hf _ rfl
+    have hv := he.2.2.1 x.1 (by omega) _ hf _ rfl
     simp only [envOf, if_pos hlt]
     rw [hv]
     have hU : U = 2 ^ 32 := rfl
@@ -1453,59 +1523,62 @@ theorem postS_eval (e : Eff) (st : StackE) (frame : Bool) (h : wfEff e = true) (
     (hsp : ∀ d, δ = some d → σ.sp = aOf (SP0 + d))
     (hδ : ∀ d, δ = some d → -1048576 ≤ d ∧ d ≤ 1048576)
     (hslots : ∀ k ∈ slots, 0 < k ∧ k % 4 = 0 ∧ k < 1048576)
-    (v : Nat) (hv : v < 10 ∨ 20 ≤ v ∧ v < 20 + slots.length) :
+    (v : Nat) (hv : v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + slots.length) :
     (postS e st frame δ slots (mSel e σ.r) v).eval (envT σ σ' fa fb SP0 slots) =
       envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v := by
   obtain ⟨_, _, hmem, hload⟩ := hst
   simp only [stackWf, Bool.and_eq_true] at hw
-  rcases hv with hv | hv
+  rcases hv with hv | hv | hv
   · by_cases h8 : v < 8
     · simp only [postS, if_pos h8]
       cases hl : st.load with
-      | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+      | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
       | some p =>
         cases δ with
-        | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+        | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
         | some d =>
           simp only
           by_cases hp : v = p.1
           · rw [if_pos hp]
             cases hj : slotIdx slots (-(d + (p.2 : Int))) with
-            | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
+            | none => simp only; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
             | some j =>
               simp only
               obtain ⟨hk, hkj, hjl⟩ := slotIdx_spec slots _ j hj
               have hsd := hsp d rfl
               have hpb : p.2 < 1024 := by
                 have := hw.1; rw [hl] at this; exact (by simpa [stackLoadOk] using this : p.1 < 8 ∧ p.2 < 1024).2
-              rw [pv_eval, envT_state σ σ' fa fb SP0 slots _ (Or.inr ⟨by omega, by omega⟩)]
+              rw [pv_eval, envT_state σ σ' fa fb SP0 slots _ (Or.inr (Or.inr ⟨by omega, by omega⟩))]
               simp only [envOf, h8, if_true, slotVal]
-              rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos ⟨by omega, by omega⟩]
+              rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+                if_pos ⟨by omega, by omega⟩]
               rw [hp, hload p hl]
               congr 2
-              rw [show 20 + j - 20 = j by omega, hkj, hsd]
+              rw [show 30 + j - 30 = j by omega, hkj, hsd]
               simp only [aOf, U] at *
               omega
-          · rw [if_neg hp]; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
-    · have h20 : ¬ v < 20 → False := fun h' => h' (by omega)
-      simp only [postS, if_neg h8, if_pos (show v < 20 by omega)]
-      exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v hv
-  · have hj : v - 20 < slots.length := by omega
-    have hkm := hslots _ (slot_mem slots (v - 20) hj)
-    set k := slots.getD (v - 20) 0 with hkdef
-    have hpost : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = slotVal σ' SP0 slots (v - 20) := by
+          · rw [if_neg hp]; exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
+    · simp only [postS, if_neg h8, if_pos (show v < 30 by omega)]
+      exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inl hv)
+  · simp only [postS, if_neg (show ¬ v < 8 by omega), if_pos (show v < 30 by omega)]
+    exact postE_eval e h σ σ' fa fb SP0 slots hσ heff v (Or.inr hv)
+  · have hj : v - 30 < slots.length := by omega
+    have hkm := hslots _ (slot_mem slots (v - 30) hj)
+    set k := slots.getD (v - 30) 0 with hkdef
+    have hpost : envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 slots v = slotVal σ' SP0 slots (v - 30) := by
       simp only [envOf]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
-    have hpre : envT σ σ' fa fb SP0 slots v = slotVal σ SP0 slots (v - 20) := by
-      rw [envT_state σ σ' fa fb SP0 slots v (Or.inr hv)]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+    have hpre : envT σ σ' fa fb SP0 slots v = slotVal σ SP0 slots (v - 30) := by
+      rw [envT_state σ σ' fa fb SP0 slots v (Or.inr (Or.inr hv))]
       simp only [envOf]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
-    have hfresh : envT σ σ' fa fb SP0 slots (v + slots.length) = slotVal σ' SP0 slots (v - 20) := by
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos hv]
+    have hfresh : envT σ σ' fa fb SP0 slots (v + slots.length) = slotVal σ' SP0 slots (v - 30) := by
       simp only [envT]
-      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_pos (by omega)]
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega), if_neg (by omega),
+        if_neg (by omega), if_pos (by omega)]
       congr 1; omega
     rw [hpost]
-    simp only [postS, if_neg (show ¬ v < 8 by omega), if_neg (show ¬ v < 20 by omega)]
+    simp only [postS, if_neg (show ¬ v < 8 by omega), if_neg (show ¬ v < 30 by omega)]
     cases hm : st.mem with
     | keep =>
       rw [hm] at hmem
@@ -1605,7 +1678,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   set env := envT σ σ' fa fb SP0 L.slots with henv
   have h8 : env 8 = fa := by simp [env, envT, envOf]
   have h9 : env 9 = fb := by simp [env, envT, envOf]
-  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) → env v = envOf σ fa fb SP0 L.slots v :=
+  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) → env v = envOf σ fa fb SP0 L.slots v :=
     fun v hv => envT_state σ σ' fa fb SP0 L.slots v hv
   have hgs : ((2 ^ gExpS (congAt f L a) : Nat) : Int) ∣ env 8 + env 9 := by
     have := gExpS_dvd _ _ hC
@@ -1657,7 +1730,7 @@ theorem step_ok {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   have hpot_a : ∀ lc ∈ L.loops, (potAtD lc (some a) si).eval env = (potAtD lc (some a) si).eval (envOf σ fa fb SP0 L.slots) :=
     fun lc hlc => pexp_congr S _ (potAtD_wf S lc (hwpot lc hlc) _ _) _ _ hstate
   have hslots := (slotsOk_spec hslok).1
-  have hpost : next ≠ none → ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+  have hpost : next ≠ none → ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) →
       (postS e st L.frame (spAt f L a) L.slots m v).eval env =
         envOf σ' (postG e σ.r fa fb).1 (postG e σ.r fa fb).2 SP0 L.slots v := fun hn v hv =>
     postS_eval e st L.frame hwfe hstw σ σ' fa fb SP0 L.slots (spAt f L a) hσ hSP0 (heff hn).1 (heff hn).2
@@ -1864,7 +1937,7 @@ theorem chain_rows {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
       (holds_append _ _ _ _).mpr ⟨(preOk_holds (checkDFun_pre hc) (fun v hv => by simp [envT, envOf, hv, show v < 10 by omega]) _).mp
         (hpre x (by simp)), rangesN_holds x.σ x.σ 0 0 x.σ.sp L.slots hwf hwf hws hws (by simp [U])
         (by simp [U]) (fun _ => 0)⟩
-    have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+    have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) →
         envT x.σ x.σ 0 0 x.σ.sp L.slots v = envOf x.σ 0 0 x.σ.sp L.slots v :=
       fun v hv => envT_state x.σ x.σ 0 0 x.σ.sp L.slots v hv
     have hI0 : holds (invAt f L f.entry) (fun _ => 0) (envOf x.σ 0 0 x.σ.sp L.slots) := by
@@ -2049,14 +2122,14 @@ theorem wstep_sound {abi : Bool} {c : Code} {a : Nat} {P : Nat → Option Nat} {
     cases hf : (effect abi c a).dst.find? (fun p => p.1 == i) with
     | none =>
       rw [hf] at hv
-      rw [he.2.1 i hi hf]
+      rw [he.2.1 i (by omega) hf]
       exact hP i v hv
     | some p =>
       rw [hf] at hv
       cases hxo : xop c a with
       | none =>
         rw [hxo] at hv
-        exact he.2.2.1 i hi p hf v (valP_sound hP p.2 v hv)
+        exact he.2.2.1 i (by omega) p hf v (valP_sound hP p.2 v hv)
       | some op =>
         rw [hxo] at hv
         simp only at hv
@@ -2065,7 +2138,7 @@ theorem wstep_sound {abi : Bool} {c : Code} {a : Nat} {P : Nat → Option Nat} {
           rw [← hd]
           exact hx.1 op hxo v (xres_mono hP c a op v hv)
         · rw [if_neg hd] at hv
-          exact he.2.2.1 i hi p hf v (valP_sound hP p.2 v hv)
+          exact he.2.2.1 i (by omega) p hf v (valP_sound hP p.2 v hv)
   · rw [if_neg hi] at hv
     cases hv
 
@@ -2346,7 +2419,7 @@ theorem inv_entry {mul : Nat} {abi : Bool} {c : Code} {f : BFun} {L : DFun}
   have env0 : holds (entryPrem L) (fun _ => 0) (envT σ σ 0 0 σ.sp L.slots) :=
     (holds_append _ _ _ _).mpr ⟨(preOk_holds (checkDFun_pre hc) (fun v hv => by simp [envT, envOf, hv, show v < 10 by omega]) _).mp hpre,
       rangesN_holds σ σ 0 0 σ.sp L.slots hwf hwf hws hws (by simp [U]) (by simp [U]) (fun _ => 0)⟩
-  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) →
       envT σ σ 0 0 σ.sp L.slots v = envOf σ 0 0 σ.sp L.slots v :=
     fun v hv => envT_state σ σ 0 0 σ.sp L.slots v hv
   refine ⟨hwf, hws, by simp [U], by simp [U], by rw [hke]; trivial, ?_,
@@ -2653,14 +2726,14 @@ theorem jump_good {mul : Nat} {abi frame : Bool} {c : Code} {SP0 : Nat} {f : BFu
     rw [hb, hebr] at he1
     -- the flags of the CMP, the branch: not taken (`BHI`) or taken (`BLS`)
     have hfl : y1.σ.f = flagsSub (y0.σ.r r) n := by simpa [flagsOfE, srcVal] using he0.2.2.2
-    have hr01 : y1.σ.r r = y0.σ.r r := he0.2.1 r hr (by simp)
-    have hr12 : y2.σ.r r = y1.σ.r r := he1.2.1 r hr (by simp)
+    have hr01 : y1.σ.r r = y0.σ.r r := he0.2.1 r (by omega) (by simp)
+    have hr12 : y2.σ.r r = y1.σ.r r := he1.2.1 r (by omega) (by simp)
     have hg1 := hgood (k - (M + 1)) (by omega) y1 hy1
     obtain ⟨_, j1, hw1, _, i1, hi1, hj1, hcond1⟩ := hg1
     rw [hb, hdec] at hi1; cases hi1
     have hch1 := hcond1 tb rfl
     rw [hb] at hch1
-    have hv0 : y0.σ.r r < U := by rw [← hr01]; exact hw1 r hr
+    have hv0 : y0.σ.r r < U := by rw [← hr01]; exact hw1 r (by omega)
     rw [hfl] at hch1
     have hle' : y0.σ.r r ≤ n := by
       rcases hw with ⟨hl, hwb6⟩ | ⟨hl, hwb4⟩
@@ -2877,7 +2950,7 @@ theorem call_pre {mul : Nat} {abi : Bool} {c : Code} {fs : List BFun} {Ls : List
   have hwI := invsAt_wf f L hwinv (checkDFun_alt hc) x.st.a I hI
   set S := L.slots.length
   set env := envT x.σ x.σ fa fb SP0 L.slots
-  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 20 + S) →
+  have hstate : ∀ v, (v < 10 ∨ 20 ≤ v ∧ v < 25 ∨ 30 ≤ v ∧ v < 30 + S) →
       env v = envOf x.σ fa fb SP0 L.slots v :=
     fun v hv => envT_state x.σ x.σ fa fb SP0 L.slots v hv
   have hIenv : holds I (fun _ => 0) env := by
@@ -3168,8 +3241,8 @@ def flOkB (e : Eff) (fl : FEff) (r : List Nat) (f f' : Flags) : Bool :=
 
 /-- `EffOk`, checked on concrete registers and flags. -/
 def effOkB (e : Eff) (r r' : List Nat) (f f' : Flags) : Bool :=
-  (List.range 8).all (fun i => decide (r'.getD i 0 < U)) &&
-  (List.range 8).all (fun i => match e.dst.find? (fun p => p.1 == i) with
+  (List.range 13).all (fun i => decide (r'.getD i 0 < U)) &&
+  (List.range 13).all (fun i => match e.dst.find? (fun p => p.1 == i) with
     | none => r'.getD i 0 == r.getD i 0
     | some p => match valOf (fun k => r.getD k 0) p.2 with
       | some v => r'.getD i 0 == v
@@ -3245,7 +3318,7 @@ theorem chainB_sound (abi frame : Bool) (c : Code) (SP0 : Nat) :
 
 /-- `DOk`, checked on a concrete step. -/
 def dOkB (mul : Nat) (c : Code) (x : CStep) : Bool :=
-  (List.range 8).all (fun i => decide (x.2.2.1.getD i 0 < U)) &&
+  (List.range 13).all (fun i => decide (x.2.2.1.getD i 0 < U)) &&
   match decode mul c x.1.a with
   | some i => (trans i x.1.a)[x.2.1]? == some (x.1.next, x.1.w, x.1.calls) &&
       (match i.kind with

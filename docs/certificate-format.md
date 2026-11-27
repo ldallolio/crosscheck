@@ -289,16 +289,17 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
 --certify-loops` or `crosscheck_link.py --certify`; Paper III `thm:machine-loops`, Lean
 `ThumbData.data_sound`) adds optional fields; a version-1 file is read as before.
 
-- `"abi"` (program-wide, default `false`): with `true`, a call may change only `r0`-`r3`
-  and the flags (callees are assumed to preserve `r4`-`r7` and SP, as the AAPCS requires);
-  the verdict says so.
+- `"abi"` (program-wide, default `false`): with `true`, a call may change only `r0`-`r3`,
+  `r12` and the flags (callees are assumed to preserve `r4`-`r11` and SP, as the AAPCS
+  requires); the verdict says so.
 - Per function, the stack (Lean `Thumb.stackEffect`, `StackOk`): `"sp"`: per instruction
   (order of `nodes`) the offset of SP from its value at the entry, or `null` (unknown; the
   entry's offset must be `0` or `null`; the checker verifies every transition against the
   effect: `PUSH`/`POP`/`ADD SP`/`SUB SP` move SP by their constants); `"slots"`: tracked
   words of the frame, distinct positive multiples of 4 below 2^20 (`k`: the word at
-  `SP₀ − k`), certificate variables `20 + j` (and `20 + S + j` for their fresh values
-  after an instruction; `S` the number of slots, `nVars = 20 + 2S`); `"frame"` (default
+  `SP₀ − k`), certificate variables `30 + j` (and `30 + S + j` for their fresh values
+  after an instruction; `S` the number of slots, `nVars = 30 + 2S`; since 2026-11-26, before
+  that `20 + j`); `"frame"` (default
   `false`): assume that stores through registers other than SP and calls do not write the
   function's frame (words between SP and `SP₀`); refused if the function puts an address
   derived from SP into a register (`ADD rd, SP, #i`, `MOV rd, SP`, `ADD rd, SP`), except
@@ -331,10 +332,13 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   `ASRS` or `MOVS` with an immediate; `9` is then 0); `"inv"`: per instruction a list of constraints
   `{"sv": [[variable, coefficient], ...], "c": c}` meaning `Σ coefficient·x + c ≤ 0`;
   variables `0`-`7` are `r0`-`r7`, `8` and `9` the operands of the operation that set the
-  flags. Potentials have the same form (an affine expression `Σ coefficient·x + c`).
+  flags, `20`-`24` are `r8`-`r12` (Lean `rv`; `MOV`, `ADD` and `CMP` with a high register
+  are exact, `effect`), `30 + j` the tracked words; `10`-`19` and `25`-`29` (the values
+  after an instruction) do not appear (`wfSv`). Potentials have the same form (an affine
+  expression `Σ coefficient·x + c`).
 - `"cong"` (optional, default none): per instruction (order of `nodes`) a list of
   congruences `[v, e, r]`, "variable `v` is `r` modulo `2^e`", `e ≤ 32`, `v` a variable of
-  a state (`0`-`9` or a tracked word `20 + j`); none at the entry. The checker verifies
+  a state (`0`-`9`, `20`-`24` or a tracked word `30 + j`); none at the entry. The checker verifies
   them without Farkas certificates (Lean `congOk`): after every transition, in every wrap
   case, the post-expression `Σ k_v·x_v + c` of `v` (the same as for the invariants) must
   have, for each term, `2^e` dividing `k_v·2^{e_v}` (`e_v` from the congruences before the
@@ -398,7 +402,7 @@ Version 2 (`"version": 2`, produced by `ipet.py` with `loops=True`, i.e. `run_cy
   the program (the program line counts these functions).
 - Accepted (the second line per function, `ACCEPTED f: loop bounds of the machine code`,
   and the program line): every run of the data semantics (`ThumbData.DRun`: effects of the
-  instructions on `r0`-`r7` and the flags, `Thumb.effect`; a branch taken iff its
+  instructions on `r0`-`r12` and the flags, `Thumb.effect`; a branch taken iff its
   condition holds, `Thumb.condHolds`) on which the trusted rows hold costs at most the
   bound. Trusted: the decoder, the timing table, the effects, flags and conditions
   (compared with `m0.py` by `test_effect.py`), the code and that it is not written during a

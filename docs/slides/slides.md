@@ -282,7 +282,7 @@ ACCEPTED dot: loop bounds of the machine code,
 ACCEPTED fir_peak: at most 21177 cycles
 PROGRAM  program: ACCEPTED (...; 1 loop rows
   certified on the machine code, 1 trusted;
-  callees assumed to preserve r4-r7 and SP)
+  callees assumed to preserve r4-r11 and SP)
 ```
 
 `fir_peak`'s loop runs to the **parameter** `n`: no bound on the code alone, so its row

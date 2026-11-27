@@ -2718,6 +2718,71 @@ Paper III (`def:machine-run`, the trusted specification, the larger programs, `t
 `formalization.yaml`, certificate format, guide parts 5 and 7, cycles README, CLAUDE.md, Lean
 counts.
 
+155. "Keep improving crosscheck towards an industrial grade tool, I am still waiting to get the hardware"
+
+What the AI did for 155 (Claude Opus 5.5, 2026-11-26): loop counters in the high registers,
+for GCC's binaries. Diagnosis: what keeps `main` uncertified in the larger programs is a long
+tail (one loop each in several programs, read on the code); for GCC, the compiler most
+Cortex-M firmware is built with, 86 of the 215 kernel loops have an instruction on `r8`-`r12`
+in their body, against 2 of Clang's 2,411, and the checker modelled `r0`-`r7` only. Lean:
+`effect` gives `MOV`, `ADD` and `CMP` with a high register exactly on `r0`-`r12` (an operand
+SP, LR or PC any value; `CMP` of two low registers in that encoding, unpredictable, any
+flags), a `BL` changes `r12` and keeps `r4`-`r11` under `abi`; the state `wfState`, `EffOk`
+on 13 registers; certificate variables `rv` (`20`-`24` for `r8`-`r12`), `fv` (their fresh
+values `25`-`29`), the tracked words moved from `20 + j` to `30 + j` (`nVars = 30 + 2S`,
+`wfSv`, `wfCong`, `postE` by `isRegVar`/`regOf`, `postS`); proofs updated (`envOf`, `envT`,
+`envT_rv`, `envT_fv`, `envT_reg`, `envOf_range`, `envT_range`, `postE_eval`, `postS_eval`,
+`wfSv_congr`, the concrete simulator on 13 registers). `ThumbConv`: callees restore `r4`-`r11`
+(`Preserves`), `convOk` refuses a write of `r8`-`r11` (`convNode`), `ConvInv` carries them,
+the caller resumes with the callee's `r0`-`r12` (`StepL`). `ThumbSearch`'s certificate
+regenerated for the new numbering. New module `ThumbHigh`: `exHi_*` (a loop counted in `r8`
+against `r9`, 65 cycles; a smaller bound and `cmp r8, r10` refused), `exHc_*` (the same with a
+call in the loop, 139 cycles; refused with the counter in `r12`), by `decide`. `#print
+axioms`: the three standard ones. `test_effect.py` on 13 registers: 297,414 executions, no
+difference. Producer: the mirror (`rvar`, `fvar`, `is_reg_var`, `reg_of`, the effects), the
+high registers a function uses numbered after the ghosts in its analysis (`Ctx.hi`,
+`Zones.areg`/`cv`/`ca`, renamed effects `Ctx.zeff`) and columns of the linear programs only
+for those (with all five, binary search's program grew from 420 to 605 columns and HiGHS
+failed numerically: bound 7 instead of 3), and an `ADD rd, rm` with a high register whose
+operand holds a constant as a shift of the zone (applied first to every sum of two registers,
+it changed the widening and raised a bound of Clang's `jfdctint` from 7 to 8, so it was
+narrowed). The run found a defect of the producer: in its retry with shifts as any value
+(`lit_any`) the congruences were computed on its own effects, where N and Z of `lsls` were
+those of 0; the checker rejected the certificate of `matrix1` (Clang, no frame pointer, both
+assumptions); they are now computed on the checker's effects (test `CongruencesExact`, which
+fails on the old code). `classify_loops.py`: options `--work`, `--tag`, `--kernel`, the
+shifts right. Tests `test_binloops.py HighRegisters` (five mutations rejected). Measured:
+GCC kernels, both assumptions, 78 -> 103 kernel loops certified (+18 from the registers,
++7 from the constant operands), two lost where another loop of the same function is
+certified instead, no bound higher; with `abi` only 93, without assumptions 44; certified
+functions (112) and `main` (6) unchanged; every certificate accepted, no emulated run above a
+bound. Clang, the 7 kernel configurations: unchanged (one bound lower).
+The larger programs (smicro, both assumptions, compiler-rt): first one bound higher
+(Clang's `mpeg2_field_ME`, 7 -> 8): Clang's no-op `mov r8, r8` and `r12`, which every call
+makes any value, had added columns of no use to the linear programs, and HiGHS returned
+another vertex; a high register now counts only if some instruction reads it or writes it
+with a value other than any value or itself (`hi_regs`; test `HighRegisters.test_used_registers`).
+Then: 1,171 -> 1,171 kernel loops, none lost, no bound higher; certified functions 348 and
+`main` 3 unchanged; every certificate accepted, no emulated run above a bound; the GCC
+kernels with both assumptions unchanged (103 loops).
+Paper III (`def:data-run`, the effects, the convention `def:convention`,
+`thm:machine-conv`, GCC in the evaluation, `tab:lean3`, Lean counts), certificate format,
+guide parts 5 and 7, `formalization.yaml`, the qualification requirements, cycles README,
+slides (a quoted verdict), CLAUDE.md.
+
+156. "I would like you to look online for more sources of information that could help you further improve crosscheck : books, papers, proceedings. Crosscheck must be state of the art and include consolidated techniques and solution we might not yet have thought of. Download and read all that you can, write an uncommitted HELP_NEEDED.md document in the references for anything you can identify but cannot download so that I can try and look around for it"
+
+What the AI did for 156 (Claude Opus 5.5, 2026-11-27): a literature search (web search;
+open-access copies from arXiv, HAL, DROPS and the authors' pages; reading notes kept locally,
+not in the repository). What bears on the tools: the cycle table of `m0.py` / `Thumb.decode`
+was compared with the cycle counts of Fox's L3 model of the Cortex-M0 (the Standard ML
+generated from it in HOL4's `examples/l3-machine-code/m0`, 2017): the same on every
+instruction both model (branches 3 taken / 1 not, `BL` 4, `BX`/`BLX` and writes of the PC 3,
+loads and stores 2, `PUSH`/`STM`/`LDM` 1 + N, `POP` 1 + N and 4 + N with the PC counted, `MULS`
+1 in L3, our `MUL_CYCLES` option); the instructions L3 times otherwise (`MRS`, `MSR`, barriers,
+`WFE`/`WFI`, `CPS`) are not modelled by us and end a bound (`stop`). The table stays trusted.
+Nothing in the papers, the Lean code or the tools changed for this prompt.
+
 ### Earlier work
 
 AI use before 2026-11-11 (on the manuscript, the Lean files and `CLAUDE.md` that existed

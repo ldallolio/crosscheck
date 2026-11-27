@@ -651,8 +651,8 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
       let conv := abi && ImperativeOptimization.Thumb.convAll mul code fs Ls
       let noConv := (funs.filter fun (_, F, _, D) => !ImperativeOptimization.Thumb.convOk mul code F D).map (·.1)
       let callees := if !abi then "no assumption on callees"
-        else if conv then "callees' preservation of r4-r7 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
-        else s!"callees assumed to preserve r4-r7 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
+        else if conv then "callees' preservation of r4-r11 and SP checked on the code of every function (assumed: the words where a function saves registers are written by no store through another register than SP and by no callee)"
+        else s!"callees assumed to preserve r4-r11 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
       let jumps := (if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else "") ++ fars
       let pres := if nPre > 0 then s!"; {nPre} function(s) with a precondition on their arguments, proved at every call (their bounds hold for runs that start in it)" else ""
       IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}{pres}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
@@ -681,7 +681,7 @@ def runDecode (j : Json) : Except String (List String) := do
     | some i => s!"{a} {i.size} {showKind i.kind} {i.cyc} {i.cycNot}"
     | none => s!"{a} none"
 
-/-- `--effect`: for each case (an address, the low registers, the flags N Z C V), the
+/-- `--effect`: for each case (an address, the registers r0-r12, the flags N Z C V), the
     registers after the instruction as `Thumb.effect` and `Thumb.valOf` give them (`k`:
     kept, `=v`: that value, `?`: any), the flags after it (`keep`, `any` or four bits) and
     the fourteen conditions on the flags given (`Thumb.condHolds`), for differential tests. -/
@@ -697,7 +697,7 @@ def runEffect (j : Json) : Except String (List String) := do
   pure <| cases.map fun (a, r, fl) =>
     let e := ImperativeOptimization.Thumb.effect abi code a
     let rf : Nat → Nat := fun i => r.getD i 0
-    let regs := (List.range 8).map fun i => match e.dst.find? (fun p => p.1 == i) with
+    let regs := (List.range 13).map fun i => match e.dst.find? (fun p => p.1 == i) with
       | none => "k"
       | some (_, v) => match ImperativeOptimization.Thumb.valOf rf v with
         | some x => s!"={x}"
