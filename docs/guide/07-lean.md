@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 35 modules, about 18,900 lines, 829 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the nine `Cycles*`/`Thumb*` modules, about 7,900 lines and 330 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 36 modules, about 19,100 lines, 829 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the nine `Cycles*`/`Thumb*` modules, about 7,900 lines and 330 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.16.0`, mathlib `v4.16.0`.
 
 ## 1. The mental model
@@ -114,6 +114,7 @@ flowchart LR
   Thumb --> ThumbData
   ThumbDataCore --> ThumbData
   ThumbDataCore --> CheckerMain
+  ElfCore --> CheckerMain
   ThumbData --> ThumbConv
   ThumbData --> ThumbSearch
   ThumbData --> ThumbHigh
@@ -156,6 +157,7 @@ flowchart LR
 | `ThumbData` | 3,460 | data runs `EffOk`, `StackOk`, `DOkM` (the machine step; a jump goes to its computed address), `XOk`/`XChain` (exact values), `DOk` (a step along `transJ`), `DChain`, `DRun`; jumps through a table: `back_walk`, `jump_good`, `steps_good` (every step of a data run follows the graph), `back_walkR`, `jump_good_rng` (the form without `CMP`), `inv_prefix` (the invariant holds at a step once the earlier steps follow the graph), `jump_good_inv` (the form bounded by the invariant), examples `exSw_sound`, `exMask_sound`, `exPath_sound`; `condFacts_sound` (the flag lemmas `sub_z`, `sub_c`, `sub_nv`, `add_z`, `add_c`), `postE_eval`, `postS_eval` (address arithmetic modulo 2³² by `omega`), **`step_ok`**, **`chain_ok`** (invariants and telescoping potentials), `chain_rows`, `drun_mrun`, **`data_sound`**; examples `exData_checks`, `exData_tight`, `exData_sound`; a concrete simulator (`effOkB_sound`, `chainB_sound`, `dOkB_sound`) and `exData_run`, a data run of exactly 68 cycles, so the hypotheses are satisfiable and the bound attained (Paper III `thm:machine-loops`); preconditions on the arguments: `PreOk`, `PreAt`, `call_pre` (the callee's precondition holds at a call, from the caller's invariant), example `exCtx_g_sound`; shifts right and their flags: `shr_bounds`, `nzFacts_true`; logarithmic potentials: `potTr`, `potGoals_sound`, example `exLog_sound`; amortised rows: `loopRow_coef` (the coefficients of a row with an enclosing loop, `LoopCert.outer`), example `exAm_sound`; potentials per disjunct of the invariant: `potAtD` (the potential where disjunct `d` holds, `LoopCert.potAlt`), `tgtN_get` |
 | `ThumbSearch` | 80 | TACLeBench's binary search as Clang compiles it: a logarithmic potential per disjunct of the invariant (the update `up = low - 1` wraps around to `2^32 - 1` when `low = 0` and joins the other paths before the test), 3 back edges, no trusted row; `exBs_sound`, `exBs_needs_alt` (refused without the potentials of the disjuncts); its `decide` takes a few minutes |
 | `ThumbHigh` | 130 | loop counters in the high registers, as GCC compiles them: `exHi_*` (a loop counted in `r8` against `r9`), `exHc_*` (the same with a call in the loop: `r8` and `r9` kept under `abi`; refused with the counter in `r12`, which a call may change) |
+| `ElfCore` | 260 | no mathlib, no theorem: the ELF file read as `m0.py` reads it (an executable at its addresses, a relocatable object placed and relocated), `check` (the certificate's code and function entries against the file); `crosscheck-check --elf` |
 | `ThumbConv` | 950 | the calling convention checked instead of assumed: linked runs `DRunL` (a callee runs from the caller's state; exact `PUSH`/`POP`; hypothesis `SaveSafe`, no stack smashing), the check `convOk` (in `ThumbDataCore`), **`drunL_drun`**, **`data_sound_conv`**; also in functions with jumps through tables (the steps follow `transJ`, by `steps_good`); examples `exConv_run`, `exClobber_refused`, `exSwConv_sound`, `exSwClobber_refused` |
 | `Examples` | 270 | the paper's four examples |
 

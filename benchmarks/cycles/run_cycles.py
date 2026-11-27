@@ -266,7 +266,8 @@ def analyse(kernel, work, tool, clang, objdump, extra, rt, certdir=None, checker
         certified = dict(ib)
         accepted, output = None, None
         if checker and doc["programs"]:
-            out = subprocess.run([checker, str(cf)], capture_output=True, text=True)
+            # the code of the certificate checked against the object it comes from (`--elf`)
+            out = subprocess.run([checker, "--elf", str(obj), str(cf)], capture_output=True, text=True)
             accepted = out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
             output = None if accepted else (out.stdout + out.stderr)[-400:]
         cert_info = dict(accepted=accepted, why=iwhy, checker_output=output, loops=lstats)

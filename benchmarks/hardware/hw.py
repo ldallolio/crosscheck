@@ -7,7 +7,7 @@ and with the cycle bounds computed and certified by run_cycles.py on the same ob
 
     # 1. the objects and bounds: run_cycles.py --certify DIR --json RUN.json ... (optionally
     #    --gcc IMAGE --tag=.gcc); then, without a board:
-    python3 benchmarks/hardware/hw.py build --run RUN.json [--tag .gcc] [--board f091] [--out DIR]
+    python3 benchmarks/hardware/hw.py build --run RUN.json [--tag .gcc] [--board f091] [--out DIR] [--micro]
     # 2. with the board connected (ST-Link), for each kernel: flash, read the serial line
     python3 benchmarks/hardware/hw.py measure --out DIR --port /dev/ttyACM0
     # 3. the comparison (also printed by `measure`)
@@ -24,6 +24,13 @@ cancel out. Kernels that call library code (soft-float, memcpy...) run libgcc/ne
 the board while the emulator computes these calls natively: their counts are not comparable
 and are reported apart. The register addresses of the start-up code come from the reference
 manual (RM0091) and were not tried on a board when this script was written.
+
+`--micro` adds the timing micro-benchmarks of `micro/` (assembled in the same image; named
+`micro_NAME`): each repeats one pattern (loads and branches back to back, branch targets at 2
+modulo 4, conditional branches, MULS, LDM/STM, calls with PUSH/POP {pc}, flash and RAM
+accesses, writes of the PC) and states its cycles counted by hand from the Cortex-M0 manual,
+recorded as `expected` (`test_micro.py` checks that the emulator agrees); they call no library
+code, so the board's counts are compared exactly, pattern by pattern.
 """
 import argparse
 import json
@@ -85,11 +92,27 @@ def build(a):
     run = json.load(open(a.run)) if a.run else {"kernels": []}
     bounds = {k["kernel"]: k for k in run["kernels"]}
     manifest = dict(board=a.board, tag=a.tag, empty_emulated=empty_cycles, kernels={})
+    objs = []
     for obj in sorted(WORK.glob(f"*.m0{a.tag}.o")):
         name = obj.name[:-len(f".m0{a.tag}.o")]
-        if "." in name or (a.only and name not in a.only):
+        if "." not in name:
+            objs.append((name, obj, None))
+    if a.micro:
+        import test_micro
+        (out / "micro").mkdir(exist_ok=True)
+        for src in test_micro.MICRO:
+            obj = out / "micro" / (src.stem + ".o")
+            p = docker(a.image, [HERE, out], "arm-none-eabi-gcc", "-mcpu=cortex-m0", "-mthumb", "-c", str(src),
+                       "-o", str(obj))
+            if p.returncode:
+                sys.exit(f"{src.name}: " + p.stderr)
+            objs.append(("micro_" + src.stem, obj, test_micro.expected(src, 1)[0]))
+    for name, obj, hand in objs:
+        if a.only and name not in a.only:
             continue
         k = dict(object=str(obj))
+        if hand is not None:
+            k["expected"] = hand
         try:
             k["emulated"], k["ret_emulated"], k["calls"] = emulate(obj, "main", 1)
             k["emulated_mul32"] = emulate(obj, "main", 32)[0]
@@ -192,6 +215,7 @@ def main():
     b.add_argument("--tag", default="", help="objects KERNEL.m0TAG.o (e.g. .gcc, .nofp)")
     b.add_argument("--board", default="f091", choices=sorted(BOARDS))
     b.add_argument("--image", default="armgcc:local", help="Docker image with arm-none-eabi-gcc")
+    b.add_argument("--micro", action="store_true", help="also the timing micro-benchmarks of micro/")
     for p in (b, sub.add_parser("measure"), sub.add_parser("report")):
         p.add_argument("--out", default=str(ROOT / "benchmarks/hardware/.build"))
         p.add_argument("--only", action="append")

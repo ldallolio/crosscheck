@@ -699,7 +699,7 @@ altered certificates are refused.
 | The analysis of the binary, the graph, the computation of the bound | **checked** (Lean) |
 | The loop bounds (rows) of certified loops | **checked** (Lean), on the data semantics |
 | The decoder, cycle table, effects, flags, conditions, stack effects | trusted specification; compared with our interpreter (itself compared with QEMU, without timing), not with hardware |
-| That the code in the certificate is the binary's | trusted (a copy of the bytes) |
+| That the code in the certificate is the binary's | checked by `crosscheck-check --elf` against the ELF file; trusted: that the file is loaded as the checker reads it |
 | `abi`, `frame` when used | stated assumptions |
 | Rows of loops not certified on the code | trusted (from the source, through debug lines) |
 | Interrupts, memory wait states | outside the model |

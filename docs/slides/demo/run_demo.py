@@ -89,7 +89,9 @@ def main():
     doc, certified, why = ipet.certify(an, ["fir_peak"], loops=True, abi=True, stats=stats)
     (OUT / "cycles-cert.json").write_text(json.dumps(doc, indent=1) + "\n")
     TIMES["binary analysis and cycle certificate (untrusted producer)"] = round(time.monotonic() - t, 3)
-    run("check cycle certificate", [a.checker, str(out / "cycles-cert.json")], out="check-cycles.txt")
+    # the certificate's code checked against the object it was made from (--elf)
+    run("check cycle certificate", [a.checker, "--elf", str(out / "fir.o"), str(out / "cycles-cert.json")],
+        out="check-cycles.txt")
     # 5. an emulated run with the largest block (the kernel's interpreter, same timing table)
     t = time.monotonic()
     mach = m0.Machine(img)
@@ -108,7 +110,8 @@ def main():
     f = next(f for f in bad["programs"][0]["functions"] if f["name"] == "fir_peak")
     f["certificate"]["bound"] -= 1
     (OUT / "tampered-cert.json").write_text(json.dumps(bad) + "\n")
-    run("check tampered certificate", [a.checker, str(out / "tampered-cert.json")], out="check-tampered.txt", ok=(1,))
+    run("check tampered certificate", [a.checker, "--elf", str(out / "fir.o"), str(out / "tampered-cert.json")],
+        out="check-tampered.txt", ok=(1,))
     summary = dict(schema=schema, certified=certified, observed_fir_peak_n56=observed, observed_dot=observed_dot,
                    loops=stats, why=why, times=TIMES)
     (OUT / "summary.json").write_text(json.dumps(summary, indent=1, default=str) + "\n")

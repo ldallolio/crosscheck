@@ -1,11 +1,11 @@
 {
- "plugin": 0.543,
- "check source certificate": 0.058,
- "compile": 0.045,
- "disassemble": 0.016,
- "binary analysis and cycle certificate (untrusted producer)": 0.862,
- "check cycle certificate": 0.058,
- "emulated runs": 0.011,
- "time budget": 0.775,
- "check tampered certificate": 0.053
+ "plugin": 1.617,
+ "check source certificate": 0.084,
+ "compile": 0.072,
+ "disassemble": 0.029,
+ "binary analysis and cycle certificate (untrusted producer)": 2.598,
+ "check cycle certificate": 0.13,
+ "emulated runs": 0.028,
+ "time budget": 2.503,
+ "check tampered certificate": 0.199
 }

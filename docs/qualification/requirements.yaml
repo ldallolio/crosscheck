@@ -119,3 +119,19 @@ requirements:
       - {kind: proof, file: formalization/ImperativeOptimization/ThumbData.lean, lean: [data_sound, drun_mrun, chain_rows, step_ok, postS_eval, condFacts_sound, exData_tight, exData_sound, steps_good, jump_good, inv_prefix, jump_good_inv, shlCong_sound, exSw_sound, exPath_sound]}
       - {kind: test, files: [benchmarks/cycles/test_binloops.py, benchmarks/cycles/test_effect.py, benchmarks/cycles/test_jumptable.py]}
       - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_binloops.py, test_effect.py, --certify-loops]}
+  - id: TOR-13
+    text: >
+      Given --elf BINARY, for a file of format crosscheck-binary-cycles the tool reads the
+      32-bit little-endian Arm ELF file BINARY (an executable: the allocated sections below
+      0x20000000 at their addresses; a relocatable object: its allocated sections in file
+      order from 0, R_ARM_ABS32, R_ARM_THM_CALL and R_ARM_THM_JUMP24 applied) and prints
+      "REJECTED <file>: the certificate's code is not the code of BINARY" with exit status 1
+      unless the certificate's base address, every halfword of its code and the entry of
+      every function (against the last function symbol of its name) agree with the file;
+      it exits with status 2 on a file that is not such an ELF file or has another
+      relocation type. When they agree, the verdict of TOR-11/TOR-12 states that the code
+      and the function entries were checked against BINARY. This is a reading of the file,
+      without a Lean theorem; it is compared with m0.py's loader on written ELF files.
+    evidence:
+      - {kind: test, files: [benchmarks/cycles/test_elf.py]}
+      - {kind: ci, workflow: .github/workflows/plugin_build.yml, contains: [test_elf.py]}

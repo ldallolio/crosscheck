@@ -18,7 +18,25 @@
      8
     ]
    ],
-   "other": []
+   "other": [],
+   "seconds": 0.960319639,
+   "meter": {
+    "ticks": 48,
+    "lp_solves": 8,
+    "lp_iters": 2,
+    "lp_max_iters": 0,
+    "lp_limited": 0,
+    "lp_seconds": 1.2197729940526187,
+    "lp_max_seconds": 1.2109816140145995,
+    "provers": 70,
+    "lp_work": 48,
+    "lp_max_work": 0,
+    "lp_limited_work": 0,
+    "lp_limited_size": 0,
+    "lp_safety": 0,
+    "lp_wall": 0,
+    "lp_ok_max_cpu": 0.0
+   }
   },
   "fir_peak": {
    "certified": [],
@@ -27,19 +45,37 @@
      68,
      "certified bound 2147483646 above the source bound 56"
     ]
-   ]
+   ],
+   "seconds": 0.4832080569999999,
+   "meter": {
+    "ticks": 94,
+    "lp_solves": 27,
+    "lp_iters": 1171,
+    "lp_max_iters": 49,
+    "lp_limited": 0,
+    "lp_seconds": 0.5966474250308238,
+    "lp_max_seconds": 0.07122424701810814,
+    "provers": 0,
+    "lp_work": 2560957,
+    "lp_max_work": 106085,
+    "lp_limited_work": 0,
+    "lp_limited_size": 0,
+    "lp_safety": 0,
+    "lp_wall": 0,
+    "lp_ok_max_cpu": 0.004
+   }
   }
  },
  "why": {},
  "times": {
-  "plugin": 0.543,
-  "check source certificate": 0.058,
-  "compile": 0.045,
-  "disassemble": 0.016,
-  "binary analysis and cycle certificate (untrusted producer)": 0.862,
-  "check cycle certificate": 0.058,
-  "emulated runs": 0.011,
-  "time budget": 0.775,
-  "check tampered certificate": 0.053
+  "plugin": 1.617,
+  "check source certificate": 0.084,
+  "compile": 0.072,
+  "disassemble": 0.029,
+  "binary analysis and cycle certificate (untrusted producer)": 2.598,
+  "check cycle certificate": 0.13,
+  "emulated runs": 0.028,
+  "time budget": 2.503,
+  "check tampered certificate": 0.199
  }
 }

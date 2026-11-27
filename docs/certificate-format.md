@@ -280,6 +280,18 @@ produces for the Cortex-M0:
   `Thumb.MRun` (data abstracted: both successors of a conditional branch possible), on
   which its rows hold, costs at most its bound (`Thumb.binary_sound`). Trusted: the
   decoder and timing table, that the code is the binary's, the rows.
+- `crosscheck-check --elf BINARY FILE.json`: before the check, the code and the function
+  entries of the certificate are compared with the ELF file it was made from
+  (`ImperativeOptimization.Elf`, the file read as `m0.load` reads it: an executable at the
+  addresses of its sections in the code region, a relocatable object with its allocated
+  sections in file order from 0 and `R_ARM_ABS32`, `R_ARM_THM_CALL`, `R_ARM_THM_JUMP24`
+  applied, stubs for undefined symbols); every halfword must agree, and each function's entry
+  must be the address of the function symbol of its name. A difference rejects the
+  certificate (exit status 1); a file that is not a 32-bit little-endian Arm ELF file, or
+  an unsupported relocation, is a malformed input (2). With `--elf`, "that the code is the
+  binary's" becomes "that the binary is loaded as the checker reads it" (for an object:
+  that the final link preserves the bound). `run_cycles.py` and `crosscheck_link.py` pass it;
+  tests `benchmarks/cycles/test_elf.py`.
 - `crosscheck-check --decode FILE` prints the decoding of the `addresses` of FILE
   (`mul_cycles`, `code`, `addresses`), for `benchmarks/cycles/test_thumb.py`.
 

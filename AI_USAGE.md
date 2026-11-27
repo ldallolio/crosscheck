@@ -65,7 +65,8 @@ measurements and the comparisons with LLVM ScalarEvolution, KoAT2, CoFloCo, Infe
 ### Paper III (machine code)
 
 The assistant wrote the Lean modules of Table `tab:lean3` (`CyclesCore`, `Cycles`,
-`ThumbCore`, `Thumb`, `ThumbDataCore`, `ThumbData`, `ThumbConv`, `ThumbSearch`, `ThumbHigh`):
+`ThumbCore`, `Thumb`, `ThumbDataCore`, `ThumbData`, `ThumbConv`, `ThumbSearch`, `ThumbHigh`) and
+the ELF reader of the checker (`ElfCore`, which compares a certificate's code with the binary):
 the decoder and timing table of the Cortex-M0, cycle certificates checked on the machine
 code, loop certificates on the machine code (invariants, potentials, congruences, disjunctive
 invariants, jumps through tables, preconditions, logarithmic potentials, amortised rows, the
@@ -73,7 +74,7 @@ calling convention checked on the code, the high registers); and the tools in
 `benchmarks/cycles/` (the ARMv6-M interpreter `m0.py` and its C core, the cycle, loop and stack
 analyses, the producers of certificates, the comparison with QEMU, the OTAWA experiments, the
 GCC builds, the time budgets of `crosscheck_link.py`) and the board harness of
-`benchmarks/hardware/` (not run on a board). It ran the measurements and drafted the text.
+`benchmarks/hardware/` with its timing micro-benchmarks (not run on a board). It ran the measurements and drafted the text.
 
 ### Bibliography and literature
 
@@ -147,7 +148,9 @@ Lean, the figures, the bibliography and the trusted parts.
   (no signed overflow, no aliasing of tracked variables, no concurrent writes of tracked
   globals); the Lean specification of the Cortex-M0, compared with an interpreter written for
   the purpose (whose semantics agree with QEMU's on the instructions that 50 programs execute)
-  and with the L3 timings, not with hardware (the board harness of
+  and with the L3 timings, not with hardware; that the binary is loaded as the checker reads
+  its ELF file (`crosscheck-check --elf` compares the certificate's code and function entries
+  with the file; for a relocatable object, that the final link preserves the bound) (the board harness of
   `benchmarks/hardware` has not been run); the matching of binary loops with source loops by
   debug lines, checked on emulated runs; OTAWA's processor models, used and not checked; the
   hypothesis that one unit of cost takes one unit of time.

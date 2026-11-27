@@ -278,11 +278,13 @@ ACCEPTED dot: at most 356 cycles
   (16 instructions, 17 edges, 1 rows)
 ACCEPTED dot: loop bounds of the machine code,
   1 rows certified, 0 trusted
-  (110 obligations, 27 congruences)
+  (110 obligations, 56 congruences)
 ACCEPTED fir_peak: at most 21177 cycles
 PROGRAM  program: ACCEPTED (...; 1 loop rows
   certified on the machine code, 1 trusted;
-  callees assumed to preserve r4-r11 and SP)
+  callees' preservation of r4-r11 and SP checked
+  on the code of every function (...); the code
+  and the function entries checked against fir.o)
 ```
 
 `fir_peak`'s loop runs to the **parameter** `n`: no bound on the code alone, so its row
@@ -306,7 +308,8 @@ instructions' effects on registers and flags.
 ok    fir_peak: bound 23571 cycles = 491.062 us, budget 500 us
 processor: cortex-m0 (certified cycle bounds); trusted: the Lean specification of the
 Cortex-M0 (Thumb.decode: instruction decoding and cycles, zero-wait-state memory); that the
-code in the cycle certificate is the binary's; the Lean checker (Thumb.binary_sound); no
+binary is loaded as the checker reads it (its code and function entries are checked against
+the certificate by crosscheck-check --elf; ...); the Lean checker (Thumb.binary_sound); no
 interrupt is taken while the function runs; the compiler preserves the source loops'
 iteration counts; the plugin's loop bounds
 ```
@@ -352,7 +355,7 @@ Wall time of each step of the example (`demo/out/times.json`, on the author's ma
 | plugin alone | the analyser (C++, unverified) and Z3 |
 | certificate accepted | the lowering from C to the certificate's program |
 | certificate **validated** | the syntactic export to mini-C; no signed overflow, no aliasing of tracked variables |
-| cycle bounds (Cortex-M0) | the Lean specification of the processor (decoder, cycles, zero-wait-state memory); that the certificate's code is the binary's; the loop rows not certified on the code (their match with source loops) |
+| cycle bounds (Cortex-M0) | the Lean specification of the processor (decoder, cycles, zero-wait-state memory); that the binary is loaded as the checker reads it (its code is checked against the ELF file); the loop rows not certified on the code (their match with source loops) |
 | loops certified on the code | additionally the effects of the instructions on registers and flags (compared with an interpreter on every 16-bit encoding) |
 
 Always: the Lean kernel and compiler, no interrupt during the function, Lean's three standard axioms.

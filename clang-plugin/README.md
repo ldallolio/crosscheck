@@ -496,12 +496,12 @@ code and builds the control-flow graphs itself (Lean `Thumb.binary_sound`, Paper
 `thm:machine-cycles`; format in `docs/certificate-format.md`); `--cycle-certificate F`
 keeps it. The analysis, the graph construction and the bound computation leave the
 trusted base; the Lean specification of the processor (decoder and timing table,
-`Thumb.decode`), the copy of the code into the certificate and the loop bounds stay in it,
+`Thumb.decode`), the loading of the binary as the checker reads it (the code of the certificate is compared with the binary, `crosscheck-check --elf`) and the loop bounds stay in it,
 and are printed as such:
 
 ```
 ok    ok_sum: bound 460 cycles = 9.583 us, budget 5000 cycles
-processor: cortex-m0 (certified cycle bounds); trusted: the Lean specification of the Cortex-M0 (Thumb.decode: ...); that the code in the cycle certificate is the binary's (copied by ipet.py); the Lean checker (theorem Thumb.binary_sound); ...
+processor: cortex-m0 (certified cycle bounds); trusted: the Lean specification of the Cortex-M0 (Thumb.decode: ...); that the binary is loaded as the checker reads it (its code and function entries are checked against the certificate by crosscheck-check --elf; an object is placed by the checker); the Lean checker (theorem Thumb.binary_sound); ...
 ```
 
 Not supported: aiT as a back end (the flow facts it needs are exported, `flowfacts=`);

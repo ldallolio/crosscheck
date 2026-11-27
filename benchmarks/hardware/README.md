@@ -31,7 +31,7 @@ kernels).
 # objects and bounds (Clang; or add --gcc armgcc:local --tag=.gcc for GCC)
 python3 benchmarks/cycles/run_cycles.py --check --certify OUT --checker formalization/.lake/build/bin/crosscheck-check \
     --certify-loops --abi --frame --jobs 4 --json RUN.json --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
-python3 benchmarks/hardware/hw.py build --run RUN.json [--tag .gcc] [--board f091]
+python3 benchmarks/hardware/hw.py build --run RUN.json [--tag .gcc] [--board f091] [--micro]
 python3 benchmarks/hardware/hw.py measure --port /dev/ttyACM0     # board connected
 python3 benchmarks/hardware/hw.py report
 ```
@@ -54,6 +54,29 @@ lr`). The cycles of `main` are `raw − empty + 4`: the timer reads, the call an
 peripheral access cancel out. Clock: the reset state (HSI 8 MHz, flash latency 0, prefetch
 on, no interrupt), so that there are no wait states, as the timing table assumes. At 8 MHz
 the slowest kernels (`pm`, `md5`, about 15 million cycles) take about 2 s.
+
+## Timing micro-benchmarks
+
+`build --micro` adds eight assembly programs of `micro/` (`micro_NAME` in the manifest), each a
+`main` that repeats one pattern 50 times, so that a difference between the board and the
+table points at an instruction class rather than at a whole kernel:
+
+| Program | Pattern | Cycles (hand count, Cortex-M0 TRM Table 3-1) |
+|---|---|---|
+| `ldldb` | eight blocks of two loads and a taken branch, then a `NOP`: the sequence on which Lindner et al. (VMCAI 2026, measured on an STM32F051) found a WCET analyser's Cortex-M0 pipeline model unsound | 3,061 |
+| `branch_align` | taken branches to targets at addresses 0 and 2 modulo 4 | 853 |
+| `bcond` | conditional branches taken and not taken in turn | 478 |
+| `mul` | 400 `MULS`: decides the multiplier (1 cycle: 604; 32 cycles: 13,004) | 604 |
+| `ldm_stm` | `LDM`/`STM` of four registers with write-back, in RAM | 817 |
+| `call_pushpop` | `BL` to a function with `PUSH {r4-r7, lr}` / `POP {r4-r7, pc}` | 1,208 |
+| `flash_ram` | word, byte and halfword loads from the flash; loads and stores in RAM | 763 |
+| `pc_writes` | `MOV PC, rm` (to an `ADR` address) and `BLX rm` | 761 |
+
+Each file states its count as a formula (`@ expect cycles:`); `test_micro.py` (CI) checks that
+the emulator agrees with every formula, with both multipliers, and that the bounds certified
+by the checker (`--elf`) equal the counts, except for `bcond` (503: the worst path in every
+iteration) and `pc_writes` (no bound: a write of the PC from `ADR` is not a supported jump).
+They call no library code, so `report` compares them exactly.
 
 ## Kernels that do not fit
 

@@ -22,7 +22,9 @@ the exit; the bound is the smallest integer the certificate supports. The certif
 `crosscheck-check`, whose acceptance means theorem `Thumb.binary_sound`: every run of the
 machine code of the function, in the semantics of Lean `Thumb` (decoder, timing table,
 both successors of a conditional branch possible), on which the rows hold, costs at most
-the bound. Trusted: that semantics, that the code is the binary's, and the rows.
+the bound. Trusted: that semantics, that the binary is loaded as the checker reads it
+(`crosscheck-check --elf` compares the code with the ELF file; without it, that the code is
+the binary's), and the rows.
 """
 import math
 import struct
@@ -475,6 +477,24 @@ def _precondition(g, callers, results, addr_of):
     return pre or None
 
 
+def rebase_loops(fields, base):
+    """The loop certificates of `binloops.certify_loops` (addresses of the image, from 0) with
+    the addresses of the certificate (`base` added, as `certify_function` does for the entry,
+    the nodes, the rows and the jumps): the header, the body and the enclosing loop of each.
+    The other fields are per instruction, in the order of the nodes, and carry no address.
+    Before 2026-11-27 they were left unshifted, and the checker rejected every loop
+    certificate of an executable linked away from 0 (none in the benchmark runs, which use
+    relocatable objects at 0)."""
+    if not base or not fields.get("loops"):
+        return fields
+    def lc(l):
+        out = dict(l, header=l["header"] + base, body=[a + base for a in l["body"]])
+        if "outer" in l:
+            out["outer"] = dict(header=l["outer"]["header"] + base, body=[a + base for a in l["outer"]["body"]])
+        return out
+    return dict(fields, loops=[lc(l) for l in fields["loops"]])
+
+
 def call_proofs(fields, in_cert, pre_of, names):
     """The proofs of the obligations of the calls of a function (`ThumbDataCore.callObs`, in
     its order): at each call (address order) of a function of the certificate with a
@@ -560,7 +580,7 @@ def certify(an, roots, mul=None, loops=False, abi=False, stats=None, frame=False
                     stats[name] = dict(certified=info, other=lwhy, seconds=secs, meter=meter)
             fn, B = certify_function(an, name, {addr_of[n]: b for n, b in bounds.items()}, base, cl)
             private = {k: v for k, v in fields.items() if k.startswith("_")}
-            fn.update({k: v for k, v in fields.items() if not k.startswith("_")})
+            fn.update({k: v for k, v in rebase_loops(fields, base).items() if not k.startswith("_")})
             funcs.append(fn)
             cert_fields[name] = (fn, dict(fields, **private))
             bounds[name] = B

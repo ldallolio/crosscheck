@@ -198,10 +198,12 @@ jobs:
           formalization/.lake/build/bin/crosscheck-check cycle-certificates/cycle-certificates/*.json cycle-certificates/cycle-certificates/rt/*.json | tee cycles-checked.txt
           echo "Cycle bounds accepted: $(grep -c '^ACCEPTED' cycles-checked.txt)" >> "$GITHUB_STEP_SUMMARY"
           if grep -E '^REJECTED|^PROGRAM .*REJECTED' cycles-checked.txt; then echo "a cycle certificate was rejected"; exit 1; fi
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy llvm-18
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-scipy llvm-18 gcc-arm-none-eabi
           python3 benchmarks/cycles/test_ipet.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_binloops.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_effect.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_jumptable.py --checker formalization/.lake/build/bin/crosscheck-check
+          python3 benchmarks/cycles/test_elf.py --checker formalization/.lake/build/bin/crosscheck-check
+          python3 benchmarks/hardware/test_micro.py --checker formalization/.lake/build/bin/crosscheck-check
           python3 benchmarks/cycles/test_thumb.py --checker formalization/.lake/build/bin/crosscheck-check \
             --objects cycle-certificates/benchmarks/tacle/.cache/work --objdump /usr/lib/llvm-18/bin/llvm-objdump

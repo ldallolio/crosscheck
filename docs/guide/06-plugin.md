@@ -388,7 +388,7 @@ Tools added on 2026-11-16:
 | Symbolic mode | option `symbolic` (`execLoop`, `synthesizeRanking(..., unbounded)`) | loops with a potential but no numeric bound; the parametric bound is produced as a certificate (ghosts for `x`, `-x`, `x - y`) |
 | Certified cycle bounds | `benchmarks/cycles/ipet.py` | IPET on the machine code, dual multipliers from scipy, integer potentials; format `crosscheck-binary-cycles` (code + instruction addresses + rows on address pairs), the checker decodes and builds the graph; `run_cycles.py --certify`, `crosscheck_link.py --certify`; `test_thumb.py` compares the Lean decoder |
 | Stack bounds | `benchmarks/cycles/stack.py` | high-water mark on the binary's control-flow graph, checked on every emulated call |
-| Qualification kit | `docs/qualification/` | requirements TOR-1..9 of the checker with evidence, checked by `check_traceability.py` |
+| Qualification kit | `docs/qualification/` | requirements TOR-1..13 of the checker with evidence, checked by `check_traceability.py` |
 
 ```mermaid
 flowchart LR

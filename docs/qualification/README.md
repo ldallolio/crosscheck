@@ -29,7 +29,7 @@ mini-C description (no signed overflow, no aliasing of the tracked variables).
 
 | File | Role |
 |---|---|
-| `requirements.yaml` | tool operational requirements (TOR-1 ... TOR-11), each with its evidence: Lean theorems, test files, CI steps, inspection notes |
+| `requirements.yaml` | tool operational requirements (TOR-1 ... TOR-13), each with its evidence: Lean theorems, test files, CI steps, inspection notes |
 | `check_traceability.py` | fails if a requirement has no evidence, a Lean name is not declared where stated, a test file is missing or a CI step is absent; prints the traceability matrix |
 | `run_tests.sh` | requirement-based tests not otherwise in CI: exit statuses (TOR-6), integers beyond 64 bits (TOR-7) |
 | `../../formalization/test/mutate_certificates.py` | robustness of the unverified reader (TOR-8): mutated certificates |
@@ -60,7 +60,9 @@ All three run in CI (`.github/workflows/lean_build.yml`).
 |---|---|---|
 | Lean's kernel | it checks the proofs | independent re-checking of the proofs is possible with an external checker (not done here) |
 | Lean's compiler and runtime, the C compiler | the theorems are about the definitions, the executable is compiled from them | requirement-based tests on the executable; mutation test |
-| `CheckerMain.lean` (JSON reader, printing, exit status), about 700 lines | not verified | mutation test (TOR-8), exit-status tests (TOR-6), altered cycle certificates (TOR-10, TOR-11); small enough for review |
+| `CheckerMain.lean` (JSON reader, printing, exit status), about 970 lines | not verified | mutation test (TOR-8), exit-status tests (TOR-6), altered cycle certificates (TOR-10, TOR-11); small enough for review |
+| `ElfCore.lean` (the ELF reader of `--elf`), about 250 lines | not verified: a reading of the file, the same as `m0.py`'s loader | written ELF files, accepted and altered (TOR-13, `test_elf.py`); small enough for review |
+| That the board runs the file as `ElfCore` reads it (an executable at its section addresses; for an object, the checker's own placement) | outside the checker | flash the same file that was checked |
 | The cost semantics of certificate programs (`Language.lean`) | it is the definition the theorems refer to | read it: `Exec`, `Pre`; the independent interpreter `cert_interp.py` implements it a second time |
 | For VALIDATED: the mini-C exporter and "C function = its mini-C description" | outside the checker | exporter tests (`tests/c/minic.c`), comparison of interpreted mini-C with compiled C on random programs (`tests/fuzz_bounds.py`) |
 | Weights of the cost model; "cost unit = time" | a certificate bounds a cost, not a time | stated in every report; see Paper II, Limitations |

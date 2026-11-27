@@ -11,6 +11,7 @@ import ImperativeOptimization.ResponseCore
 import ImperativeOptimization.CyclesCore
 import ImperativeOptimization.ThumbCore
 import ImperativeOptimization.ThumbDataCore
+import ImperativeOptimization.ElfCore
 
 /-!
 # `crosscheck-check`: the certificate checker as a program
@@ -64,6 +65,12 @@ certified loops hold on every run of the data semantics, so only the rows left i
 are trusted). The rows of the certified loops are generated here by `Thumb.loopRow`, and
 the graphs are built with them. `--decode FILE` prints the decoding of the addresses listed in FILE (for
 differential tests of the decoder).
+
+`--elf FILE` (with certificates on machine code): the certificate's code is first compared with
+the ELF file it was made from (`ImperativeOptimization.Elf.check`: the file read as
+`benchmarks/cycles/m0.py` reads it, an executable at its addresses or a relocatable object
+linked by the checker; every halfword, and the entry of every function against its symbol); a
+difference rejects the certificate. Without it, that the code is the binary's is trusted.
 
 Exit status: 0 if every certificate is accepted, 1 if one is rejected, 2 on a malformed
 input.
@@ -614,7 +621,7 @@ def parseBinaryFile (j : Json) :
     | .error _ => false
   pure (← getNat j "mul_cycles", abi, ← parseCode j, progs)
 
-def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code)
+def runBinary (codeNote : String) (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code)
     (progs : List (String × List (String × ImperativeOptimization.Thumb.BFun × ImperativeOptimization.Cycles.Cert ×
       ImperativeOptimization.Thumb.DFun))) :
     IO UInt32 := do
@@ -655,12 +662,12 @@ def runBinary (mul : Nat) (abi : Bool) (code : ImperativeOptimization.Thumb.Code
         else s!"callees assumed to preserve r4-r11 and SP (the calling convention is not established on the code of {noConv.length} function(s): {", ".intercalate noConv})"
       let jumps := (if nJump > 0 then s!"; {nJump} jumps through tables, their targets checked on the code" else "") ++ fars
       let pres := if nPre > 0 then s!"; {nPre} function(s) with a precondition on their arguments, proved at every call (their bounds hold for runs that start in it)" else ""
-      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}{pres}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted)"
+      IO.println s!"PROGRAM  {pname}: {if okP && okD then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles; {nCert} loop rows certified on the machine code, {nTrust} trusted{jumps}{pres}; {callees}{if Ls.any (·.frame) then s!", {(Ls.filter (·.frame)).length} frames assumed written only through SP" else ""}; the decoder, the timing table and the effects of the instructions are trusted; {codeNote})"
       if !(okP && okD) then status := 1
     else
       -- the decision of the verified `checkBinary` (theorem `Thumb.binary_sound`)
       let okP := ImperativeOptimization.Thumb.checkBinary mul code fs (funs.map (·.2.2.1))
-      IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles{fars}; the decoder, the timing table and the loop rows are trusted)"
+      IO.println s!"PROGRAM  {pname}: {if okP then "ACCEPTED" else "REJECTED"} (cycle bounds of the machine code; MULS {mul} cycles{fars}; the decoder, the timing table and the loop rows are trusted; {codeNote})"
       if !okP then status := 1
   return status
 
@@ -818,10 +825,29 @@ def main (args : List String) : IO UInt32 := do
   let printIt := args.contains "--print"
   let decodeIt := args.contains "--decode"
   let effectIt := args.contains "--effect"
+  -- `--elf FILE`: the ELF file the certificates on machine code were made from
+  let rec elfOf : List String → Option String × List String
+    | "--elf" :: f :: rest => let (_, r) := elfOf rest; (some f, r)
+    | a :: rest => let (e, r) := elfOf rest; (e, a :: r)
+    | [] => (none, [])
+  let (elfPath, args) := elfOf args
   let files := args.filter (fun a => a != "--print" && a != "--decode" && a != "--effect")
-  if files.isEmpty then
-    IO.eprintln "usage: crosscheck-check [--print | --decode | --effect] FILE.json..."
+  if files.isEmpty || args.contains "--elf" then
+    IO.eprintln "usage: crosscheck-check [--print | --decode | --effect] [--elf BINARY] FILE.json..."
     return 2
+  let elf ← match elfPath with
+    | none => pure none
+    | some f => do
+      match ← (IO.FS.readBinFile f).toBaseIO with
+      | .error e =>
+        IO.eprintln s!"{f}: {e}"
+        return 2
+      | .ok d =>
+        match ImperativeOptimization.Elf.load d with
+        | .error e =>
+          IO.eprintln s!"{f}: {e}"
+          return 2
+        | .ok im => pure (some (f, im))
   let mut status : UInt32 := 0
   for path in files do
     let read ← (IO.FS.readFile path).toBaseIO
@@ -850,7 +876,17 @@ def main (args : List String) : IO UInt32 := do
         IO.eprintln s!"{path}: malformed binary cycle certificate file: {e}"
         return 2
       | .ok (mul, abi, code, progs) =>
-        status := max status (← runBinary mul abi code progs)
+        match elf with
+        | none =>
+          status := max status (← runBinary "that the code is the binary's is trusted (no --elf)" mul abi code progs)
+        | some (f, im) =>
+          let fns := progs.flatMap fun (_, funs) => funs.map fun (n, F, _) => (n, F.entry)
+          match ImperativeOptimization.Elf.check im code.base code.hw fns with
+          | some e =>
+            IO.println s!"REJECTED {path}: the certificate's code is not the code of {f}: {e}"
+            status := max status 1
+          | none =>
+            status := max status (← runBinary s!"the code and the function entries checked against {f}" mul abi code progs)
       continue
     if (Json.parse text).toOption.bind (fun j => (j.getObjValAs? String "format").toOption) == some "crosscheck-cycles" then
       match Json.parse text >>= parseCyclesFile with

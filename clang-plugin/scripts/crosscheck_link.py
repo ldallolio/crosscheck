@@ -66,7 +66,8 @@ TRUSTED_COMMON = ["no interrupt is taken while the function runs",
 TRUSTED_M0 = ["the Cortex-M0 timing table of m0.py (zero-wait-state memory)"] + TRUSTED_COMMON
 TRUSTED_CERTIFIED = ["the Lean specification of the Cortex-M0 (Thumb.decode: instruction decoding and cycles, "
                      "zero-wait-state memory)",
-                     "that the code in the cycle certificate is the binary's (copied by ipet.py)",
+                     "that the binary is loaded as the checker reads it (its code and function entries are "
+                     "checked against the certificate by crosscheck-check --elf; an object is placed by the checker)",
                      "the Lean checker (theorem Thumb.binary_sound)"] + TRUSTED_COMMON
 
 
@@ -116,7 +117,9 @@ def m0_bounds(a, names, bounds, roots):
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(a.cycle_certificate or pathlib.Path(d) / "cycles.json")
             path.write_text(json.dumps(doc, indent=1) + "\n")
-            out = subprocess.run([a.checker, str(path)], capture_output=True, text=True) if doc["programs"] else None
+            # the code of the certificate checked against the binary (`--elf`)
+            out = subprocess.run([a.checker, "--elf", a.binary, str(path)], capture_output=True,
+                                 text=True) if doc["programs"] else None
         ok = out is not None and out.returncode == 0 and "PROGRAM  program: ACCEPTED" in out.stdout
         for sym in roots:
             if sym not in img.funcs:

@@ -145,9 +145,11 @@ limitation, it says so.
   against hardware yet: a harness for an STM32F0 board exists (`benchmarks/hardware/hw.py`:
   timer around `main`, compared with the emulator and the certified bound) but has not been
   run on a board. A validated ISA model (Fox and Myreen, HOL4) is the standard to aim at.
-- **"How do you know the code in the certificate is the binary?"** We don't prove it: the
-  certificate carries a copy of the code region; a deployment would compare it with the
-  flashed image (a hash).
+- **"How do you know the code in the certificate is the binary?"** The checker reads it
+  from the ELF file (`crosscheck-check --elf`): every halfword and every function entry must
+  agree with the file. What remains trusted is that the file is loaded as read (an
+  executable at its section addresses; an object as the checker links it), and that the
+  board is flashed with that file.
 - **"Your loop bounds come from the source; the compiler may change loops."** For the loops
   certified on the code, no: the bound is proved on the instructions. For the others, the
   match through debug lines is trusted and checked on emulated runs. That check only sees

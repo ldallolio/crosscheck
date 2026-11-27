@@ -214,8 +214,15 @@ another not-taken branch is not charged as taken) and maximizes over consistent 
 counts rather than adding a longest iteration and a longest exit path; how much each
 contributes was not measured. What the check removes from the trusted base is the analysis
 of the binary, the graph construction and the computation of the bound; the Lean
-specification of the processor (`Thumb.decode`), the copy of the code into the
-certificate and the loop bounds (rows) stay trusted.
+specification of the processor (`Thumb.decode`) and the loop bounds (rows) stay trusted.
+Since 2026-11-27 the checker reads the code from the ELF file itself (`crosscheck-check
+--elf`, module `ElfCore`; passed by `run_cycles.py` and `crosscheck_link.py`; tests
+`test_elf.py`), so the copy of the code into the certificate is checked: what stays trusted
+is that the binary is loaded as the checker reads it (for a relocatable object, placed and
+relocated as `m0.load` does, that the final link preserves the bound). The same change made
+the loop certificates of executables linked away from address 0 valid: their loop headers
+and bodies had been written without the base address, and the checker rejected them (the
+runs here use objects at 0; `ipet.rebase_loops`).
 
 The Lean decoder is compared by `test_thumb.py` (CI) with `m0.py` on every 16-bit encoding
 (each followed by a `BL` second half and by zero: 131,072 cases, size, kind, target and

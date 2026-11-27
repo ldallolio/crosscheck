@@ -228,8 +228,8 @@ for each kind of result; everything else is checked.
 | Bound printed by the plugin, no certificate | The plugin (C++), Z3, the cost model, the annotations |
 | Bound with a certificate accepted by the checker | Lean's kernel and compiler; the checker's reading of the JSON file; that the certificate's program models the C function; the annotations |
 | … and validated against mini-C | The same, except the model: replaced by the export to mini-C (a syntactic copy) and its stated hypotheses (no signed overflow, no aliasing of tracked variables) |
-| Cycle bound of a binary, certified | The Lean specification of the Cortex-M0 (decoder, cycle table), that the code in the certificate is the binary's, the loop bounds (rows) |
-| … with loop bounds certified on the code | The specification (now also: effects of the instructions on registers, flags, stack pointer and memory); that the code is the binary's; the stated assumptions on callees (`abi`, `frame`), if used |
+| Cycle bound of a binary, certified | The Lean specification of the Cortex-M0 (decoder, cycle table), that the binary is loaded as the checker reads its ELF file (`--elf`), the loop bounds (rows) |
+| … with loop bounds certified on the code | The specification (now also: effects of the instructions on registers, flags, stack pointer and memory); that the binary is loaded as the checker reads it; the stated assumptions on callees (`abi`, `frame`), if used |
 
 What is never covered: interrupts arriving during the function (unless the response-time
 analysis of Paper I is used), and the hardware behaving as its manual says. The Cortex-M0
