@@ -252,7 +252,7 @@ while (i < n && ?break0 <= 0) {
 
 `continue` sets `?continue<d>` (cleared at the start of each iteration; the increment
 still runs); `return` pays its cost, sets `?return`, and what follows the loop runs under
-`if (?return <= 0)`. Since prompt 46 this rewriting is done by the checker (`MiniC.elim`)
+`if (?return <= 0)`. Since 2026-11-16 this rewriting is done by the checker (`MiniC.elim`)
 and proved (`MiniC.sim`, `validatedJ_sound`); it costs one loop test more than C after a
 jump. A `switch` group is under `?case<d> := ?; if (?case<d> <= 0)`, one variable per
 `switch` nesting depth. `fuzz_bounds.py` interprets the exported source with its direct

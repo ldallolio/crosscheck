@@ -191,11 +191,11 @@ limitation, it says so.
 
 ## 8. AI use
 
-Most code, proofs and text were written by an AI assistant at the author's request; every
-prompt is in `AI_USAGE.md`. The assistant did the checks that a script or a document could
+Most code, proofs and text were written by an AI assistant at the author's request; `AI_USAGE.md`
+records how, part by part. The assistant did the checks that a script or a document could
 settle (definitions against Lean, the Cortex-M0 timing table, the loop instrumentation, the
 figures, the bibliography data) and read the cited passages of the works the author
-provided; `AI_USAGE.md` section 3 records them. Each paper ends with the author's statement
+provided; `AI_USAGE.md` section 4 records them. Each paper ends with the author's statement
 of responsibility; the papers carry no marks left for the author.
 
 ## 9. Known weak points, ranked

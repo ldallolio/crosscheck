@@ -187,11 +187,10 @@ Axioms: only Lean's standard `propext`, `Quot.sound`, `Classical.choice` may app
 - Removed on purpose in the Nov 2026 simplification (author-approved): the `Σ^∞` cpo / Kleene
   theorem (now a remark), the `≼_O` preorder, the subsequence order, operad / KAT / Higman
   remarks, the store-rule subsections, "Program Synthesis" in the title.
-- Bibliography style `unsrt`. Every `\cite` key resolves. Entries added by AI come from model
-  memory unless noted in `AI_USAGE.md`; never add a reference you cannot substantiate, and never
-  guess a missing key silently — record the guess in `AI_USAGE.md`. On 2026-11-13 every entry
-  was checked against Crossref, DataCite or Open Library (see `AI_USAGE.md`); check new entries
-  the same way.
+- Bibliography style `unsrt`. Every `\cite` key resolves. Never add a reference you cannot
+  substantiate, and never guess a missing key silently: ask the author. Every entry was
+  checked against Crossref, DataCite or Open Library (`AI_USAGE.md` §4); check new entries the
+  same way.
 - Macros: `\lean{name}` for Lean identifiers (breakable), `\sem{t}` for the valuation,
   `\cost`, `\depth`, `\leaves`, `\lfp`, `\bigstep`. The papers carry no marks for the author
   (the `\authortodo` macro was removed on 2026-11-22): a point that needs the author is raised
@@ -267,14 +266,17 @@ tool (including you) touches mathematical content:
 
 1. **Human responsibility comes first.** The author must understand every argument, verify it
    personally and take full responsibility. Never write text asserting that the author has
-   verified something. Raise what needs the author in the session; record in `AI_USAGE.md` §3
+   verified something. Raise what needs the author in the session; record in `AI_USAGE.md` §4
    (review record) what the AI checked, never an open to-do list.
-2. **Record the AI use** in `AI_USAGE.md`: date, tool, exact model name(s), the prompts
-   verbatim, a summary of the reasoning and of what changed. Record only what bears on the
-   theory, the Lean code, the tools and their tests; leave out publication logistics
-   (archiving, metadata, licences, endorsement), commit/push requests and advice that changed
-   nothing (author's decision, 2026-11-22). Time and tokens are measured from
-   the transcripts; the monetary cost is not recorded (author's decision, 2026-11-22). Keep the paper's "Statement on the Use of AI" consistent with that file.
+2. **Record the AI use** in `AI_USAGE.md`, as a summary for publication, not a log
+   (author's decision, 2026-11-27): tools and exact model names, period, time and tokens
+   (measured from the transcripts; the monetary cost is not recorded), what the assistant
+   produced in each part of the project and how each part is checked, and the review record.
+   Do not quote prompts, and do not record discussions, brainstorming, abandoned attempts,
+   errors along the way or requests for help: the git history and the results carry what is
+   needed to reproduce the work. When a part of the project changes substantially, update its
+   paragraph in §2 instead of appending entries. Keep each paper's "Statement on the Use of
+   AI" consistent with that file.
 3. **Literature.** Search for prior work and cite the papers where ideas were first introduced,
    even if rediscovered independently. Do not present classical results as new (see the
    "Positioning" subsection). Do not cite from memory: read the cited passage (the author
@@ -288,12 +290,12 @@ tool (including you) touches mathematical content:
    history (arXiv for the paper; an archived, tagged revision for the Lean code).
 7. **No marketing.** No superlatives or unverifiable claims ("uniquely", "fully", "zero ...").
 
-How each item is met is in `AI_USAGE.md` §2; the repository keeps no list of open items.
+How each item is met is in `AI_USAGE.md` §3; the repository keeps no list of open items.
 
 ## Current focus
 1. **Release** (Papers I and II on arXiv): code public, tag `v1.0`, archived (Zenodo
    `doi:10.5281/zenodo.24425070`, concept `doi:10.5281/zenodo.24425069`; Software Heritage);
    `docs/release-record.md`. `main` is the released branch.
 2. Paper III: its evaluation follows `benchmarks/cycles/README.md`.
-3. The history of the work is in `AI_USAGE.md` (the planning documents of November 2026
-   were removed on 2026-11-22; they are in git history).
+3. The history of the work is in git (the planning documents of November 2026 were removed
+   on 2026-11-22); `AI_USAGE.md` summarises the AI's part.

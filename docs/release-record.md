@@ -1,6 +1,6 @@
 # Release record of Papers I and II (arXiv) and of the code
 
-Prepared by the AI assistant (prompts 83 and 107 of `AI_USAGE.md`). It records the checks
+Prepared by the AI assistant (2026-11-21 and 2026-11-22). It records the checks
 made and the reproduction of Paper II's figures. The author's review of the papers is the
 subject of the statement in each paper, not of this file.
 
@@ -23,10 +23,10 @@ Heritage `swh:1:rel:70c77563037e6db2a55b48b3ad4963c86a67773f`; cited in the thre
 | Citations of web documentation | `clangeffects` and `infercost` read: both citing sentences are supported |
 | Wording | No superlatives or priority claims ("first", "novel", "uniquely", "fully"...) in Papers I and II |
 | AI statement | Models corrected: Claude Haiku 5.5 also appears in the transcripts (inside the component that reads web pages); added to the three statements and to `AI_USAGE.md` |
-| Time and compute | Measured from the local transcripts and recorded in `AI_USAGE.md` §2 (about 76 hours of active session time, 5.8 million output tokens); cost left to the author |
+| Time and compute | Measured from the local transcripts and recorded in `AI_USAGE.md` §1 (at the release: about 76 hours of active session time, 5.8 million output tokens); cost left to the author |
 | arXiv bundles | `python3 paper/make_arxiv.py theory tool binary`: each paper with its `.bbl`, references to the other papers' results replaced by their numbers (no `xr`, no `.aux` of another paper), compiled alone three times without warnings; the text of each bundle's PDF is identical to the normal build. Files in `paper/arxiv/` (gitignored) |
 | Defects found and fixed | (1) CI: the two certificate-checking steps of `plugin_build.yml` piped the checker into `tee`, which hides its exit status (no `pipefail`): a rejected certificate would not have failed CI. They now test the checker's output (tested locally with a mutated certificate). (2) DEBIE's `Switch_SU_State` is exported and not validated (the generator tracks a field read through a pointer, the exporter writes an unknown value); the checker is right to refuse it; Paper II and `benchmarks/tacle/README.md` now say so (they gave the 309 validated without it). |
-| Clean-up (prompts 86-88) | `main` = the working branch, CI green on GitHub (first run since 2026-11-12); copyright headers everywhere; no lint finding, no compiler warning; READMEs give current figures, history in a final section; planning documents marked historical |
+| Clean-up | `main` = the working branch, CI green on GitHub (first run since 2026-11-12); copyright headers everywhere; no lint finding, no compiler warning; READMEs give current figures, history in a final section; planning documents marked historical |
 | Repository metadata | `CITATION.cff`, `.zenodo.json`, `README.md` rewritten (the old one claimed "operadic tree algebras", removed from the papers, and that the open-source release was "planned" although the code is MIT-licensed) |
 
 ## E. Reproduction on 2026-11-21
