@@ -86,6 +86,7 @@ std::string Report::toJson() const {
     if (f.deadlineCycles) out += ",\n      \"deadline_cycles\": " + std::to_string(*f.deadlineCycles);
     if (f.deadlineUs) out += ",\n      \"deadline_us\": " + std::to_string(*f.deadlineUs);
     out += ",\n      \"solver_work\": " + std::to_string(f.solverWork);
+    out += ",\n      \"solver_timeouts\": " + std::to_string(f.solverTimeouts);
     out += ",\n      \"search_budget_exhausted\": " + std::string(f.budgetExhausted ? "true" : "false");
     out += ",\n      \"assumptions\": " + strings(f.assumptions);
     out += ",\n      \"errors\": " + strings(f.errors);

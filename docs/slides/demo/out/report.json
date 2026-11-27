@@ -17,6 +17,7 @@
       "certificate_bound": 85,
       "certificate_summary": "85",
       "solver_work": 19,
+      "solver_timeouts": 0,
       "search_budget_exhausted": false,
       "assumptions": [],
       "errors": []
@@ -39,6 +40,7 @@
       "certificate_summary": "5 + 94*max(0,n)",
       "deadline_us": 500,
       "solver_work": 234,
+      "solver_timeouts": 0,
       "search_budget_exhausted": false,
       "assumptions": ["preconditions of 'fir_peak' hold at its external call sites"],
       "errors": []

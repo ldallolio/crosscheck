@@ -82,6 +82,9 @@ struct FunctionReport {
   /// expressions over the parameter names, for the ACSL export.
   std::vector<std::string> requires_;
   std::uint64_t solverWork = 0;  ///< solver work of the analysis (`solverCalls`, with callees analysed for it)
+  /// Z3 queries of the analysis stopped by the wall-clock backstop (`solverTimeouts`): when not
+  /// 0, the result may differ on another machine.
+  std::uint64_t solverTimeouts = 0;
   /// The search budget (option `budget`) ran out: optional searches were skipped.
   bool budgetExhausted = false;
   std::vector<std::string> assumptions;  ///< everything trusted, not proved

@@ -444,6 +444,7 @@ struct LoopPotential {
 struct FnCtx {
   const FunctionDecl* fn = nullptr;
   std::uint64_t queriesAtStart = 0;  ///< `solverCalls()` when the analysis started
+  std::uint64_t timeoutsAtStart = 0; ///< `solverTimeouts()` when the analysis started
   std::uint64_t lowerings = 0;       ///< loop bodies lowered for the certificate
   std::map<const Stmt*, LoopPotential> potentials;
   std::map<const CallExpr*, SummaryKey> callKeys;
@@ -2970,6 +2971,7 @@ const Contract& Analyzer::contractOf(const FunctionDecl* def) {
   FnCtx& fc = cur();
   fc.fn = def;
   fc.queriesAtStart = solverCalls();
+  fc.timeoutsAtStart = solverTimeouts();
   fc.speculative = 1;  // nothing is reported from here
   enterFunction(def, fc);
   Contract ct{fc.summary.paramSyms, fc.summary.requires_};
@@ -3076,6 +3078,7 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   FnCtx& fc = cur();
   fc.fn = def;
   fc.queriesAtStart = solverCalls();
+  fc.timeoutsAtStart = solverTimeouts();
   FunctionReport& rep = fc.summary.report;
   rep.name = def->getQualifiedNameAsString();
   {
@@ -3230,6 +3233,7 @@ const Summary& Analyzer::analyzeFunction(const FunctionDecl* def, const Context&
   }
 
   rep.solverWork = solverCalls() - fc.queriesAtStart;
+  rep.solverTimeouts = solverTimeouts() - fc.timeoutsAtStart;
   fc.summary.potentials =
       std::make_shared<const std::map<const Stmt*, LoopPotential>>(fc.potentials);
   fc.summary.tracked = fc.tracked;

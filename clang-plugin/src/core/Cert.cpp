@@ -3,6 +3,8 @@
 
 #include <z3++.h>
 
+#include "Z3Limits.hpp"
+
 #include <algorithm>
 #include <functional>
 #include <limits>
@@ -14,12 +16,6 @@ namespace crosscheck::cert {
 
 namespace {
 
-// Every Z3 query is limited by Z3's resource counter (`rlimit`, per query), not by time, so that
-// the answers are the same on every machine and under any load (a wall-clock timeout made them
-// depend on both). An exhausted query answers "unknown", which every caller treats as
-// "not proved". On TACLeBench (kernels and larger programs, 2026-11-27) the largest query
-// used 187k units (0.06 s); the limit leaves a factor of about 270.
-constexpr unsigned kRlimit = 50000000;
 constexpr std::size_t kMaxConstraints = 64;
 
 std::int64_t at(const Vec& v, std::size_t i) { return i < v.size() ? v[i] : 0; }
@@ -359,10 +355,10 @@ bool feasible(const Assn& p) {
     z3::context ctx;
     z3::solver s(ctx);
     z3::params prm(ctx);
-    prm.set("rlimit", kRlimit);
+    z3limits::apply(prm);
     s.set(prm);
     for (const Lin& e : p) s.add(eval(ctx, e) <= 0);
-    return s.check() != z3::unsat;
+    return z3limits::check(s) != z3::unsat;
   } catch (const z3::exception&) {
     return true;
   }
@@ -395,7 +391,7 @@ std::optional<Farkas> farkas(const Assn& p, const Lin& g) {
     z3::context ctx;
     z3::solver s(ctx);
     z3::params prm(ctx);
-    prm.set("rlimit", kRlimit);
+    z3limits::apply(prm);
     s.set(prm);
     std::vector<z3::expr> lam;
     for (std::size_t i = 0; i < p.size(); ++i) {
@@ -417,7 +413,7 @@ std::optional<Farkas> farkas(const Assn& p, const Lin& g) {
     for (std::size_t i = 0; i < p.size(); ++i)
       if (p[i].c != 0) q = q + lam[i] * ctx.real_val(static_cast<int64_t>(p[i].c));
     s.add(ctx.real_val(static_cast<int64_t>(g.c)) - q <= 0);
-    if (s.check() != z3::sat) return std::nullopt;
+    if (z3limits::check(s) != z3::sat) return std::nullopt;
     z3::model m = s.get_model();
     std::vector<std::int64_t> num(p.size()), den(p.size());
     std::int64_t l = 1;
@@ -466,12 +462,12 @@ std::optional<std::int64_t> upperBound(const Assn& p, const PExp& e) {
     z3::context ctx;
     z3::optimize o(ctx);
     z3::params prm(ctx);
-    prm.set("rlimit", kRlimit);
+    z3limits::apply(prm);
     o.set(prm);
     for (const Lin& c : p) o.add(eval(ctx, c) <= 0);
     z3::expr t = linExpr(ctx, e.sv, "x") + ctx.real_val(static_cast<int64_t>(e.c));
     z3::optimize::handle h = o.maximize(t);
-    if (o.check() != z3::sat) return std::nullopt;
+    if (z3limits::check(o) != z3::sat) return std::nullopt;
     z3::expr v = o.upper(h);
     std::int64_t num, den;
     if (!rational(v, num, den) || den <= 0) return std::nullopt;

@@ -3,6 +3,8 @@
 
 #include <z3++.h>
 
+#include "Z3Limits.hpp"
+
 #include <memory>
 #include <set>
 #include <string>
@@ -13,12 +15,6 @@ namespace crosscheck {
 
 namespace {
 
-// Every Z3 query is limited by Z3's resource counter (`rlimit`, per query), not by time, so that
-// the answers are the same on every machine and under any load (a wall-clock timeout made them
-// depend on both). An exhausted query answers "unknown", which every caller treats as
-// "not proved". On TACLeBench (kernels and larger programs, 2026-11-27) the largest query
-// used 187k units (0.06 s); the limit leaves a factor of about 270.
-constexpr unsigned kRlimit = 50000000;
 
 z3::expr intConst(z3::context& ctx, std::int64_t v) {
   return ctx.int_val(static_cast<int64_t>(v));
@@ -138,10 +134,10 @@ bool feasibleClosedRaw(const std::vector<Constraint>& closed) {
     z3::context& ctx = sharedContext();
     z3::solver solver(ctx);
     z3::params p(ctx);
-    p.set("rlimit", kRlimit);
+    z3limits::apply(p);
     solver.set(p);
     for (const Constraint& c : closed) solver.add(encodeInt(ctx, c.e) <= 0);
-    return solver.check() != z3::unsat;
+    return z3limits::check(solver) != z3::unsat;
   } catch (const z3::exception&) {
     return true;
   }
@@ -218,6 +214,8 @@ bool isFeasible(const SymbolTable& syms, const std::vector<Constraint>& facts) {
 
 std::uint64_t solverCalls() { return callCounter(); }
 
+std::uint64_t solverTimeouts() { return z3limits::timeouts(); }
+
 bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
              const Constraint& goal) {
   if (goal.e.poisoned()) return false;
@@ -235,11 +233,11 @@ bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
     z3::context& ctx = sharedContext();
     z3::solver solver(ctx);
     z3::params p(ctx);
-    p.set("rlimit", kRlimit);
+    z3limits::apply(p);
     solver.set(p);
     for (const Constraint& c : closed) solver.add(encodeInt(ctx, c.e) <= 0);
     solver.add(encodeInt(ctx, goal.e) > 0);
-    return solver.check() == z3::unsat;
+    return z3limits::check(solver) == z3::unsat;
   } catch (const z3::exception&) {
     return false;
   }
@@ -265,12 +263,12 @@ std::optional<Interval> boundsOf(const SymbolTable& syms, const std::vector<Cons
       z3::context& ctx = sharedContext();
       z3::optimize opt(ctx);
       z3::params p(ctx);
-      p.set("rlimit", kRlimit);
+      z3limits::apply(p);
       opt.set(p);
       for (const Constraint& c : closed) opt.add(encodeInt(ctx, c.e) <= 0);
       z3::expr target = encodeInt(ctx, e);
       z3::optimize::handle h = upper ? opt.maximize(target) : opt.minimize(target);
-      z3::check_result r = opt.check();
+      z3::check_result r = z3limits::check(opt);
       if (r == z3::unsat) return std::nullopt;
       if (r == z3::sat) {
         z3::expr v = upper ? opt.upper(h) : opt.lower(h);
@@ -328,7 +326,7 @@ std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
     z3::context ctx;
     z3::optimize opt(ctx);
     z3::params p(ctx);
-    p.set("rlimit", kRlimit);
+    z3limits::apply(p);
     opt.set(p);
 
     std::vector<z3::expr> w;
@@ -373,7 +371,7 @@ std::optional<RankingResult> synthesizeRanking(const SymbolTable& syms,
       opt.minimize(size);
     }
 
-    if (opt.check() != z3::sat) return std::nullopt;
+    if (z3limits::check(opt) != z3::sat) return std::nullopt;
     z3::model m = opt.get_model();
 
     RankingResult result;
@@ -426,7 +424,7 @@ std::optional<RankingResult> synthesizeSizePotential(const SymbolTable& syms,
     z3::context ctx;
     z3::optimize opt(ctx);
     z3::params prm(ctx);
-    prm.set("rlimit", kRlimit);
+    z3limits::apply(prm);
     opt.set(prm);
 
     std::vector<z3::expr> w;
@@ -456,7 +454,7 @@ std::optional<RankingResult> synthesizeSizePotential(const SymbolTable& syms,
     opt.add(bound >= 1);
     opt.minimize(bound);
 
-    if (opt.check() != z3::sat) return std::nullopt;
+    if (z3limits::check(opt) != z3::sat) return std::nullopt;
     z3::model m = opt.get_model();
 
     RankingResult result;

@@ -161,7 +161,7 @@ def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None,
 
     error_lines = {int(m.group(1)) for m in map(DIAG_RE.search, proc.stderr.splitlines()) if m}
     derived, in_ctx, main, program = {}, {}, None, None
-    assumptions = 0
+    assumptions = timeouts = 0
     bounded_fns = certified = cert_equal = cert_lower = 0
     uncertified = []
     for f in rep["functions"]:
@@ -174,6 +174,7 @@ def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None,
             elif f.get("certificate"):
                 uncertified.append(f"{f['name']}: {f['certificate']}")
         assumptions += len(f.get("assumptions") or [])
+        timeouts += f.get("solver_timeouts") or 0
         if f["name"] == u.main:
             main = f
         if f["name"] == "main":
@@ -193,7 +194,8 @@ def run_kernel(tool, kdir, work: pathlib.Path, extra, certdir=None, ffxdir=None,
                bounded_functions=bounded_fns, certified=certified, certified_equal=cert_equal,
                certified_lower=cert_lower, uncertified=uncertified,
                main_certified=bool(main and main.get("certificate") == "emitted"),
-               assumptions=assumptions, seconds=round(seconds, 1), details=[], ctx_details=[])
+               assumptions=assumptions, seconds=round(seconds, 1), details=[], ctx_details=[],
+               solver_timeouts=timeouts)  # Z3 queries stopped by the wall-clock backstop
     for line, mx in sorted(pragmas(unit.read_text(errors="replace").splitlines()).items()):
         row["loops"] += 1
         c = in_ctx.get(line)
@@ -290,9 +292,12 @@ def main():
         r = run_kernel(a.tool, k, work, a.extra_arg, certdir, ffxdir, a.minic, a.tool_opt)
         rows.append(r)
         print(f"{r['kernel']:16s} " + " ".join(f"{c}={r[c]}" for c in COLS)
-              + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s", file=sys.stderr)
+              + f" main={'ok' if r['main_ok'] else 'no'} {r['seconds']}s"
+              + (f" solver_timeouts={r['solver_timeouts']} (results may depend on the machine)"
+                 if r['solver_timeouts'] else ""), file=sys.stderr)
     total = {c: sum(r[c] for r in rows) for c in COLS + CTX}
-    for c in ("bounded_functions", "certified", "certified_equal", "certified_lower", "main_certified"):
+    for c in ("bounded_functions", "certified", "certified_equal", "certified_lower", "main_certified",
+              "solver_timeouts"):
         total[c] = sum(r.get(c, 0) for r in rows)
     if certdir:
         print(f"certificates: {total['certified']} of {total['bounded_functions']} bounded functions "

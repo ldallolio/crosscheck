@@ -132,11 +132,14 @@ the optional searches once spent and caps the refinement at two rounds, dropping
 that is not yet inductive (`searchBudgetLeft`). `cjpeg_transupp`: 2,277 s → 742 s
 (cache) → 376 s (budget), same bounds.
 
-Since 2026-11-27 no Z3 query has a time limit: each is limited by Z3's resource counter
-(`rlimit`, 50 million units per query), so that the answers no longer depend on the speed or
-the load of the machine. The 10-second timeouts it replaces were never reached on TACLeBench
-(the largest of about 400,000 queries used 187,000 units, 0.06 s); the kernels' reports and
-certificates are identical with either limit.
+Since 2026-11-27 each Z3 query is limited first by Z3's resource counter (`rlimit`, 50
+million units per query), whose answer does not depend on the speed or the load of the
+machine. The 10-second timeout stays as a backstop, because Z3 4.8.12 (Ubuntu 24.04, used by
+CI) does not stop every query by the counter: with the counter alone, `cosf` ran for more than
+30 minutes there. The report counts, per function, the queries that the backstop stopped
+(`solver_timeouts`); `run_tacle.py` prints them. With Z3 5.1.0 the timeout was never reached
+on TACLeBench (the largest of about 416,000 queries used 187,000 units, 0.06 s), and the
+kernels' reports and certificates are identical with or without the counter.
 
 | Construct | How the analysis reads it |
 |---|---|

@@ -27,6 +27,10 @@ bool entails(const SymbolTable& syms, const std::vector<Constraint>& facts,
 /// analysis effort, roughly proportional to its time, used for the search budget.
 std::uint64_t solverCalls();
 
+/// The Z3 queries of this thread so far that the wall-clock backstop stopped (`Z3Limits.hpp`):
+/// their answers ("not proved") may depend on the machine.
+std::uint64_t solverTimeouts();
+
 /// A closed integer interval with optional ends.
 struct Interval {
   std::optional<std::int64_t> lo, hi;
