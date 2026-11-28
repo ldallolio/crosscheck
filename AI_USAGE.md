@@ -41,7 +41,7 @@ measurements and the checks listed in Section 4, and reported what it could not 
 - **Lean (written by the assistant, checked by the Lean kernel).** `WhileLoop`, `Ranking`,
   `Recursion`, `Certificate`, `Arity`, `Language` (cost logic with procedures and recursion,
   soundness), `Checker` and `CheckerCore` (the certificate checker, symbolic and quadratic
-  bounds, calls, contracts, amortised and logarithmic loops), `MiniC`, `MiniCCore`,
+  bounds, calls, contracts, amortised and logarithmic loops, size facts of loops, assumptions), `MiniC`, `MiniCCore`,
   `MiniCJump`, `MiniCJumpCore` (validation against the source), `ResponseCore`,
   `Interrupts`, `ForkJoin`, `Stack`, `Norms`, `Branching`, `Divergence`, and extensions of
   the author's modules `Trace`, `Tree`, `Dominance`, `FixedPoint`, `OperationalSemantics`,
