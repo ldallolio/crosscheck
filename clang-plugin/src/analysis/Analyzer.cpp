@@ -2298,6 +2298,88 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   if (searchBudgetLeft()) refine(~0u);
   else if (!refine(2)) candidates.clear();
 
+  auto problemOf = [&](const Iteration& run) {
+    RankingProblem problem;
+    problem.slots = slots.size();
+    for (const VarDecl* v : slots) problem.entry.push_back(entry.val.at(v));
+    problem.entryFacts = entry.facts;
+    for (const State& p : run.complete) {
+      RankingProblem::Step step;
+      for (const VarDecl* v : slots) {
+        step.pre.push_back(head.val.at(v));
+        auto pv = p.val.find(v);
+        step.post.push_back(pv == p.val.end() ? LinExpr::poison() : pv->second);
+      }
+      step.premises = p.facts;
+      problem.steps.push_back(std::move(step));
+    }
+    return problem;
+  };
+  // Per-iteration change of each variable modified by the loop: the interval of
+  // v_post - v_head over the paths of `run` back to the head, widened to contain 0.
+  struct Change { bool hasLo = true, hasHi = true; std::int64_t lo = 0, hi = 0; };
+  auto changes = [&](const Iteration& run) {
+    std::map<const VarDecl*, Change> out;
+    if (run.complete.empty()) return out;
+    for (const auto& [var, id] : headSym) {
+      auto ev = entry.val.find(var);
+      if (ev == entry.val.end() || ev->second.poisoned()) continue;
+      const LinExpr pre = LinExpr::symbol(id);
+      Change c;
+      for (const State& p : run.complete) {
+        auto pv = p.val.find(var);
+        if (pv == p.val.end() || pv->second.poisoned()) { c.hasLo = c.hasHi = false; break; }
+        std::optional<Interval> d = boundsOf(syms_, p.facts, pv->second - pre);
+        if (!d || !d->hi) c.hasHi = false;
+        else c.hi = std::max(c.hi, *d->hi);
+        if (!d || !d->lo) c.hasLo = false;
+        else c.lo = std::min(c.lo, *d->lo);
+        if (!c.hasLo && !c.hasHi) break;
+      }
+      if (c.hasLo || c.hasHi) out[var] = c;
+    }
+    return out;
+  };
+
+  // Size bounds at the head, for the loops nested in this one (Brockschmidt et al., TOPLAS
+  // 2016). A first, speculative run of the body gives an affine potential with a constant
+  // bound k0: at most k0 iterations complete. Every complete iteration changes v by an
+  // amount in [lo, hi] (0 included) on every path, so at a head reached after n complete
+  // iterations, 0 <= n <= k0, v - v_entry lies in [n*lo, n*hi]. These facts, over a ghost
+  // symbol n, are added to the head: they follow from a bound proved without them, so
+  // whatever is derived from them (the bounds of inner loops, a smaller potential) is
+  // sound. Only for a loop with a loop in its body, and not in trial runs.
+  {
+    std::function<bool(const Stmt*)> hasLoop = [&](const Stmt* st) {
+      if (!st) return false;
+      if (isa<WhileStmt>(st) || isa<DoStmt>(st) || isa<ForStmt>(st) || isa<CXXForRangeStmt>(st)) return true;
+      for (const Stmt* ch : st->children())
+        if (hasLoop(ch)) return true;
+      return false;
+    };
+    if (!fc.speculative && searchBudgetLeft() && hasLoop(body)) {
+      ++fc.speculative;
+      Iteration first = runIteration(candidates);
+      --fc.speculative;
+      std::optional<RankingResult> r0 = synthesizeRanking(syms_, problemOf(first));
+      if (r0 && r0->bound < (std::uint64_t{1} << 30)) {
+        const auto k0 = static_cast<std::int64_t>(r0->bound);
+        std::map<const VarDecl*, Change> ch = changes(first);
+        if (!ch.empty()) {
+          SymId n = syms_.fresh("?iterations", 0, k0);
+          const LinExpr nl = LinExpr::symbol(n);
+          for (const auto& [var, c] : ch) {
+            const LinExpr h = LinExpr::symbol(headSym.at(var)), e = entry.val.at(var);
+            if (c.hasHi && c.hi != 0) head.facts.push_back(le(h, e + nl.scaled(c.hi)));
+            if (c.hasLo && c.lo != 0) head.facts.push_back(ge(h, e + nl.scaled(c.lo)));
+            if (c.hasHi && c.hi == 0) head.facts.push_back(le(h, e));
+            if (c.hasLo && c.lo == 0) head.facts.push_back(ge(h, e));
+          }
+        }
+      }
+    }
+  }
+
   const std::size_t errorsBefore = fc.errorCount;
   Iteration it = runIteration(candidates);
   // An error inside the body (an inner loop without a bound, for instance) means that an
@@ -2315,20 +2397,7 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   rank.reset();
   logp.reset();
   growp.reset();
-  RankingProblem problem;
-  problem.slots = slots.size();
-  for (const VarDecl* v : slots) problem.entry.push_back(entry.val.at(v));
-  problem.entryFacts = entry.facts;
-  for (const State& p : it.complete) {
-    RankingProblem::Step step;
-    for (const VarDecl* v : slots) {
-      step.pre.push_back(head.val.at(v));
-      auto pv = p.val.find(v);
-      step.post.push_back(pv == p.val.end() ? LinExpr::poison() : pv->second);
-    }
-    step.premises = p.facts;
-    problem.steps.push_back(std::move(step));
-  }
+  RankingProblem problem = problemOf(it);
   rank = synthesizeRanking(syms_, problem);
   symRank.reset();
   if (!rank && opts_.symbolic) symRank = synthesizeRanking(syms_, problem, true);
@@ -2667,6 +2736,46 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
   }
   if (!fc.speculative) fc.loops[loop] = lr;
 
+  // Size bounds (Brockschmidt et al., TOPLAS 2016): with at most k complete iterations,
+  // each of which changes v by an amount in [lo, hi] on every path back to the head,
+  // v - v_entry lies in [k*min(0, lo), k*max(0, hi)] at every head, hence where the loop
+  // is left by its test or by a path from a head. k is the number of complete iterations
+  // bounded above (after the first body for a do-while, whose `entry` is the state after
+  // it); a loop without a numeric bound gets nothing.
+  std::vector<std::pair<const VarDecl*, std::pair<LinExpr, LinExpr>>> sizeBounds;  // v: [lo, hi] of v
+  if ((lr.verified || user) && !symbolicLoop && !it.complete.empty()) {
+    for (const auto& [var, c] : changes(it)) {
+      const LinExpr& ev = entry.val.at(var);
+      std::optional<std::int64_t> lo, hi;
+      if (c.hasLo) lo = c.lo;
+      if (c.hasHi) hi = c.hi;
+      auto times = [&](std::int64_t c) -> std::optional<std::int64_t> {
+        __int128 r = static_cast<__int128>(c) * static_cast<__int128>(k);
+        if (r > (static_cast<__int128>(1) << 40) || r < -(static_cast<__int128>(1) << 40)) return std::nullopt;
+        return static_cast<std::int64_t>(r);
+      };
+      std::optional<std::int64_t> dlo = lo ? times(*lo) : std::nullopt, dhi = hi ? times(*hi) : std::nullopt;
+      if (!dlo && !dhi) continue;
+      sizeBounds.push_back({var, {dlo ? ev + LinExpr::constant(*dlo) : LinExpr::poison(),
+                                  dhi ? ev + LinExpr::constant(*dhi) : LinExpr::poison()}});
+    }
+  }
+  auto addSize = [&](State& s, const std::function<LinExpr(const VarDecl*)>& now) {
+    for (const auto& [var, b] : sizeBounds) {
+      LinExpr v = now(var);
+      if (v.poisoned()) continue;
+      if (!b.first.poisoned()) s.facts.push_back(ge(v, b.first));
+      if (!b.second.poisoned()) s.facts.push_back(le(v, b.second));
+    }
+  };
+  // The paths from a head that leave the loop early start at a head: the bounds hold there.
+  auto atHead = [&](const VarDecl* var) {
+    auto h = headSym.find(var);
+    return h == headSym.end() ? LinExpr::poison() : LinExpr::symbol(h->second);
+  };
+  for (State& r : it.returned) addSize(r, atHead);
+  for (State& b : it.broken) addSize(b, atHead);
+
   // Exit states. The loop is left either through its guard, at a loop head
   // where the invariants hold and the guard is false, or through a `break`,
   // in a state reached by one of the paths of the generic iteration (whose
@@ -2687,6 +2796,10 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
       for (const auto& [var, id] : headSym)
         if (exitSym.count(var)) toExit[id] = LinExpr::symbol(exitSym[var]);
       for (const Candidate& c : candidates) exit.facts.push_back(Constraint{c.inv.e.substitute(toExit)});
+      addSize(exit, [&](const VarDecl* var) {
+        auto e = exitSym.find(var);
+        return e == exitSym.end() ? LinExpr::poison() : LinExpr::symbol(e->second);
+      });
       CondResult r = evalCond(cond, exit);
       assumeCond(exit, r, false);
       out.push_back(std::move(exit));

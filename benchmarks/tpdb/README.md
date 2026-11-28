@@ -15,8 +15,9 @@ CrossCheck is weak.
 
 ```bash
 # from the repository root, after building the plugin (about 10 minutes)
-python3 benchmarks/tpdb/run_tpdb.py --json=out.json
+python3 benchmarks/tpdb/run_tpdb.py --json=out.json [--jobs N]
 #   on the author's machine add --extra-arg=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/13
+#   --jobs N: N programs in parallel (the same results; under a minute with 30 jobs)
 # KoAT2 and CoFloCo answers (stored in results/; to regenerate, several hours with 4 jobs):
 benchmarks/tpdb/tools_in_containers.sh 4
 ```
@@ -39,19 +40,19 @@ benchmarks/tpdb/tools_in_containers.sh 4
 The *entry function* of a file is the defined function that no other function of the
 file calls (the last one if there are several).
 
-## Results (2026-11-17)
+## Results (2026-11-28)
 
 Programs whose entry function gets a bound:
 
 | Family | Programs | CrossCheck as is | CrossCheck, inputs in [-1000, 1000] | KoAT2 | CoFloCo |
 |---|---:|---:|---:|---:|---:|
-| Benamram_2025 | 14 | 0 | 0 | 8 | 0 |
-| Flores-Montoya_2017 | 458 | 11 | 207 | 254 | 246 |
+| Benamram_2025 | 14 | 0 | 3 | 8 | 0 |
+| Flores-Montoya_2017 | 458 | 11 | 230 | 254 | 246 |
 | Lommen_22 | 20 | 0 | 1 | 1 | 1 |
-| Lommen_23 | 15 | 0 | 1 | 6 | 1 |
+| Lommen_23 | 15 | 0 | 2 | 6 | 1 |
 | Lommen_24 | 20 | 0 | 0 | 1 | 0 |
-| Sinn_2016 | 26 | 0 | 6 | 18 | 16 |
-| **Total** | **553** | **11** | **215** | **288** | **264** |
+| Sinn_2016 | 26 | 0 | 13 | 18 | 16 |
+| **Total** | **553** | **11** | **249** | **288** | **264** |
 
 (2026-11-13: 165 with ranges; then one more in `Sinn_2016`; five more in
 `Flores-Montoya_2017` since logarithmic potentials and exact unsigned division, 2026-11-15;
@@ -60,20 +61,29 @@ invariants. One program, `sipmamergesort2`, exceeded the 120 s
 limit in both modes in that run, on a machine shared with other work; it had no bound before.
 2026-11-17: 8 more, since conditional expressions keep the facts true in both arms
 (`len -= min(len, 64)`) and a disequality in a loop guard is split into two paths
-(`while (p != q)`); all 8 are also bounded by KoAT2 or CoFloCo.)
+(`while (p != q)`); all 8 are also bounded by KoAT2 or CoFloCo. 2026-11-28: 34 more, from
+*size bounds* (KoAT's, Brockschmidt et al., TOPLAS 2016, Section 4.2): a loop with at most k
+complete iterations, each of which changes a variable by an amount in [lo, hi], changes it
+by an amount in [k·min(0, lo), k·max(0, hi)]. The analysis now adds this range where the loop
+is left (16 programs: `t07`, `y += 2` in a first loop bounds a second loop on `y`) and, for a
+loop with a loop in its body, at its head, over a ghost count n ≤ k of the iterations already
+completed, with k from a first run of the body without these facts (18 more: C4B's `t13`, an
+inner loop that empties a counter that the outer loop increments); 32 of the 34 are also
+bounded by KoAT2 or CoFloCo, and none was lost; on TACLeBench, 3 more loops of the larger
+programs are bounded in context, the rest is unchanged.)
 
 KoAT2 or CoFloCo bound 305 programs. CrossCheck with ranges against them:
 
 | | KoAT2 or CoFloCo: bound | no bound |
 |---|---:|---:|
-| CrossCheck (ranges): bound | 198 | 17 |
-| no bound | 107 | 231 |
+| CrossCheck (ranges): bound | 230 | 19 |
+| no bound | 75 | 229 |
 
 Reading the results:
 
 - **As is**, the analysis bounds only the 11 programs whose loops have constant bounds
   (for bounds in the parameters without ranges, see the last section).
-- **The 17 programs bounded only by CrossCheck.** Eleven (`CookSeeZuleger-TACAS2013-Fig1`,
+- **The 19 programs bounded only by CrossCheck.** Eleven (`CookSeeZuleger-TACAS2013-Fig1`,
   `Fig7a`, `Fig7b`, `Nyala-2lex`, `PastaC9`, `PodelskiRybalchenko-TACAS2011-Fig4`, and since
   2026-11-16 `ChenFlurMukhopadhyay-SAS2012-Ex2.22`, `Ex3.09`, `NonTermination2`, `aaron3`,
   `realheapsort`)
@@ -89,12 +99,27 @@ Reading the results:
   and `C4B_examples/t30`. Their potentials (`1000 - y`, `1000 - x`, `q + z/2 + 500`,
   `x + y + 1000` twice) are in certificates that the Lean checker accepts (run on 2026-11-16 for these five):
   each decreases by 1 per iteration and is at least 1 under the loop test, using the
-  ranges of the variables as invariants.
+  ranges of the variables as invariants. Two more since the size bounds (2026-11-28),
+  `Sinn_2016/CPU2006_xdr3dfcoord` and `CPU2006_analyse_other`, on which KoAT2 and CoFloCo
+  timed out or failed; neither reads a nondeterministic value into a variable (their calls
+  of `random()` are tests only).
 - **History.** The first run of this comparison gave 141 programs in the ranged mode.
   Keeping the facts of each `break` path at a loop exit, joining intervals where paths
   merge, and recognising `x = x + 1` as an increment (for invariant candidates) added
   24 programs and lost none; all 24 are also bounded by KoAT2 or CoFloCo.
-- **The 107 programs bounded by KoAT2 or CoFloCo and not by CrossCheck** (147 when the first sample below was drawn, 115 for the second). Almost all of
+- **The 75 programs bounded by KoAT2 or CoFloCo and not by CrossCheck** (2026-11-28; 107
+  before the size bounds, 147 when the first sample below was drawn, 115 for the second),
+  classified by the analyser's own diagnostics: in 38 a loop has bounded variables but no
+  affine or logarithmic potential (disequalities and disjunctions in guards, phases, resets);
+  in 29 a variable of a loop test has no range where the loop starts: 8 of these grow
+  exponentially in an earlier loop (`size14`: `b = b*b`; `amir6`, `non_linear18`: sums of
+  variables), the others need a relation between two variables (`end <= i` in
+  `Loopus2015_big`, `CPU2006_XNU`), an inner loop's effect on a value that an outer loop
+  resets or assigns (`perfect`, `Nested`), amortisation (`Loopus2014_ex1`), or a range for an
+  `unsigned` parameter, which the harness does not give (`CPU2006_SingleLinkCluster`); in
+  the other 8, loops without a test (2), tests that read no tracked integer variable (2),
+  `goto` (2), a function without a definition (1), and a file that does not compile as
+  C++ (1). Before the size bounds, almost all of
   CrossCheck's failures in this mode are "cannot derive an iteration bound" (the
   others: unstructured control flow in 3, a missing definition in 1, and the 2 programs
   that do not compile as C++). A sample of ten was drawn (`random.seed(1)`) from the
@@ -142,10 +167,14 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **159 of the 215 bounded entry functions are
-certified, all accepted by the checker** (2026-11-17): 97 with a *summary* affine in their
-parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 62 with a
-constant bound, 56 not certified. For 74 of the 97, KoAT2 also reports a linear bound.
+In the second mode (inputs in [-K, K]), **166 of the 249 bounded entry functions are
+certified, all accepted by the checker** (2026-11-28): 99 with a *summary* affine in their
+parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 67 with a
+constant bound, 83 not certified. For 76 of the 99, KoAT2 also reports a linear bound.
+(2026-11-17: 159 of 215, 97 + 62.) Of the 34 programs bounded since the size bounds, 7 are
+certified: the certificate generator does not use size bounds, so a loop whose bound needs
+one has no certificate. With `--minic`, 144 of the 166 are validated against their source,
+none fails, 22 are not exported (a call in a loop test in 21).
 Since the amortised loop rules, 17 functions get a
 constant amortised bound instead of a summary: the generator compares its candidates at
 the largest admissible inputs, where the amortised bound is about half the summary

@@ -246,6 +246,20 @@ the proved invariants and the negated guard; through a `break`, the facts of the
 path that reaches it (each `break` path is one exit state). Where paths are joined,
 a variable keeps the constant interval that holds on all of them.
 
+**Size bounds** (KoAT's, Brockschmidt et al., TOPLAS 2016, Section 4.2). If at most `k`
+iterations complete (`k` a number) and every path back to the head changes a variable
+`v` by an amount in `[l, h]` (the interval Z3 gives for `v' − v` under the facts of the
+path), then at every head, and so at every exit, `v` lies within
+`[k·min(0, l), k·max(0, h)]` of its entry value: `while (x > 0) { x--; y += 2; }` with
+`x ≤ 100` leaves `y ≤ y₀ + 200`, which bounds a following `while (y > 0) y--;`. For a loop
+with a loop in its body, the body is first run once without these facts (a trial run,
+nothing reported); if that run gives an affine potential with a constant bound `k`, the
+head gets the same facts over a ghost count `0 ≤ n ≤ k` of the iterations already
+completed (`v ≤ v₀ + h·n`), so that an inner loop on a variable that the outer loop
+increments is bounded (`while (x > 0) { x--; if (…) y++; else while (y > 0) y--; }`). The
+facts follow from a bound proved without them. Not used by the certificate generator: a
+loop whose bound needs a size bound has no certificate.
+
 **Calls.** While a call is evaluated, the analyser asks Z3 for the interval of
 each integer argument in the current state, and joins these intervals over all the
 states in which the call is evaluated (all paths, and the generic iteration of
@@ -297,6 +311,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | potential decreasing by ≥ 1 and ≥ 1 on each step ⇒ at most `⌊V⌋` steps (relational, rational-valued) | `ranking_bound_floor`, `ranking_bound_of_le` (`Certificate`) |
 | the same when the conditions hold only under proved loop invariants and the facts of a calling context | `ranking_bound_floor_of_invariant`, `ranking_bound_of_context` (`Certificate`) |
 | invariants hold at every loop head, hence at every exit (guard or `break`) | `run_invariant` (`Certificate`) |
+| size bounds: each step changes `v` by `[l, h]` ⇒ after `n` steps `v − v₀ ∈ [n·l, n·h]`, and within `[N·min(0, l), N·max(0, h)]` for `n ≤ N` | `size_bound`, `size_bound_of_le` (`Certificate`) |
 | a bound proved under a context holds for every call whose arguments satisfy it | `call_bound_of_context` (`Certificate`) |
 | Farkas multipliers imply the universally quantified condition | `farkas_sound_affine` (`Certificate`) |
 | loop cost `K·(test + body) + test` | `while_cost_bound` (`Certificate`) |

@@ -152,7 +152,13 @@ concatenation), without annotations, 572 loops with a flow fact:
 | | Derived | = flow fact | > flow fact | < flow fact | No bound | Not reached |
 |---|---|---|---|---|---|---|
 | for every call | 275 | 258 | 8 | 9 | 287 | 10 |
-| in context | 330 | 304 | 16 | 10 | | |
+| in context | 333 | 306 | 17 | 10 | | |
+
+(2026-11-28: 330 / 304 / 16 in context before the size bounds of the analyser, which bound
+one more loop of `adpcm_dec`, of `adpcm_enc` (both equal to the flow fact) and of
+`ammunition` (above it); the bounds for every call are unchanged. The two categories took
+699 s instead of 556 s on a 40-core machine, four runs at a time; `cjpeg_transupp` 278 s
+instead of 197 s.)
 
 - **Below the flow fact (10 in context), none a counter-example.** Besides the five
   below, a loop of `lift` (`for (lift_level = 1; lift_level < 14; ++lift_level)`, 13
@@ -480,4 +486,7 @@ python3 benchmarks/tacle/run_annotated.py --clang=$E/clang --opt=$E/opt \
   globals, fields, tables and C integer tests in the analyser (larger programs: 263 / 252 /
   7 / 4 → 275 / 258 / 8 / 9 for every call, 317 / 297 / 15 / 5 → 330 / 304 / 16 / 10 in
   context).
+- 2026-11-28: size bounds in the analyser (a variable changed by at most a constant per
+  iteration of a bounded loop): kernels and the parallel category unchanged; larger
+  programs 330 / 304 / 16 / 10 → 333 / 306 / 17 / 10 in context.
 

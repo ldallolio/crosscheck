@@ -28,6 +28,7 @@ file calls (the last one if there are several).
 
 import argparse
 import collections
+import concurrent.futures
 import json
 import pathlib
 import re
@@ -211,6 +212,7 @@ def main():
     ap.add_argument("--extra-arg", action="append", default=[])
     ap.add_argument("--results", default=str(HERE / "results"))
     ap.add_argument("--json")
+    ap.add_argument("--jobs", type=int, default=1, help="programs analysed in parallel")
     ap.add_argument("--list", action="store_true", help="only print the files and their entry functions")
     ap.add_argument("--certificates", help="emit certificates (inputs-in-range mode) into this directory")
     ap.add_argument("--checker", help="crosscheck-check executable: check them (needs --certificates)")
@@ -227,8 +229,8 @@ def main():
             print(f"{f.relative_to(base)}\t{entry_function(f.read_text(errors='replace'))}")
         return
     res = pathlib.Path(a.results)
-    rows = []
-    for f in files:
+
+    def one(f):
         rel = f.relative_to(base)
         text = f.read_text(errors="replace")
         entry = entry_function(text)
@@ -255,9 +257,13 @@ def main():
                                           "potentials only" if entry in r.get("__symbolic__", ()) else "none")
         row["koat"] = koat_answer(res / "koat2" / f"{key}.tsv", entry)
         row["cofloco"] = cofloco_answer(res / "cofloco" / f"{key}.tsv", entry)
-        rows.append(row)
         print(f"{rel}\t{entry}\t{row['crosscheck_as-is']}\t{row['crosscheck_bounded']}\t{row['koat']}\t{row['cofloco']}",
               file=sys.stderr)
+        return row
+
+    # programs in parallel (each run is its own process; the rows keep the order of the files)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+        rows = list(pool.map(one, files))
     fams = sorted({r["family"] for r in rows})
     tools = ("crosscheck_as-is", "crosscheck_bounded", "koat", "cofloco")
     print("| Family | Programs | CrossCheck as is | CrossCheck, inputs in [-%d, %d] | KoAT2 | CoFloCo |" % (K, K))

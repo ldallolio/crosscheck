@@ -671,6 +671,95 @@ TEST(Unsound, StaticLocalCounterGrowsAcrossCalls) {
   EXPECT_NE(f.certificate, "emitted");
 }
 
+// Size bounds: a loop with at most 100 iterations adds at most 2 to `y` per iteration,
+// so `y <= 300` after it, which bounds the second loop.
+TEST(SizeBounds, AfterALoop) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(0, 100) int y) {
+      while (x > 0) { x--; y += 2; }
+      while (y > 0) y--;
+      return y;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.bounded);
+  ASSERT_EQ(f.loops.size(), 2u);
+  EXPECT_EQ(f.loops[1].bound, 300u);
+}
+
+// A do-while: the first body and at most 99 more iterations, 3 added by each.
+TEST(SizeBounds, AfterADoWhile) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(1, 100) int x, CROSSCHECK_RANGE(0, 100) int y) {
+      do { y += 3; x--; } while (x > 0);
+      while (y > 0) y--;
+      return y;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.bounded);
+  ASSERT_EQ(f.loops.size(), 2u);
+  EXPECT_EQ(f.loops[1].bound, 400u);
+}
+
+// Inside a loop: at the head reached after n <= 100 complete iterations, y <= y0 + n, so
+// the inner loop starts with y <= 200 (C4B's t13).
+TEST(SizeBounds, AtTheHeadOfAnOuterLoop) {
+  Report r = check(R"(
+    CROSSCHECK_COST(1) int nd(void);
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(0, 100) int y) {
+      while (x > 0) {
+        x--;
+        if (nd() > 0) y++;
+        else while (y > 0) y--;
+      }
+      return y;
+    })");
+  const FunctionReport& f = fn(r, "f");
+  ASSERT_TRUE(f.bounded);
+  ASSERT_EQ(f.loops.size(), 2u);
+  EXPECT_EQ(f.loops[1].bound, 200u);
+}
+
+// Must be rejected: `y` doubles at every iteration, so no constant bounds its change.
+TEST(Unsound, SizeBoundOfADoublingVariable) {
+  Report r = check(R"(
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(1, 100) int y) {
+      while (x > 0) { x--; y = y + y; }
+      while (y > 0) y--;
+      return y;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: the change of `y` is a value with no range.
+TEST(Unsound, SizeBoundOfAnUnknownIncrement) {
+  Report r = check(R"(
+    CROSSCHECK_COST(1) int nd(void);
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int x, CROSSCHECK_RANGE(0, 100) int y) {
+      while (x > 0) {
+        x--;
+        int d = nd();
+        if (d > 0) y += d;
+        else while (y > 0) y--;
+      }
+      return y;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
+// Must be rejected: the outer loop has no bound, so no number of iterations bounds `y`.
+TEST(Unsound, SizeBoundWithoutAnOuterBound) {
+  Report r = check(R"(
+    CROSSCHECK_COST(1) int nd(void);
+    CROSSCHECK_REALTIME int f(CROSSCHECK_RANGE(0, 100) int y) {
+      while (nd() > 0) {
+        y++;
+        if (nd() > 0) while (y > 0) y--;
+      }
+      return y;
+    })");
+  EXPECT_FALSE(fn(r, "f").bounded);
+}
+
 // `p != q` in a loop guard: over the integers, `p < q` or `p > q`; the body starts on
 // both paths, and `p + q` decreases on each.
 TEST(Disequality, GuardSplitIntoTwoPaths) {

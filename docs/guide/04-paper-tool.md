@@ -37,6 +37,22 @@ flowchart LR
    tries a logarithmic potential, then a lexicographic one (by retrying with more candidate
    invariants). If still none, the loop is **unbounded** and the function is rejected,
    with a probable cause in the report ("the test reads memory", "no range for `n`").
+   Once a loop has a numeric bound, it also tells how far its variables can have moved
+   (**size bounds**, the idea of KoAT, Brockschmidt et al. 2016). In
+
+   ```c
+   while (x > 0) { x--; y += 2; }   // x in [0, 100]: at most 100 iterations
+   while (y > 0) y--;               // needs a range for y
+   ```
+
+   each iteration adds 2 to `y` and there are at most 100, so after the first loop
+   `y ≤ y₀ + 200`, which bounds the second one. When the loop that grows `y` contains the
+   loop that consumes it (`while (x > 0) { x--; if (…) y++; else while (y > 0) y--; }`),
+   the outer body is analysed once more beforehand to get the outer bound (100); the
+   outer loop head then gets `y ≤ y₀ + n` with a ghost count `0 ≤ n ≤ 100` of the
+   iterations already done, so the inner loop starts with `y ≤ y₀ + 100`. Lean:
+   `size_bound`, `size_bound_of_le` (`Certificate`). The certificate generator does not
+   use size bounds yet.
 4. **Cost.** The timing schema (section 2.12) combines the bounds, with the weights of the
    cost model.
 5. **Report.** A remark per function with its bound, a compile error if it exceeds the

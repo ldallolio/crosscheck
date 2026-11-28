@@ -16,27 +16,53 @@ accepts independently (source bounds, Cortex-M0 cycle bounds, loop bounds on the
 |---|---|---|---|
 | TACLeBench loop bounds, 208 loops reached, in context | 142 bounded, 131 equal to the flow fact | oRange 131 / 127; LLVM ScalarEvolution 113 | `benchmarks/tacle/README.md`, Paper II `tab:tools` |
 | TACLeBench functions with a bound (of 267) | 165 numeric | Infer 190 + 14 symbolic; KoAT2 119 + 23; CoFloCo 128 + 11 | same |
-| TPDB `Complexity_C_Integer`, 553 programs | 11 as is; 215 with inputs in [-1000, 1000] | KoAT2 288; CoFloCo 264 | `benchmarks/tpdb/README.md` |
+| TPDB `Complexity_C_Integer`, 553 programs | 11 as is; 249 with inputs in [-1000, 1000] (215 before the size bounds, 2026-11-28); 147 certified for all inputs (`symbolic`) | KoAT2 288; CoFloCo 264 | `benchmarks/tpdb/README.md` |
 | Cortex-M0 cycle bounds of the kernels | certified, every bound checked against emulated runs | OTAWA on the same flow facts | `benchmarks/cycles/README.md`, Paper III |
 | Processors with caches and pipelines | Cortex-M0 model only; Cortex-M4/M7 through OTAWA, uncertified | aiT, OTAWA | — |
 
 ## Next: the TPDB gap (chosen 2026-11-28)
 
-107 TPDB programs are bounded by KoAT2 or CoFloCo and not by CrossCheck with input ranges (17
-the other way). Their answers are stored (`benchmarks/tpdb/results/`), so every change can be
-measured without running them again. Plan:
+The programs bounded by KoAT2 or CoFloCo and not by CrossCheck with input ranges: 107 on
+2026-11-28, **75 since the size bounds** (19 the other way). Their answers are stored
+(`benchmarks/tpdb/results/`); `run_tpdb.py --jobs 30` reruns all modes in under a minute on
+a 40-core machine, so every change can be measured.
 
-1. Classify the 107 by cause, from CrossCheck's own diagnostics (report `errors`, the loop
-   that has no bound) and by reading the programs: multi-phase or lexicographic loops,
-   non-linear guards, bounds that need the parameters symbolically, nested loops whose inner
-   bound depends on the outer counter, recursion, other.
-2. Pick the cause that is both frequent and scientifically interesting (a result that belongs
-   in Paper I, with a Lean theorem and a checker case, not a special case), and check prior
-   work on it first (`check-prior-work`: read and cite where the idea was introduced).
-3. The comparison "as is" (11 programs) is unfair: complexity tools give bounds in the
-   parameters, CrossCheck gives numeric bounds only with ranges and symbolic ones only as
-   certificates (option `symbolic`). Decide how to report bounds in the parameters before
-   comparing again.
+Done (2026-11-28):
+
+1. **Classified** the 107 by the analyser's diagnostics and by reading the sources: in 58 a
+   variable of a loop test had no range where the loop starts, in 42 a loop had bounded
+   variables and no potential, 7 other.
+2. **Size bounds** (KoAT's, Brockschmidt et al., TOPLAS 2016, Section 4.2; read): a loop
+   with at most k complete iterations, each changing v by an amount in [l, h], changes v by
+   an amount in [k·min(0, l), k·max(0, h)]. In the analyser at the exits (16 programs) and, over
+   a ghost count n <= k from a trial run of the body, at the head of a loop with a loop in its
+   body (18 more): 215 -> 249, none lost; TACLeBench kernels and parallel category
+   unchanged, larger programs 330 -> 333 loops bounded in context. Lean: `size_bound`, `size_bound_of_le` (`Certificate`). Tests: `SizeBounds.*`,
+   `Unsound.SizeBound*`.
+
+Open, by expected effect:
+
+- **Certify the size bounds** (7 of the 34 new programs are certified, by other means): the
+  generator does not use them. Either the generator expresses them with what the checker
+  has (invariants over a ghost counter would change the lowered program, so mini-C
+  validation would need it too), or the checker gets a loop node with exit facts
+  `v <= v0 + h*K`, proved in Lean from `size_bound_of_le`: a checker case, so Paper I.
+- **The 38 with no potential**: disequalities and disjunctions in guards (`wise`:
+  `x - y > 2 || y - x > 2`), loops in phases or that change direction (`GopanReps`),
+  counters that are reset (`speedpldi2`). Multiphase / disjunctive potentials: read
+  the prior work first (Ben-Amram and Genaim on multiphase ranking functions; Gulwani et al.,
+  SPEED) before any Paper I result.
+- **The 29 still without a range**: exponential growth in an earlier loop (8: `size14`
+  `b = b*b`, sums of variables; KoAT's "scaled sums"), relations between two variables
+  (`end <= i`: `Loopus2015_big`, `CPU2006_XNU`), an inner loop's effect on a value that the
+  outer loop resets (`perfect`, `Nested`), amortisation (`Loopus2014_ex1`), an `unsigned`
+  parameter without a range in the harness (`CPU2006_SingleLinkCluster`).
+- **How to report bounds in the parameters** (unchanged): the comparison "as is" (11
+  programs) is unfair; complexity tools give bounds in the parameters, CrossCheck numeric
+  bounds with ranges and symbolic ones only as certificates (`symbolic`, 147). Decide how to
+  report them before comparing again.
+- The trial run costs time on deep nests: `cjpeg_transupp` 197 s -> 278 s (TACLeBench
+  sequential category).
 
 Rules that stay: never make the checker accept more without a Lean proof (three standard
 axioms); figures in papers and READMEs from the scripts' output; a new loop feature needs a

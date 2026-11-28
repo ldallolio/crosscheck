@@ -1,6 +1,6 @@
 # Part 7 — Lean 4: enough to read and change this repository
 
-`formalization/`: 36 modules, about 19,100 lines, 829 theorems (Paper I: about 11,000 lines and 499 theorems; Paper III: the nine `Cycles*`/`Thumb*` modules, about 7,900 lines and 330 theorems), plus `CheckerMain.lean` (the
+`formalization/`: 36 modules, about 19,400 lines, 831 theorems (Paper I: about 11,000 lines and 501 theorems; Paper III: the nine `Cycles*`/`Thumb*` modules, about 7,900 lines and 330 theorems), plus `CheckerMain.lean` (the
 checker program). Lean `v4.36.0`, mathlib `v4.36.0` (`v4.16.0` up to the release `v1.0`).
 
 ## 1. The mental model

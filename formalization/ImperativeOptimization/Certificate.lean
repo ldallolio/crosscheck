@@ -31,6 +31,9 @@ are sound.
   therefore preserved by every step).
 * `call_bound_of_context`: a cost bound proved for a function under a context holds
   for every call whose argument satisfies the context.
+* `size_bound`, `size_bound_of_le`: a variable changed by an amount in `[l, h]` at each
+  of at most `N` steps stays within `[N·min(0, l), N·max(0, h)]` of its initial value
+  (size bounds, used by the analyser after a loop and at the head of an enclosing loop).
 * `lex_ranking_bound`, `log_ranking_bound`: certificates for loops that have no single
   affine potential: a lexicographic pair of potentials, and a potential divided by a
   constant factor at every step.
@@ -166,6 +169,58 @@ theorem run_invariant (step : S → S → Prop) (I : S → Prop)
   induction k with
   | zero => exact h0
   | succ k ih => exact h_inv _ _ (ih (by omega)) (h_run k (by omega))
+
+/-- **Size bounds** (Brockschmidt et al., TOPLAS 2016, Section 4.2). If every step from a
+    state of an inductive invariant `I` changes `f` by an amount in `[l, h]`, then after `k`
+    steps of a run from `I`, `f` has changed by an amount in `[k·l, k·h]`. The analyser adds
+    these facts at a loop head over a ghost count `k` of the iterations already completed
+    (bounded by a potential proved without them), and `size_bound_of_le` where the loop
+    is left. -/
+theorem size_bound (step : S → S → Prop) (I : S → Prop) (f : S → α) (l h : α)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_chg : ∀ s s', I s → step s s' → l ≤ f s' - f s ∧ f s' - f s ≤ h)
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0)) :
+    ∀ k ≤ n, f (σ 0) + k * l ≤ f (σ k) ∧ f (σ k) ≤ f (σ 0) + k * h := by
+  intro k hk
+  induction k with
+  | zero => simp
+  | succ k ih =>
+    obtain ⟨ih1, ih2⟩ := ih (by omega)
+    obtain ⟨c1, c2⟩ := h_chg _ _ (run_invariant step I h_inv σ n h_run h0 k (by omega))
+      (h_run k (by omega))
+    push_cast
+    constructor <;> linarith
+
+/-- **Size bounds of a bounded loop.** With at most `N` steps, `f` stays within
+    `[N·min(0, l), N·max(0, h)]` of its initial value at every state of the run, hence
+    where the run stops: the facts the analyser adds at the exits of a loop with the
+    numeric bound `N`. -/
+theorem size_bound_of_le (step : S → S → Prop) (I : S → Prop) (f : S → α) (l h : α) (N : ℕ)
+    (h_inv : ∀ s s', I s → step s s' → I s')
+    (h_chg : ∀ s s', I s → step s s' → l ≤ f s' - f s ∧ f s' - f s ≤ h)
+    (σ : ℕ → S) (n : ℕ) (h_run : ∀ k < n, step (σ k) (σ (k + 1))) (h0 : I (σ 0))
+    (hn : n ≤ N) :
+    ∀ k ≤ n, f (σ 0) + N * min 0 l ≤ f (σ k) ∧ f (σ k) ≤ f (σ 0) + N * max 0 h := by
+  intro k hk
+  obtain ⟨a, b⟩ := size_bound step I f l h h_inv h_chg σ n h_run h0 k hk
+  have hkN : (k : α) ≤ N := by exact_mod_cast (show k ≤ N by omega)
+  have hk0 : (0 : α) ≤ k := by exact_mod_cast Nat.zero_le k
+  have hmax : 0 ≤ max 0 h := le_max_left 0 h
+  have hmin : min 0 l ≤ 0 := min_le_left 0 l
+  have e1 : (k : α) * h ≤ k * max 0 h := mul_le_mul_of_nonneg_left (le_max_right 0 h) hk0
+  have e2 : (k : α) * max 0 h ≤ N * max 0 h := mul_le_mul_of_nonneg_right hkN hmax
+  have e3 : (k : α) * min 0 l ≤ k * l := mul_le_mul_of_nonneg_left (min_le_right 0 l) hk0
+  have e4 : (N : α) * min 0 l ≤ k * min 0 l := mul_le_mul_of_nonpos_right hkN hmin
+  constructor <;> linarith
+
+/-- The hypotheses of `size_bound_of_le` hold: `y` increased by 2 at each of 3 steps
+    stays within `[y₀, y₀ + 2·3]`. -/
+example : ∀ k : ℕ, k ≤ 3 → ((0 : ℚ) + 3 * min 0 2 ≤ 2 * k) ∧ (2 * (k : ℚ) ≤ 0 + 3 * max 0 2) := by
+  have := size_bound_of_le (S := ℚ) (α := ℚ) (fun s s' => s' = s + 2) (fun _ => True)
+    id 2 2 3 (fun _ _ _ _ => trivial) (fun s s' _ e => by subst e; simp)
+    (fun k => 2 * k) 3 (fun k _ => by push_cast; ring) trivial le_rfl
+  intro k hk
+  simpa using this k hk
 
 /-- **Ranking certificate under an invariant.** The descent and positivity conditions
     are required only on states that satisfy an inductive invariant `I` which holds
