@@ -257,8 +257,13 @@ nothing reported); if that run gives an affine potential with a constant bound `
 head gets the same facts over a ghost count `0 ≤ n ≤ k` of the iterations already
 completed (`v ≤ v₀ + h·n`), so that an inner loop on a variable that the outer loop
 increments is bounded (`while (x > 0) { x--; if (…) y++; else while (y > 0) y--; }`). The
-facts follow from a bound proved without them. Not used by the certificate generator: a
-loop whose bound needs a size bound has no certificate.
+facts follow from a bound proved without them. In certificates, a loop node `whileSz`
+carries them (Lean `sizeloop_sound`, Paper I `prop:size-facts`): with a constant entry
+bound `k` of the potential, `N = ⌊k/d⌋`, each fact `f ≤ U` on entry with a growth `h` per
+iteration gives `f ≤ U + max(h, 0)·N` after the loop and `f ≤ U + max(h, 0)·(N − 1)` in the
+body; the checker proves each growth from the body with one more logical variable. The
+generator uses the analysis' changes as hints, and only in a second attempt at a function
+whose certificate failed (so that the other certificates do not change).
 
 **Calls.** While a call is evaluated, the analyser asks Z3 for the interval of
 each integer argument in the current state, and joins these intervals over all the
@@ -312,13 +317,14 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | the same when the conditions hold only under proved loop invariants and the facts of a calling context | `ranking_bound_floor_of_invariant`, `ranking_bound_of_context` (`Certificate`) |
 | invariants hold at every loop head, hence at every exit (guard or `break`) | `run_invariant` (`Certificate`) |
 | size bounds: each step changes `v` by `[l, h]` ⇒ after `n` steps `v − v₀ ∈ [n·l, n·h]`, and within `[N·min(0, l), N·max(0, h)]` for `n ≤ N` | `size_bound`, `size_bound_of_le` (`Certificate`) |
+| size facts of a loop, certified by `whileSz`: `f ≤ U` on entry, growth `≤ h` per iteration, at most `N` iterations ⇒ `f ≤ U + max(h, 0)·N` after, `f ≤ U + max(h, 0)·(N − 1)` in the body | `valid_whileSize` (`Language`), `sizeloop_sound` (`Checker`) |
 | a bound proved under a context holds for every call whose arguments satisfy it | `call_bound_of_context` (`Certificate`) |
 | Farkas multipliers imply the universally quantified condition | `farkas_sound_affine` (`Certificate`) |
 | loop cost `K·(test + body) + test` | `while_cost_bound` (`Certificate`) |
 | branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
 | depth `D`, branching `b` ⇒ at most `1 + b + … + b^D` activations | `callTree_size_le_geom`, `geom_closed` (`Arity`) |
 | size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
-| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
+| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `whileSz`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | logarithmic loops (`x >>= k`, `x /= c`: `b·v' ≤ v`, `v ≥ 1`): at most `⌊log_b K⌋ + 1` iterations, certified by `whileLog` | `log_ranking_bound` (`Certificate`), `logloop_sound` (`Checker`) |
 | triangular nests (the inner loop's entry bound is the outer potential `γⱼ`, so the outer body costs `a + c·γⱼ`): the sum over the outer iterations, about half the product, certified by `while`/`whileAnd` in the amortised form (`triOk`) | `valid_whileSum` (`Language`), `triloop_sound` (`Checker`) |

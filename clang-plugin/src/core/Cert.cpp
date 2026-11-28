@@ -95,6 +95,30 @@ Lin ghost(const PExp& pot, std::size_t j, std::int64_t extra) {
   return Lin{pot.sv, vsmul(-1, unitVec(j)), pot.c + extra};
 }
 
+Lin szLin(const Size& z, std::int64_t t) { return Lin{z.f.sv, vsmul(-1, z.ul), z.f.c - z.uc - t}; }
+
+std::optional<Assn> szAfter(const std::vector<Size>& szs, std::int64_t n) {
+  Assn out;
+  for (const Size& z : szs) {
+    __int128 t = static_cast<__int128>(std::max<std::int64_t>(z.h, 0)) * n;
+    if (t > (static_cast<__int128>(1) << 50) || t < -(static_cast<__int128>(1) << 50)) return std::nullopt;
+    out.push_back(szLin(z, static_cast<std::int64_t>(t)));
+  }
+  return out;
+}
+
+Assn szGhosts(std::size_t j, const std::vector<Size>& szs) {
+  Assn out;
+  for (std::size_t i = 0; i < szs.size(); ++i) out.push_back(ghost(szs[i].f, j + 1 + i, 0));
+  return out;
+}
+
+Assn szSteps(std::size_t j, const std::vector<Size>& szs) {
+  Assn out;
+  for (std::size_t i = 0; i < szs.size(); ++i) out.push_back(ghost(szs[i].f, j + 1 + i, -szs[i].h));
+  return out;
+}
+
 Lin ghostMul(const PExp& pot, std::size_t j, std::uint64_t b) {
   return Lin{vsmul(static_cast<std::int64_t>(b), pot.sv), vsmul(-1, unitVec(j)),
              static_cast<std::int64_t>(b) * pot.c};
@@ -334,6 +358,7 @@ std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std
       case Node::WhileLog:
       case Node::WhileGrow:
       case Node::WhileUp:
+      case Node::WhileSz:
       case Node::Weaken:
       case Node::Dead: go(*m.c1); break;
       case Node::Call:
@@ -651,6 +676,23 @@ std::string node(const Node& n) {
       return "{\"node\":\"whileUp\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
              ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
              ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"Wb\":" + sb(n.b1) +
+             ",\"body\":" + node(*n.c1) + "}";
+    }
+    case Node::WhileSz: {
+      std::string g = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) g += (i ? "," : "") + pexp(n.gs[i]);
+      g += "]";
+      std::string z = "[";
+      for (std::size_t i = 0; i < n.szs.size(); ++i) {
+        std::string ul = "[";
+        for (std::size_t q = 0; q < n.szs[i].ul.size(); ++q) ul += (q ? "," : "") + std::to_string(n.szs[i].ul[q]);
+        z += std::string(i ? "," : "") + "{\"f\":" + pexp(n.szs[i].f) + ",\"h\":" + std::to_string(n.szs[i].h) +
+             ",\"ul\":" + ul + "],\"uc\":" + std::to_string(n.szs[i].uc) + "}";
+      }
+      z += "]";
+      return "{\"node\":\"whileSz\",\"w\":" + u(n.w) + ",\"gs\":" + g + ",\"inv\":" + assn(n.inv) +
+             ",\"pot\":" + pexp(n.pot) + ",\"d\":" + u(n.d) + ",\"k\":" + std::to_string(n.k) +
+             ",\"j\":" + u(n.j) + ",\"posCert\":" + fk(n.posCert) + ",\"szs\":" + z + ",\"Wb\":" + sb(n.b1) +
              ",\"body\":" + node(*n.c1) + "}";
     }
     case Node::Weaken:

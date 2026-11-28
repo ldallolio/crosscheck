@@ -167,14 +167,16 @@ python3 benchmarks/tpdb/run_tpdb.py --extra-arg=... --certificates=DIR \
     --checker=formalization/.lake/build/bin/crosscheck-check
 ```
 
-In the second mode (inputs in [-K, K]), **166 of the 249 bounded entry functions are
+In the second mode (inputs in [-K, K]), **172 of the 249 bounded entry functions are
 certified, all accepted by the checker** (2026-11-28): 99 with a *summary* affine in their
-parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 67 with a
-constant bound, 83 not certified. For 76 of the 99, KoAT2 also reports a linear bound.
-(2026-11-17: 159 of 215, 97 + 62.) Of the 34 programs bounded since the size bounds, 7 are
-certified: the certificate generator does not use size bounds, so a loop whose bound needs
-one has no certificate. With `--minic`, 144 of the 166 are validated against their source,
-none fails, 22 are not exported (a call in a loop test in 21).
+parameters (e.g. `c + a*max(0,n)`, valid for every input in the ranges), 73 with a
+constant bound, 77 not certified. For 76 of the 99, KoAT2 also reports a linear bound.
+(2026-11-17: 159 of 215, 97 + 62; earlier on 2026-11-28, before size facts in
+certificates: 166, 99 + 67.) 6 of the certificates use the loop node with size facts
+(`whileSz`, Lean `sizeloop_sound`), all made in the generator's second attempt at a
+function whose first certificate failed (`Avery-FLOPS2006-Table1`, `Log`, `t07`, `t13`,
+`t28`, `sipma91`). With `--minic`, 149 of the 172 are validated against their source,
+none fails, 23 are not exported (144 of 166 before).
 Since the amortised loop rules, 17 functions get a
 constant amortised bound instead of a summary: the generator compares its candidates at
 the largest admissible inputs, where the amortised bound is about half the summary

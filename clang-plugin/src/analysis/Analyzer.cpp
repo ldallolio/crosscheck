@@ -439,6 +439,11 @@ struct LoopPotential {
   /// (`sum_i w_i * slot_i + c <= 0`): candidates for the certificate generator, which
   /// keeps those that its own assertions prove (they are hints, not trusted).
   std::vector<std::pair<std::vector<std::int64_t>, std::int64_t>> invs;
+  /// Per-iteration change of the variables the loop modifies, on every path back to the
+  /// head (the interval of `v_post - v_head`, containing 0): hints for the size facts of
+  /// the certificate (Lean `whileSz`), which the checker proves again.
+  struct Change { bool hasLo = false, hasHi = false; std::int64_t lo = 0, hi = 0; };
+  std::map<const VarDecl*, Change> sizes;
 };
 
 struct FnCtx {
@@ -2618,6 +2623,8 @@ Cost Analyzer::execLoop(const Stmt* loop, const Expr* cond, const Stmt* body, co
       lp.slots = slots;
       lp.rank = *rank;
       lp.invs = invForms;
+      for (const auto& [var, c] : changes(it))
+        lp.sizes[var] = LoopPotential::Change{c.hasLo, c.hasHi, c.lo, c.hi};
       fc.potentials[loop] = std::move(lp);
     }
     lr.potential = potentialString(*rank, names);
@@ -3376,6 +3383,14 @@ struct Analyzer::CertCtx {
   std::size_t choice = 0;  ///< the variable of nondeterministic tests
   std::size_t dummy = 1;   ///< a variable that no assertion mentions (costs only)
   std::size_t depth = 0;   ///< loop nesting: index of the logical variable
+  /// Loops enclosing the code being lowered (the names of the flags of early exits).
+  /// Equal to `depth - depthBase` except inside a loop with size facts, whose logical
+  /// variables come after its own.
+  std::size_t loopNest = 0;
+  /// Second attempt at a function whose certificate failed: loops are certified with
+  /// their size facts (constant entry bound) whenever they can be, also instead of an
+  /// entry bound in the parameters, so that the code after them may use the facts.
+  bool preferSize = false;
   std::size_t depthBase = 0;  ///< `depth` outside every loop (the number of parameters' variables)
   int inDead = 0;          ///< lowering code that is not reached (inside a dead node)
   std::size_t gammas = 0;  ///< logical variables 0..gammas-1 are the parameters' values
@@ -4485,7 +4500,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   ex.loop = true;
   // Named by the nesting depth of the loop (0: in no other loop), which the mini-C
   // exporter computes from the syntax.
-  const std::string nest = std::to_string(j - cc.depthBase);
+  const std::string nest = std::to_string(cc.loopNest);
   if (js.brk) ex.brk = cc.flagVar(cc.prefix + "?break" + nest);
   if (js.cnt) ex.cnt = cc.flagVar(cc.prefix + "?continue" + nest);
   if (rets && cc.ret == CertCtx::none) cc.ret = cc.flagVar(cc.prefix + "?return");
@@ -4522,6 +4537,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   auto runBody = [&](const Assn& p, const Assn& hint) -> std::optional<CertPiece> {
     ++cur().lowerings;
     ++cc.depth;
+    ++cc.loopNest;
     cc.exits.push_back(ex);
     cc.hints.push_back(hint);
     CertPiece acc{mk(Node{}), p, 0};
@@ -4549,6 +4565,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     cc.hints.pop_back();
     cc.exits.pop_back();
     --cc.depth;
+    --cc.loopNest;
     if (!ok) return std::nullopt;
     return acc;
   };
@@ -4586,6 +4603,30 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     if (known) cands.push_back(std::move(e));
   }
   cands = cert::normalize(cands);
+  // The size facts of the loop (Lean `whileSz`), from the analysis' per-iteration changes
+  // and the upper bounds of `f` on entry.
+  auto sizeFacts = [&]() {
+    std::vector<cert::Size> szs;
+    if (lp.logBase) return szs;
+    for (const auto& [var, ch] : lp.sizes) {
+      auto vit = cc.var.find(var);
+      if (vit == cc.var.end()) continue;
+      auto add = [&](PExp f, std::int64_t h) {
+        if (std::optional<std::int64_t> U = cert::upperBound(entry, f)) szs.push_back(cert::Size{f, h, {}, *U});
+      };
+      if (ch.hasHi) add(PExp{cert::unitVec(vit->second), 0}, ch.hi);
+      if (ch.hasLo) add(PExp{cert::vsmul(-1, cert::unitVec(vit->second)), 0}, -ch.lo);
+    }
+    return szs;
+  };
+  // In the second attempt, the invariant is searched with the size facts at the head
+  // (with the analysis' potential), which inner loops may need to be lowered at all.
+  Assn sizeHead;
+  if (cc.preferSize && !cc.inDead && !lp.sizes.empty() && !lp.logBase)
+    if (std::optional<std::int64_t> k0 = cert::upperBound(entry, pot)) {
+      const std::int64_t N0 = *k0 <= 0 ? 0 : *k0 / static_cast<std::int64_t>(dA);
+      if (std::optional<Assn> h0 = cert::szAfter(sizeFacts(), N0 - 1)) sizeHead = *h0;
+    }
   cands.erase(std::remove_if(cands.begin(), cands.end(),
                              [&](const Lin& e) {
                                return cert::coeff(e.lv, j) != 0 || !cert::farkas(entry, e);
@@ -4594,6 +4635,7 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   for (std::size_t round = 0; round <= cands.size() + 1; ++round) {
     Assn p = testLins();
     p.insert(p.end(), cands.begin(), cands.end());
+    p.insert(p.end(), sizeHead.begin(), sizeHead.end());
     std::optional<CertPiece> b = runBody(p, cands);
     if (!b) return std::nullopt;
     Assn kept;
@@ -4738,6 +4780,84 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
   std::uint64_t bestValue = 0;
   std::vector<std::uint64_t> hiVec;
   for (const auto& h : cc.gammaHi) hiVec.push_back(h ? *h : 0);
+  // Size facts (Lean `whileSz`, `sizeloop_sound`): with a constant entry bound `k`, at most
+  // N = floor(k/d) iterations, and a variable that grows by at most `h` per iteration and
+  // is at most `U` on entry is at most `U + max(h,0)*N` after the loop, and at most
+  // `U + max(h,0)*(N-1)` at the start of every iteration (for the inner loops). The
+  // growths are the analysis' hints; the facts whose growth the body's postcondition does
+  // not prove are dropped and the body lowered again. The facts' logical variables come
+  // after `j`, so inner loops start at `j + 1 + n`; their bounds may not use the logical
+  // variables from `j` on (no ghost entry bounds inside). Only in the second attempt at a
+  // function whose certificate failed (`preferSize`): the others keep their certificates.
+  auto trySize = [&](const PExp& potc, std::uint64_t d, std::int64_t k,
+                     const Farkas& posCert) -> std::optional<CertPiece> {
+    if (!cc.preferSize || lp.sizes.empty() || cc.inDead || !searchBudgetLeft()) return std::nullopt;
+    std::vector<cert::Size> szs = sizeFacts();
+    const std::int64_t N = k <= 0 ? 0 : k / static_cast<std::int64_t>(d);
+    const std::string savedFail = cc.fail;
+    for (int round = 0; round < 3 && !szs.empty(); ++round) {
+      std::optional<Assn> head = cert::szAfter(szs, N - 1), after = cert::szAfter(szs, N),
+                          at0 = cert::szAfter(szs, 0);
+      if (!head || !after || !at0) break;
+      Assn pre{cert::ghost(potc, j, 0)};
+      for (const Lin& e : cert::szGhosts(j, szs)) pre.push_back(e);
+      for (const Lin& e : *head) pre.push_back(e);
+      for (const Lin& e : testLins()) pre.push_back(e);
+      for (const Lin& e : inv) pre.push_back(e);
+      Assn post{cert::ghost(potc, j, static_cast<std::int64_t>(d))};
+      for (const Lin& e : cert::szSteps(j, szs)) post.push_back(e);
+      for (const Lin& e : inv) post.push_back(e);
+      const bool savedG = cc.ghostSym;
+      cc.ghostSym = false;
+      cc.depth += szs.size();
+      std::optional<CertPiece> b = runBody(pre, post);
+      cc.depth -= szs.size();
+      cc.ghostSym = savedG;
+      if (!b) break;
+      bool low = true;
+      for (std::size_t g = j; g < b->bound.co.size(); ++g)
+        if (b->bound.co[g]) low = false;
+      for (const cert::QT& t : b->bound.q)
+        if (t.i >= j || t.j >= j) low = false;
+      if (!low) break;
+      std::vector<cert::Size> kept;
+      const Assn steps = cert::szSteps(j, szs);
+      for (std::size_t i = 0; i < szs.size(); ++i)
+        if (cert::farkas(b->post, steps[i])) kept.push_back(szs[i]);
+      if (kept.size() != szs.size()) {
+        szs = std::move(kept);
+        continue;
+      }
+      std::optional<std::vector<Farkas>> qc = cert::farkasAll(b->post, post);
+      if (!qc) break;
+      Node wn;
+      wn.kind = Node::WhileSz;
+      wn.w = w;
+      wn.gs = gs;
+      wn.inv = inv;
+      wn.pot = potc;
+      wn.d = d;
+      wn.k = k;
+      wn.j = j;
+      wn.posCert = posCert;
+      wn.szs = szs;
+      wn.b1 = b->bound;
+      wn.c1 = weaken(pre, identityCerts(pre), b->bound, b->post, *qc, b->node);
+      Assn pw{Lin{potc.sv, {}, potc.c - k}};
+      for (const Lin& e : *at0) pw.push_back(e);
+      for (const Lin& e : inv) pw.push_back(e);
+      Assn qw = *after;
+      if (gs.size() == 1) qw.push_back(cert::negLin(gs[0]));
+      for (const Lin& e : inv) qw.push_back(e);
+      cert::SB bw = cert::whileBound(k, d, w, b->bound);
+      std::optional<std::vector<Farkas>> pc = cert::farkasAll(entry, pw);
+      if (!pc) break;
+      cc.fail = savedFail;
+      return seqPiece(prolog, CertPiece{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw});
+    }
+    cc.fail = savedFail;
+    return std::nullopt;
+  };
   for (const auto& [pot0, d] : potentials) {
   // The iteration that leaves by a jump need not decrease the potential: it is paid by
   // a term c * (1 - flags), which is c while the loop runs and 0 once a flag is set.
@@ -4781,7 +4901,13 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     Assn bodyPost = inv;
     bodyPost.insert(bodyPost.begin(), cert::ghost(potc, j, static_cast<std::int64_t>(d)));
     std::optional<CertPiece> b = runBody(bodyPre, bodyPost);
-    if (!b) return std::nullopt;
+    if (!b) {
+      // An inner loop may need the size facts of this one (its bound depends on a value
+      // that this loop changes).
+      if (k)
+        if (std::optional<CertPiece> sp = trySize(potc, d, *k, *posCert)) return sp;
+      return std::nullopt;
+    }
     // An inner loop from 0 to this loop's counter: its entry bound grows as the potential
     // falls. With `gamma_j = k - pot` in the body (Lean `whileUp`), a body bound
     // `a + c * gamma_j` has the amortised bound `upBound`; tried when the body has a loop,
@@ -4934,10 +5060,15 @@ std::optional<Analyzer::CertPiece> Analyzer::certLoop(CertCtx& cc, const Stmt* l
     if (!pc) { lastWhy = "internal: loop entry"; continue; }
     CertPiece lp{weaken(pw, *pc, bw, qw, identityCerts(qw), mk(wn)), qw, bw};
     std::uint64_t value = cert::sbAt(bw, hiVec);
+    bool took = false;
     if (!best || value < bestValue) {
       best = seqPiece(prolog, lp);
       bestValue = value;
+      took = true;
     }
+    // In the second attempt, the same loop with size facts, for the code after it.
+    if (k && took && cc.preferSize)
+      if (std::optional<CertPiece> sp = trySize(potc, d, *k, *posCert)) best = sp;
     break;  // the first accepted extra term is the smallest for this potential
   }
   }
@@ -5580,7 +5711,17 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
   const auto* body = dyn_cast_or_null<CompoundStmt>(def->getBody());
   if (!body) { reason = "no body"; return false; }
   std::vector<const Stmt*> list(body->body_begin(), body->body_end());
+  const CertCtx initial = cc;
   std::optional<CertPiece> p = certList(cc, list, 0, pre);
+  if (!p && searchBudgetLeft() &&
+      std::any_of(fc.potentials.begin(), fc.potentials.end(),
+                  [](const auto& e) { return !e.second.sizes.empty(); })) {
+    const std::string why = cc.fail;
+    cc = initial;
+    cc.preferSize = true;
+    p = certList(cc, list, 0, pre);
+    if (!p) cc.fail = why;
+  }
   // The variables created (also those of contracts) stay in the program's table.
   certNames_ = cc.names;
   certUWidth_ = cc.uwidth;

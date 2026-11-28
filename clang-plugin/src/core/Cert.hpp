@@ -96,6 +96,19 @@ Lin ghostLow(const PExp& pot, std::size_t j);
 Lin upLo(const PExp& pot, std::size_t j, std::int64_t k);                       ///< `k - pot - gamma_j <= 0` (Lean `upLo`)
 Lin upHi(const PExp& pot, std::size_t j, std::int64_t k, std::int64_t extra);   ///< `pot + gamma_j - k + extra <= 0` (Lean `upHi`)                    ///< `gamma_j - pot <= 0` (Lean `ghostLow`)
 Lin ghostGrow(const PExp& pot, std::size_t j, std::uint64_t b);  ///< `b*gamma_j - pot <= 0` (Lean `ghostGrow`)
+/// A size fact of a loop (Lean `Size`, node `whileSz`): `f <= U = ul.gamma + uc` on entry,
+/// `f` growing by at most `h` per iteration.
+struct Size {
+  PExp f;
+  std::int64_t h = 0;
+  Vec ul;
+  std::int64_t uc = 0;
+};
+Lin szLin(const Size& z, std::int64_t t);  ///< `f - U - t <= 0` (Lean `szLin`)
+/// `f <= U + max(h, 0)*n` for each fact (Lean `szAfter`); none if a product overflows.
+std::optional<Assn> szAfter(const std::vector<Size>& szs, std::int64_t n);
+Assn szGhosts(std::size_t j, const std::vector<Size>& szs);  ///< `f_i - gamma_{j+1+i} <= 0`
+Assn szSteps(std::size_t j, const std::vector<Size>& szs);   ///< `f_i - gamma_{j+1+i} - h_i <= 0`
 /// floor(log_b n) (Lean `ilog`) and the iterations of a logarithmic loop (Lean `logIters`).
 std::uint64_t ilog(std::uint64_t b, std::uint64_t n);
 std::uint64_t logIters(std::uint64_t b, std::int64_t k);
@@ -124,7 +137,7 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, WhileUp, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, WhileUp, WhileSz, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
@@ -145,6 +158,7 @@ struct Node {
   std::vector<PExp> inst;       // Call: the callee's logical variables, as expressions
   std::vector<SB> ubs;          // Call: bounds of `inst`
   Farkas deadCert;              // Dead
+  std::vector<Size> szs;        // WhileSz: the size facts
   NodeP c1, c2;                 // children (Seq, Ite: both; While, Weaken, Dead: c1)
 };
 

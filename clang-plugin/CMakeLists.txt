@@ -188,6 +188,7 @@ if(BUILD_TESTING)
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/program.json
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/triangular.json
           ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/products.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/../formalization/test/certificates/sizes.json
           --mutants 150)
     endif()
   endif()
