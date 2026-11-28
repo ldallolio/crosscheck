@@ -42,11 +42,14 @@ Done (2026-11-28):
 
 Open, by expected effect:
 
-- **Certify the size bounds** (7 of the 34 new programs are certified, by other means): the
-  generator does not use them. Either the generator expresses them with what the checker
-  has (invariants over a ghost counter would change the lowered program, so mini-C
-  validation would need it too), or the checker gets a loop node with exit facts
-  `v <= v0 + h*K`, proved in Lean from `size_bound_of_le`: a checker case, so Paper I.
+- **Certify the size bounds** (7 of the 34 new programs are certified, by other means).
+  Done on 2026-11-28 (the author asked for the Paper I route): checker node `whileSz`
+  (size facts `f <= U` on entry, growth `<= h` per iteration proved with one ghost logical
+  variable per fact, `f <= U + max(h,0)(N-1)` in the body, `f <= U + max(h,0)N` after,
+  `N = floor(k/d)`, constant `k`), Lean `sizeloop_sound` and the general rule
+  `valid_whileSize`, Paper I `prop:size-facts`. Next: the generator (`certLoop`) emits
+  `whileSz` from the analyser's per-iteration changes, then a corpus file from the plugin
+  for the mutation test in CI.
 - **The 38 with no potential**: disequalities and disjunctions in guards (`wise`:
   `x - y > 2 || y - x > 2`), loops in phases or that change direction (`GopanReps`),
   counters that are reset (`speedpldi2`). Multiphase / disjunctive potentials: read

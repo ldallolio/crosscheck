@@ -314,6 +314,101 @@ theorem valid_while {I C : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
 
 end While
 
+/-! ### Size facts of a loop -/
+
+section WhileSize
+
+/-- **Size facts of a loop** (Paper I `prop:size-facts`). A loop with an integer potential
+    `V ≥ d` under its test, bounded by `K` on entry and falling by at least `d` per
+    iteration, makes at most `N = ⌊K/d⌋` iterations; if every iteration increases each
+    `f l` by at most `h l`, then `f l ≤ U l + max(h l, 0)·N` after the loop when
+    `f l ≤ U l` on entry. The body need only be correct from the states where
+    `f l ≤ U l + max(h l, 0)·(N - 1)` (at most `N - 1` iterations came before), which an
+    inner loop may use. The cost is the bound of rule (5). -/
+theorem valid_whileSize {τ : Type} {I : S → Prop} {w : ℕ} {b : S → Bool} {c : Cmd ι S}
+    {Wb : ℕ} (V : S → ℤ) {d : ℕ} (hd : 0 < d) (K : ℤ) (f : τ → S → ℤ) (U h : τ → ℤ)
+    (h_pos : ∀ s, I s → b s = true → (d : ℤ) ≤ V s)
+    (h_body : ∀ s, I s → b s = true →
+      (∀ l, f l s ≤ U l + max (h l) 0 * (((K / d).toNat : ℤ) - 1)) →
+      (∀ n, Pre Φ c s n → n ≤ Wb) ∧
+        ∀ t n, Exec Φ c s t n → I t ∧ V t + d ≤ V s ∧ ∀ l, f l t ≤ f l s + h l) :
+    Valid Φ (fun s => I s ∧ V s ≤ K ∧ ∀ l, f l s ≤ U l) (Cmd.while w b c)
+      ((K / d).toNat * (w + Wb) + w)
+      (fun t => I t ∧ b t = false ∧ ∀ l, f l t ≤ U l + max (h l) 0 * ((K / d).toNat : ℤ)) := by
+  have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
+  have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
+  set N : ℕ := (K / (d : ℤ)).toNat with hN
+  -- `i ≤ N` iterations done: the potential fell by `i·d`, each `f l` grew by at most
+  -- `i·max(h l, 0)`
+  let J : S → Prop := fun s => I s ∧ ∃ i : ℕ, i ≤ N ∧ V s ≤ K - i * d ∧
+    ∀ l, f l s ≤ U l + max (h l) 0 * i
+  have step : ∀ s, J s → b s = true →
+      (∀ l, f l s ≤ U l + max (h l) 0 * ((N : ℤ) - 1)) ∧
+      ∀ t, I t → V t + d ≤ V s → (∀ l, f l t ≤ f l s + h l) → J t := by
+    intro s ⟨hI, i, _, hVi, hfi⟩ hb
+    have hds := h_pos s hI hb
+    have h1 : (i : ℤ) + 1 ≤ K / d := (Int.le_ediv_iff_mul_le hdZ).mpr (by linarith)
+    have hi1 : i + 1 ≤ N := by
+      simp only [hN]; generalize K / (d : ℤ) = q at h1; omega
+    refine ⟨fun l => ?_, fun t hIt hVt hft => ⟨hIt, i + 1, hi1, ?_, fun l => ?_⟩⟩
+    · have h0 : (0 : ℤ) ≤ max (h l) 0 := le_max_right _ _
+      have : (i : ℤ) ≤ (N : ℤ) - 1 := by omega
+      have := mul_le_mul_of_nonneg_left this h0
+      linarith [hfi l]
+    · push_cast; linarith
+    · have := hft l; have := hfi l; have := le_max_left (h l) 0
+      push_cast; linarith
+  have key := valid_while (Φ := Φ) (I := J) (C := fun s => V s ≤ K) (w := w) (b := b) (c := c)
+    (Wb := Wb) (fun s => (V s : ℚ) / d) ((K : ℚ) / d) ?_ ?_ ?_
+  · refine valid_conseq ?_ key ?_ ?_
+    · rintro s ⟨hI, hV, hf⟩
+      exact ⟨⟨hI, 0, Nat.zero_le _, by simpa using hV, fun l => by simpa using hf l⟩, hV⟩
+    · have : ⌊(K : ℚ) / (d : ℚ)⌋₊ = N := by
+        rw [hN, ← Int.floor_toNat, Rat.floor_intCast_div_natCast]
+      rw [this]
+    · rintro t ⟨⟨hIt, i, hiN, _, hfi⟩, hb⟩
+      refine ⟨hIt, hb, fun l => ?_⟩
+      have h0 : (0 : ℤ) ≤ max (h l) 0 := le_max_right _ _
+      have : (i : ℤ) ≤ (N : ℤ) := by exact_mod_cast hiN
+      have := mul_le_mul_of_nonneg_left this h0
+      linarith [hfi l]
+  · intro v s ⟨hJ, hb, hv⟩
+    obtain ⟨hhead, hnext⟩ := step s hJ hb
+    obtain ⟨hcost, hpost⟩ := h_body s hJ.1 hb hhead
+    refine ⟨hcost, fun t n he => ?_⟩
+    obtain ⟨hIt, hVt, hft⟩ := hpost t n he
+    refine ⟨hnext t hIt hVt hft, ?_⟩
+    have h2 : ((V t : ℚ) + d) ≤ (V s : ℚ) := by exact_mod_cast hVt
+    show (V t : ℚ) / d ≤ v - 1
+    rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
+    linarith
+  · intro s hJ hb
+    have h2 : (d : ℚ) ≤ (V s : ℚ) := by exact_mod_cast h_pos s hJ.1 hb
+    show (1 : ℚ) ≤ (V s : ℚ) / d
+    rw [le_div_iff₀ hd']
+    linarith
+  · intro s hs
+    have h2 : (V s : ℚ) ≤ (K : ℚ) := by exact_mod_cast hs
+    exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+
+/-- The hypotheses of `valid_whileSize` can be met: `while (i < 10) { i++; y += 2 }` from
+    `0 ≤ i`, `y ≤ 0` (states `(i, y)`, potential `10 - i`) ends with `y ≤ 20`. -/
+example : Valid (fun _ : Unit => (Cmd.skip : Cmd Unit (ℤ × ℤ)))
+    (fun s : ℤ × ℤ => 0 ≤ s.1 ∧ 10 - s.1 ≤ 10 ∧ ∀ _ : Unit, s.2 ≤ 0)
+    (Cmd.while 1 (fun s : ℤ × ℤ => decide (s.1 < 10))
+      (Cmd.atom 1 (fun s t : ℤ × ℤ => t = (s.1 + 1, s.2 + 2))))
+    (((10 : ℤ) / ((1 : ℕ) : ℤ)).toNat * (1 + 1) + 1)
+    (fun t : ℤ × ℤ => 0 ≤ t.1 ∧ decide (t.1 < 10) = false ∧
+      ∀ _ : Unit, t.2 ≤ 0 + max 2 0 * ((((10 : ℤ) / ((1 : ℕ) : ℤ)).toNat : ℕ) : ℤ)) :=
+  valid_whileSize (I := fun s : ℤ × ℤ => 0 ≤ s.1) (fun s => 10 - s.1) Nat.one_pos 10
+    (fun _ s => s.2) (fun _ => 0) (fun _ => 2)
+    (fun s _ hb => by simp at hb; push_cast; omega)
+    (fun s hI _ _ => ⟨fun n hn => valid_atom (Φ := fun _ : Unit => Cmd.skip)
+        (fun _ => True) (fun _ => True) 1 _ (fun _ _ _ _ => trivial) s trivial |>.1 n hn,
+      fun t n he => by cases he; next h => subst h; simp; omega⟩)
+
+end WhileSize
+
 /-! ### Loops whose body cost depends on the potential (amortised loop rule) -/
 
 section WhileSum

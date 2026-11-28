@@ -131,7 +131,7 @@ class Run:
         elif k == "ite":
             self.pay(n["w"])
             self.exec(n["c1"] if pexp(n["g"], s) <= 0 else n["c2"], s)
-        elif k in ("while", "whileAnd", "whileLog", "whileGrow", "whileUp"):
+        elif k in ("while", "whileAnd", "whileLog", "whileGrow", "whileUp", "whileSz"):
             gs = [n["g"]] if k == "while" else n["gs"]
             while True:
                 self.ticks += 1

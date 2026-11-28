@@ -160,6 +160,9 @@ def optNatList (j : Json) (k : String) : Except String (List Nat) :=
   | .ok v => natList v k
   | .error _ => .ok []
 
+def parseSize (j : Json) : Except String Size := do
+  pure ⟨← parsePExp (← field j "f"), ← getInt j "h", ← optIntList j "ul", ← getInt j "uc"⟩
+
 partial def parseCmd (j : Json) : Except String ACmd := do
   let node ← match (← field j "node").getStr? with
     | .ok s => pure s
@@ -200,6 +203,11 @@ partial def parseCmd (j : Json) : Except String ACmd := do
         (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k")
         (← getNat j "j") (← parseFarkas (← field j "posCert")) (← getSB j "Wb")
         (← parseCmd (← field j "body")))
+  | "whileSz" =>
+      pure (.whileSz (← getNat j "w") (← parseArr j "gs" parsePExp) (← parseArr j "inv" parseLin)
+        (← parsePExp (← field j "pot")) (← getNat j "d") (← getInt j "k")
+        (← getNat j "j") (← parseFarkas (← field j "posCert")) (← parseArr j "szs" parseSize)
+        (← getSB j "Wb") (← parseCmd (← field j "body")))
   | "weaken" =>
       pure (.weaken (← parseArr j "P" parseLin) (← parseArr j "preCerts" parseFarkas)
         (← getSB j "B") (← parseArr j "Q" parseLin) (← parseArr j "postCerts" parseFarkas)
@@ -812,6 +820,14 @@ partial def showCmd (vars : List String) (ind : String) : ACmd → String
       s!"{ind}while ({" && ".intercalate (gs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}) \{" ++
       s!"    [test cost {w}; invariant {showAssn vars inv}; potential " ++
       s!"({showAffine vars pot.sv [] pot.c})/{d} <= {k}/{d}; γ{j} = {k} - ({showAffine vars pot.sv [] pot.c}); body bound {showSB Wb}]\n" ++
+      showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
+  | .whileSz w gs inv pot d k j _ szs Wb body =>
+      s!"{ind}while ({" && ".intercalate (gs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}) \{" ++
+      s!"    [test cost {w}; invariant {showAssn vars inv}; potential " ++
+      s!"({showAffine vars pot.sv [] pot.c})/{d} <= {k}/{d}; γ{j}; size facts " ++
+      "; ".intercalate (szs.map fun z =>
+        s!"{showAffine vars z.f.sv [] z.f.c} <= {showAffine [] z.ul [] z.uc} + {z.h} per iteration") ++
+      s!"; body bound {showSB Wb}]\n" ++
       showCmd vars (ind ++ "  ") body ++ s!"{ind}}\n"
   | .weaken _ _ _ _ _ c => showCmd vars ind c
   | .dead _ c => s!"{ind}// unreachable\n" ++ showCmd vars ind c

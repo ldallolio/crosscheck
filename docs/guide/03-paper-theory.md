@@ -324,6 +324,14 @@ Three loop nodes exist:
 | `whileGrow` | `pot ≥ 1` on entry, `pot ≤ K` under the test; body: `pot ≥ γ` → `pot ≥ b·γ` | `⌊log_b K⌋ + 1` | `N − ⌊log_b pot⌋` (`growloop_sound`) |
 
 Two more nodes accept the amortised triangular nests (`triOk`, `whileUp`/`upOk`).
+One more, `whileSz`, carries **size facts**: a loop of at most `N = ⌊k/d⌋` iterations in
+which `y` grows by at most `h` per iteration leaves `y ≤ y₀ + h·N`. Example: from `i = 0`,
+`y ≤ 0`, the loop `while (i ≤ 9) { i++; y += 2; }` makes at most 10 iterations, so `y ≤ 20`
+afterwards. The checker proves the growth with one more logical variable per fact
+(`γ` holds `y` before the iteration: the body must take `y ≤ γ` to `y ≤ γ + 2`), and gives
+the body `y ≤ 18` (at most nine iterations came before), which an inner loop whose bound
+depends on `y` can use. This is KoAT's size bound (Brockschmidt et al., 2016, Section 4.2)
+for one loop; Paper I `prop:size-facts`, Lean `valid_whileSize`, `sizeloop_sound`.
 
 ### The theorems
 

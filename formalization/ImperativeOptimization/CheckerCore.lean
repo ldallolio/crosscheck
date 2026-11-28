@@ -250,6 +250,16 @@ def ubGoals : List PExp → List SB → List Lin
   | a :: as, u :: us => ubLin a u :: ubGoals as us
   | _, _ => []
 
+/-- A **size fact** of a loop (node `whileSz`): an affine expression `f` of the program
+    variables that is at most `U = Σ ul[i] γᵢ + uc` (logical variables only) on entry and
+    grows by at most `h` per iteration. -/
+structure Size where
+  f : PExp
+  h : Int
+  ul : List Int
+  uc : Int
+  deriving DecidableEq, Repr
+
 /-- An annotated program: the program together with everything the checker needs. -/
 inductive ACmd where
   | skip : ACmd
@@ -295,6 +305,15 @@ inductive ACmd where
       `0` to the outer counter). After the loop: as for `whileLog`. -/
   | whileUp (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int)
       (j : Nat) (posCert : Nat × List Nat) (Wb : SB) (body : ACmd) : ACmd
+  /-- `while (gs) body` with an affine potential `pot / d` bounded by the constant `k` on
+      entry (at most `N = ⌊k/d⌋` iterations) and **size facts** `szs`: each `f ≤ U` on
+      entry, and each iteration increases `f` by at most `h`. The body is checked with the
+      logical variable `j + 1 + i` holding the value of the `i`-th `f` before the
+      iteration, and with `f ≤ U + max(h, 0)·(N - 1)` (at most `N - 1` iterations came
+      before); after the loop, `f ≤ U + max(h, 0)·N`. No logical variable from `j` on may
+      occur in `inv`, in the `U` or in `Wb`. -/
+  | whileSz (w : Nat) (gs : List PExp) (inv : List Lin) (pot : PExp) (d : Nat) (k : Int)
+      (j : Nat) (posCert : Nat × List Nat) (szs : List Size) (Wb : SB) (body : ACmd) : ACmd
   /-- Consequence: `c` is checked against `P'`, `B'`, `Q'`, and the surrounding triple
       follows by the given Farkas certificates. -/
   | weaken (P' : List Lin) (preCerts : List (Nat × List Nat)) (B' : SB) (Q' : List Lin)
@@ -366,6 +385,26 @@ def upHi (pot : PExp) (j : Nat) (k extra : Int) : Lin :=
 def ghost (pot : PExp) (j : Nat) (extra : Int) : Lin :=
   ⟨pot.sv, vsmul (-1) (unit j), pot.c + extra⟩
 
+/-- `f - U - t ≤ 0` for the size fact `z`. -/
+def szLin (z : Size) (t : Int) : Lin := ⟨z.f.sv, vsmul (-1) z.ul, z.f.c - z.uc - t⟩
+
+/-- `fᵢ - γ_{j+1+i} ≤ 0` for the size facts `zs`: the logical variables bound their values
+    before an iteration. -/
+def szGhosts : Nat → List Size → List Lin
+  | _, [] => []
+  | j, z :: zs => ghost z.f (j + 1) 0 :: szGhosts (j + 1) zs
+
+/-- `fᵢ - γ_{j+1+i} - hᵢ ≤ 0`: each `fᵢ` grew by at most `hᵢ` in the iteration. -/
+def szSteps : Nat → List Size → List Lin
+  | _, [] => []
+  | j, z :: zs => ghost z.f (j + 1) (-z.h) :: szSteps (j + 1) zs
+
+/-- The facts of `szs` after `n` iterations: `f ≤ U + max(h, 0)·n`. -/
+def szAfter (szs : List Size) (n : Int) : List Lin := szs.map (fun z => szLin z (max z.h 0 * n))
+
+/-- No coefficient from index `j` on. -/
+def lvBelow (j : Nat) (l : List Int) : Bool := (l.drop j).all (· = 0)
+
 /-- `Σ a • ubs[i] * ubs[j]` over the quadratic terms `(a, i, j)` of a callee's bound. -/
 def SB.qcomb : List (Nat × Nat × Nat) → List SB → SB
   | [], _ => SB.const 0
@@ -389,6 +428,7 @@ def writes (fs : List FunCert) : ACmd → List Nat
   | .whileLog _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileGrow _ _ _ _ _ _ _ _ _ body => writes fs body
   | .whileUp _ _ _ _ _ _ _ _ _ body => writes fs body
+  | .whileSz _ _ _ _ _ _ _ _ _ _ body => writes fs body
   | .weaken _ _ _ _ _ c => writes fs c
   | .dead _ c => writes fs c
   | .call _ f _ _ _ _ => match fs[f]? with
@@ -455,6 +495,17 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
       check fs (upLo pot j k :: upHi pot j k 0 :: (gs.map PExp.toLin ++ inv)) body Wb
         (upHi pot j k d :: inv) &&
       upOk w d k j Wb B
+  | .whileSz w gs inv pot d k j posCert szs Wb body, B, Q =>
+      decide (0 < d) &&
+      decide (P = entryLin pot k [] :: (szAfter szs 0 ++ inv)) &&
+      decide (Q = szAfter szs ((k / d).toNat : Int) ++ logExit gs inv) &&
+      inv.all (fun e => lvBelow j e.lv) && szs.all (fun z => lvBelow j z.ul) &&
+      (Wb.co.drop j).all (· = 0) && Wb.q.all (fun t => decide (t.2.1 < j ∧ t.2.2 < j)) &&
+      entails1 (gs.map PExp.toLin ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert &&
+      check fs (ghost pot j 0 :: (szGhosts j szs ++
+          (szAfter szs (((k / d).toNat : Int) - 1) ++ (gs.map PExp.toLin ++ inv)))) body Wb
+        (ghost pot j d :: (szSteps j szs ++ inv)) &&
+      loopBoundOk w d k [] Wb B
   | .weaken P' preCerts B' Q' postCerts c, B, Q =>
       entailsAll P P' preCerts && check fs P' c B' Q' && SB.le B' B &&
         entailsAll Q' Q postCerts

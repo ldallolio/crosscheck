@@ -601,6 +601,8 @@ def ACmd.toCmd : ACmd → Cmd ℕ Env
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .whileUp w gs _ _ _ _ _ _ _ body =>
       Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
+  | .whileSz w gs _ _ _ _ _ _ _ _ body =>
+      Cmd.while w (fun s => gs.all (fun e => decide (e.eval s ≤ 0))) body.toCmd
   | .weaken _ _ _ _ _ c => c.toCmd
   | .dead _ c => c.toCmd
   | .call w f _ _ _ _ => Cmd.call w f
@@ -1332,6 +1334,262 @@ theorem growloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool
     show ((V s : ℕ) : ℚ) ≤ ((logIters b K : ℕ) : ℚ)
     exact_mod_cast Nat.sub_le _ _
 
+/-! ### Loops with size facts (`whileSz`) -/
+
+theorem coeff_of_lvBelow {j : ℕ} {l : List ℤ} (h : lvBelow j l = true) {x : ℕ} (hx : j ≤ x) :
+    coeff l x = 0 := by
+  simp only [lvBelow, List.all_eq_true, decide_eq_true_eq] at h
+  simp only [coeff, List.getD_eq_getElem?_getD]
+  have : l[x]? = (l.drop j)[x - j]? := by rw [List.getElem?_drop]; congr 1; omega
+  rw [this]
+  cases hg : (l.drop j)[x - j]? with
+  | none => rfl
+  | some a => exact h a (List.mem_of_getElem? hg)
+
+theorem ncoeff_of_drop {j : ℕ} {l : List ℕ} (h : (l.drop j).all (· = 0) = true) {x : ℕ}
+    (hx : j ≤ x) : ncoeff l x = 0 := by
+  simp only [List.all_eq_true, decide_eq_true_eq] at h
+  simp only [ncoeff, List.getD_eq_getElem?_getD]
+  have : l[x]? = (l.drop j)[x - j]? := by rw [List.getElem?_drop]; congr 1; omega
+  rw [this]
+  cases hg : (l.drop j)[x - j]? with
+  | none => rfl
+  | some a => exact h a (List.mem_of_getElem? hg)
+
+theorem dotN_congr (l : List ℕ) (f g : Env) (h : ∀ i, ncoeff l i = 0 ∨ f i = g i) :
+    dotN l f = dotN l g := by
+  induction l generalizing f g with
+  | nil => rfl
+  | cons a l ih =>
+    have h0 := h 0
+    have hr := ih (fun i => f (i + 1)) (fun i => g (i + 1)) (fun i => by
+      have := h (i + 1); simpa [ncoeff] using this)
+    simp only [ncoeff, List.getD_cons_zero] at h0
+    simp only [dotN, hr]
+    rcases h0 with h0 | h0 <;> simp [h0]
+
+theorem dotQ_congr (q : List (ℕ × ℕ × ℕ)) (f g : Env)
+    (h : ∀ t ∈ q, f t.2.1 = g t.2.1 ∧ f t.2.2 = g t.2.2) : dotQ q f = dotQ q g := by
+  induction q with
+  | nil => rfl
+  | cons t q ih =>
+    obtain ⟨a, i, k⟩ := t
+    obtain ⟨h1, h2⟩ := h (a, i, k) List.mem_cons_self
+    simp only at h1 h2
+    simp only [dotQ, h1, h2, ih (fun t ht => h t (List.mem_cons_of_mem _ ht))]
+
+/-- Valuations that agree below `j` give the same value to a constraint with no logical
+    variable from `j` on. -/
+theorem Lin.eval_congr_below {j : ℕ} {e : Lin} (h : lvBelow j e.lv = true) {ρ ρ' : Env}
+    (hρ : ∀ x, x < j → ρ' x = ρ x) (s : Env) : e.eval ρ' s = e.eval ρ s := by
+  have : dot e.lv ρ' = dot e.lv ρ := dot_congr _ _ _ (fun i => by
+    by_cases hi : i < j
+    · exact Or.inr (hρ i hi)
+    · exact Or.inl (coeff_of_lvBelow h (by omega)))
+  simp only [Lin.eval, this]
+
+theorem holds_congr_below {j : ℕ} {A : List Lin} (h : A.all (fun e => lvBelow j e.lv) = true)
+    {ρ ρ' : Env} (hρ : ∀ x, x < j → ρ' x = ρ x) (s : Env) : holds A ρ' s ↔ holds A ρ s := by
+  simp only [List.all_eq_true] at h
+  constructor
+  · intro H e he; rw [← Lin.eval_congr_below (h e he) hρ s]; exact H e he
+  · intro H e he; rw [Lin.eval_congr_below (h e he) hρ s]; exact H e he
+
+theorem holds_append (A C : List Lin) (ρ s : Env) :
+    holds (A ++ C) ρ s ↔ holds A ρ s ∧ holds C ρ s := by
+  simp only [holds, List.mem_append]
+  constructor
+  · intro h; exact ⟨fun e he => h e (Or.inl he), fun e he => h e (Or.inr he)⟩
+  · rintro ⟨h1, h2⟩ e (he | he)
+    · exact h1 e he
+    · exact h2 e he
+
+theorem szLin_eval (z : Size) (t : ℤ) (ρ s : Env) :
+    (szLin z t).eval ρ s = z.f.eval s - (dot z.ul ρ + z.uc) - t := by
+  simp only [szLin, Lin.eval, PExp.eval, dot_vsmul]; ring
+
+theorem holds_szAfter (szs : List Size) (n : ℤ) (ρ s : Env) :
+    holds (szAfter szs n) ρ s ↔ ∀ z ∈ szs, z.f.eval s ≤ dot z.ul ρ + z.uc + max z.h 0 * n := by
+  simp only [holds, szAfter, List.mem_map, forall_exists_index, and_imp,
+    forall_apply_eq_imp_iff₂, szLin_eval]
+  constructor
+  · intro h z hz; have := h z hz; linarith
+  · intro h z hz; have := h z hz; linarith
+
+/-- The logical variables of the size facts set to their values in the state `s`:
+    `γ_{j+1+i} = fᵢ(s)`. -/
+def setSz (s : Env) : Env → ℕ → List Size → Env
+  | r, _, [] => r
+  | r, j, z :: zs => setSz s (Function.update r (j + 1) (z.f.eval s)) (j + 1) zs
+
+theorem setSz_low (s : Env) : ∀ (zs : List Size) (r : Env) (j x : ℕ), x ≤ j →
+    setSz s r j zs x = r x
+  | [], _, _, _, _ => rfl
+  | z :: zs, r, j, x, hx => by
+    rw [setSz, setSz_low s zs _ (j + 1) x (by omega), Function.update_of_ne (by omega)]
+
+theorem szGhosts_holds (s : Env) : ∀ (zs : List Size) (r : Env) (j : ℕ),
+    holds (szGhosts j zs) (setSz s r j zs) s
+  | [], _, _ => by simp [szGhosts, holds]
+  | z :: zs, r, j => by
+    rw [szGhosts, setSz, holds_cons, ghost_eval, setSz_low s zs _ (j + 1) (j + 1) le_rfl,
+      Function.update_self]
+    exact ⟨by simp, szGhosts_holds s zs _ (j + 1)⟩
+
+theorem szSteps_sound (s t : Env) : ∀ (zs : List Size) (r : Env) (j : ℕ),
+    holds (szSteps j zs) (setSz s r j zs) t → ∀ z ∈ zs, z.f.eval t ≤ z.f.eval s + z.h
+  | [], _, _, _ => by simp
+  | z :: zs, r, j, h => by
+    rw [szSteps, setSz, holds_cons, ghost_eval, setSz_low s zs _ (j + 1) (j + 1) le_rfl,
+      Function.update_self] at h
+    intro z' hz'
+    rcases List.mem_cons.mp hz' with rfl | hz'
+    · linarith [h.1]
+    · exact szSteps_sound s t zs _ (j + 1) h.2 z' hz'
+
+theorem lt_toNat_of_mul_le {i : ℕ} {d : ℕ} {k : ℤ} (hd : 0 < d)
+    (h : ((i : ℤ) + 1) * d ≤ k) : i + 1 ≤ (k / (d : ℤ)).toNat := by
+  have hdZ : (0 : ℤ) < d := by exact_mod_cast hd
+  have h1 : (i : ℤ) + 1 ≤ k / d := (Int.le_ediv_iff_mul_le hdZ).mpr h
+  generalize k / (d : ℤ) = q at h1
+  omega
+
+/-- **Loops with size facts** (node `whileSz`; Paper I `prop:size-facts`). Besides the
+    triple of an ordinary loop with a constant entry bound `k` of the potential, each size
+    fact `f ≤ U` on entry whose expression grows by at most `h` per iteration gives
+    `f ≤ U + max(h, 0)·⌊k/d⌋` after the loop, and `f ≤ U + max(h, 0)·(⌊k/d⌋ - 1)` at the
+    start of every iteration (the body is checked with it). -/
+theorem sizeloop_sound {Φ : ℕ → Cmd ℕ Env} {w : ℕ} {test : Env → Bool} {G inv Qe : List Lin}
+    {pot : PExp} {d : ℕ} {k : ℤ} {j : ℕ} {posCert : ℕ × List ℕ} {szs : List Size} {Wb B : SB}
+    {body : Cmd ℕ Env} {M : List ℕ} (ρ : Env)
+    (hd : 0 < d) (hinv : (G ++ inv).all (fun e => lvBelow j e.lv) = true)
+    (hU : szs.all (fun z => lvBelow j z.ul) = true)
+    (hWco : (Wb.co.drop j).all (· = 0) = true)
+    (hWq : Wb.q.all (fun t => decide (t.2.1 < j ∧ t.2.2 < j)) = true)
+    (hG : ∀ s, test s = true → holds G ρ s)
+    (hpos : entails1 (G ++ inv) ⟨vsmul (-1) pot.sv, [], d - pot.c⟩ posCert = true)
+    (hbody : ∀ ρ', Valid Φ (holds (ghost pot j 0 :: (szGhosts j szs ++
+          (szAfter szs (((k / d).toNat : ℤ) - 1) ++ (G ++ inv)))) ρ')
+        body (Wb.eval ρ') (holds (ghost pot j d :: (szSteps j szs ++ inv)) ρ') ∧
+      ∀ s t n, holds (ghost pot j 0 :: (szGhosts j szs ++
+          (szAfter szs (((k / d).toNat : ℤ) - 1) ++ (G ++ inv)))) ρ' s →
+        Exec Φ body s t n → ∀ x, x ∉ M → t x = s x)
+    (hB : loopBoundOk w d k [] Wb B = true)
+    (hQ : ∀ t, holds inv ρ t → test t = false → holds Qe ρ t) :
+    Valid Φ (holds (entryLin pot k [] :: (szAfter szs 0 ++ inv)) ρ) (Cmd.while w test body)
+        (B.eval ρ) (holds (szAfter szs ((k / d).toNat : ℤ) ++ Qe) ρ) ∧
+      ∀ s t n, holds (entryLin pot k [] :: (szAfter szs 0 ++ inv)) ρ s →
+        Exec Φ (Cmd.while w test body) s t n → ∀ x, x ∉ M → t x = s x := by
+  have hd' : (0 : ℚ) < (d : ℚ) := by exact_mod_cast hd
+  set N : ℕ := (k / (d : ℤ)).toNat with hN
+  -- the valuation of the body at the state `s` before an iteration
+  let ρs : Env → Env := fun s => setSz s (Function.update ρ j (pot.eval s)) j szs
+  have hρs : ∀ s x, x < j → ρs s x = ρ x := fun s x hx => by
+    simp only [ρs]
+    rw [setSz_low s szs _ j x (by omega), Function.update_of_ne (by omega)]
+  have hρsj : ∀ s, ρs s j = pot.eval s := fun s => by
+    simp only [ρs]; rw [setSz_low s szs _ j j le_rfl, Function.update_self]
+  have hinv' : inv.all (fun e => lvBelow j e.lv) = true := by
+    simp only [List.all_append, Bool.and_eq_true] at hinv; exact hinv.2
+  have hUc : ∀ s, ∀ z ∈ szs, dot z.ul (ρs s) = dot z.ul ρ := fun s z hz => by
+    simp only [List.all_eq_true] at hU
+    exact dot_congr _ _ _ (fun i => by
+      by_cases hi : i < j
+      · exact Or.inr (hρs s i hi)
+      · exact Or.inl (coeff_of_lvBelow (hU z hz) (by omega)))
+  have hWc : ∀ s, Wb.eval (ρs s) = Wb.eval ρ := fun s => by
+    simp only [List.all_eq_true, decide_eq_true_eq] at hWq
+    have h1 : dotN Wb.co (ρs s) = dotN Wb.co ρ := dotN_congr _ _ _ (fun i => by
+      by_cases hi : i < j
+      · exact Or.inr (hρs s i hi)
+      · exact Or.inl (ncoeff_of_drop hWco (by omega)))
+    have h2 : dotQ Wb.q (ρs s) = dotQ Wb.q ρ :=
+      dotQ_congr _ _ _ (fun t ht => ⟨hρs s _ (hWq t ht).1, hρs s _ (hWq t ht).2⟩)
+    simp only [SB.eval, h1, h2]
+  -- the invariant of the rule: `i ≤ N` iterations done, the potential fell by `i·d`, and
+  -- each `f` grew by at most `i·max(h, 0)`
+  let I : Env → Prop := fun s => holds inv ρ s ∧ ∃ i : ℕ, i ≤ N ∧ pot.eval s ≤ k - i * d ∧
+    ∀ z ∈ szs, z.f.eval s ≤ dot z.ul ρ + z.uc + max z.h 0 * i
+  have step : ∀ s, I s → test s = true →
+      holds (ghost pot j 0 :: (szGhosts j szs ++ (szAfter szs ((N : ℤ) - 1) ++ (G ++ inv))))
+        (ρs s) s ∧
+      ∀ t, holds (ghost pot j d :: (szSteps j szs ++ inv)) (ρs s) t →
+        I t ∧ pot.eval t + d ≤ pot.eval s := by
+    intro s ⟨hI, i, hiN, hpi, hfi⟩ hb
+    have hGI : holds (G ++ inv) ρ s := (holds_append _ _ _ _).mpr ⟨hG s hb, hI⟩
+    have hp := entails1_sound hpos (ρ := ρ) (s := s) hGI
+    simp only [Lin.eval, dot, dot_vsmul] at hp
+    have hds : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
+    have hi1 : i + 1 ≤ N := lt_toNat_of_mul_le hd (by linarith)
+    refine ⟨?_, ?_⟩
+    · rw [holds_cons, ghost_eval, hρsj, holds_append, holds_append,
+        holds_congr_below hinv (hρs s) s, holds_szAfter]
+      refine ⟨by simp, szGhosts_holds s szs _ j, fun z hz => ?_, hGI⟩
+      rw [hUc s z hz]
+      have h0 : (0 : ℤ) ≤ max z.h 0 := le_max_right _ _
+      have : (i : ℤ) ≤ (N : ℤ) - 1 := by omega
+      have := mul_le_mul_of_nonneg_left this h0
+      linarith [hfi z hz]
+    · intro t ht
+      rw [holds_cons, ghost_eval, hρsj, holds_append, holds_congr_below hinv' (hρs s) t] at ht
+      obtain ⟨hpt, hst, hIt⟩ := ht
+      have hfs := szSteps_sound s t szs _ j hst
+      refine ⟨⟨hIt, i + 1, hi1, ?_, fun z hz => ?_⟩, by linarith⟩
+      · push_cast; linarith
+      · have := hfs z hz
+        have := hfi z hz
+        have := le_max_left z.h 0
+        push_cast; linarith
+  have key := valid_while (Φ := Φ) (I := I) (C := fun s => pot.eval s ≤ k)
+    (w := w) (b := test) (c := body) (Wb := Wb.eval ρ)
+    (fun s => (pot.eval s : ℚ) / d) ((k : ℚ) / d) ?_ ?_ ?_
+  · have hentry : ∀ s, holds (entryLin pot k [] :: (szAfter szs 0 ++ inv)) ρ s → I s ∧ pot.eval s ≤ k := by
+      intro s hP
+      rw [holds_cons, entryLin_eval, holds_append, holds_szAfter] at hP
+      obtain ⟨h1, h2, h3⟩ := hP
+      simp only [List.map_nil, dot, add_zero] at h1
+      refine ⟨⟨h3, 0, Nat.zero_le _, by simp; linarith, fun z hz => ?_⟩, by linarith⟩
+      have := h2 z hz; simpa using this
+    refine ⟨?_, ?_⟩
+    · refine valid_conseq hentry key ?_ ?_
+      · rw [floor_div]
+        have := loopBoundOk_sound hB hd ρ
+        simpa [dot] using this
+      · rintro t ⟨⟨hIt, i, hiN, _, hfi⟩, hb⟩
+        rw [holds_append, holds_szAfter]
+        refine ⟨fun z hz => ?_, hQ t hIt hb⟩
+        have h0 : (0 : ℤ) ≤ max z.h 0 := le_max_right _ _
+        have : (i : ℤ) ≤ (N : ℤ) := by exact_mod_cast hiN
+        have := mul_le_mul_of_nonneg_left this h0
+        linarith [hfi z hz]
+    · intro s t n hP he
+      refine while_frame (I := I) (fun s' hI hb t' n' e => ?_) (hentry s hP).1 he
+      obtain ⟨hpre, hpost⟩ := step s' hI hb
+      exact ⟨(hpost t' ((hbody (ρs s')).1 s' hpre |>.2 t' n' e)).1,
+        (hbody (ρs s')).2 s' t' n' hpre e⟩
+  · intro v s ⟨hI, hb, hv⟩
+    obtain ⟨hpre, hpost⟩ := step s hI hb
+    have H := (hbody (ρs s)).1 s hpre
+    rw [hWc] at H
+    refine ⟨H.1, fun t n he => ?_⟩
+    obtain ⟨hIt, h1⟩ := hpost t (H.2 t n he)
+    refine ⟨hIt, ?_⟩
+    have h2 : ((pot.eval t : ℚ) + d) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+    show (pot.eval t : ℚ) / d ≤ v - 1
+    rw [← hv, div_le_iff₀ hd', sub_mul, div_mul_cancel₀ _ (ne_of_gt hd')]
+    linarith
+  · intro s ⟨hI, _⟩ hb
+    have := entails1_sound hpos (ρ := ρ) (s := s) ((holds_append _ _ _ _).mpr ⟨hG s hb, hI⟩)
+    simp only [Lin.eval, dot, dot_vsmul] at this
+    have h1 : (d : ℤ) ≤ pot.eval s := by simp only [PExp.eval]; linarith
+    have h2 : (d : ℚ) ≤ (pot.eval s : ℚ) := by exact_mod_cast h1
+    show (1 : ℚ) ≤ (pot.eval s : ℚ) / d
+    rw [le_div_iff₀ hd']
+    linarith
+  · intro s hs
+    have h2 : (pot.eval s : ℚ) ≤ (k : ℚ) := by exact_mod_cast hs
+    exact div_le_div_of_nonneg_right h2 (le_of_lt hd')
+
 /-- **Soundness of the checker.** If every function that calls may refer to meets its
     specification (`hfs`), a certificate accepted by `check` proves its triple: for
     every valuation `ρ` of the logical variables, from every state satisfying `P`, every
@@ -1555,6 +1813,28 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
           simp at hbt
           exact ⟨by omega, hI⟩
         · exact hI)
+  | whileSz w gs inv pot d k j posCert szs Wb body ih =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hd, rfl⟩, rfl⟩, hinv⟩, hU⟩, hWco⟩, hWq⟩, hpos⟩, hbody⟩, hB⟩ := h
+    have hGinv : (gs.map PExp.toLin ++ inv).all (fun e => lvBelow j e.lv) = true := by
+      simp only [List.all_append, Bool.and_eq_true]
+      exact ⟨by simp [List.all_map, PExp.toLin, lvBelow], hinv⟩
+    exact sizeloop_sound (G := gs.map PExp.toLin) (M := writes fs body) ρ hd hGinv hU hWco hWq
+      (fun s hs e he => by
+        simp only [List.all_eq_true, decide_eq_true_eq] at hs
+        obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        rw [PExp.toLin_eval]
+        exact hs g hg)
+      hpos (fun ρ' => ih _ _ _ hbody ρ') hB
+      (fun t hI hbt => by
+        unfold logExit
+        split
+        · next g =>
+          rw [holds_cons, PExp.negLin_eval]
+          simp at hbt
+          exact ⟨by omega, hI⟩
+        · exact hI)
   | weaken P' preCerts B' Q' postCerts c ih =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true] at h
@@ -1742,6 +2022,73 @@ theorem countCert_cost (s : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 10) (n : ℕ)
   · simpa using this
   intro e he
   simp only [List.mem_cons, List.not_mem_nil, or_false] at he
+  rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
+
+/-! ### A loop with a size fact -/
+
+/-- The size fact `y ≤ 0` on entry, `y` growing by at most `h` per iteration. -/
+def szY (h : ℤ) : Size := ⟨⟨[0, 1], 0⟩, h, [], 0⟩
+
+/-- The certificate of `while (i ≤ 9) { i := i + 1; y := y + a }` (variables `x₀ = i`,
+    `x₁ = y`) with the size fact `szY h`, to be checked against a postcondition `y ≤ e`:
+    potential `10 - i`, at most `10` iterations, so `y ≤ 10·max(h, 0)` after the loop. -/
+def szCertAt (a h : ℤ) : ACmd :=
+  let pot : PExp := ⟨[-1], 10⟩
+  let post : List Lin := [ghost pot 0 1, ghost ⟨[0, 1], 0⟩ 1 (-h)]
+  let mid := post.map (fun l => l.subst 1 ⟨[0, 1], a⟩)
+  let pre' := mid.map (fun l => l.subst 0 ⟨[1], 1⟩)
+  .weaken [entryLin pot 10 [], szLin (szY h) 0] [(1, [0, 1]), (1, [0, 0, 1])] (SB.const 31)
+    (szAfter [szY h] 10 ++ [PExp.negLin ⟨[1], -9⟩]) [(1, [1, 0])]
+    (.whileSz 1 [⟨[1], -9⟩] [] pot 1 10 0 (1, [1]) [szY h] (SB.const 2)
+      (.weaken pre' [(1, [1]), (1, [0, 1])] (SB.const 2) post [(1, [1]), (1, [0, 1])]
+        (.seq (.assign 1 0 ⟨[1], 1⟩) mid (SB.const 1) (SB.const 1) (.assign 1 1 ⟨[0, 1], a⟩))))
+
+/-- The precondition `i ≤ 0`, `-i ≤ 0`, `y ≤ 0`. -/
+def szPre : List Lin := [⟨[1], [], 0⟩, ⟨[-1], [], 0⟩, ⟨[0, 1], [], 0⟩]
+
+/-- The postcondition `y ≤ e`. -/
+def szPost (e : ℤ) : List Lin := [⟨[0, 1], [], -e⟩]
+
+/-- Increments of `2` per iteration: `y ≤ 20` after the loop. -/
+theorem szCert_checks : check [] szPre (szCertAt 2 2) (SB.const 31) (szPost 20) = true := by
+  decide
+
+/-- `y ≤ 19` is refused. -/
+theorem szCert_19_rejected :
+    check [] szPre (szCertAt 2 2) (SB.const 31) (szPost 19) = false := by
+  decide
+
+/-- A growth of `1` per iteration claimed for increments of `2` is refused. -/
+theorem szCert_step_rejected :
+    check [] szPre (szCertAt 2 1) (SB.const 31) (szPost 10) = false := by
+  decide
+
+/-- A variable that doubles (`y := 2y`) has no constant growth: refused for `h = 2`. -/
+theorem szCert_double_rejected :
+    check [] szPre
+      (let pot : PExp := ⟨[-1], 10⟩
+       let post : List Lin := [ghost pot 0 1, ghost ⟨[0, 1], 0⟩ 1 (-2)]
+       let mid := post.map (fun l => l.subst 1 ⟨[0, 2], 0⟩)
+       .weaken [entryLin pot 10 [], szLin (szY 2) 0] [(1, [0, 1]), (1, [0, 0, 1])] (SB.const 31)
+         (szAfter [szY 2] 10 ++ [PExp.negLin ⟨[1], -9⟩]) [(1, [1, 0])]
+         (.whileSz 1 [⟨[1], -9⟩] [] pot 1 10 0 (1, [1]) [szY 2] (SB.const 2)
+           (.weaken (mid.map (fun l => l.subst 0 ⟨[1], 1⟩)) [(1, [1]), (1, [0, 1])]
+             (SB.const 2) post [(1, [1]), (1, [0, 1])]
+             (.seq (.assign 1 0 ⟨[1], 1⟩) mid (SB.const 1) (SB.const 1)
+               (.assign 1 1 ⟨[0, 2], 0⟩)))))
+      (SB.const 31) (szPost 20) = false := by
+  decide
+
+/-- Hence, by the checker alone, `y ≤ 20` after every terminating execution from
+    `i = 0`, `y ≤ 0`. -/
+theorem szCert_exit (s t : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 0) (n : ℕ)
+    (he : Exec (fun _ => Cmd.skip) (szCertAt 2 2).toCmd s t n) : t 1 ≤ 20 := by
+  have := ((check_sound [] (fun _ => Cmd.skip) (by simp) _ _ _ _ szCert_checks
+    (fun _ => 0)).1 s ?_).2 t n he
+  · simp [szPost, holds, Lin.eval, dot] at this
+    omega
+  intro e he
+  simp only [szPre, List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
 
 /-! ### An amortised (triangular) loop nest -/
