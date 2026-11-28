@@ -172,6 +172,7 @@ partial def parseCmd (j : Json) : Except String ACmd := do
   | "assign" => pure (.assign (← getNat j "w") (← getNat j "x") (← parsePExp (← field j "a")))
   | "havoc" => pure (.havoc (← getNat j "w") (← getNat j "x"))
   | "havocC" => pure (.havocC (← getNat j "w") (← getNat j "x") (← parseArr j "cs" parsePExp))
+  | "assume" => pure (.assume (← getNat j "w") (← parseArr j "cs" parsePExp))
   | "seq" =>
       pure (.seq (← parseCmd (← field j "c1")) (← parseArr j "mid" parseLin)
         (← getSB j "B1") (← getSB j "B2") (← parseCmd (← field j "c2")))
@@ -791,6 +792,8 @@ partial def showCmd (vars : List String) (ind : String) : ACmd → String
   | .havoc w x => s!"{ind}{varName vars x} := ?    [cost {w}]\n"
   | .havocC w x cs =>
       s!"{ind}{varName vars x} := ? such that {" && ".intercalate (cs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}    [cost {w}]\n"
+  | .assume w cs =>
+      s!"{ind}assume {" && ".intercalate (cs.map fun g => showAffine vars g.sv [] g.c ++ " <= 0")}    [cost {w}]\n"
   | .seq c₁ mid _ _ c₂ =>
       showCmd vars ind c₁ ++ s!"{ind}// {showAssn vars mid}\n" ++ showCmd vars ind c₂
   | .ite w g _ _ c₁ c₂ =>

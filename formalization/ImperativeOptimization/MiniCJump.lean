@@ -350,6 +350,17 @@ theorem quiet_havocC {w x : ℕ} {cs : List PExp} (hx : x ∉ W) (hcs : ∀ g �
   have := hall g hg
   rwa [hcs g hg _ _ ha] at this
 
+theorem quiet_assume {w : ℕ} {cs : List PExp} (hcs : ∀ g ∈ cs, Indep G g) :
+    Quiet nq G W (ACmd.assume w cs).toCmd := by
+  simp only [ACmd.toCmd, Quiet]
+  intro σ τ σ' hr hag
+  obtain ⟨rfl, hall⟩ := hr
+  refine ⟨σ', ⟨rfl, ?_⟩, hag, Keeps.refl _ _⟩
+  rw [List.all_eq_true] at hall ⊢
+  intro g hg
+  have := hall g hg
+  rwa [hcs g hg _ _ hag] at this
+
 theorem quiet_ite {w : ℕ} {g : PExp} {a b : SB} {x y : ACmd} (hg : Indep G g)
     (hx : Quiet nq G W x.toCmd) (hy : Quiet nq G W y.toCmd) :
     Quiet nq G W (ACmd.ite w g a b x y).toCmd :=
@@ -2226,6 +2237,9 @@ theorem quiet_of_quietB {nq : ℕ} {G W : List ℕ} : ∀ c : ACmd, quietCmd nq 
   | havocC w x cs =>
     intro h; simp only [quietCmd, Bool.and_eq_true, Bool.not_eq_true', List.all_eq_true] at h
     exact quiet_havocC (by simpa using h.1) fun g hg => indep_of_zeroOn (h.2 g hg)
+  | assume w cs =>
+    intro h; simp only [quietCmd, List.all_eq_true] at h
+    exact quiet_assume fun g hg => indep_of_zeroOn (h g hg)
   | seq a _ _ _ b iha ihb =>
     intro h; simp only [quietCmd, Bool.and_eq_true] at h
     exact ⟨iha h.1, ihb h.2⟩

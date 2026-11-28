@@ -5483,9 +5483,25 @@ std::optional<Analyzer::CertPiece> Analyzer::certStmt(CertCtx& cc, const Stmt* s
   }
   if (const auto* e = dyn_cast<Expr>(st)) {
     if (asMarker(e, "require")) return CertPiece{mk(Node{}), pre, 0};
-    if (asMarker(e, "assume") || asMarker(e, "loop_bound"))
-      return cc.failed("trusted annotation (CROSSCHECK_ASSUME / LOOP_BOUND) not in the fragment yet"),
-             std::nullopt;
+    // A trusted assumption (listed in the report's assumptions): the node `assume` keeps the
+    // conjuncts that the fragment expresses (dropping the others only weakens it) and
+    // blocks the executions where they fail (Lean `check`, case `assume`).
+    if (const CallExpr* m = asMarker(e, "assume")) {
+      const Expr* c = m->getNumArgs() ? m->getArg(0) : nullptr;
+      Scan sc = scanOf(c, cc.var);
+      if (sc.calls || sc.writes) return cc.failed("CROSSCHECK_ASSUME with a call or an assignment"), std::nullopt;
+      std::vector<PExp> gs;
+      bool unknown = false;
+      if (!certTestList(cc, c, gs, unknown)) return cc.failed("CROSSCHECK_ASSUME not in the fragment"), std::nullopt;
+      Node n;
+      n.kind = Node::Assume;
+      n.gs = gs;
+      Assn post = pre;
+      for (const PExp& g : gs) post.push_back(cert::toLin(g));
+      return CertPiece{mk(n), post, 0};
+    }
+    if (asMarker(e, "loop_bound"))
+      return cc.failed("trusted annotation (CROSSCHECK_LOOP_BOUND) not in the fragment yet"), std::nullopt;
     return certExpr(cc, e, pre);
   }
   if (const auto* as = dyn_cast<AttributedStmt>(st)) return certStmt(cc, as->getSubStmt(), pre);
@@ -5749,6 +5765,9 @@ bool Analyzer::certificate(const FunctionDecl* def, std::string& reason, cert::S
     in.branch = w_.branch;
     in.ret = w_.ret;
     in.isRequire = [](const Stmt* st) { return asMarker(st, "require") != nullptr; };
+    in.isTrusted = [](const Stmt* st) {
+      return asMarker(st, "assume") != nullptr || asMarker(st, "loop_bound") != nullptr;
+    };
     in.scratch = cc.oldVar;
     in.flag = [&cc](const std::string& name) -> std::optional<std::size_t> {
       auto it = cc.flagIdx.find(name);

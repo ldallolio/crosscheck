@@ -125,6 +125,10 @@ class Run:
             self.pay(n["w"])
             lo, hi = interval(n["cs"], n["x"], s)
             s[n["x"]] = draw(self.rng, lo, hi)
+        elif k == "assume":
+            self.pay(n["w"])
+            if not all(pexp(g, s) <= 0 for g in n["cs"]):
+                raise Blocked()
         elif k == "seq":
             self.exec(n["c1"], s)
             self.exec(n["c2"], s)

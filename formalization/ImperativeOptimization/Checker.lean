@@ -590,6 +590,7 @@ def ACmd.toCmd : ACmd → Cmd ℕ Env
   | .havoc w x => Cmd.atom w (fun s t => ∃ v, t = Function.update s x v)
   | .havocC w x cs => Cmd.atom w (fun s t =>
       ∃ v, t = Function.update s x v ∧ cs.all (fun g => decide (g.eval t ≤ 0)))
+  | .assume w cs => Cmd.atom w (fun s t => t = s ∧ cs.all (fun g => decide (g.eval s ≤ 0)))
   | .seq c₁ _ _ _ c₂ => Cmd.seq c₁.toCmd c₂.toCmd
   | .ite w g _ _ c₁ c₂ => Cmd.ite w (fun s => decide (g.eval s ≤ 0)) c₁.toCmd c₂.toCmd
   | .while w g _ _ _ _ _ _ _ _ body => Cmd.while w (fun s => decide (g.eval s ≤ 0)) body.toCmd
@@ -1658,6 +1659,22 @@ theorem check_sound (fs : List FunCert) (Φ : ℕ → Cmd ℕ Env)
         obtain ⟨v, rfl, _⟩ := h
         simp only [writes, List.mem_singleton] at hy
         simp [Function.update, hy]
+  | assume w cs =>
+    intro P Q B h ρ
+    simp only [check, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨rfl, hB⟩ := h
+    refine ⟨valid_conseq (fun _ h => h) (valid_atom _ _ _ _ ?_)
+      (by simpa using SB.le_eval hB ρ) (fun _ h => h), ?_⟩
+    · rintro s t hP ⟨rfl, hcs⟩ e he
+      rcases List.mem_append.mp he with he | he
+      · exact hP e he
+      · obtain ⟨g, hg, rfl⟩ := List.mem_map.mp he
+        simp only [List.all_eq_true, decide_eq_true_eq] at hcs
+        rw [PExp.toLin_eval]
+        exact hcs g hg
+    · intro s t n _ he y _
+      cases he with
+      | atom h => obtain ⟨rfl, _⟩ := h; rfl
   | seq c₁ mid B₁ B₂ c₂ ih₁ ih₂ =>
     intro P Q B h ρ
     simp only [check, Bool.and_eq_true] at h
@@ -2023,6 +2040,30 @@ theorem countCert_cost (s : Env) (h0 : s 0 = 0) (h1 : s 1 ≤ 10) (n : ℕ)
   intro e he
   simp only [List.mem_cons, List.not_mem_nil, or_false] at he
   rcases he with rfl | rfl | rfl <;> simp [Lin.eval, dot] <;> omega
+
+/-! ### An assumption -/
+
+/-- `x := ?; assume (x ≤ 10)`: afterwards `x ≤ 10` (on the executions that the assumption
+    lets through). -/
+theorem assumeCert_checks :
+    check [] [] (.seq (.havoc 1 0) [] (SB.const 1) (SB.const 0) (.assume 0 [⟨[1], -10⟩]))
+      (SB.const 1) [⟨[1], [], -10⟩] = true := by decide
+
+/-- Without the assumption the same postcondition is refused. -/
+theorem assumeCert_needed :
+    check [] [] (.seq (.havoc 1 0) [] (SB.const 1) (SB.const 0) .skip)
+      (SB.const 1) [⟨[1], [], -10⟩] = false := by decide
+
+/-- The assumption blocks the other executions: every execution of `x := ?; assume (x ≤ 10)`
+    ends with `x ≤ 10`. -/
+theorem assumeCert_exec (s t : Env) (n : ℕ)
+    (he : Exec (fun _ => Cmd.skip)
+      (ACmd.seq (.havoc 1 0) [] (SB.const 1) (SB.const 0) (.assume 0 [⟨[1], -10⟩])).toCmd s t n) :
+    t 0 ≤ 10 := by
+  have := ((check_sound [] (fun _ => Cmd.skip) (by simp) _ _ _ _ assumeCert_checks
+    (fun _ => 0)).1 s (by simp [holds])).2 t n he
+  simp [holds, Lin.eval, dot] at this
+  omega
 
 /-! ### A loop with a size fact -/
 

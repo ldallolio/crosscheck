@@ -364,7 +364,8 @@ std::vector<std::size_t> writes(const Node& n, const std::vector<std::vector<std
       case Node::Call:
         if (m.f < mods.size()) out.insert(out.end(), mods[m.f].begin(), mods[m.f].end());
         break;
-      case Node::Skip: break;
+      case Node::Skip:
+      case Node::Assume: break;
     }
   };
   go(n);
@@ -625,6 +626,11 @@ std::string node(const Node& n) {
     case Node::Skip: return "{\"node\":\"skip\"}";
     case Node::Assign:
       return "{\"node\":\"assign\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + ",\"a\":" + pexp(n.a) + "}";
+    case Node::Assume: {
+      std::string cs = "[";
+      for (std::size_t i = 0; i < n.gs.size(); ++i) cs += (i ? "," : "") + pexp(n.gs[i]);
+      return "{\"node\":\"assume\",\"w\":" + u(n.w) + ",\"cs\":" + cs + "]}";
+    }
     case Node::Havoc: return "{\"node\":\"havoc\",\"w\":" + u(n.w) + ",\"x\":" + u(n.x) + "}";
     case Node::HavocC: {
       std::string cs = "[";

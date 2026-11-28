@@ -137,11 +137,11 @@ using NodeP = std::shared_ptr<const Node>;
 
 /// A node of the Lean type `ACmd`.
 struct Node {
-  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, WhileUp, WhileSz, Weaken, Dead, Call } kind = Skip;
+  enum Kind { Skip, Assign, Havoc, HavocC, Seq, Ite, While, WhileAnd, WhileLog, WhileGrow, WhileUp, WhileSz, Assume, Weaken, Dead, Call } kind = Skip;
   std::uint64_t w = 0;          // Assign, Havoc, Ite, While
   std::size_t x = 0;            // Assign, Havoc
   PExp a;                       // Assign: expression; Ite, While: test `g <= 0`
-  std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test; HavocC: the constraints
+  std::vector<PExp> gs;         // WhileAnd: the conjuncts of the test; HavocC, Assume: the constraints
   Assn mid;                     // Seq
   SB b1, b2;                    // Seq, Ite: bounds of the parts; While: Wb in b1
   Assn inv;                     // While

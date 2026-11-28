@@ -141,7 +141,7 @@ effect; other compilers ignore them.
 | `CROSSCHECK_DEADLINE_CYCLES(n)`, `CROSSCHECK_DEADLINE_US(n)` | function | same, and a time budget, recorded in the report and checked after compilation on the binary ([Time budgets](#time-budgets-checked-after-compilation)) | the processor model (see there) |
 | `CROSSCHECK_RANGE(lo, hi)` | integer parameter | precondition `lo <= p <= hi` | proved at analysed call sites; assumed for external callers |
 | `CROSSCHECK_REQUIRE(cond)` | first statements of a body | precondition relating parameters, e.g. `lo < hi` | as above |
-| `CROSSCHECK_ASSUME(cond)` | statement | fact usable from this point on (e.g. after reading a register) | **yes** |
+| `CROSSCHECK_ASSUME(cond)` | statement | fact usable from this point on (e.g. after reading a register); in certificates the node `assume` (the bound holds for the executions that satisfy it; mini-C refuses the function) | **yes** |
 | `CROSSCHECK_LOOP_BOUND(n)` | first statement of a loop body | the loop runs at most `n` times | **yes**, unless a tighter bound is derived |
 | `CROSSCHECK_BOUNDED(n)` | variable of a `for` init-statement | same | **yes**, unless a tighter bound is derived |
 | `CROSSCHECK_COST(n)` | function declaration | cost of a function whose body is not analysed | **yes** |
@@ -324,7 +324,7 @@ The mathematical steps are machine-checked in Lean 4 (`../formalization`):
 | branch = max | `branch_supremum_bound`, `condTrace_cost_le` (`Dominance`) |
 | depth `D`, branching `b` ⇒ at most `1 + b + … + b^D` activations | `callTree_size_le_geom`, `geom_closed` (`Arity`) |
 | size potential ⇒ at most `⌊U⌋` activations | `callTree_size_le_potential` (`Arity`) |
-| an accepted certificate (nodes `assign`, `havoc`, `seq`, `ite`, `while`, `whileAnd`, `whileSz`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
+| an accepted certificate (nodes `assign`, `havoc`, `assume`, `seq`, `ite`, `while`, `whileAnd`, `whileSz`, `weaken`, `dead`, `call`; symbolic bounds) ⇒ its bound holds for its program, given its callees' specifications | `check_sound` (`Checker`) |
 | an accepted program certificate ⇒ every function meets its summary, relative to the assumed contracts | `program_sound` (`Checker`) |
 | logarithmic loops (`x >>= k`, `x /= c`: `b·v' ≤ v`, `v ≥ 1`): at most `⌊log_b K⌋ + 1` iterations, certified by `whileLog` | `log_ranking_bound` (`Certificate`), `logloop_sound` (`Checker`) |
 | triangular nests (the inner loop's entry bound is the outer potential `γⱼ`, so the outer body costs `a + c·γⱼ`): the sum over the outer iterations, about half the product, certified by `while`/`whileAnd` in the amortised form (`triOk`) | `valid_whileSum` (`Language`), `triloop_sound` (`Checker`) |

@@ -79,4 +79,4 @@ jobs:
           python3 ../docs/qualification/check_traceability.py
           sh ../docs/qualification/run_tests.sh .lake/build/bin/crosscheck-check
           python3 test/mutate_certificates.py .lake/build/bin/crosscheck-check test/certificates/program.json --mutants 150
-          python3 test/mutate_certificates.py .lake/build/bin/crosscheck-check test/certificates/triangular.json test/certificates/products.json test/certificates/sizes.json --mutants 150
+          python3 test/mutate_certificates.py .lake/build/bin/crosscheck-check test/certificates/triangular.json test/certificates/products.json test/certificates/sizes.json test/certificates/assume.json --mutants 150

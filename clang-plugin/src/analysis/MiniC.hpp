@@ -54,6 +54,9 @@ struct Inputs {
   std::function<std::optional<CalleeInfo>(const clang::FunctionDecl*)> callee;
   /// `CROSSCHECK_REQUIRE(...)` markers (no code; their content is the precondition).
   std::function<bool(const clang::Stmt*)> isRequire;
+  /// `CROSSCHECK_ASSUME` / `CROSSCHECK_LOOP_BOUND`: trusted annotations, which mini-C does not
+  /// model (the certificate's `assume` node has no source counterpart): refused.
+  std::function<bool(const clang::Stmt*)> isTrusted;
 };
 
 /// The mini-C program of `def` (JSON `{"ret": r, "body": ...}`: the fragment `MiniC.JStmt`

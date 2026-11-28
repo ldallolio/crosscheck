@@ -395,3 +395,12 @@ int ok_do(int n) {
   } while (i < n);
   return i;
 }
+
+/* A trusted assumption: the certificate has an `assume` node, which mini-C does not model;
+   the exporter refuses the function. */
+int no_assume(int n) {
+  int c = 0;
+  CROSSCHECK_ASSUME(0 <= n && n <= 20);
+  for (int i = 0; i < n; i++) c++;
+  return c;
+}

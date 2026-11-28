@@ -249,6 +249,7 @@ def nf : ACmd → ACmd
   | .assign w x a => .assign w x (canon a)
   | .havoc w x => .havoc w x
   | .havocC w x cs => .havocC w x (cs.map canon)
+  | .assume w cs => .assume w (cs.map canon)
   | .seq a _ _ _ b => app (nf a) (nf b)
   | .ite w g _ _ a b => .ite w (canon g) noSB noSB (nf a) (nf b)
   | .while w g _ _ _ _ _ _ _ _ b => .while w (canon g) [] ⟨[], 0⟩ 1 0 [] 0 (1, []) noSB (nf b)

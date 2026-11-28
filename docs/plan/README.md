@@ -16,7 +16,7 @@ accepts independently (source bounds, Cortex-M0 cycle bounds, loop bounds on the
 |---|---|---|---|
 | TACLeBench loop bounds, 208 loops reached, in context | 142 bounded, 131 equal to the flow fact | oRange 131 / 127; LLVM ScalarEvolution 113 | `benchmarks/tacle/README.md`, Paper II `tab:tools` |
 | TACLeBench functions with a bound (of 267) | 165 numeric | Infer 190 + 14 symbolic; KoAT2 119 + 23; CoFloCo 128 + 11 | same |
-| TPDB `Complexity_C_Integer`, 553 programs | 11 as is; 249 with inputs in [-1000, 1000] (215 before the size bounds, 2026-11-28), 172 of them certified (166 before `whileSz`); 147 certified for all inputs (`symbolic`) | KoAT2 288; CoFloCo 264 | `benchmarks/tpdb/README.md` |
+| TPDB `Complexity_C_Integer`, 553 programs | 11 as is; 249 with inputs in [-1000, 1000] (215 before the size bounds, 2026-11-28), 195 of them certified (166 before `whileSz` and `assume`); 147 certified for all inputs (`symbolic`) | KoAT2 288; CoFloCo 264 | `benchmarks/tpdb/README.md` |
 | Cortex-M0 cycle bounds of the kernels | certified, every bound checked against emulated runs | OTAWA on the same flow facts | `benchmarks/cycles/README.md`, Paper III |
 | Processors with caches and pipelines | Cortex-M0 model only; Cortex-M4/M7 through OTAWA, uncertified | aiT, OTAWA | — |
 

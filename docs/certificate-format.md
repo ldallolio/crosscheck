@@ -75,6 +75,7 @@ postcondition. Everything is integer data:
 | `assign w x a` | weight, variable, `PExp` | `P = Q[a/x]` (syntactically, constraint by constraint), `B = w` |
 | `havoc w x` | weight, variable | `P = Q`, `x` does not occur in `Q`, `B = w` |
 | `havocC w x cs` | weight, variable, constraints `cs` (each `g ≤ 0`, program variables only) | `x` does not occur in `P`; `Q = P ++ cs`; `B ≥ w` (an unknown value of which the constraints hold) |
+| `assume w cs` | weight, constraints `cs` (each `g ≤ 0`, program variables only) | `Q = P ++ cs`; `B ≥ w`. The state is kept; an execution in which a constraint fails is blocked (a trusted assumption of the source: the bound holds for the executions that satisfy it) |
 | `seq c₁ mid B₁ B₂ c₂` | intermediate assertion, two bounds | both parts accepted, `B = B₁ + B₂` |
 | `ite w g B₁ B₂ c₁ c₂` | test `g ≤ 0`, two bounds | `c₁` accepted from `g ≤ 0 :: P`, `c₂` from `1 − g ≤ 0 :: P`, `B = w + max B₁ B₂` |
 | `while w g inv pot d k kl j posCert Wb body` | invariant, potential `pot/d`, entry bound `K = k + Σ kl[i]·γᵢ` (`kl` optional), logical variable `j`, certificate of `pot ≥ d`, body bound | `d ≥ 1`; `P = (pot − K ≤ 0) :: inv`; `Q = (1 − g ≤ 0) :: inv`; `γⱼ` not in `inv`; `posCert` proves `d − pot ≤ 0` from `g :: inv`; body accepted from `(pot − γⱼ ≤ 0) :: g :: inv` to `(pot + d − γⱼ ≤ 0) :: inv` with bound `Wb`; then (`loopOk`) either `γⱼ` not in `Wb` and: `kl = 0` and `B ≥ ⌊k/d⌋·(w + Wb) + w`, or `Wb` constant (no quadratic term), `B.c ≥ w`, `(w+Wb)·k ≤ d·(B.c − w)` and `(w+Wb)·kl ≤ d·B.co`, or, **a product**, `d = 1`, `Wb` linear and `B ≥ (w + Wb)·⟨max(0,k), kl⟩ + w` (`SB.mul`; a nest of two loops over parameters) (`loopBoundOk`; `γⱼ` in no linear or quadratic term of `Wb`, `qfree`); or, **amortised** (`triOk`, soundness `triloop_sound`, paper `prop:amortised-loop`): `kl = 0`, `Wb = a + c·max(0, γⱼ)` with no other logical variable, and `2·B.c ≥ 2((N+1)w + N·a) + c·(2Nk − dN(N−1))`, `N = ⌊k/d⌋` (`triBound2`) |
@@ -93,7 +94,7 @@ vectors the checker computes (e.g. for `assign`, apply the same substitution as
 worked example; use it as the first test.
 
 JSON field names: `skip`; `assign {w, x, a}`; `havoc {w, x}`; `seq {c1, mid, B1, B2, c2}`;
-`havocC {w, x, cs}`; `ite {w, g, B1, B2, c1, c2}`; `while {w, g, inv, pot, d, k, j, posCert, Wb, body}`;
+`havocC {w, x, cs}`; `assume {w, cs}`; `ite {w, g, B1, B2, c1, c2}`; `while {w, g, inv, pot, d, k, j, posCert, Wb, body}`;
 `whileAnd {w, gs, inv, pot, d, k, j, posCert, Wb, body}` (both with an optional `kl`);
 `whileLog {w, gs, inv, pot, b, k, j, posCert, Wb, body}`;
 `whileGrow {w, gs, inv, pot, b, K, j, capCert, Wb, body}`;

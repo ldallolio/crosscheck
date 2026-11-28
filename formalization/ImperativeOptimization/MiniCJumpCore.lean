@@ -374,6 +374,7 @@ def quietCmd (n : Nat) (G W : List Nat) : ACmd → Bool
   | .assign _ x a => !W.contains x && zeroOn G a.sv
   | .havoc _ x => !W.contains x
   | .havocC _ x cs => !W.contains x && cs.all (fun g => zeroOn G g.sv)
+  | .assume _ cs => cs.all (fun g => zeroOn G g.sv)
   | .seq a _ _ _ b => quietCmd n G W a && quietCmd n G W b
   | .ite _ g _ _ a b => zeroOn G g.sv && quietCmd n G W a && quietCmd n G W b
   | .while _ g _ _ _ _ _ _ _ _ b => zeroOn G g.sv && quietCmd n G W b

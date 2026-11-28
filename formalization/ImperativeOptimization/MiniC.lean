@@ -224,6 +224,8 @@ theorem nf_equiv (c : ACmd) : CEquiv Φ (nf c).toCmd c.toCmd := by
   | havoc w x => exact CEquiv.refl _
   | havocC w x cs =>
     simp only [nf, ACmd.toCmd, all_canon]; exact CEquiv.refl _
+  | assume w cs =>
+    simp only [nf, ACmd.toCmd, all_canon]; exact CEquiv.refl _
   | seq a _ _ _ b iha ihb => exact (app_equiv _ _).trans (iha.seq ihb)
   | ite w g _ _ a b iha ihb =>
     simp only [nf, ACmd.toCmd, canon_eval]; exact iha.ite ihb

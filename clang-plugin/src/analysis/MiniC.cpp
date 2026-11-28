@@ -816,6 +816,7 @@ class Exporter {
     if (const auto* ds = dyn_cast<DeclStmt>(st)) return decl(ds);
     if (const auto* e = dyn_cast<Expr>(st)) {
       if (in_.isRequire && in_.isRequire(e)) return skip();
+      if (in_.isTrusted && in_.isTrusted(e)) throw Refused{"a trusted annotation (CROSSCHECK_ASSUME, CROSSCHECK_LOOP_BOUND)"};
       return effect(e, in_.costOf(e));
     }
     if (const auto* as = dyn_cast<AttributedStmt>(st)) return stmt(as->getSubStmt());

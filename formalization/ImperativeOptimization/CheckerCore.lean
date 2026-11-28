@@ -271,6 +271,10 @@ inductive ACmd where
       afterwards, at cost `w`: the value of a non-affine expression such as `y >> 2`,
       described by facts that are true of it (`4x ≤ y ≤ 4x + 3`). -/
   | havocC (w : Nat) (x : Nat) (cs : List PExp) : ACmd
+  /-- `assume (cs)`, at cost `w`: the state is kept, and the executions in which one of the
+      constraints `cs` (each `g ≤ 0`) fails are blocked (a trusted assumption of the
+      source, such as the range of an input). -/
+  | assume (w : Nat) (cs : List PExp) : ACmd
   /-- `c₁ ; c₂` with the intermediate assertion and the two bounds. -/
   | seq (c₁ : ACmd) (mid : List Lin) (B₁ B₂ : SB) (c₂ : ACmd) : ACmd
   /-- `if (g ≤ 0) c₁ else c₂`, the test costing `w`, with the bounds of the branches. -/
@@ -421,6 +425,7 @@ def writes (fs : List FunCert) : ACmd → List Nat
   | .assign _ x _ => [x]
   | .havoc _ x => [x]
   | .havocC _ x _ => [x]
+  | .assume _ _ => []
   | .seq c₁ _ _ _ c₂ => writes fs c₁ ++ writes fs c₂
   | .ite _ _ _ _ c₁ c₂ => writes fs c₁ ++ writes fs c₂
   | .while _ _ _ _ _ _ _ _ _ _ body => writes fs body
@@ -448,6 +453,7 @@ def check (fs : List FunCert) (P : List Lin) : ACmd → SB → List Lin → Bool
   | .havocC w x cs, B, Q =>
       decide (Q = P ++ cs.map PExp.toLin) && P.all (fun e => decide (coeff e.sv x = 0)) &&
         SB.le (SB.const w) B
+  | .assume w cs, B, Q => decide (Q = P ++ cs.map PExp.toLin) && SB.le (SB.const w) B
   | .seq c₁ mid B₁ B₂ c₂, B, Q =>
       check fs P c₁ B₁ mid && check fs mid c₂ B₂ Q && SB.le (B₁.add B₂) B
   | .ite w g B₁ B₂ c₁ c₂, B, Q =>
